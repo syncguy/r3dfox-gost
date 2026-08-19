@@ -108,6 +108,7 @@ jobs:
           @'
           mk_add_options AUTOCLOBBER=1
           mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-win64
+          mk_add_options MOZ_PARALLEL_BUILD=2
           ac_add_options --enable-bootstrap
           ac_add_options --disable-debug
           ac_add_options --enable-optimize
