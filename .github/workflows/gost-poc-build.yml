@@ -1,0 +1,142 @@
+name: GOST TLS PoC build
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  win64:
+    name: Windows x64 / r3dfox GOST
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\MozillaBuildSetup.exe"
+          Start-Process -FilePath "$env:RUNNER_TEMP\MozillaBuildSetup.exe" -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) {
+            throw 'MozillaBuild installation did not produce C:\mozilla-build\start-shell.bat'
+          }
+          Get-Content 'C:\mozilla-build\VERSION'
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+
+          $cpp = "$dst\src\msspi.cpp"
+          $text = Get-Content $cpp -Raw
+          $before = '#if !defined(USE_BOOST) && !defined(_MSVC_LANG) && __cplusplus < 201103L'
+          $after  = '#if !defined(USE_BOOST) && !defined(_MSC_VER) && !defined(_MSVC_LANG) && __cplusplus < 201103L'
+          if (-not $text.Contains($before)) {
+            throw 'Expected MSSPI USE_BOOST guard was not found at pinned revision'
+          }
+          Set-Content -Path $cpp -Value ($text.Replace($before, $after)) -NoNewline
+          git -C $msspi rev-parse HEAD
+          Select-String -Path $cpp -Pattern 'USE_BOOST.*_MSC_VER'
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += [
+                  "msspi/src/msspi.cpp",
+              ]
+              LOCAL_INCLUDES += [
+                  "msspi/src",
+                  "msspi/third_party/cprocsp/include",
+              ]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+          Get-Content 'security\manager\ssl\moz.build' | Select-Object -Last 24
+
+      - name: Write mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-win64
+          ac_add_options --enable-bootstrap
+          ac_add_options --disable-debug
+          ac_add_options --enable-optimize
+          '@ | Set-Content '.mozconfig-gost'
+          Get-Content '.mozconfig-gost'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile security manager first
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build security/manager/ssl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build r3dfox
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package r3dfox
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem -Recurse 'obj-gost-win64\dist' -Include *.zip,*.exe | Select-Object FullName,Length
+
+      - name: Upload package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-win64
+          if-no-files-found: warn
+          compression-level: 0
+          path: |
+            obj-gost-win64/dist/*.zip
+            obj-gost-win64/dist/install/sea/*.exe
