@@ -27,6 +27,22 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Preserve repository line endings
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout -f HEAD -- .
+
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $expected = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          Write-Host "mime_guess/mime_types.rs SHA256=$actual"
+          if ($actual -ne $expected) {
+            throw "Vendored Rust source checksum mismatch before build: expected $expected, got $actual"
+          }
+
       - name: Install MozillaBuild
         shell: powershell
         run: |
@@ -54,16 +70,7 @@ jobs:
           Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
           Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
 
-          $cpp = "$dst\src\msspi.cpp"
-          $text = Get-Content $cpp -Raw
-          $before = '#if !defined(USE_BOOST) && !defined(_MSVC_LANG) && __cplusplus < 201103L'
-          $after  = '#if !defined(USE_BOOST) && !defined(_MSC_VER) && !defined(_MSVC_LANG) && __cplusplus < 201103L'
-          if (-not $text.Contains($before)) {
-            throw 'Expected MSSPI USE_BOOST guard was not found at pinned revision'
-          }
-          Set-Content -Path $cpp -Value ($text.Replace($before, $after)) -NoNewline
           git -C $msspi rev-parse HEAD
-          Select-String -Path $cpp -Pattern 'USE_BOOST.*_MSC_VER'
 
       - name: Register GOST and MSSPI sources in moz.build
         shell: powershell
