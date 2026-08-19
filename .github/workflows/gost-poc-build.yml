@@ -108,13 +108,6 @@ jobs:
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Compile security manager first
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          .\mach.ps1 build security/manager/ssl
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Build r3dfox
         shell: powershell
         run: |
