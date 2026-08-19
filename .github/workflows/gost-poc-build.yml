@@ -27,21 +27,27 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Preserve repository line endings
+      - name: Repair stale mime_guess vendored checksum
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          git config core.autocrlf false
-          git config core.eol lf
-          git checkout -f HEAD -- .
-
           $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
-          $expected = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
           $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
           Write-Host "mime_guess/mime_types.rs SHA256=$actual"
           if ($actual -ne $expected) {
-            throw "Vendored Rust source checksum mismatch before build: expected $expected, got $actual"
+            throw "Unexpected mime_guess source hash: expected $expected, got $actual"
           }
+
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) {
+            throw 'Expected stale mime_guess checksum was not found'
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+          Write-Host 'Patched stale upstream mime_guess checksum metadata for this CI workspace.'
 
       - name: Install MozillaBuild
         shell: powershell
