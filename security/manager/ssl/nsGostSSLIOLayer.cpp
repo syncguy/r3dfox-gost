@@ -389,7 +389,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
   }
 
   control->SetFileDesc(aSocket);
-  nsCOMPtr<nsITLSSocketControl> result = control;
+  nsCOMPtr<nsITLSSocketControl> result = control.get();
   result.forget(aTlsSocketControl);
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
