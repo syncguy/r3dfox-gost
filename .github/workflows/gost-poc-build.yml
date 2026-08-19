@@ -112,6 +112,7 @@ jobs:
           ac_add_options --enable-bootstrap
           ac_add_options --disable-debug
           ac_add_options --enable-optimize
+          ac_add_options --disable-release
           '@ | Set-Content '.mozconfig-gost'
           Get-Content '.mozconfig-gost'
 
@@ -121,6 +122,35 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Show runner memory state
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $os = Get-CimInstance Win32_OperatingSystem
+          [pscustomobject]@{
+            TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+            FreePhysicalGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
+            TotalVirtualGB  = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
+            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+          } | Format-List
+
+          Write-Host 'Page file usage:'
+          Get-CimInstance Win32_PageFileUsage |
+            Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage |
+            Format-Table -AutoSize
+
+          Write-Host 'Page file settings:'
+          Get-CimInstance Win32_PageFileSetting |
+            Select-Object Name, InitialSize, MaximumSize |
+            Format-Table -AutoSize
+
+          Write-Host 'Filesystem free space:'
+          Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Select-Object DeviceID,
+              @{N='SizeGB';E={[math]::Round($_.Size / 1GB, 2)}},
+              @{N='FreeGB';E={[math]::Round($_.FreeSpace / 1GB, 2)}} |
+            Format-Table -AutoSize
 
       - name: Build r3dfox
         shell: powershell
