@@ -1,0 +1,69 @@
+name: SpiderMonkey style check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/spidermonkey-style-check.yml'
+      - 'js/src/vm/JSContext.cpp'
+
+permissions:
+  contents: read
+
+jobs:
+  style:
+    name: SpiderMonkey include-order check
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply upstream JSContext include-order workaround
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'js\src\vm\JSContext.cpp'
+          $text = [System.IO.File]::ReadAllText($path)
+
+          $old = @'
+#include "util/DiagnosticAssertions.h"
+#include "util/DifferentialTesting.h"
+#include "util/DoubleToString.h"
+#include "util/NativeStack.h"
+#include "util/Text.h"
+#include "util/WindowsWrapper.h"
+#include "js/friend/DumpFunctions.h"  // for stack trace utilities
+#include "js/Printer.h"               // for FixedBufferPrinter
+'@
+
+          $new = @'
+#include "js/friend/DumpFunctions.h"  // for stack trace utilities
+#include "js/Printer.h"               // for FixedBufferPrinter
+#include "util/DiagnosticAssertions.h"
+#include "util/DifferentialTesting.h"
+#include "util/DoubleToString.h"
+#include "util/NativeStack.h"
+#include "util/Text.h"
+#include "util/WindowsWrapper.h"
+'@
+
+          if (-not $text.Contains($old)) {
+            throw 'Expected upstream JSContext include block was not found; review workaround before continuing.'
+          }
+
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $text.Replace($old, $new), $utf8NoBom)
+
+          Write-Host 'Applied JSContext include-order workaround:'
+          git diff -- $path
+
+      - name: Run SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
