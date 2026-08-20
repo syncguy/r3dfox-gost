@@ -1,0 +1,237 @@
+name: GOST CI preflight
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/gost-ci-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  win64-preflight:
+    name: Windows x64 / preflight only
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure 24 GB pagefile
+        continue-on-error: true
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: "C:"
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "Unexpected mime_guess source hash: expected $expected, got $actual"
+          }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) {
+            throw 'Expected stale mime_guess checksum was not found'
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Report MozillaBuild cache result
+        shell: powershell
+        run: |
+          Write-Host "MozillaBuild cache-hit=${{ steps.cache-mozillabuild.outputs.cache-hit }}"
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $url = "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe"
+          Invoke-WebRequest -Uri $url -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) {
+            throw 'MozillaBuild installation did not produce C:\mozilla-build\start-shell.bat'
+          }
+          Get-Content 'C:\mozilla-build\VERSION'
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) {
+            throw 'Expected MSSPI Windows.h include was not found'
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText(
+            $msspiCpp,
+            $source.Replace('#include <Windows.h>', '#include <windows.h>'),
+            $utf8NoBom)
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += [
+                  "msspi/src/msspi.cpp",
+              ]
+              LOCAL_INCLUDES += [
+                  "msspi/src",
+                  "msspi/third_party/cprocsp/include",
+              ]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+
+      - name: Write mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-win64
+          mk_add_options MOZ_PARALLEL_BUILD=2
+          ac_add_options --enable-bootstrap
+          ac_add_options --disable-debug
+          ac_add_options --enable-optimize
+          ac_add_options --disable-release
+          '@ | Set-Content '.mozconfig-gost'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure object directory
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 configure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
+          & $mozmake -C 'obj-gost-win64' recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C 'obj-gost-win64' recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile security manager SSL target objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
+          Write-Host '=== GOST/SSL PARTIAL COMPILE GATE ==='
+          & $mozmake -C 'obj-gost-win64' 'security/manager/ssl/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'GOST/SSL partial compile gate PASSED.'
+
+      - name: Show real pagefile state
+        id: pagefile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $os = Get-CimInstance Win32_OperatingSystem
+          [pscustomobject]@{
+            TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+            FreePhysicalGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
+            TotalVirtualGB  = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
+            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+          } | Format-List
+
+          Write-Host 'Page file usage:'
+          Get-CimInstance Win32_PageFileUsage |
+            Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage |
+            Format-Table -AutoSize
+
+          Write-Host 'Page file settings:'
+          Get-CimInstance Win32_PageFileSetting |
+            Select-Object Name, InitialSize, MaximumSize |
+            Format-Table -AutoSize
+
+          $activeMB = (Get-CimInstance Win32_PageFileUsage |
+            Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          "active_mb=$activeMB" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Active pagefile total: $activeMB MB"
+
+      - name: Evaluate pagefile gate
+        shell: powershell
+        run: |
+          $minimumActivePagefileMB = 20480
+          $activeMB = [int]"${{ steps.pagefile.outputs.active_mb }}"
+          if ($activeMB -ge $minimumActivePagefileMB) {
+            Write-Host "PAGEFILE GATE: PASS ($activeMB MB >= $minimumActivePagefileMB MB)"
+          } else {
+            Write-Warning "PAGEFILE GATE: FAIL ($activeMB MB < $minimumActivePagefileMB MB)"
+            Write-Warning 'Diagnostic workflow stays successful so actions/cache can save the installer cache.'
+          }
+
+      - name: Preflight summary
+        shell: powershell
+        run: |
+          Write-Host '=== PREFLIGHT SUMMARY ==='
+          Write-Host 'SSL compile gate: PASS'
+          Write-Host "MozillaBuild cache-hit=${{ steps.cache-mozillabuild.outputs.cache-hit }}"
+          Write-Host "Active pagefile MB=${{ steps.pagefile.outputs.active_mb }}"
+          Write-Host 'No full Firefox build was started.'
