@@ -27,6 +27,13 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Configure 24 GB pagefile
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: "C:"
+
       - name: Repair stale mime_guess vendored checksum
         shell: powershell
         run: |
@@ -76,6 +83,19 @@ jobs:
           Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
           Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
 
+          # clang-cl treats include path casing as significant for diagnostics.
+          # Keep the pinned MSSPI source pristine upstream and normalize only the CI copy.
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) {
+            throw 'Expected MSSPI Windows.h include was not found'
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText(
+            $msspiCpp,
+            $source.Replace('#include <Windows.h>', '#include <windows.h>'),
+            $utf8NoBom)
+
           git -C $msspi rev-parse HEAD
 
       - name: Register GOST and MSSPI sources in moz.build
@@ -123,10 +143,11 @@ jobs:
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Show runner memory state
+      - name: Show runner state BEFORE build
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          Write-Host '=== Runner state BEFORE build ==='
           $os = Get-CimInstance Win32_OperatingSystem
           [pscustomobject]@{
             TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
@@ -158,6 +179,52 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Show runner state AFTER build
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host '=== Runner state AFTER build ==='
+          $os = Get-CimInstance Win32_OperatingSystem
+          [pscustomobject]@{
+            TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+            FreePhysicalGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
+            TotalVirtualGB  = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
+            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+          } | Format-List
+
+          Write-Host 'Page file usage:'
+          Get-CimInstance Win32_PageFileUsage |
+            Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage |
+            Format-Table -AutoSize
+
+          Write-Host 'Page file settings:'
+          Get-CimInstance Win32_PageFileSetting |
+            Select-Object Name, InitialSize, MaximumSize |
+            Format-Table -AutoSize
+
+          Write-Host 'Filesystem free space:'
+          Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Select-Object DeviceID,
+              @{N='SizeGB';E={[math]::Round($_.Size / 1GB, 2)}},
+              @{N='FreeGB';E={[math]::Round($_.FreeSpace / 1GB, 2)}} |
+            Format-Table -AutoSize
+
+          Write-Host 'Top processes by working set:'
+          Get-Process |
+            Sort-Object WorkingSet64 -Descending |
+            Select-Object -First 15 Name, Id,
+              @{N='WorkingSetMB';E={[math]::Round($_.WorkingSet64 / 1MB, 1)}},
+              @{N='PrivateMB';E={[math]::Round($_.PrivateMemorySize64 / 1MB, 1)}} |
+            Format-Table -AutoSize
+
+          Write-Host 'Recent resource-exhaustion events (best effort):'
+          $start = (Get-Date).AddHours(-6)
+          Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=$start} -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -in 2004, 2019, 2020, 2021 } |
+            Select-Object -First 20 TimeCreated, Id, ProviderName, Message |
+            Format-List
 
       - name: Package r3dfox
         shell: powershell
