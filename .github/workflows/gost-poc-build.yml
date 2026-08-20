@@ -25,6 +25,13 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Configure 24 GB pagefile
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: "C:"
+
       - name: Repair stale mime_guess vendored checksum
         shell: powershell
         run: |
@@ -154,9 +161,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $mozmake = Get-ChildItem 'C:\mozilla-build' -Recurse -Filter 'mozmake.exe' -File |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $mozmake) { throw 'mozmake.exe was not found in MozillaBuild' }
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
           Write-Host "mozmake=$mozmake"
           & $mozmake -C 'obj-gost-win64' recurse_pre-export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -167,9 +173,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $mozmake = Get-ChildItem 'C:\mozilla-build' -Recurse -Filter 'mozmake.exe' -File |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $mozmake) { throw 'mozmake.exe was not found in MozillaBuild' }
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
           Write-Host '=== GOST/SSL PARTIAL COMPILE GATE ==='
           & $mozmake -C 'obj-gost-win64' 'security/manager/ssl/target-objects'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
