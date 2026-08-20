@@ -1,4 +1,4 @@
-name: SpiderMonkey style check
+name: SpiderMonkey checks
 
 on:
   workflow_dispatch:
@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  style:
-    name: SpiderMonkey include-order check
+  checks:
+    name: SpiderMonkey source checks
     runs-on: windows-2022
     timeout-minutes: 15
 
@@ -61,4 +61,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run MacroAssembler style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_macroassembler_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run JavaScript opcode check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_js_opcode.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
