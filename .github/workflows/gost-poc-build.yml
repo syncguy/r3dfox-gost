@@ -1,9 +1,6 @@
 name: GOST TLS PoC build
 
 on:
-  push:
-    branches:
-      - agent/gost-tls-poc
   workflow_dispatch:
 
 permissions:
