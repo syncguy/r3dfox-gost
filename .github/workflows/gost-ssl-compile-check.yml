@@ -133,36 +133,11 @@ jobs:
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Configure object directory
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          .\mach.ps1 configure
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Build export prerequisites
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $mozmake = Get-ChildItem 'C:\mozilla-build' -Recurse -Filter 'mozmake.exe' -File |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $mozmake) {
-            throw 'mozmake.exe was not found in MozillaBuild'
-          }
-          Write-Host "mozmake=$mozmake"
-          & $mozmake -C 'obj-gost-win64' recurse_pre-export
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $mozmake -C 'obj-gost-win64' recurse_export
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Compile security manager SSL target objects
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $mozmake = Get-ChildItem 'C:\mozilla-build' -Recurse -Filter 'mozmake.exe' -File |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $mozmake) {
-            throw 'mozmake.exe was not found in MozillaBuild'
-          }
-          & $mozmake -C 'obj-gost-win64' 'security/manager/ssl/target-objects'
+          Write-Host '=== GOST/SSL PARTIAL COMPILE ==='
+          .\mach.ps1 build security/manager/ssl/target-objects
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'GOST/SSL partial compile PASSED.'
