@@ -1,4 +1,3 @@
-# manual trigger marker: 2026-08-20
 name: SpiderMonkey style check
 
 on:
@@ -28,36 +27,34 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $path = 'js\src\vm\JSContext.cpp'
-          $text = [System.IO.File]::ReadAllText($path)
+          $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $path)
 
-          $old = @'
-#include "util/DiagnosticAssertions.h"
-#include "util/DifferentialTesting.h"
-#include "util/DoubleToString.h"
-#include "util/NativeStack.h"
-#include "util/Text.h"
-#include "util/WindowsWrapper.h"
-#include "js/friend/DumpFunctions.h"  // for stack trace utilities
-#include "js/Printer.h"               // for FixedBufferPrinter
-'@
+          $dump = '#include "js/friend/DumpFunctions.h"  // for stack trace utilities'
+          $printer = '#include "js/Printer.h"               // for FixedBufferPrinter'
+          $util = '#include "util/DiagnosticAssertions.h"'
 
-          $new = @'
-#include "js/friend/DumpFunctions.h"  // for stack trace utilities
-#include "js/Printer.h"               // for FixedBufferPrinter
-#include "util/DiagnosticAssertions.h"
-#include "util/DifferentialTesting.h"
-#include "util/DoubleToString.h"
-#include "util/NativeStack.h"
-#include "util/Text.h"
-#include "util/WindowsWrapper.h"
-'@
+          $dumpIndex = $lines.IndexOf($dump)
+          $printerIndex = $lines.IndexOf($printer)
+          $utilIndex = $lines.IndexOf($util)
 
-          if (-not $text.Contains($old)) {
-            throw 'Expected upstream JSContext include block was not found; review workaround before continuing.'
+          if ($dumpIndex -lt 0 -or $printerIndex -lt 0 -or $utilIndex -lt 0) {
+            throw 'Expected JSContext include lines were not found; review workaround before continuing.'
+          }
+          if ($printerIndex -ne ($dumpIndex + 1)) {
+            throw 'Expected DumpFunctions.h and Printer.h to be adjacent.'
+          }
+          if ($dumpIndex -lt $utilIndex) {
+            throw 'JSContext include order is already fixed; remove this workaround.'
           }
 
+          $lines.RemoveAt($printerIndex)
+          $lines.RemoveAt($dumpIndex)
+          $utilIndex = $lines.IndexOf($util)
+          $lines.Insert($utilIndex, $printer)
+          $lines.Insert($utilIndex, $dump)
+
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText($path, $text.Replace($old, $new), $utf8NoBom)
+          [System.IO.File]::WriteAllLines($path, $lines, $utf8NoBom)
 
           Write-Host 'Applied JSContext include-order workaround:'
           git diff -- $path
