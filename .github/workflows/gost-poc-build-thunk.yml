@@ -211,12 +211,16 @@ jobs:
           '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
           'fn main() { println!("thunk provision ok"); }' | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
 
-          Push-Location $proj
-          try {
-            cargo build --target $env:RUST_TARGET -vv 2>&1 | Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.log')
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          finally { Pop-Location }
+          $stdout = Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.stdout.log'
+          $stderr = Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.stderr.log'
+          $merged = Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.log'
+          Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
+          $cargoArgs = @('build', '--target', $env:RUST_TARGET, '--jobs', '4', '-vv')
+          $proc = Start-Process -FilePath 'cargo' -ArgumentList $cargoArgs -WorkingDirectory $proj -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
+          if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
+          Write-Host "cargo build exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "thunk-rs provisioning cargo build failed with exit code $($proc.ExitCode); see thunk-rs-provision.log" }
 
           $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter 'VC-LTL-5.2.2' | Select-Object -First 1
           if (-not $vc) { throw 'thunk-rs did not provision VC-LTL-5.2.2' }
@@ -279,8 +283,8 @@ jobs:
           @'
           mk_add_options AUTOCLOBBER=1
           mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-thunk-win64
-          mk_add_options MOZ_PARALLEL_BUILD=2
-          mk_add_options MOZ_MAKE_FLAGS="-j2"
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
           ac_add_options --enable-bootstrap
           ac_add_options --target=x86_64
           ac_add_options --disable-cargo-incremental
@@ -418,6 +422,8 @@ jobs:
           path: |
             configure-thunk.log
             thunk-rs-provision.log
+            thunk-rs-provision.stdout.log
+            thunk-rs-provision.stderr.log
             thunk-libxul-patch.diff
             xul-thunk-win7-imports.txt
             xul-thunk-win7-forbidden-imports.txt
