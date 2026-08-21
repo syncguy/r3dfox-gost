@@ -377,16 +377,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-ChildItem -Recurse 'obj-gost-win64\dist' -Include *.zip,*.exe |
-            Select-Object FullName,Length
+          Write-Host 'Packaged artifacts:'
+          Get-ChildItem 'obj-gost-win64\dist' -File |
+            Where-Object { $_.Name -match '\.(zip|7z)$' -or $_.Name -like '*.installer.exe' } |
+            Select-Object FullName,Length |
+            Format-Table -AutoSize
 
       - name: Upload package
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: r3dfox-gost-win64
-          if-no-files-found: warn
+          if-no-files-found: error
           compression-level: 0
           path: |
             obj-gost-win64/dist/*.zip
-            obj-gost-win64/dist/install/sea/*.exe
+            obj-gost-win64/dist/*.7z
+            obj-gost-win64/dist/*.installer.exe
