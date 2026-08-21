@@ -290,17 +290,16 @@ jobs:
           Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
 
           # cargo writes normal progress such as "Updating crates.io index" to
-          # stderr. Windows PowerShell 5.1 converts native stderr in a pipeline
-          # into NativeCommandError when ErrorActionPreference=Stop. Run Cargo
-          # out-of-process with redirected files and judge only its real exit code.
+          # stderr. Windows PowerShell 5.1 can promote native stderr to a
+          # NativeCommandError when it is piped while ErrorActionPreference=Stop.
+          # Start-Process keeps stdout/stderr as files; the real process exit code
+          # is the only success criterion.
           $args = @(
             'vendor', '--locked', '--versioned-dirs',
             '--manifest-path', $rustLibraryManifest,
             $stdVendor
           )
-          $proc = Start-Process -FilePath $env:CARGO -ArgumentList $args \
-            -WorkingDirectory $env:RUNNER_TEMP -NoNewWindow -Wait -PassThru \
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $proc = Start-Process -FilePath $env:CARGO -ArgumentList $args -WorkingDirectory $env:RUNNER_TEMP -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 
           if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
           if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
