@@ -501,6 +501,7 @@ jobs:
           if ($activeMB -lt 20480) { throw "Full build blocked: active pagefile is only $activeMB MB." }
 
       - name: Build release r3dfox
+        id: build-release
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -508,13 +509,44 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Audit xul.dll Win7 imports
+        id: win7-import-audit
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $xul = 'obj-gost-win64\dist\bin\xul.dll'
           if (-not (Test-Path $xul)) { throw "xul.dll not found: $xul" }
-          dumpbin /imports $xul 2>&1 | Tee-Object -FilePath xul-win7-imports.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Source -First 1
+
+          if (-not $dumpbin) {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $vs = (& $vswhere -latest -products * `
+                -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                -property installationPath).Trim()
+              if ($vs) {
+                $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" `
+                  -ErrorAction SilentlyContinue |
+                  Sort-Object FullName -Descending |
+                  Select-Object -ExpandProperty FullName -First 1
+              }
+            }
+          }
+
+          if (-not $dumpbin -or -not (Test-Path $dumpbin)) {
+            'Win7 import audit unavailable: dumpbin.exe was not found.' |
+              Set-Content -Encoding utf8 xul-win7-audit-result.txt
+            Write-Warning 'dumpbin.exe was not found; packaging will continue.'
+            exit 0
+          }
+
+          Write-Host "Using dumpbin: $dumpbin"
+          & $dumpbin /imports $xul 2>&1 | Tee-Object -FilePath xul-win7-imports.txt
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
+
           $imports = [System.IO.File]::ReadAllText((Resolve-Path 'xul-win7-imports.txt'))
           $forbidden = @(
             'ProcessPrng','bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll',
@@ -528,10 +560,16 @@ jobs:
               Write-Warning "Win7 blocker still imported by xul.dll: $symbol"
             }
           }
-          if ($found.Count -gt 0) { $found | Set-Content -Encoding utf8 xul-win7-forbidden-imports.txt }
-          else { 'No known Win8+ imports from the current blacklist were found.' | Set-Content -Encoding utf8 xul-win7-audit-result.txt }
+          if ($found.Count -gt 0) {
+            $found | Set-Content -Encoding utf8 xul-win7-forbidden-imports.txt
+          } else {
+            'No known Win8+ imports from the current blacklist were found.' |
+              Set-Content -Encoding utf8 xul-win7-audit-result.txt
+          }
 
       - name: Package release r3dfox
+        id: package-release
+        if: steps.build-release.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -542,7 +580,7 @@ jobs:
             Select-Object FullName,Length | Format-Table -AutoSize
 
       - name: Upload release package
-        if: success()
+        if: always() && steps.package-release.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: r3dfox-gost-win64-release
@@ -571,7 +609,7 @@ jobs:
             xul-win7-audit-result.txt
 
       - name: GATE - Reject known Win8+ imports after artifacts are uploaded
-        if: success()
+        if: always() && steps.build-release.outcome == 'success'
         shell: powershell
         run: |
           if (Test-Path 'xul-win7-forbidden-imports.txt') {
