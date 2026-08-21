@@ -12,6 +12,7 @@
 #include "nsISocketProvider.h"
 #include "nsITLSSocketControl.h"
 #include "prio.h"
+#include "prerr.h"
 #include "prerror.h"
 
 #include "msspi.h"
@@ -48,12 +49,45 @@ PRFileDesc* FindLayer(PRFileDesc* aFd) {
 
 void SetWouldBlock() { PR_SetError(PR_WOULD_BLOCK_ERROR, 0); }
 
-void SetMsspiError(GostSecret* aSecret) {
-  const uint32_t nativeError = msspi_last_error();
+void SetMsspiError(GostSecret* aSecret, uint32_t aNativeError) {
   if (aSecret) {
-    aSecret->lastMsspiError = nativeError;
+    aSecret->lastMsspiError = aNativeError;
   }
-  PR_SetError(PR_IO_ERROR, static_cast<PRInt32>(nativeError));
+  PR_SetError(PR_IO_ERROR, static_cast<PRInt32>(aNativeError));
+}
+
+bool IsTransientLowerError(PRFileDesc* aLayer, PRErrorCode aError) {
+  if (aError == PR_WOULD_BLOCK_ERROR || aError == PR_IO_PENDING_ERROR ||
+      aError == PR_IN_PROGRESS_ERROR ||
+      aError == PR_ALREADY_INITIATED_ERROR) {
+    return true;
+  }
+
+  // On a non-blocking socket Firefox can start driving the TLS layer while the
+  // TCP connect is still completing. NSPR reports that window as
+  // PR_NOT_CONNECTED_ERROR on some Windows paths. For MSSPI this must have the
+  // same meaning as BIO-style would-block; returning 0 would instead make
+  // MSSPI mark the transport as shut down with ERROR_WRITE_FAULT.
+  GostSecret* secret = GetSecret(aLayer);
+  return aError == PR_NOT_CONNECTED_ERROR && secret &&
+         !secret->handshakeComplete;
+}
+
+int HandleLowerError(PRFileDesc* aLayer, const char* aOperation, int aLen) {
+  const PRErrorCode prError = PR_GetError();
+  const PRInt32 osError = PR_GetOSError();
+
+  if (IsTransientLowerError(aLayer, prError)) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("lower %s pending prError=%d osError=%d len=%d", aOperation,
+             static_cast<int>(prError), static_cast<int>(osError), aLen));
+    return -1;
+  }
+
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+          ("lower %s failed prError=%d osError=%d len=%d", aOperation,
+           static_cast<int>(prError), static_cast<int>(osError), aLen));
+  return 0;
 }
 
 int LowerRead(void* aArg, void* aBuf, int aLen) {
@@ -67,7 +101,7 @@ int LowerRead(void* aArg, void* aBuf, int aLen) {
   if (rv >= 0) {
     return rv;
   }
-  return PR_GetError() == PR_WOULD_BLOCK_ERROR ? -1 : 0;
+  return HandleLowerError(layer, "read", aLen);
 }
 
 int LowerWrite(void* aArg, const void* aBuf, int aLen) {
@@ -81,7 +115,7 @@ int LowerWrite(void* aArg, const void* aBuf, int aLen) {
   if (rv >= 0) {
     return rv;
   }
-  return PR_GetError() == PR_WOULD_BLOCK_ERROR ? -1 : 0;
+  return HandleLowerError(layer, "write", aLen);
 }
 
 nsresult DriveHandshake(PRFileDesc* aLayer) {
@@ -102,11 +136,12 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
 
   if (rv == 0) {
     const uint32_t nativeError = msspi_last_error();
+    const int state = msspi_state(secret->msspi);
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
             ("msspi_connect failed host=%s error=0x%08x state=0x%08x",
              PromiseFlatCString(secret->control->GetHostName()).get(),
-             nativeError, msspi_state(secret->msspi)));
-    SetMsspiError(secret);
+             nativeError, state));
+    SetMsspiError(secret, nativeError);
     return NS_ERROR_FAILURE;
   }
 
@@ -156,9 +191,12 @@ PRInt32 GostRead(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount) {
     SetWouldBlock();
     return -1;
   }
-  if (n == 0 && (msspi_state(secret->msspi) & MSSPI_ERROR)) {
-    SetMsspiError(secret);
-    return -1;
+  if (n == 0) {
+    const uint32_t nativeError = msspi_last_error();
+    if (msspi_state(secret->msspi) & MSSPI_ERROR) {
+      SetMsspiError(secret, nativeError);
+      return -1;
+    }
   }
   return n;
 }
@@ -184,6 +222,13 @@ PRInt32 GostRecv(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount, PRIntn aFlags,
     SetWouldBlock();
     return -1;
   }
+  if (n == 0) {
+    const uint32_t nativeError = msspi_last_error();
+    if (msspi_state(secret->msspi) & MSSPI_ERROR) {
+      SetMsspiError(secret, nativeError);
+      return -1;
+    }
+  }
   return n;
 }
 
@@ -205,7 +250,8 @@ PRInt32 GostWrite(PRFileDesc* aFd, const void* aBuf, PRInt32 aAmount) {
     return -1;
   }
   if (n == 0) {
-    SetMsspiError(secret);
+    const uint32_t nativeError = msspi_last_error();
+    SetMsspiError(secret, nativeError);
     return -1;
   }
   return n;
