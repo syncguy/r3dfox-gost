@@ -82,6 +82,9 @@ jobs:
           version = "0.1.0"
           edition = "2021"
 
+          # Keep this throwaway project out of r3dfox's top-level Cargo workspace.
+          [workspace]
+
           [profile.release]
           panic = "abort"
           lto = false
