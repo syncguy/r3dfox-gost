@@ -178,13 +178,81 @@ jobs:
         shell: powershell
         run: |
           @'
+          # CI/resource controls kept from the proven GOST build.
           mk_add_options AUTOCLOBBER=1
           mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-win64
           mk_add_options MOZ_PARALLEL_BUILD=2
+          mk_add_options MOZ_MAKE_FLAGS="-j2"
           ac_add_options --enable-bootstrap
+
+          # Match the functional/release feature set of upstream
+          # mozconfigs/r3dfox-win64, but deliberately omit PGO, LTO,
+          # custom -O3/compiler flags and codegen-units=1 for now.
+          ac_add_options --target=x86_64
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+
+          # Release semantics without the expensive upstream optimization profile.
           ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --disable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
           ac_add_options --enable-optimize
-          ac_add_options --disable-release
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+
+          # Upstream r3dfox media feature set.
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --disable-webrtc
+
+          # Upstream r3dfox add-on policy.
+          ac_add_options --allow-addon-sideload
+          ac_add_options --with-unsigned-addon-scopes=app,system
+
+          # Upstream r3dfox client feature set.  In particular,
+          # --disable-crashreporter removes the Win8+ crash-helper path that
+          # introduced GetOverlappedResultEx in the previous GOST xul.dll.
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+
+          # Intentionally NOT copied yet from upstream r3dfox-win64:
+          #   --enable-lto / MOZ_LTO=1
+          #   --enable-install-strip / --enable-strip
+          #   custom CFLAGS/CPPFLAGS/CXXFLAGS/LDFLAGS/POLLY
+          #   OPT_LEVEL=3 / RUSTC_OPT_LEVEL=3 / custom RUSTFLAGS
+          #   PGO profile-generate/profile-use
+          #   WIN32_REDIST_DIR / WIN_UCRT_REDIST_DIR /
+          #   MOZ_D3DCOMPILER_VISTA_DLL_PATH_OVERRIDE
+          # The last three require a deliberately prepared C:/VC++/x64 tree;
+          # do not point at an empty/nonexistent directory.
           '@ | Set-Content '.mozconfig-gost'
           Get-Content '.mozconfig-gost'
 
@@ -235,7 +303,7 @@ jobs:
             TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
             FreePhysicalGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
             TotalVirtualGB  = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
-            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemorySize / 1MB, 2)
           } | Format-List
 
           Write-Host 'Page file usage:'
@@ -287,7 +355,7 @@ jobs:
             TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
             FreePhysicalGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
             TotalVirtualGB  = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
-            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemorySize / 1MB, 2)
           } | Format-List
 
           Write-Host 'Page file usage:'
