@@ -284,19 +284,29 @@ jobs:
 
           $stdVendor = Join-Path $env:RUNNER_TEMP 'rust-std-vendor'
           if (Test-Path $stdVendor) { Remove-Item -Recurse -Force $stdVendor }
+          $stdout = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.stdout.log'
+          $stderr = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.stderr.log'
+          $merged = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.log'
+          Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
 
-          # Run away from the Firefox tree so cargo vendor does not inherit
-          # Mozilla's crates-io -> third_party/rust source replacement while it
-          # is fetching the exact registry versions pinned by rust-src.
-          Push-Location $env:RUNNER_TEMP
-          try {
-            & $env:CARGO vendor --locked --versioned-dirs --manifest-path $rustLibraryManifest $stdVendor 2>&1 |
-              Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.log')
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          finally {
-            Pop-Location
-          }
+          # cargo writes normal progress such as "Updating crates.io index" to
+          # stderr. Windows PowerShell 5.1 converts native stderr in a pipeline
+          # into NativeCommandError when ErrorActionPreference=Stop. Run Cargo
+          # out-of-process with redirected files and judge only its real exit code.
+          $args = @(
+            'vendor', '--locked', '--versioned-dirs',
+            '--manifest-path', $rustLibraryManifest,
+            $stdVendor
+          )
+          $proc = Start-Process -FilePath $env:CARGO -ArgumentList $args \
+            -WorkingDirectory $env:RUNNER_TEMP -NoNewWindow -Wait -PassThru \
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
+          if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
+          Write-Host "cargo vendor exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "cargo vendor failed with exit code $($proc.ExitCode); see rust-std-vendor.log" }
+          if (-not (Test-Path $stdVendor)) { throw "cargo vendor did not create $stdVendor" }
 
           $env:RUST_STD_VENDOR = $stdVendor
           @'
@@ -345,7 +355,6 @@ jobs:
           print(report.read_text(encoding="utf-8"))
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
           if (-not (Select-String -Path 'rust-std-vendor-added.txt' -Pattern '^ADD |^USE ' -Quiet)) {
             throw 'Rust std vendor merge produced no registry packages.'
           }
@@ -371,8 +380,6 @@ jobs:
               rustc, target, compiler_info, rust_supported_targets, arm_target
           ):
               # r3dfox-gost CI: Cargo -Z build-std supplies the target std library.
-              # The direct rustc probe below cannot see Cargo-built std, so for the
-              # tested Windows x64 build we select the Tier-3 Win7 target directly.
               if target.kernel == "WINNT" and target.cpu == "x86_64":
                   return "x86_64-win7-windows-msvc"
 
@@ -442,7 +449,9 @@ jobs:
           $output | Tee-Object -FilePath configure-win7.log
           if ($exitCode -ne 0) { exit $exitCode }
           $joined = $output -join "`n"
-          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+x86_64-win7-windows-msvc') { throw 'Configure did not select x86_64-win7-windows-msvc.' }
+          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+x86_64-win7-windows-msvc') {
+            throw 'Configure did not select x86_64-win7-windows-msvc.'
+          }
 
       - name: Build export prerequisites
         shell: powershell
@@ -508,7 +517,11 @@ jobs:
           dumpbin /imports $xul 2>&1 | Tee-Object -FilePath xul-win7-imports.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $imports = [System.IO.File]::ReadAllText((Resolve-Path 'xul-win7-imports.txt'))
-          $forbidden = @('ProcessPrng','bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll','WaitOnAddress','WakeByAddressAll','WakeByAddressSingle','GetSystemTimePreciseAsFileTime','GetOverlappedResultEx')
+          $forbidden = @(
+            'ProcessPrng','bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress','WakeByAddressAll','WakeByAddressSingle',
+            'GetSystemTimePreciseAsFileTime','GetOverlappedResultEx'
+          )
           $found = @()
           foreach ($symbol in $forbidden) {
             if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
@@ -551,6 +564,8 @@ jobs:
             configure-win7.log
             rust-win7-target-cfg.txt
             rust-std-vendor.log
+            rust-std-vendor.stdout.log
+            rust-std-vendor.stderr.log
             rust-std-vendor-added.txt
             xul-win7-imports.txt
             xul-win7-forbidden-imports.txt
