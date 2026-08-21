@@ -1,0 +1,277 @@
+name: Rust Win7 toolchain
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/rust-win7-toolchain.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-win7-rust:
+    name: Build Rust 1.97.1 / Win7 target
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      RUST_VERSION: "1.97.1"
+      RUST_HOST: "x86_64-pc-windows-msvc"
+      RUST_TARGET: "x86_64-win7-windows-msvc"
+      TOOLCHAIN_DIR: "rust-win7-toolchain"
+
+    steps:
+      - name: Restore Win7 Rust toolchain cache
+        id: cache-rust-win7
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOLCHAIN_DIR }}
+          key: rust-win7-${{ runner.os }}-${{ env.RUST_VERSION }}-${{ env.RUST_TARGET }}-v1
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        if: steps.cache-rust-win7.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          Write-Host "Existing active pagefile total: $activeMB MB"
+
+          Write-Host 'Active pagefiles:'
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+
+          if ($activeMB -ge 20480) {
+            'need=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host 'Existing pagefile is already large enough.'
+            exit 0
+          }
+
+          $activeRoots = @(
+            $active | ForEach-Object {
+              ([System.IO.Path]::GetPathRoot($_.Name)).TrimEnd('\')
+            }
+          )
+          Write-Host "Drives already hosting an active pagefile: $($activeRoots -join ', ')"
+
+          $candidate = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Where-Object {
+              $_.FreeSpace -ge 30GB -and
+              $activeRoots -notcontains $_.DeviceID
+            } |
+            Sort-Object FreeSpace -Descending |
+            Select-Object -First 1
+
+          if (-not $candidate) {
+            throw 'No non-pagefile local disk with at least 30 GB free was found.'
+          }
+
+          Write-Host "Selected pagefile disk: $($candidate.DeviceID)"
+          Write-Host "Free space: $([math]::Round($candidate.FreeSpace / 1GB, 2)) GB"
+          'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure 24 GB pagefile on unused disk
+        if: steps.cache-rust-win7.outputs.cache-hit != 'true' && steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile
+        if: steps.cache-rust-win7.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+
+          Write-Host 'Active pagefiles after provisioning:'
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          Write-Host "Active pagefile total: $activeMB MB"
+
+          if ($activeMB -lt 20480) {
+            throw "Rust build blocked: active pagefile is only $activeMB MB."
+          }
+
+      - name: Checkout Rust 1.97.1 source
+        if: steps.cache-rust-win7.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: rust-lang/rust
+          ref: ${{ env.RUST_VERSION }}
+          fetch-depth: 1
+          path: rust-src
+          persist-credentials: false
+
+      - name: Build stage1 compiler and Win7 std
+        if: steps.cache-rust-win7.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location rust-src
+          try {
+            python x.py build --stage 1 library --target $env:RUST_TARGET --jobs 2 `
+              --set llvm.download-ci-llvm=true `
+              --set rust.incremental=false `
+              --set rust.deny-warnings=false
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Stage toolchain for cache
+        if: steps.cache-rust-win7.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage1 = Join-Path $env:GITHUB_WORKSPACE "rust-src\build\$env:RUST_HOST\stage1"
+          $dest = Join-Path $env:GITHUB_WORKSPACE $env:TOOLCHAIN_DIR
+
+          if (-not (Test-Path (Join-Path $stage1 'bin\rustc.exe'))) {
+            throw "stage1 rustc was not found at $stage1"
+          }
+          if (-not (Test-Path (Join-Path $stage1 "lib\rustlib\$env:RUST_TARGET\lib"))) {
+            throw "Win7 target std was not found in stage1 sysroot: $stage1"
+          }
+
+          if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item -Recurse -Force "$stage1\*" $dest
+
+          Write-Host "Cached toolchain staging directory: $dest"
+          Get-ChildItem (Join-Path $dest "lib\rustlib\$env:RUST_TARGET\lib") -Filter 'libstd-*.rlib' |
+            Select-Object Name, Length |
+            Format-Table -AutoSize
+
+      - name: GATE - Verify Win7 Rust target and std
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rustc = Join-Path $env:GITHUB_WORKSPACE "$env:TOOLCHAIN_DIR\bin\rustc.exe"
+          if (-not (Test-Path $rustc)) { throw "rustc not found: $rustc" }
+
+          $version = & $rustc --version --verbose 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version | Tee-Object -FilePath rust-win7-rustc-version.txt
+          if (($version -join "`n") -notmatch [regex]::Escape("release: $env:RUST_VERSION")) {
+            throw "Unexpected rustc version; expected $env:RUST_VERSION"
+          }
+
+          $cfg = & $rustc --print cfg --target $env:RUST_TARGET 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cfg | Tee-Object -FilePath rust-win7-target-cfg.txt
+          if (($cfg -join "`n") -notmatch 'target_vendor="win7"') {
+            throw 'Win7 target verification failed: target_vendor="win7" was not reported.'
+          }
+
+          $stdDir = Join-Path $env:GITHUB_WORKSPACE "$env:TOOLCHAIN_DIR\lib\rustlib\$env:RUST_TARGET\lib"
+          $std = @(Get-ChildItem $stdDir -Filter 'libstd-*.rlib')
+          if ($std.Count -eq 0) {
+            throw "No libstd rlib found for $env:RUST_TARGET in $stdDir"
+          }
+          Write-Host "Win7 std gate PASSED: $($std.Count) libstd rlib(s) found."
+
+      - name: Compile Win7 smoke test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::hash::{BuildHasher, Hasher};
+          use std::sync::{Arc, Condvar, Mutex};
+          use std::thread;
+
+          fn main() {
+              let random = RandomState::new();
+              let mut hasher = random.build_hasher();
+              hasher.write_u64(0x0123_4567_89ab_cdef);
+              let hash = hasher.finish();
+
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let worker_pair = Arc::clone(&pair);
+              let worker = thread::spawn(move || {
+                  let (lock, cv) = &*worker_pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_one();
+              });
+
+              let (lock, cv) = &*pair;
+              let mut ready = lock.lock().unwrap();
+              while !*ready {
+                  ready = cv.wait(ready).unwrap();
+              }
+              drop(ready);
+              worker.join().unwrap();
+
+              println!("win7-smoke-ok hash={hash:016x}");
+          }
+          '@ | Set-Content -Encoding utf8 rust-win7-smoke.rs
+
+          $rustc = Join-Path $env:GITHUB_WORKSPACE "$env:TOOLCHAIN_DIR\bin\rustc.exe"
+          & $rustc --target $env:RUST_TARGET --edition 2021 -O rust-win7-smoke.rs -o rust-win7-smoke.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path 'rust-win7-smoke.exe')) { throw 'Smoke-test EXE was not produced.' }
+
+      - name: Run smoke test on Windows Server 2022
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\rust-win7-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-smoke-output.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Inspect smoke-test PE imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dumpbin /imports .\rust-win7-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-smoke-imports.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dumpbin /headers .\rust-win7-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-smoke-headers.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $imports = [System.IO.File]::ReadAllText((Resolve-Path 'rust-win7-smoke-imports.txt'))
+          $forbidden = @(
+            'bcryptprimitives.dll',
+            'ProcessPrng',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle'
+          )
+          foreach ($symbol in $forbidden) {
+            if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              throw "Win7 import gate failed: forbidden import found: $symbol"
+            }
+          }
+          Write-Host 'Win7 PE import gate PASSED.'
+
+      - name: Upload Win7 smoke-test artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-win7-smoke-${{ env.RUST_VERSION }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            rust-win7-smoke.exe
+            rust-win7-smoke.rs
+            rust-win7-smoke-imports.txt
+            rust-win7-smoke-headers.txt
+            rust-win7-smoke-output.txt
+            rust-win7-rustc-version.txt
+            rust-win7-target-cfg.txt
