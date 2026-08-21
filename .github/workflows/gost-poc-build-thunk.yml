@@ -271,7 +271,7 @@ jobs:
               raise SystemExit('Libxul clang-cl LDFLAGS anchor not found')
           vc = os.environ['THUNK_VC_LTL_LIB'].replace('\\', '/')
           yy = os.environ['THUNK_YY_LIB'].replace('\\', '/')
-          replacement = anchor + f'''\n    # r3dfox-gost experimental Win7 thunk path. thunk-rs 0.3.5 uses\n    # VC-LTL 5.2.2 and YY-Thunks 1.1.7. Firefox is linked by clang-cl/lld-link,\n    # so use YY-Thunks' LIB mode instead of the OBJ mode emitted by thunk-rs.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{vc}",\n            "-LIBPATH:{yy}",\n        ]\n'''
+          replacement = anchor + f'''\n    # r3dfox-gost experimental Win7 thunk path. thunk-rs 0.3.5 uses\n    # VC-LTL 5.2.2 and YY-Thunks 1.1.7. Firefox is linked by clang-cl/lld-link,\n    # so use YY-Thunks' LIB mode instead of the OBJ mode emitted by thunk-rs.\n    # VC-LTL's legacy runtime overlay is designed for the static C++ runtime.\n    # Mozilla normally supplies msvcprt.lib (/MD); suppress it for libxul and\n    # select libcpmt.lib so its C++ runtime does not collide with VC-LTL ucrt.lib.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{vc}",\n            "-LIBPATH:{yy}",\n            "-NODEFAULTLIB:msvcprt.lib",\n            "-DEFAULTLIB:libcpmt.lib",\n        ]\n'''
           path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
