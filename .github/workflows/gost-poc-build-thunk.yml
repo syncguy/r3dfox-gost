@@ -82,7 +82,7 @@ jobs:
             Select-Object -First 1
           if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
           'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Configure 24 GB pagefile on non-active drive
         if: steps.pagefile-plan.outputs.need == 'true'
