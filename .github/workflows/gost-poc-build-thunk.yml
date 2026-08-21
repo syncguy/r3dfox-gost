@@ -1,0 +1,433 @@
+name: GOST TLS PoC build - thunk-rs experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/gost-poc-build-thunk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  win64-thunk:
+    name: Windows x64 / r3dfox GOST / thunk-rs Win7
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost-thunk
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "x86_64-pc-windows-msvc"
+      THUNK_RS_VERSION: "0.3.5"
+      YY_THUNKS_VERSION: "1.1.7"
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Normalize upstream JSContext include order
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'js\src\vm\JSContext.cpp'
+          $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $path)
+          $dump = '#include "js/friend/DumpFunctions.h"  // for stack trace utilities'
+          $errors = '#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*'
+          $printer = '#include "js/Printer.h"               // for FixedBufferPrinter'
+          $printf = '#include "js/Printf.h"'
+          foreach ($line in @($dump, $printer)) { while ($lines.Remove($line)) { } }
+          $errorsIndex = $lines.IndexOf($errors)
+          $printfIndex = $lines.IndexOf($printf)
+          if ($errorsIndex -lt 0 -or $printfIndex -lt 0) { throw 'Expected JSContext include anchors were not found.' }
+          $lines.Insert($errorsIndex, $dump)
+          $printfIndex = $lines.IndexOf($printf)
+          $lines.Insert($printfIndex, $printer)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllLines($path, $lines, $utf8NoBom)
+
+      - name: GATE - SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          if ($activeMB -ge 20480) {
+            'need=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $activeRoots = @($active | ForEach-Object {
+            if ($_.Name -match '^([A-Za-z]:)\\') { $matches[1].ToUpperInvariant() }
+          })
+          $candidate = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Where-Object { ($activeRoots -notcontains $_.DeviceID.ToUpperInvariant()) -and $_.FreeSpace -ge 30GB } |
+            Sort-Object FreeSpace -Descending |
+            Select-Object -First 1
+          if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
+          'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          if ($activeMB -lt 20480) { throw "Build blocked: active pagefile is only $activeMB MB." }
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) { throw 'Expected stale mime_guess checksum was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) { throw 'Expected MSSPI Windows.h include was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>'), $utf8NoBom)
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += ["msspi/src/msspi.cpp"]
+              LOCAL_INCLUDES += ["msspi/src", "msspi/third_party/cprocsp/include"]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned ordinary Rust target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: GATE - Reconfirm thunk-rs Win7 behavior and provision VC-LTL
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'firefox-thunk-provision'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+          @"
+          [package]
+          name = "firefox-thunk-provision"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = { version = "=$env:THUNK_RS_VERSION", default-features = false, features = ["win7", "lib"] }
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+          @'
+          fn main() { thunk::thunk(); }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+          'fn main() { println!("thunk provision ok"); }' | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          Push-Location $proj
+          try {
+            cargo build --target $env:RUST_TARGET -vv 2>&1 | Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.log')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally { Pop-Location }
+
+          $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter 'VC-LTL-5.2.2' | Select-Object -First 1
+          if (-not $vc) { throw 'thunk-rs did not provision VC-LTL-5.2.2' }
+          $vcLib = Join-Path $vc.FullName 'TargetPlatform\6.0.6000.0\lib\x64'
+          if (-not (Test-Path $vcLib)) { throw "Expected VC-LTL Win7/Vista x64 lib directory not found: $vcLib" }
+          "THUNK_VC_LTL_LIB=$vcLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "thunk-rs VC-LTL lib: $vcLib"
+
+      - name: Download YY-Thunks LLD-link library package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) {
+            $release.assets | Select-Object name,browser_download_url | Format-Table -AutoSize
+            throw "YY-Thunks v$env:YY_THUNKS_VERSION LLD-link Lib asset was not found"
+          }
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-lib'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $libs = @(Get-ChildItem -Path $root -Recurse -File -Filter '*.lib')
+          $libs | Select-Object FullName | Format-Table -AutoSize
+          $candidate = $libs | Where-Object { $_.FullName -match '(?i)6\.1\.7600\.0.*x64|x64.*6\.1\.7600\.0|Win7.*x64|x64.*Win7' } | Select-Object -First 1
+          if (-not $candidate) {
+            $candidate = $libs | Where-Object { $_.FullName -match '(?i)6\.0\.6000\.0.*x64|x64.*6\.0\.6000\.0|Vista.*x64|x64.*Vista' } | Select-Object -First 1
+          }
+          if (-not $candidate) { throw 'Could not locate an x64 Win7/Vista YY-Thunks LLD-link library directory.' }
+          $yyLib = $candidate.Directory.FullName
+          "THUNK_YY_LIB=$yyLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "YY-Thunks LLD-link lib path: $yyLib"
+
+      - name: Patch libxul linker for thunk-rs compatibility libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import os
+          from pathlib import Path
+
+          path = Path('toolkit/library/moz.build')
+          text = path.read_text(encoding='utf-8')
+          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n'
+          if anchor not in text:
+              raise SystemExit('Libxul clang-cl LDFLAGS anchor not found')
+          vc = os.environ['THUNK_VC_LTL_LIB'].replace('\\', '/')
+          yy = os.environ['THUNK_YY_LIB'].replace('\\', '/')
+          replacement = anchor + f'''\n    # r3dfox-gost experimental Win7 thunk path. thunk-rs 0.3.5 uses\n    # VC-LTL 5.2.2 and YY-Thunks 1.1.7. Firefox is linked by clang-cl/lld-link,\n    # so use YY-Thunks' LIB mode instead of the OBJ mode emitted by thunk-rs.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{vc}",\n            "-LIBPATH:{yy}",\n        ]\n'''
+          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff -- toolkit\library\moz.build | Tee-Object -FilePath thunk-libxul-patch.diff
+
+      - name: Write thunk experiment mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-thunk-win64
+          mk_add_options MOZ_PARALLEL_BUILD=2
+          mk_add_options MOZ_MAKE_FLAGS="-j2"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=x86_64
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --disable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --disable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-gost-thunk'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure ordinary Tier-1 Rust build
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = .\mach.ps1 configure 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | Tee-Object -FilePath configure-thunk.log
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = $output -join "`n"
+          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+x86_64-pc-windows-msvc') {
+            throw 'Thunk experiment did not use the ordinary x86_64-pc-windows-msvc Rust target.'
+          }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C 'obj-gost-thunk-win64' recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C 'obj-gost-thunk-win64' recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile security manager SSL target objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C 'obj-gost-thunk-win64' 'security/manager/ssl/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build release r3dfox with thunk linker path
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Audit thunked xul.dll Win7 imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xul = 'obj-gost-thunk-win64\dist\bin\xul.dll'
+          if (-not (Test-Path $xul)) { throw "xul.dll not found: $xul" }
+          dumpbin /imports $xul 2>&1 | Tee-Object -FilePath xul-thunk-win7-imports.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $imports = [System.IO.File]::ReadAllText((Resolve-Path 'xul-thunk-win7-imports.txt'))
+          $forbidden = @('ProcessPrng','bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll','WaitOnAddress','WakeByAddressAll','WakeByAddressSingle','GetSystemTimePreciseAsFileTime','GetOverlappedResultEx')
+          $found = @()
+          foreach ($symbol in $forbidden) {
+            if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              $found += $symbol
+              Write-Warning "Win7 blocker still imported by thunked xul.dll: $symbol"
+            }
+          }
+          if ($found.Count -gt 0) { $found | Set-Content -Encoding utf8 xul-thunk-win7-forbidden-imports.txt }
+          else { 'No known Win8+ imports from the current blacklist were found.' | Set-Content -Encoding utf8 xul-thunk-win7-audit-result.txt }
+
+      - name: Package thunk experiment
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload thunk experiment package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-win64-thunk-experiment
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            obj-gost-thunk-win64/dist/*.zip
+            obj-gost-thunk-win64/dist/*.7z
+            obj-gost-thunk-win64/dist/*.installer.exe
+
+      - name: Upload thunk diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-win64-thunk-diagnostics
+          if-no-files-found: warn
+          path: |
+            configure-thunk.log
+            thunk-rs-provision.log
+            thunk-libxul-patch.diff
+            xul-thunk-win7-imports.txt
+            xul-thunk-win7-forbidden-imports.txt
+            xul-thunk-win7-audit-result.txt
+
+      - name: GATE - Reject known Win8+ imports
+        if: success()
+        shell: powershell
+        run: |
+          if (Test-Path 'xul-thunk-win7-forbidden-imports.txt') {
+            Get-Content 'xul-thunk-win7-forbidden-imports.txt'
+            throw 'Thunk experiment produced a package, but the Win7 import gate failed.'
+          }
