@@ -273,6 +273,83 @@ jobs:
           $cfg | Tee-Object -FilePath rust-win7-target-cfg.txt
           if (($cfg -join "`n") -notmatch 'target_vendor="win7"') { throw 'Expected target_vendor="win7" was not reported.' }
 
+      - name: Vendor pinned Rust std dependencies into Mozilla vendor source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sysroot = (& $env:RUSTC --print sysroot).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $rustLibraryManifest = Join-Path $sysroot 'lib\rustlib\src\rust\library\Cargo.toml'
+          if (-not (Test-Path $rustLibraryManifest)) { throw "rust-src library manifest not found: $rustLibraryManifest" }
+
+          $stdVendor = Join-Path $env:RUNNER_TEMP 'rust-std-vendor'
+          if (Test-Path $stdVendor) { Remove-Item -Recurse -Force $stdVendor }
+
+          # Run away from the Firefox tree so cargo vendor does not inherit
+          # Mozilla's crates-io -> third_party/rust source replacement while it
+          # is fetching the exact registry versions pinned by rust-src.
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $env:CARGO vendor --locked --versioned-dirs --manifest-path $rustLibraryManifest $stdVendor 2>&1 |
+              Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.log')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $env:RUST_STD_VENDOR = $stdVendor
+          @'
+          import os
+          import shutil
+          import tomllib
+          from pathlib import Path
+
+          source = Path(os.environ["RUST_STD_VENDOR"])
+          dest = Path("third_party/rust")
+          report = Path("rust-std-vendor-added.txt")
+
+          def package_id(path: Path):
+              with (path / "Cargo.toml").open("rb") as f:
+                  package = tomllib.load(f)["package"]
+              return package["name"], package["version"]
+
+          existing = {}
+          for manifest in dest.glob("*/Cargo.toml"):
+              try:
+                  existing.setdefault(package_id(manifest.parent), manifest.parent)
+              except Exception:
+                  pass
+
+          added = []
+          reused = []
+          for crate in sorted(source.iterdir()):
+              if not (crate / "Cargo.toml").is_file():
+                  continue
+              ident = package_id(crate)
+              if ident in existing:
+                  reused.append((ident, existing[ident]))
+                  continue
+              target = dest / f"{ident[0]}-{ident[1]}"
+              if target.exists():
+                  raise SystemExit(f"vendor merge collision: {target}")
+              shutil.copytree(crate, target)
+              existing[ident] = target
+              added.append((ident, target))
+
+          lines = ["Added rust-src registry dependencies to Mozilla vendor:"]
+          lines += [f"ADD {name} {version} -> {path}" for (name, version), path in added]
+          lines += ["", "Already present with exact version:"]
+          lines += [f"USE {name} {version} -> {path}" for (name, version), path in reused]
+          report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print(report.read_text(encoding="utf-8"))
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if (-not (Select-String -Path 'rust-std-vendor-added.txt' -Pattern '^ADD |^USE ' -Quiet)) {
+            throw 'Rust std vendor merge produced no registry packages.'
+          }
+
       - name: Patch Mozilla Rust target selection for build-std
         shell: powershell
         run: |
@@ -378,6 +455,16 @@ jobs:
           & $mozmake -C 'obj-gost-win64' recurse_export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: GATE - Compile Mozilla toolkit Rust target with Win7 std
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
+          & $mozmake -C 'obj-gost-win64' 'toolkit/library/rust/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'Mozilla toolkit Rust target gate PASSED with build-std and merged rust-src vendor dependencies.'
+
       - name: GATE - Compile security manager SSL target objects
         shell: powershell
         run: |
@@ -463,6 +550,8 @@ jobs:
           path: |
             configure-win7.log
             rust-win7-target-cfg.txt
+            rust-std-vendor.log
+            rust-std-vendor-added.txt
             xul-win7-imports.txt
             xul-win7-forbidden-imports.txt
             xul-win7-audit-result.txt
