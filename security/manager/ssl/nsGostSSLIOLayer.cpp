@@ -63,11 +63,6 @@ bool IsTransientLowerError(PRFileDesc* aLayer, PRErrorCode aError) {
     return true;
   }
 
-  // On a non-blocking socket Firefox can start driving the TLS layer while the
-  // TCP connect is still completing. NSPR reports that window as
-  // PR_NOT_CONNECTED_ERROR on some Windows paths. For MSSPI this must have the
-  // same meaning as BIO-style would-block; returning 0 would instead make
-  // MSSPI mark the transport as shut down with ERROR_WRITE_FAULT.
   GostSecret* secret = GetSecret(aLayer);
   return aError == PR_NOT_CONNECTED_ERROR && secret &&
          !secret->handshakeComplete;
@@ -182,18 +177,18 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
     return NS_ERROR_FAILURE;
   }
 
-  const char* host =
-      PromiseFlatCString(secret->control->GetHostName()).get();
+  nsCString host(secret->control->GetHostName());
 
   if (secret->handshakeComplete) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-            ("DriveHandshake already complete host=%s", host));
+            ("DriveHandshake already complete host=%s", host.get()));
     return NS_OK;
   }
 
   const int stateBefore = msspi_state(secret->msspi);
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-          ("DriveHandshake enter host=%s state=0x%08x", host, stateBefore));
+          ("DriveHandshake enter host=%s state=0x%08x", host.get(),
+           stateBefore));
 
   const int rv = msspi_connect(secret->msspi);
   const int stateAfter = msspi_state(secret->msspi);
@@ -201,11 +196,11 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("DriveHandshake msspi_connect host=%s rv=%d error=0x%08x "
            "state_before=0x%08x state_after=0x%08x",
-           host, rv, nativeError, stateBefore, stateAfter));
+           host.get(), rv, nativeError, stateBefore, stateAfter));
 
   if (rv < 0) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-            ("DriveHandshake pending host=%s state=0x%08x", host,
+            ("DriveHandshake pending host=%s state=0x%08x", host.get(),
              stateAfter));
     SetWouldBlock();
     return NS_BASE_STREAM_WOULD_BLOCK;
@@ -213,8 +208,8 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
 
   if (rv == 0) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
-            ("msspi_connect failed host=%s error=0x%08x state=0x%08x", host,
-             nativeError, stateAfter));
+            ("msspi_connect failed host=%s error=0x%08x state=0x%08x",
+             host.get(), nativeError, stateAfter));
     SetMsspiError(secret, nativeError);
     return NS_ERROR_FAILURE;
   }
@@ -228,7 +223,7 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("DriveHandshake version host=%s ok=%d tlsVersion=0x%08x "
            "versionStringLen=%zu",
-           host, versionOk, tlsVersion, versionStringLen));
+           host.get(), versionOk, tlsVersion, versionStringLen));
 
   uint16_t cipherSuite = 0;
   const SecPkgContext_CipherInfo* cipherInfo = nullptr;
@@ -238,17 +233,17 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
   }
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("DriveHandshake cipher host=%s ok=%d cipherInfo=%p suite=0x%04x",
-           host, cipherOk, cipherInfo, cipherSuite));
+           host.get(), cipherOk, cipherInfo, cipherSuite));
 
   uint32_t verifyStatus = 0;
   const int verifyOk =
       msspi_get_verify_status(secret->msspi, &verifyStatus);
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-          ("DriveHandshake verify host=%s ok=%d status=0x%08x", host,
+          ("DriveHandshake verify host=%s ok=%d status=0x%08x", host.get(),
            verifyOk, verifyStatus));
   if (verifyOk && verifyStatus != 0) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
-            ("peer verification failed host=%s status=0x%08x", host,
+            ("peer verification failed host=%s status=0x%08x", host.get(),
              verifyStatus));
     PR_SetError(PR_IO_ERROR, static_cast<PRInt32>(verifyStatus));
     return NS_ERROR_FAILURE;
@@ -260,7 +255,7 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
           ("MSSPI handshake complete host=%s TLS=0x%04x cipher=0x%04x "
            "state=0x%08x",
-           host, static_cast<unsigned int>(tlsVersion), cipherSuite,
+           host.get(), static_cast<unsigned int>(tlsVersion), cipherSuite,
            msspi_state(secret->msspi)));
   return NS_OK;
 }
