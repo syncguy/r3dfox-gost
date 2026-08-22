@@ -269,13 +269,13 @@ PRInt32 GostRead(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount) {
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostRead enter amount=%d handshakeComplete=%d state=0x%08x",
-           aAmount, secret->handshakeComplete, msspi_state(secret->msspi))));
+           aAmount, secret->handshakeComplete, msspi_state(secret->msspi)));
 
   nsresult rv = DriveHandshake(aFd);
   if (rv == NS_BASE_STREAM_WOULD_BLOCK || NS_FAILED(rv)) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("GostRead handshake blocked rv=0x%08x state=0x%08x",
-             static_cast<unsigned int>(rv), msspi_state(secret->msspi))));
+             static_cast<unsigned int>(rv), msspi_state(secret->msspi)));
     return -1;
   }
 
@@ -308,13 +308,13 @@ PRInt32 GostRecv(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount, PRIntn aFlags,
           ("GostRecv enter amount=%d flags=0x%x handshakeComplete=%d "
            "state=0x%08x",
            aAmount, aFlags, secret->handshakeComplete,
-           msspi_state(secret->msspi))));
+           msspi_state(secret->msspi)));
 
   nsresult rv = DriveHandshake(aFd);
   if (rv == NS_BASE_STREAM_WOULD_BLOCK || NS_FAILED(rv)) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("GostRecv handshake blocked rv=0x%08x state=0x%08x",
-             static_cast<unsigned int>(rv), msspi_state(secret->msspi))));
+             static_cast<unsigned int>(rv), msspi_state(secret->msspi)));
     return -1;
   }
 
@@ -348,13 +348,13 @@ PRInt32 GostWrite(PRFileDesc* aFd, const void* aBuf, PRInt32 aAmount) {
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostWrite enter amount=%d handshakeComplete=%d state=0x%08x",
-           aAmount, secret->handshakeComplete, msspi_state(secret->msspi))));
+           aAmount, secret->handshakeComplete, msspi_state(secret->msspi)));
 
   nsresult rv = DriveHandshake(aFd);
   if (rv == NS_BASE_STREAM_WOULD_BLOCK || NS_FAILED(rv)) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("GostWrite handshake blocked rv=0x%08x state=0x%08x",
-             static_cast<unsigned int>(rv), msspi_state(secret->msspi))));
+             static_cast<unsigned int>(rv), msspi_state(secret->msspi)));
     return -1;
   }
 
@@ -395,7 +395,7 @@ PRInt32 GostAvailable(PRFileDesc* aFd) {
     int pending = msspi_pending(secret->msspi);
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("GostAvailable msspi pending=%d state=0x%08x", pending,
-             msspi_state(secret->msspi))));
+             msspi_state(secret->msspi)));
     if (pending > 0) {
       return pending;
     }
@@ -422,7 +422,7 @@ PRInt16 GostPoll(PRFileDesc* aFd, PRInt16 aInFlags, PRInt16* aOutFlags) {
     const int pending = msspi_pending(secret->msspi);
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("GostPoll complete in=0x%04x pending=%d state=0x%08x", aInFlags,
-             pending, msspi_state(secret->msspi))));
+             pending, msspi_state(secret->msspi)));
     if ((aInFlags & PR_POLL_READ) && pending > 0) {
       *aOutFlags |= PR_POLL_READ;
       MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
@@ -455,7 +455,7 @@ PRInt16 GostPoll(PRFileDesc* aFd, PRInt16 aInFlags, PRInt16* aOutFlags) {
           ("GostPoll handshake enter in=0x%04x state=0x%08x lowerIn=0x%04x "
            "reading=%d writing=%d",
            aInFlags, state, lowerIn, !!(state & MSSPI_READING),
-           !!(state & MSSPI_WRITING))));
+           !!(state & MSSPI_WRITING)));
 
   PRInt16 lowerOut = 0;
   const PRInt16 result =
@@ -511,7 +511,7 @@ PRStatus GostClose(PRFileDesc* aFd) {
       MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
               ("GostClose MSSPI shutdown host=%s state=0x%08x",
                PromiseFlatCString(secret->control->GetHostName()).get(),
-               msspi_state(secret->msspi))));
+               msspi_state(secret->msspi)));
       (void)msspi_shutdown(secret->msspi);
       (void)msspi_close(secret->msspi);
       secret->msspi = nullptr;
@@ -598,12 +598,12 @@ nsresult nsGostSSLIOLayerAddToSocket(
   }
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("AddToSocket msspi_open ok host=%s handle=%p state=0x%08x", aHost,
-           secret->msspi, msspi_state(secret->msspi))));
+           secret->msspi, msspi_state(secret->msspi)));
 
   bool configured = msspi_set_client(secret->msspi, 1);
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("AddToSocket set_client host=%s ok=%d error=0x%08x state=0x%08x",
-           aHost, configured, msspi_last_error(), msspi_state(secret->msspi))));
+           aHost, configured, msspi_last_error(), msspi_state(secret->msspi)));
 
   if (configured) {
     configured = msspi_set_version(secret->msspi, kForcedTlsVersion,
@@ -612,7 +612,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
             ("AddToSocket set_version host=%s ok=%d version=0x%04x "
              "error=0x%08x state=0x%08x",
              aHost, configured, kForcedTlsVersion, msspi_last_error(),
-             msspi_state(secret->msspi))));
+             msspi_state(secret->msspi)));
   }
 
   if (configured) {
@@ -622,7 +622,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
             ("AddToSocket set_hostname host=%s ok=%d error=0x%08x "
              "state=0x%08x",
              aHost, configured, msspi_last_error(),
-             msspi_state(secret->msspi))));
+             msspi_state(secret->msspi)));
   }
 
   if (configured) {
@@ -631,14 +631,14 @@ nsresult nsGostSSLIOLayerAddToSocket(
             ("AddToSocket set_peerauth host=%s ok=%d error=0x%08x "
              "state=0x%08x",
              aHost, configured, msspi_last_error(),
-             msspi_state(secret->msspi))));
+             msspi_state(secret->msspi)));
   }
 
   if (!configured) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
             ("AddToSocket MSSPI configuration failed host=%s error=0x%08x "
              "state=0x%08x",
-             aHost, msspi_last_error(), msspi_state(secret->msspi))));
+             aHost, msspi_last_error(), msspi_state(secret->msspi)));
     (void)msspi_close(secret->msspi);
     layer->secret = nullptr;
     layer->dtor(layer);
@@ -669,7 +669,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
           ("attached MSSPI GOST layer host=%s port=%d TLS=1.2 socket=%p "
            "layer=%p state=0x%08x",
-           aHost, aPort, aSocket, layer, msspi_state(secret->msspi))));
+           aHost, aPort, aSocket, layer, msspi_state(secret->msspi)));
   return NS_OK;
 }
 
