@@ -283,17 +283,28 @@ jobs:
 
           path = Path('toolkit/library/moz.build')
           text = path.read_text(encoding='utf-8')
-          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n'
+          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\
+        LDFLAGS += ["-time"]\
+'
           if text.count(anchor) != 1:
               raise SystemExit(f'Expected exactly one libxul clang-cl LDFLAGS anchor, found {text.count(anchor)}')
           yy = os.environ['THUNK_YY_LIB'].replace('\\', '/')
-          replacement = anchor + f'''\n    # r3dfox-gost Win7 experiment: keep Firefox on its native /MD CRT model.\n    # YY-Thunks supports lld-link LIB mode and is injected ahead of the SDK\n    # library search path; VC-LTL is provisioned separately but not linked here.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{yy}",\n        ]\n'''
-          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
+          replacement = anchor + f'''\
+    # r3dfox-gost Win7 experiment: keep Firefox on its native /MD CRT model.\
+    # YY-Thunks supports lld-link LIB mode and is injected ahead of the SDK\
+    # library search path; VC-LTL is provisioned separately but not linked here.\
+    if CONFIG["OS_ARCH"] == "WINNT":\
+        LDFLAGS += [\
+            "-LIBPATH:{yy}",\
+        ]\
+'''
+          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\
+')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff --check
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff -- toolkit\library\moz.build | Tee-Object -FilePath thunk-libxul-patch.diff
+          git diff --check -- toolkit/library/moz.build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Write thunk experiment mozconfig
         shell: powershell
