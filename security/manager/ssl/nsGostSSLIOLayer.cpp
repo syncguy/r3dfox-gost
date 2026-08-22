@@ -31,6 +31,7 @@ static constexpr int kForcedTlsVersion = TLS1_2_VERSION;
 
 struct GostSecret {
   RefPtr<GostSocketControl> control;
+  PRFileDesc* lower = nullptr;
   MSSPI_HANDLE msspi = nullptr;
   uint32_t lastMsspiError = 0;
   bool handshakeComplete = false;
@@ -56,25 +57,24 @@ void SetMsspiError(GostSecret* aSecret, uint32_t aNativeError) {
   PR_SetError(PR_IO_ERROR, static_cast<PRInt32>(aNativeError));
 }
 
-bool IsTransientLowerError(PRFileDesc* aLayer, PRErrorCode aError) {
+bool IsTransientLowerError(GostSecret* aSecret, PRErrorCode aError) {
   if (aError == PR_WOULD_BLOCK_ERROR || aError == PR_IO_PENDING_ERROR ||
       aError == PR_IN_PROGRESS_ERROR ||
       aError == PR_ALREADY_INITIATED_ERROR) {
     return true;
   }
 
-  GostSecret* secret = GetSecret(aLayer);
-  return aError == PR_NOT_CONNECTED_ERROR && secret &&
-         !secret->handshakeComplete;
+  return aError == PR_NOT_CONNECTED_ERROR && aSecret &&
+         !aSecret->handshakeComplete;
 }
 
-int HandleLowerError(PRFileDesc* aLayer, const char* aOperation, int aLen) {
+int HandleLowerError(GostSecret* aSecret, const char* aOperation, int aLen) {
   const PRErrorCode prError = PR_GetError();
   const PRInt32 osError = PR_GetOSError();
-  GostSecret* secret = GetSecret(aLayer);
-  const int state = secret && secret->msspi ? msspi_state(secret->msspi) : 0;
+  const int state =
+      aSecret && aSecret->msspi ? msspi_state(aSecret->msspi) : 0;
 
-  if (IsTransientLowerError(aLayer, prError)) {
+  if (IsTransientLowerError(aSecret, prError)) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("lower %s pending prError=%d osError=%d len=%d state=0x%08x",
              aOperation, static_cast<int>(prError), static_cast<int>(osError),
@@ -90,52 +90,50 @@ int HandleLowerError(PRFileDesc* aLayer, const char* aOperation, int aLen) {
 }
 
 int LowerRead(void* aArg, void* aBuf, int aLen) {
-  PRFileDesc* layer = static_cast<PRFileDesc*>(aArg);
-  if (!layer || !layer->lower) {
+  GostSecret* secret = static_cast<GostSecret*>(aArg);
+  PRFileDesc* lower = secret ? secret->lower : nullptr;
+  if (!secret || !lower || !lower->methods) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
-            ("LowerRead missing lower layer len=%d", aLen));
+            ("LowerRead missing transport secret=%p lower=%p len=%d", secret,
+             lower, aLen));
     return 0;
   }
 
-  GostSecret* secret = GetSecret(layer);
-  const int stateBefore =
-      secret && secret->msspi ? msspi_state(secret->msspi) : 0;
+  const int stateBefore = secret->msspi ? msspi_state(secret->msspi) : 0;
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-          ("LowerRead enter len=%d state=0x%08x", aLen, stateBefore));
+          ("LowerRead enter lower=%p len=%d state=0x%08x", lower, aLen,
+           stateBefore));
 
-  PRInt32 rv = layer->lower->methods->recv(
-      layer->lower, aBuf, aLen, 0, PR_INTERVAL_NO_WAIT);
+  PRInt32 rv = lower->methods->recv(lower, aBuf, aLen, 0, PR_INTERVAL_NO_WAIT);
   if (rv >= 0) {
-    const int stateAfter =
-        secret && secret->msspi ? msspi_state(secret->msspi) : 0;
+    const int stateAfter = secret->msspi ? msspi_state(secret->msspi) : 0;
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("LowerRead result rv=%d len=%d state=0x%08x", rv, aLen,
              stateAfter));
     return rv;
   }
-  return HandleLowerError(layer, "read", aLen);
+  return HandleLowerError(secret, "read", aLen);
 }
 
 int LowerWrite(void* aArg, const void* aBuf, int aLen) {
-  PRFileDesc* layer = static_cast<PRFileDesc*>(aArg);
-  if (!layer || !layer->lower) {
+  GostSecret* secret = static_cast<GostSecret*>(aArg);
+  PRFileDesc* lower = secret ? secret->lower : nullptr;
+  if (!secret || !lower || !lower->methods) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
-            ("LowerWrite missing lower layer len=%d", aLen));
+            ("LowerWrite missing transport secret=%p lower=%p len=%d", secret,
+             lower, aLen));
     return 0;
   }
 
-  GostSecret* secret = GetSecret(layer);
-  const int stateBefore =
-      secret && secret->msspi ? msspi_state(secret->msspi) : 0;
+  const int stateBefore = secret->msspi ? msspi_state(secret->msspi) : 0;
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-          ("LowerWrite enter len=%d state=0x%08x", aLen, stateBefore));
+          ("LowerWrite enter lower=%p len=%d state=0x%08x", lower, aLen,
+           stateBefore));
 
-  PRInt32 rv = layer->lower->methods->send(
-      layer->lower, aBuf, aLen, 0, PR_INTERVAL_NO_WAIT);
+  PRInt32 rv = lower->methods->send(lower, aBuf, aLen, 0, PR_INTERVAL_NO_WAIT);
 
   if (rv > 0 || aLen == 0) {
-    const int stateAfter =
-        secret && secret->msspi ? msspi_state(secret->msspi) : 0;
+    const int stateAfter = secret->msspi ? msspi_state(secret->msspi) : 0;
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("LowerWrite result rv=%d len=%d state=0x%08x", rv, aLen,
              stateAfter));
@@ -145,10 +143,9 @@ int LowerWrite(void* aArg, const void* aBuf, int aLen) {
   if (rv == 0) {
     const PRErrorCode prError = PR_GetError();
     const PRInt32 osError = PR_GetOSError();
-    const int state =
-        secret && secret->msspi ? msspi_state(secret->msspi) : 0;
+    const int state = secret->msspi ? msspi_state(secret->msspi) : 0;
 
-    if (secret && !secret->handshakeComplete) {
+    if (!secret->handshakeComplete) {
       MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
               ("LowerWrite zero during handshake len=%d prError=%d "
                "osError=%d state=0x%08x; treating as pending",
@@ -166,7 +163,7 @@ int LowerWrite(void* aArg, const void* aBuf, int aLen) {
     return 0;
   }
 
-  return HandleLowerError(layer, "write", aLen);
+  return HandleLowerError(secret, "write", aLen);
 }
 
 nsresult DriveHandshake(PRFileDesc* aLayer) {
@@ -496,6 +493,22 @@ PRStatus GostClose(PRFileDesc* aFd) {
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostClose enter fd=%p", aFd));
 
+  GostSecret* secret = GetSecret(aFd);
+  if (!secret) {
+    PR_SetError(PR_BAD_DESCRIPTOR_ERROR, 0);
+    return PR_FAILURE;
+  }
+
+  if (secret->msspi) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostClose MSSPI shutdown host=%s state=0x%08x lower=%p",
+             PromiseFlatCString(secret->control->GetHostName()).get(),
+             msspi_state(secret->msspi), secret->lower));
+    (void)msspi_shutdown(secret->msspi);
+    (void)msspi_close(secret->msspi);
+    secret->msspi = nullptr;
+  }
+
   PRFileDesc* layer = PR_PopIOLayer(aFd, PR_TOP_IO_LAYER);
   if (!layer || layer->identity != sGostIdentity) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
@@ -505,20 +518,8 @@ PRStatus GostClose(PRFileDesc* aFd) {
     return PR_FAILURE;
   }
 
-  GostSecret* secret = GetSecret(layer);
-  if (secret) {
-    if (secret->msspi) {
-      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-              ("GostClose MSSPI shutdown host=%s state=0x%08x",
-               PromiseFlatCString(secret->control->GetHostName()).get(),
-               msspi_state(secret->msspi)));
-      (void)msspi_shutdown(secret->msspi);
-      (void)msspi_close(secret->msspi);
-      secret->msspi = nullptr;
-    }
-    secret->control->SetFileDesc(nullptr);
-  }
-
+  secret->control->SetFileDesc(nullptr);
+  secret->lower = nullptr;
   layer->secret = nullptr;
   layer->dtor(layer);
   delete secret;
@@ -586,7 +587,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
   secret->control = control;
   layer->secret = reinterpret_cast<PRFilePrivate*>(secret);
 
-  secret->msspi = msspi_open(layer, LowerRead, LowerWrite);
+  secret->msspi = msspi_open(secret, LowerRead, LowerWrite);
   if (!secret->msspi) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
             ("AddToSocket msspi_open failed host=%s error=0x%08x", aHost,
@@ -662,14 +663,40 @@ nsresult nsGostSSLIOLayerAddToSocket(
     return NS_ERROR_FAILURE;
   }
 
+  PRFileDesc* activeLayer = PR_GetIdentitiesLayer(aSocket, sGostIdentity);
+  if (!activeLayer || !activeLayer->lower) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("AddToSocket cannot resolve pushed GOST layer host=%s socket=%p "
+             "activeLayer=%p lower=%p",
+             aHost, aSocket, activeLayer,
+             activeLayer ? activeLayer->lower : nullptr));
+
+    PRFileDesc* popped = PR_PopIOLayer(aSocket, PR_TOP_IO_LAYER);
+    (void)msspi_close(secret->msspi);
+    secret->msspi = nullptr;
+    if (popped && popped->identity == sGostIdentity) {
+      popped->secret = nullptr;
+      popped->dtor(popped);
+    }
+    delete secret;
+    return NS_ERROR_FAILURE;
+  }
+
+  secret->lower = activeLayer->lower;
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+          ("AddToSocket GOST transport resolved host=%s socket=%p gost=%p "
+           "lower=%p",
+           aHost, aSocket, activeLayer, secret->lower));
+
   control->SetFileDesc(aSocket);
   nsCOMPtr<nsITLSSocketControl> result = control.get();
   result.forget(aTlsSocketControl);
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
           ("attached MSSPI GOST layer host=%s port=%d TLS=1.2 socket=%p "
-           "layer=%p state=0x%08x",
-           aHost, aPort, aSocket, layer, msspi_state(secret->msspi)));
+           "layer=%p lower=%p state=0x%08x",
+           aHost, aPort, aSocket, activeLayer, secret->lower,
+           msspi_state(secret->msspi)));
   return NS_OK;
 }
 
