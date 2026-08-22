@@ -6,6 +6,7 @@ on:
       - agent/gost-tls-poc
     paths:
       - ".github/workflows/gost-poc-build.yml"
+      - "security/manager/ssl/nsGostSSLIOLayer.cpp"
   workflow_dispatch:
 
 permissions:
