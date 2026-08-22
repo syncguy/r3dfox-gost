@@ -385,20 +385,6 @@ jobs:
           & $mozmake -C 'obj-gost-thunk-win64' 'security/manager/ssl/target-objects'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: GATE - Link libxul with YY-Thunks LIB mode
-        id: xul-link-gate
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "YY-Thunks LIB path: $env:THUNK_YY_LIB"
-          Write-Host "VC-LTL provisioned but intentionally not linked: $env:THUNK_VC_LTL_LIB"
-          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
-          & $mozmake -C 'obj-gost-thunk-win64' 'toolkit/library/build/xul.dll'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $xul = 'obj-gost-thunk-win64\dist\bin\xul.dll'
-          if (-not (Test-Path $xul)) { throw "XUL linker gate completed without producing $xul" }
-          Get-Item $xul | Select-Object FullName,Length,LastWriteTime | Format-List
-
       - name: Build release r3dfox with YY-Thunks linker path
         id: build-release
         shell: powershell
