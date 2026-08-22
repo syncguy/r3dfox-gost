@@ -392,7 +392,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Write-Host "YY-Thunks LIB path: $env:THUNK_YY_LIB"
           Write-Host "VC-LTL provisioned but intentionally not linked: $env:THUNK_VC_LTL_LIB"
-          .\mach.ps1 build toolkit/library
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C 'obj-gost-thunk-win64' 'toolkit/library/build/xul.dll'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $xul = 'obj-gost-thunk-win64\dist\bin\xul.dll'
           if (-not (Test-Path $xul)) { throw "XUL linker gate completed without producing $xul" }
