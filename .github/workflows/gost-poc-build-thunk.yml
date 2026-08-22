@@ -273,7 +273,7 @@ jobs:
           "THUNK_YY_LIB=$yyLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "YY-Thunks LLD-link lib path: $yyLib"
 
-      - name: Patch libxul linker for thunk-rs compatibility libraries
+      - name: Patch libxul linker for YY-Thunks LIB mode
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -284,13 +284,14 @@ jobs:
           path = Path('toolkit/library/moz.build')
           text = path.read_text(encoding='utf-8')
           anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n'
-          if anchor not in text:
-              raise SystemExit('Libxul clang-cl LDFLAGS anchor not found')
-          vc = os.environ['THUNK_VC_LTL_LIB'].replace('\\', '/')
+          if text.count(anchor) != 1:
+              raise SystemExit(f'Expected exactly one libxul clang-cl LDFLAGS anchor, found {text.count(anchor)}')
           yy = os.environ['THUNK_YY_LIB'].replace('\\', '/')
-          replacement = anchor + f'''\n    # r3dfox-gost experimental Win7 thunk path. thunk-rs 0.3.5 uses\n    # VC-LTL 5.2.2 and YY-Thunks 1.1.7. Firefox is linked by clang-cl/lld-link,\n    # so use YY-Thunks' LIB mode instead of the OBJ mode emitted by thunk-rs.\n    # VC-LTL's legacy runtime overlay is designed for the static C++ runtime.\n    # Mozilla normally supplies msvcprt.lib (/MD); suppress it for libxul and\n    # select libcpmt.lib so its C++ runtime does not collide with VC-LTL ucrt.lib.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{vc}",\n            "-LIBPATH:{yy}",\n            "-NODEFAULTLIB:msvcprt.lib",\n            "-DEFAULTLIB:libcpmt.lib",\n        ]\n'''
+          replacement = anchor + f'''\n    # r3dfox-gost Win7 experiment: keep Firefox on its native /MD CRT model.\n    # YY-Thunks supports lld-link LIB mode and is injected ahead of the SDK\n    # library search path; VC-LTL is provisioned separately but not linked here.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{yy}",\n        ]\n'''
           path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
           '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff -- toolkit\library\moz.build | Tee-Object -FilePath thunk-libxul-patch.diff
 
@@ -384,7 +385,20 @@ jobs:
           & $mozmake -C 'obj-gost-thunk-win64' 'security/manager/ssl/target-objects'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build release r3dfox with thunk linker path
+      - name: GATE - Link libxul with YY-Thunks LIB mode
+        id: xul-link-gate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "YY-Thunks LIB path: $env:THUNK_YY_LIB"
+          Write-Host "VC-LTL provisioned but intentionally not linked: $env:THUNK_VC_LTL_LIB"
+          .\mach.ps1 build toolkit/library
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $xul = 'obj-gost-thunk-win64\dist\bin\xul.dll'
+          if (-not (Test-Path $xul)) { throw "XUL linker gate completed without producing $xul" }
+          Get-Item $xul | Select-Object FullName,Length,LastWriteTime | Format-List
+
+      - name: Build release r3dfox with YY-Thunks linker path
         id: build-release
         shell: powershell
         run: |
