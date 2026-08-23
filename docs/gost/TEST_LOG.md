@@ -395,3 +395,51 @@ For a formal green CI gate, commit `fd925b1780fa3470a2cfba743a7374f7d7e644d6` re
 ### Next Win7 experiment
 
 Run the same closing smoke at `fd925b1780fa3470a2cfba743a7374f7d7e644d6`. Do not change the linker strategy and do not run the full Firefox build until the corrected audit records a formal PASS. If that run is green, transfer this exact narrow ProcessPrng + `synchronization.lib` strategy into the Firefox `xul.dll` link as the next single experiment.
+
+---
+
+## 2026-08-23 — Narrow ProcessPrng closing smoke formally passed
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`  
+**Commit under test:** `fd925b1780fa3470a2cfba743a7374f7d7e644d6`  
+**Actions run:** `32644291202`  
+**Job:** `97207125757`  
+**Workflow:** `YY-Thunks narrow ProcessPrng closing smoke`  
+**Diagnostics artifact:** `9494650310`  
+**CI result:** success
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32644291202>
+
+### Observation
+
+Every substantive gate passed: narrow provider construction, representative Rust archive construction, the single final Rust/LLD link, exact PE-import audit, and diagnostics upload.
+
+The uploaded diagnostics confirm the intended final state:
+
+- `ProcessPrng` and `YY_Thunks_ProcessPrng` resolve to the same address in `final-link.map`;
+- the narrow provider is supplied together with YY `synchronization.lib`;
+- the complete YY `kernel32.lib` path and the full YY Lib directory are absent from the final link inputs;
+- parsed imported DLLs are only `KERNEL32.dll`, `msvcrt.dll`, and `ntdll.dll`;
+- parsed imported API names contain the positive-control `LockResource`;
+- parsed imported API names do not contain `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, or `WakeByAddressSingle`;
+- `bcryptprimitives.dll` and `api-ms-win-core-synch-l1-2-0.dll` are absent.
+
+### Conclusion
+
+**Representative-smoke confirmation of the narrow linker strategy.** The previous whole-YY-`kernel32.lib` approach remains disproved, while the exact narrow `ProcessPrng` provider plus `synchronization.lib` strategy passes both the raw-dylib collision model and the final PE-import gate.
+
+This does not yet prove that the strategy scales to Firefox's full `xul.dll` link or that the resulting browser is Windows 7-compatible at runtime.
+
+### Next Win7 experiment
+
+Transfer this exact strategy, without adding a second linker candidate, into `.github/workflows/gost-poc-build-thunk.yml`:
+
+1. use YY-Thunks 1.2.2;
+2. build the narrow provider from `ProcessPrng.obj`, `ProcessPrng.obi`, and `YY_Thunks_for_6.1.7600.0.obj`;
+3. keep YY `synchronization.lib`;
+4. remove complete YY `kernel32.lib` interposition and do not add the full YY Lib directory to final `LIBPATH`;
+5. preserve Firefox's `/MD` CRT model;
+6. run one full Firefox build and apply an exact parsed import audit to the produced `xul.dll`.
+
+Only that full-scale result can establish whether the passing smoke strategy survives the real Firefox link.
