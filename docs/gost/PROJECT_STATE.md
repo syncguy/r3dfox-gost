@@ -192,7 +192,33 @@ Recent experiment commits include:
 - `1b2c329589d8a256ea5615bf2eb15027b0624787` — test YY-Thunks 1.2.2 in Rust smoke;
 - `79061580dabae72a03f78e66fe8b90d1f1cb1ee7` — combine VC-LTL 5.2.2 provisioning with YY-Thunks 1.2.2 smoke variants.
 
-Actions run `32623108290` is associated with `a73f18e...`, not with the later `79061580...` commit. At the time this state was written it was still in progress on the main full-build step, after its prerequisite and SSL-object gates had passed. Do not record a final conclusion for that run until its terminal status and import audit are checked.
+### Current Win7 linker blocker
+
+Full-build Actions run `32623108290`, job `97162633898`, is pinned to commit `a73f18e823c083c970eea649ce305da648640e2f` and failed while linking `xul.dll`.
+
+The first linker error is:
+
+```text
+lld-link: error: duplicate symbol: LockResource
+>>> defined at gkrust.lib(48d3f1b29a630f4c-gl.o)
+>>> defined at kernel32.lib(kernel32.dll)
+```
+
+That commit deliberately put YY-Thunks `synchronization.lib` and the complete YY-Thunks `kernel32.lib` before `gkrust.lib`. The full link therefore disproves the scale-up hypothesis that the whole YY `kernel32.lib` can safely be interposed ahead of Rust: ordinary kernel32 symbols exposed by that archive collide with Rust raw-dylib import objects. `LockResource` is the first observed collision.
+
+This does **not** change the GOST runtime blocker; it is a separate Win7/toolchain result.
+
+### Next Win7 experiment
+
+Do not spend another full Firefox build cycle yet.
+
+Use the dedicated `.github/workflows/yy-thunks-rust-smoke.yml`, currently on YY-Thunks 1.2.2 + VC-LTL 5.2.2, to reproduce the `LockResource` archive/raw-dylib conflict and test a narrower linker strategy:
+
+1. keep `synchronization.lib` available for `WaitOnAddress` / `WakeByAddress*`;
+2. do not place the complete YY `kernel32.lib` before the Rust archive;
+3. resolve `ProcessPrng` through a narrow alias/provider strategy and verify it in the smoke rather than assuming it works;
+4. require successful linking with the representative Rust archive and a clean PE-import audit;
+5. only then transfer the proven linker ordering/aliasing into the full Firefox `xul.dll` link.
 
 ## Separation of conclusions
 
