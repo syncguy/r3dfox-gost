@@ -13,12 +13,14 @@ permissions:
 
 env:
   YY_THUNKS_VERSION: "1.2.2"
+  VC_LTL_VERSION: "5.2.2"
+  THUNK_RS_VERSION: "0.3.5"
   RUST_TOOLCHAIN: "nightly-2026-08-20"
   RUST_TARGET: "x86_64-pc-windows-msvc"
 
 jobs:
   rust-win7-import-smoke:
-    name: Rust libstd + YY-Thunks import smoke
+    name: Rust libstd + YY-Thunks + VC-LTL import smoke
     runs-on: windows-latest
     timeout-minutes: 15
 
@@ -36,6 +38,68 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ env.RUST_TARGET }}
+
+      - name: Provision VC-LTL 5.2.2 via thunk-rs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'yy-smoke-vcltl-provision'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+
+          @"
+          [package]
+          name = "yy-smoke-vcltl-provision"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = { version = "=$env:THUNK_RS_VERSION", default-features = false, features = ["win7", "lib"] }
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+
+          @'
+          fn main() { thunk::thunk(); }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+
+          'fn main() { println!("VC-LTL provision ok"); }' |
+            Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          $stdout = Join-Path $env:RUNNER_TEMP 'vcltl-provision.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'vcltl-provision.stderr.log'
+          $merged = Join-Path $env:RUNNER_TEMP 'vcltl-provision.log'
+          Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
+
+          $cargoArgs = @('build', '--target', $env:RUST_TARGET, '--jobs', '4', '-vv')
+          $proc = Start-Process -FilePath 'cargo' -ArgumentList $cargoArgs -WorkingDirectory $proj -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
+          if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
+          if ($proc.ExitCode -ne 0) {
+            throw "thunk-rs VC-LTL provisioning failed with exit code $($proc.ExitCode)"
+          }
+
+          $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter "VC-LTL-$env:VC_LTL_VERSION" |
+            Select-Object -First 1
+          if (-not $vc) {
+            throw "thunk-rs did not provision VC-LTL-$env:VC_LTL_VERSION"
+          }
+
+          $vcLib = Join-Path $vc.FullName 'TargetPlatform\6.0.6000.0\lib\x64'
+          if (-not (Test-Path $vcLib)) {
+            throw "Expected VC-LTL Vista/Win7 x64 lib directory not found: $vcLib"
+          }
+
+          $vcLibs = @(Get-ChildItem -Path $vcLib -File -Filter '*.lib')
+          if ($vcLibs.Count -eq 0) {
+            throw "VC-LTL lib directory contains no .lib files: $vcLib"
+          }
+
+          "THUNK_VC_LTL_LIB=$vcLib" |
+            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "VC-LTL v$env:VC_LTL_VERSION lib path: $vcLib"
+          $vcLibs | Sort-Object Name | Select-Object Name,Length | Format-Table -AutoSize
 
       - name: Download YY-Thunks LLD-link Win7 x64 libraries
         shell: powershell
@@ -170,7 +234,7 @@ jobs:
           "SMOKE_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-Content (Join-Path $dir 'main.rs')
 
-      - name: Build four linker-order variants
+      - name: Build five linker-order variants
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -179,6 +243,7 @@ jobs:
           $libpath = Join-Path $env:SMOKE_DIR 'libpath-only.exe'
           $kernel32 = Join-Path $env:SMOKE_DIR 'explicit-kernel32.exe'
           $all = Join-Path $env:SMOKE_DIR 'explicit-all.exe'
+          $allVcLtl = Join-Path $env:SMOKE_DIR 'explicit-all-vcltl.exe'
 
           Write-Host '=== baseline: plain Rust libstd + lld-link ==='
           & rustc $src --target $env:RUST_TARGET -O "-Clinker=$env:REAL_LLD_LINK" -o $baseline
@@ -220,9 +285,36 @@ jobs:
             throw "explicit-all rustc failed: $LASTEXITCODE"
           }
 
-          Get-Item $baseline,$libpath,$kernel32,$all | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+          Write-Host '=== experiment D: VC-LTL 5.2.2 LIBPATH + explicit YY-Thunks 1.2.2 libraries ==='
+          $vcWrapper = Join-Path $env:SMOKE_DIR 'lld-link-yy-all-vcltl.cmd'
+          @"
+          @echo off
+          echo ==== lld-link VC-LTL + YY synchronization + kernel32 invocation ====>>"$env:SMOKE_DIR\explicit-all-vcltl-linker.log"
+          echo VC-LTL LIBPATH: $env:THUNK_VC_LTL_LIB>>"$env:SMOKE_DIR\explicit-all-vcltl-linker.log"
+          echo YY-Thunks LIBPATH: $env:THUNK_YY_LIB>>"$env:SMOKE_DIR\explicit-all-vcltl-linker.log"
+          echo %*>>"$env:SMOKE_DIR\explicit-all-vcltl-linker.log"
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_VC_LTL_LIB" "-LIBPATH:$env:THUNK_YY_LIB" "$env:THUNK_YY_SYNCH_LIB" "$env:THUNK_YY_KERNEL32_LIB" "-VERBOSE" %* >>"$env:SMOKE_DIR\explicit-all-vcltl-linker.log" 2>&1
+          set _rc=%ERRORLEVEL%
+          exit /b %_rc%
+          "@ | Set-Content -Encoding ascii $vcWrapper
 
-      - name: Audit PE imports and gate explicit-all result
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$vcWrapper" -o $allVcLtl
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path (Join-Path $env:SMOKE_DIR 'explicit-all-vcltl-linker.log')) { Get-Content (Join-Path $env:SMOKE_DIR 'explicit-all-vcltl-linker.log') }
+            throw "explicit-all-vcltl rustc failed: $LASTEXITCODE"
+          }
+
+          Write-Host '=== execute combined VC-LTL + YY-Thunks binary on the runner ==='
+          & $allVcLtl
+          if ($LASTEXITCODE -ne 0) {
+            throw "explicit-all-vcltl runtime smoke failed: $LASTEXITCODE"
+          }
+
+          Get-Item $baseline,$libpath,$kernel32,$all,$allVcLtl |
+            Select-Object Name,Length,LastWriteTime |
+            Format-Table -AutoSize
+
+      - name: Audit PE imports and gate YY-only and VC-LTL+YY results
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -250,12 +342,17 @@ jobs:
           $libpath = Get-ImportAudit 'libpath-only'
           $kernel32 = Get-ImportAudit 'explicit-kernel32'
           $all = Get-ImportAudit 'explicit-all'
+          $allVcLtl = Get-ImportAudit 'explicit-all-vcltl'
 
-          "## YY-Thunks Rust Win7 smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "## YY-Thunks + VC-LTL Rust Win7 smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- VC-LTL: v$env:VC_LTL_VERSION (TargetPlatform/6.0.6000.0/lib/x64)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- thunk-rs provisioning: v$env:THUNK_RS_VERSION" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "| Variant | Forbidden imports |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          foreach ($r in @($baseline,$libpath,$kernel32,$all)) {
+          foreach ($r in @($baseline,$libpath,$kernel32,$all,$allVcLtl)) {
             $value = if ($r.Hits.Count) { $r.Hits -join ', ' } else { 'none' }
             "| $($r.Name) | $value |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
@@ -266,6 +363,8 @@ jobs:
           $kernel32.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
           Write-Host '=== explicit-all dumpbin excerpt ==='
           $all.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
+          Write-Host '=== explicit-all-vcltl dumpbin excerpt ==='
+          $allVcLtl.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress|msvcrt|ucrtbase|vcruntime|api-ms-win-crt' } | ForEach-Object { Write-Host $_ }
 
           if ($baseline.Hits.Count -eq 0) {
             throw 'Baseline did not reproduce any forbidden Rust/Win8+ imports; smoke test is not representative.'
@@ -273,13 +372,17 @@ jobs:
           if ($all.Hits.Count -ne 0) {
             throw "YY-Thunks explicit-all experiment still has forbidden imports: $($all.Hits -join ', ')"
           }
+          if ($allVcLtl.Hits.Count -ne 0) {
+            throw "VC-LTL + YY-Thunks combined experiment still has forbidden imports: $($allVcLtl.Hits -join ', ')"
+          }
 
       - name: Upload smoke-test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yy-thunks-rust-smoke-diagnostics
+          name: yy-thunks-vcltl-rust-smoke-diagnostics
           path: |
             ${{ runner.temp }}/yy-rust-smoke/*.imports.txt
             ${{ runner.temp }}/yy-rust-smoke/*linker.log
+            ${{ runner.temp }}/vcltl-provision*.log
           if-no-files-found: warn
