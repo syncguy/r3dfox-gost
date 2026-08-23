@@ -67,10 +67,46 @@ jobs:
             throw "YY-Thunks Win7 x64 kernel32.lib was not found: $yyKernel32"
           }
 
+          $yySynch = Join-Path $yyLib.FullName 'api-ms-win-core-synch-l1-2-0.lib'
+          if (-not (Test-Path $yySynch)) {
+            Write-Host 'Available YY-Thunks libraries containing synch/api-ms names:'
+            Get-ChildItem -Path $yyLib.FullName -File -Filter '*.lib' |
+              Where-Object { $_.Name -match '(?i)synch|api-ms' } |
+              Sort-Object Name |
+              Select-Object Name,Length |
+              Format-Table -AutoSize
+            throw "YY-Thunks Win7 x64 api-ms-win-core-synch-l1-2-0.lib was not found: $yySynch"
+          }
+
           "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "THUNK_YY_KERNEL32_LIB=$yyKernel32" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$yySynch" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "YY-Thunks Lib path: $($yyLib.FullName)"
           Write-Host "YY-Thunks kernel32.lib: $yyKernel32"
+          Write-Host "YY-Thunks synch API-set lib: $yySynch"
+
+      - name: Inspect YY-Thunks import-library symbols
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $kernelSymbols = (& dumpbin /nologo /linkermember:1 $env:THUNK_YY_KERNEL32_LIB 2>&1 | Out-String)
+          $synchSymbols = (& dumpbin /nologo /linkermember:1 $env:THUNK_YY_SYNCH_LIB 2>&1 | Out-String)
+
+          Write-Host '=== kernel32.lib relevant symbols ==='
+          $kernelSymbols -split "`r?`n" |
+            Where-Object { $_ -match 'ProcessPrng|YY_Thunks_ProcessPrng' } |
+            ForEach-Object { Write-Host $_ }
+
+          Write-Host '=== api-ms-win-core-synch-l1-2-0.lib relevant symbols ==='
+          $synchSymbols -split "`r?`n" |
+            Where-Object { $_ -match 'WaitOnAddress|WakeByAddressAll|WakeByAddressSingle|YY_Thunks_' } |
+            ForEach-Object { Write-Host $_ }
+
+          foreach ($symbol in @('__imp_WaitOnAddress','__imp_WakeByAddressAll','__imp_WakeByAddressSingle')) {
+            if ($synchSymbols.IndexOf($symbol, [System.StringComparison]::Ordinal) -lt 0) {
+              throw "YY-Thunks synch import library does not contain expected linker symbol: $symbol"
+            }
+          }
 
       - name: Locate lld-link
         shell: powershell
@@ -134,14 +170,15 @@ jobs:
           "SMOKE_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-Content (Join-Path $dir 'main.rs')
 
-      - name: Build baseline, LIBPATH-only and explicit-first variants
+      - name: Build four linker-order variants
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $src = Join-Path $env:SMOKE_DIR 'main.rs'
           $baseline = Join-Path $env:SMOKE_DIR 'baseline.exe'
           $libpath = Join-Path $env:SMOKE_DIR 'libpath-only.exe'
-          $explicit = Join-Path $env:SMOKE_DIR 'explicit-first.exe'
+          $kernel32 = Join-Path $env:SMOKE_DIR 'explicit-kernel32.exe'
+          $all = Join-Path $env:SMOKE_DIR 'explicit-all.exe'
 
           Write-Host '=== baseline: plain Rust libstd + lld-link ==='
           & rustc $src --target $env:RUST_TARGET -O "-Clinker=$env:REAL_LLD_LINK" -o $baseline
@@ -152,24 +189,40 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "LIBPATH-only rustc failed: $LASTEXITCODE" }
 
           Write-Host '=== experiment B: prepend YY-Thunks kernel32.lib before every rustc linker argument ==='
-          $wrapper = Join-Path $env:SMOKE_DIR 'lld-link-yy-first.cmd'
+          $kernelWrapper = Join-Path $env:SMOKE_DIR 'lld-link-yy-kernel32-first.cmd'
           @"
           @echo off
-          echo ==== lld-link wrapper invocation ====>>"$env:SMOKE_DIR\explicit-linker.log"
-          echo %*>>"$env:SMOKE_DIR\explicit-linker.log"
+          echo ==== lld-link kernel32-first invocation ====>>"$env:SMOKE_DIR\kernel32-linker.log"
+          echo %*>>"$env:SMOKE_DIR\kernel32-linker.log"
           "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_YY_LIB" "$env:THUNK_YY_KERNEL32_LIB" %*
           exit /b %ERRORLEVEL%
-          "@ | Set-Content -Encoding ascii $wrapper
+          "@ | Set-Content -Encoding ascii $kernelWrapper
 
-          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$wrapper" -o $explicit
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$kernelWrapper" -o $kernel32
           if ($LASTEXITCODE -ne 0) {
-            if (Test-Path (Join-Path $env:SMOKE_DIR 'explicit-linker.log')) { Get-Content (Join-Path $env:SMOKE_DIR 'explicit-linker.log') }
-            throw "explicit-first rustc failed: $LASTEXITCODE"
+            if (Test-Path (Join-Path $env:SMOKE_DIR 'kernel32-linker.log')) { Get-Content (Join-Path $env:SMOKE_DIR 'kernel32-linker.log') }
+            throw "explicit-kernel32 rustc failed: $LASTEXITCODE"
           }
 
-          Get-Item $baseline,$libpath,$explicit | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+          Write-Host '=== experiment C: prepend YY-Thunks synch API-set lib + kernel32.lib before every rustc linker argument ==='
+          $allWrapper = Join-Path $env:SMOKE_DIR 'lld-link-yy-all-first.cmd'
+          @"
+          @echo off
+          echo ==== lld-link YY API-set + kernel32 first invocation ====>>"$env:SMOKE_DIR\explicit-all-linker.log"
+          echo %*>>"$env:SMOKE_DIR\explicit-all-linker.log"
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_YY_LIB" "$env:THUNK_YY_SYNCH_LIB" "$env:THUNK_YY_KERNEL32_LIB" %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $allWrapper
 
-      - name: Audit PE imports and gate explicit-first result
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$allWrapper" -o $all
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path (Join-Path $env:SMOKE_DIR 'explicit-all-linker.log')) { Get-Content (Join-Path $env:SMOKE_DIR 'explicit-all-linker.log') }
+            throw "explicit-all rustc failed: $LASTEXITCODE"
+          }
+
+          Get-Item $baseline,$libpath,$kernel32,$all | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+
+      - name: Audit PE imports and gate explicit-all result
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -195,27 +248,30 @@ jobs:
 
           $baseline = Get-ImportAudit 'baseline'
           $libpath = Get-ImportAudit 'libpath-only'
-          $explicit = Get-ImportAudit 'explicit-first'
+          $kernel32 = Get-ImportAudit 'explicit-kernel32'
+          $all = Get-ImportAudit 'explicit-all'
 
           "## YY-Thunks Rust Win7 smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "| Variant | Forbidden imports |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          foreach ($r in @($baseline,$libpath,$explicit)) {
+          foreach ($r in @($baseline,$libpath,$kernel32,$all)) {
             $value = if ($r.Hits.Count) { $r.Hits -join ', ' } else { 'none' }
             "| $($r.Name) | $value |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
           Write-Host '=== baseline dumpbin excerpt ==='
           $baseline.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
-          Write-Host '=== explicit-first dumpbin excerpt ==='
-          $explicit.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
+          Write-Host '=== explicit-kernel32 dumpbin excerpt ==='
+          $kernel32.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
+          Write-Host '=== explicit-all dumpbin excerpt ==='
+          $all.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
 
           if ($baseline.Hits.Count -eq 0) {
             throw 'Baseline did not reproduce any forbidden Rust/Win8+ imports; smoke test is not representative.'
           }
-          if ($explicit.Hits.Count -ne 0) {
-            throw "YY-Thunks explicit-first experiment still has forbidden imports: $($explicit.Hits -join ', ')"
+          if ($all.Hits.Count -ne 0) {
+            throw "YY-Thunks explicit-all experiment still has forbidden imports: $($all.Hits -join ', ')"
           }
 
       - name: Upload smoke-test diagnostics
@@ -225,5 +281,5 @@ jobs:
           name: yy-thunks-rust-smoke-diagnostics
           path: |
             ${{ runner.temp }}/yy-rust-smoke/*.imports.txt
-            ${{ runner.temp }}/yy-rust-smoke/explicit-linker.log
+            ${{ runner.temp }}/yy-rust-smoke/*linker.log
           if-no-files-found: warn
