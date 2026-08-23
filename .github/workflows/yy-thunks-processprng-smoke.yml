@@ -432,23 +432,33 @@ jobs:
           $imports = (& dumpbin /nologo /imports $env:SMOKE_EXE 2>&1 | Out-String)
           $imports | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'final-imports.txt')
 
-          $forbidden = @(
-            'ProcessPrng',
-            'bcryptprimitives.dll',
-            'api-ms-win-core-synch-l1-2-0.dll',
-            'WaitOnAddress',
-            'WakeByAddressAll',
-            'WakeByAddressSingle'
-          )
-          $hits = @($forbidden | Where-Object {
-            $imports.IndexOf($_, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-          })
+          $dllImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $apiImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($line in ($imports -split "`r?`n")) {
+            $entry = $line.Trim()
+            if ($entry -match '^[A-Za-z0-9_.-]+\.dll$') {
+              [void]$dllImports.Add($entry)
+              continue
+            }
+            if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+              [void]$apiImports.Add($Matches[1])
+            }
+          }
+
+          @($dllImports | Sort-Object) | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'final-import-dlls.txt')
+          @($apiImports | Sort-Object) | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'final-import-api-names.txt')
+
+          $forbiddenApis = @('ProcessPrng', 'WaitOnAddress', 'WakeByAddressAll', 'WakeByAddressSingle')
+          $forbiddenDlls = @('bcryptprimitives.dll', 'api-ms-win-core-synch-l1-2-0.dll')
+          $hits = @()
+          $hits += @($forbiddenApis | Where-Object { $apiImports.Contains($_) })
+          $hits += @($forbiddenDlls | Where-Object { $dllImports.Contains($_) })
           if ($hits.Count -gt 0) { throw "Win7-incompatible imports survived: $($hits -join ', ')" }
 
-          if ($imports.IndexOf('LockResource', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+          if (-not $apiImports.Contains('LockResource')) {
             throw 'LockResource control import is absent from the final PE'
           }
-          if ($imports.IndexOf('KERNEL32.dll', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+          if (-not $dllImports.Contains('KERNEL32.dll')) {
             throw 'KERNEL32.dll is absent from final imports'
           }
 
