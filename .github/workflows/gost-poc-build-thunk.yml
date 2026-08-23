@@ -270,8 +270,29 @@ jobs:
           }
           if (-not $candidate) { throw 'Could not locate an x64 Win7/Vista YY-Thunks LLD-link library directory.' }
           $yyLib = $candidate.Directory.FullName
+
+          $yyKernel32 = Join-Path $yyLib 'kernel32.lib'
+          if (-not (Test-Path $yyKernel32)) {
+            throw "YY-Thunks Win7 x64 kernel32.lib not found: $yyKernel32"
+          }
+          $yySynch = Join-Path $yyLib 'synchronization.lib'
+          if (-not (Test-Path $yySynch)) {
+            throw "YY-Thunks Win7 x64 synchronization.lib not found: $yySynch"
+          }
+
+          $synchSymbols = (& dumpbin /nologo /linkermember:1 $yySynch 2>&1 | Out-String)
+          foreach ($symbol in @('__imp_WaitOnAddress','__imp_WakeByAddressAll','__imp_WakeByAddressSingle')) {
+            if ($synchSymbols.IndexOf($symbol, [System.StringComparison]::Ordinal) -lt 0) {
+              throw "YY-Thunks synchronization.lib missing expected linker symbol: $symbol"
+            }
+          }
+
           "THUNK_YY_LIB=$yyLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$yyKernel32" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$yySynch" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "YY-Thunks LLD-link lib path: $yyLib"
+          Write-Host "YY-Thunks patched kernel32.lib: $yyKernel32"
+          Write-Host "YY-Thunks synchronization.lib: $yySynch"
 
       - name: Patch libxul linker for YY-Thunks LIB mode
         shell: powershell
@@ -287,7 +308,9 @@ jobs:
           if text.count(anchor) != 1:
               raise SystemExit(f'Expected exactly one libxul clang-cl LDFLAGS anchor, found {text.count(anchor)}')
           yy = os.environ['THUNK_YY_LIB'].replace('\\', '/')
-          replacement = anchor + f'''\n    # r3dfox-gost Win7 experiment: keep Firefox on its native /MD CRT model.\n    # YY-Thunks supports lld-link LIB mode and is injected ahead of the SDK\n    # library search path; VC-LTL is provisioned separately but not linked here.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{yy}",\n        ]\n'''
+          yy_synch = os.environ['THUNK_YY_SYNCH_LIB'].replace('\\', '/')
+          yy_kernel32 = os.environ['THUNK_YY_KERNEL32_LIB'].replace('\\', '/')
+          replacement = anchor + f'''\n    # r3dfox-gost Win7 experiment: keep Firefox on its native /MD CRT model.\n    # Rust libstd contains raw-dylib import members for ProcessPrng and the\n    # WaitOnAddress family. LIBPATH alone is insufficient: explicitly place\n    # the YY-Thunks import libraries before STATIC_LIBS/gkrust.\n    # synchronization.lib resolves WaitOnAddress/WakeByAddress* and\n    # kernel32.lib resolves ProcessPrng before Rust raw-dylib members win.\n    # VC-LTL is provisioned separately but intentionally not linked here.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{yy}",\n            "{yy_synch}",\n            "{yy_kernel32}",\n            "-VERBOSE",\n        ]\n'''
           path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
