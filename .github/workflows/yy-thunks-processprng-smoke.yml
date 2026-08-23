@@ -1,0 +1,549 @@
+name: YY-Thunks narrow ProcessPrng closing smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  VC_LTL_VERSION: "5.2.2"
+  THUNK_RS_VERSION: "0.3.5"
+  RUST_TOOLCHAIN: "nightly-2026-08-20"
+  RUST_TARGET: "x86_64-pc-windows-msvc"
+
+jobs:
+  processprng-closing-smoke:
+    name: Narrow YY ProcessPrng provider + synchronization.lib
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Provision VC-LTL 5.2.2 via thunk-rs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $proj = Join-Path $env:RUNNER_TEMP 'processprng-vcltl-provision'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+
+          @"
+          [package]
+          name = "processprng-vcltl-provision"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = { version = "=$env:THUNK_RS_VERSION", default-features = false, features = ["win7", "lib"] }
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+
+          'fn main() { thunk::thunk(); }' | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+          'fn main() {}' | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          & cargo build --manifest-path (Join-Path $proj 'Cargo.toml') --target $env:RUST_TARGET --jobs 4 -vv
+          if ($LASTEXITCODE -ne 0) { throw "thunk-rs provisioning failed: $LASTEXITCODE" }
+
+          $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter "VC-LTL-$env:VC_LTL_VERSION" |
+            Select-Object -First 1
+          if (-not $vc) { throw "VC-LTL-$env:VC_LTL_VERSION was not provisioned" }
+
+          $vcLib = Join-Path $vc.FullName 'TargetPlatform\6.0.6000.0\lib\x64'
+          if (-not (Test-Path $vcLib)) { throw "VC-LTL lib directory missing: $vcLib" }
+
+          "THUNK_VC_LTL_LIB=$vcLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Download YY-Thunks 1.2.2 Win7 x64 LIB package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $release = Invoke-RestMethod `
+            -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } `
+            -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+
+          $asset = $release.assets |
+            Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } |
+            Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-processprng-package'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match '(?i)[\\/]Lib[\\/]6\.1\.7600\.0[\\/]x64$' } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw 'YY-Thunks Lib/6.1.7600.0/x64 not found' }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32)) { throw "YY kernel32.lib missing: $kernel32" }
+          if (-not (Test-Path $synch)) { throw "YY synchronization.lib missing: $synch" }
+
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Locate lld-link
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
+          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw "lld-link.exe not found: $lld" }
+
+          "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          & $lld --version
+
+      - name: Build one physically narrow YY ProcessPrng provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Single hypothesis under test:
+          #
+          # YY-Thunks 1.2.2 LIB mode contains a ProcessPrng redirect/member that
+          # targets the real prefixed YY_Thunks_ProcessPrng implementation. Those
+          # members can be isolated into one narrow provider, without carrying
+          # YY's broad kernel32.lib surface into the final Rust link.
+          #
+          # This step is deliberately fail-closed. It does not generate a .def,
+          # does not synthesize an OS import library, does not use /alternatename,
+          # and does not try a second candidate if the YY members are inseparable.
+
+          $work = Join-Path $env:RUNNER_TEMP 'processprng-closing-smoke'
+          $scan = Join-Path $work 'member-scan'
+          $selectedDir = Join-Path $work 'selected'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $scan, $selectedDir | Out-Null
+
+          $kernel32 = $env:THUNK_YY_KERNEL32_LIB
+          $membersTxt = Join-Path $work 'yy-kernel32-members.txt'
+          $members = @(& lib.exe /nologo /list $kernel32 2>&1 |
+            ForEach-Object { "$_".Trim() } |
+            Where-Object { $_ } |
+            Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0) { throw "lib.exe /list failed for $kernel32" }
+          if ($members.Count -eq 0) { throw 'YY kernel32.lib has no enumerable archive members' }
+          $members | Set-Content -Encoding utf8 $membersTxt
+
+          function Get-ExternalSymbolRecords([string]$text) {
+            $records = @()
+            foreach ($line in ($text -split "`r?`n")) {
+              if ($line -notmatch '\bExternal\b\s+\|\s+(\S+)\s*$') { continue }
+              $records += [pscustomobject]@{
+                Name = $Matches[1]
+                Undefined = ($line -match '\bUNDEF\b')
+                Line = $line
+              }
+            }
+            return @($records)
+          }
+
+          $rows = @()
+          $redirectCandidates = @()
+          $implementationCandidates = @()
+          $index = 0
+
+          foreach ($member in $members) {
+            $index++
+            $dir = Join-Path $scan ('{0:D4}' -f $index)
+            New-Item -ItemType Directory -Force $dir | Out-Null
+
+            Push-Location $dir
+            try {
+              $extractLog = Join-Path $dir 'extract.log'
+              & lib.exe /nologo "/extract:$member" $kernel32 *> $extractLog
+              $extractRc = $LASTEXITCODE
+            }
+            finally {
+              Pop-Location
+            }
+
+            if ($extractRc -ne 0) {
+              $rows += [pscustomobject]@{
+                Index = $index
+                Member = $member
+                Extracted = $false
+                Redirect = $false
+                Implementation = $false
+                ExtractedFile = ''
+              }
+              continue
+            }
+
+            $file = Get-ChildItem -Path $dir -Recurse -File |
+              Where-Object { $_.Name -ne 'extract.log' } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+            if (-not $file) {
+              throw "lib.exe reported success but produced no member for: $member"
+            }
+
+            $symbols = (& dumpbin /nologo /symbols $file.FullName 2>&1 | Out-String)
+            $directives = (& dumpbin /nologo /directives $file.FullName 2>&1 | Out-String)
+            $combined = $symbols + "`r`n" + $directives
+            $symbols | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
+            $directives | Set-Content -Encoding utf8 (Join-Path $dir 'directives.txt')
+
+            $records = @(Get-ExternalSymbolRecords $symbols)
+            $definesImpProcessPrng = @($records | Where-Object {
+              -not $_.Undefined -and $_.Name -eq '__imp_ProcessPrng'
+            }).Count -gt 0
+            $definesProcessPrng = @($records | Where-Object {
+              -not $_.Undefined -and $_.Name -eq 'ProcessPrng'
+            }).Count -gt 0
+            $definesYYProcessPrng = @($records | Where-Object {
+              -not $_.Undefined -and $_.Name -eq 'YY_Thunks_ProcessPrng'
+            }).Count -gt 0
+
+            # A redirect candidate must expose the plain Rust-compatible name AND
+            # carry explicit evidence that it redirects/references YY's prefixed
+            # ProcessPrng symbol. This rejects the ordinary Windows SDK import
+            # member even if that member also happens to exist in the archive.
+            $mentionsYYProcessPrng = $combined -match '(?<![A-Za-z0-9_])(?:__imp_)?YY_Thunks_ProcessPrng(?![A-Za-z0-9_])'
+            $isRedirect = ($definesImpProcessPrng -or $definesProcessPrng) -and $mentionsYYProcessPrng
+            $isImplementation = $definesYYProcessPrng
+
+            $copy = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $copy
+
+            $row = [pscustomobject]@{
+              Index = $index
+              Member = $member
+              Extracted = $true
+              Redirect = $isRedirect
+              Implementation = $isImplementation
+              ExtractedFile = $copy
+            }
+            $rows += $row
+            if ($isRedirect) { $redirectCandidates += $row }
+            if ($isImplementation) { $implementationCandidates += $row }
+          }
+
+          $rows |
+            Select-Object Index,Member,Extracted,Redirect,Implementation |
+            Export-Csv -NoTypeInformation -Encoding utf8 (Join-Path $work 'member-map.csv')
+
+          if ($redirectCandidates.Count -ne 1) {
+            $names = @($redirectCandidates | ForEach-Object { $_.Member }) -join '; '
+            throw "Expected exactly one YY-backed ProcessPrng redirect member; found $($redirectCandidates.Count): $names"
+          }
+          if ($implementationCandidates.Count -ne 1) {
+            $names = @($implementationCandidates | ForEach-Object { $_.Member }) -join '; '
+            throw "Expected exactly one member defining YY_Thunks_ProcessPrng; found $($implementationCandidates.Count): $names"
+          }
+
+          $selected = @($redirectCandidates[0], $implementationCandidates[0]) |
+            Sort-Object Index -Unique
+
+          $ordinal = 0
+          $selectedObjects = @()
+          foreach ($entry in $selected) {
+            $ordinal++
+            $dst = Join-Path $selectedDir ("selected-{0:D2}.obj" -f $ordinal)
+            Copy-Item -Force $entry.ExtractedFile $dst
+            $selectedObjects += $dst
+            "$($entry.Member)" | Set-Content -Encoding utf8 (Join-Path $selectedDir ("selected-{0:D2}.member.txt" -f $ordinal))
+          }
+
+          # Reject known broad ordinary kernel32 surface in the selected YY
+          # members themselves, including undefined ordinary imports. Prefixed
+          # YY_Thunks_* implementation symbols are intentionally not rejected.
+          $forbiddenSelectedSymbols = @(
+            'LockResource',
+            '__imp_LockResource',
+            'LoadLibraryExW',
+            '__imp_LoadLibraryExW'
+          )
+
+          foreach ($obj in $selectedObjects) {
+            $text = (& dumpbin /nologo /symbols $obj 2>&1 | Out-String)
+            $records = @(Get-ExternalSymbolRecords $text)
+            foreach ($name in $forbiddenSelectedSymbols) {
+              if (@($records | Where-Object { $_.Name -eq $name }).Count -gt 0) {
+                throw "Selected narrow provider member exposes forbidden ordinary kernel32 symbol '$name': $obj"
+              }
+            }
+          }
+
+          $narrow = Join-Path $work 'yy-processprng.lib'
+          & lib.exe /nologo "/out:$narrow" $selectedObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) {
+            throw 'Failed to build yy-processprng.lib from selected YY-Thunks members'
+          }
+
+          $narrowSymbols = (& dumpbin /nologo /linkermember:1 $narrow 2>&1 | Out-String)
+          $narrowSymbols | Set-Content -Encoding utf8 (Join-Path $work 'yy-processprng-symbols.txt')
+
+          function ArchiveDefines([string]$name) {
+            foreach ($line in ($narrowSymbols -split "`r?`n")) {
+              if ($line -match ('(?:^|\s)' + [regex]::Escape($name) + '\s*$')) { return $true }
+            }
+            return $false
+          }
+
+          if (-not (ArchiveDefines 'YY_Thunks_ProcessPrng')) {
+            throw 'yy-processprng.lib does not contain the real YY_Thunks_ProcessPrng implementation'
+          }
+          if (-not ((ArchiveDefines '__imp_ProcessPrng') -or (ArchiveDefines 'ProcessPrng'))) {
+            throw 'yy-processprng.lib does not expose a Rust-compatible ProcessPrng redirect'
+          }
+          foreach ($name in $forbiddenSelectedSymbols) {
+            if (ArchiveDefines $name) {
+              throw "yy-processprng.lib exposes forbidden broad symbol '$name'"
+            }
+          }
+
+          "SMOKE_DIR=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "NARROW_PROCESSPRNG_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          Write-Host "Narrow provider: $narrow"
+          Write-Host "Redirect member: $($redirectCandidates[0].Member)"
+          Write-Host "Implementation member: $($implementationCandidates[0].Member)"
+
+      - name: Build representative Rust archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $src = Join-Path $env:SMOKE_DIR 'probe.rs'
+          $rlib = Join-Path $env:SMOKE_DIR 'yy_processprng_probe.rlib'
+
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::ffi::c_void;
+          use std::hint::black_box;
+          use std::sync::{Arc, Condvar, Mutex, Once, RwLock};
+          use std::thread;
+          use std::time::Duration;
+
+          #[link(name = "kernel32", kind = "raw-dylib")]
+          unsafe extern "system" {
+              fn LockResource(hmem: *mut c_void) -> *mut c_void;
+          }
+
+          #[inline(never)]
+          pub fn run_probe() {
+              // Keep one ordinary Win7 raw-dylib kernel32 API in this Rust
+              // archive. It is the control for the original duplicate-symbol
+              // class: YY's ProcessPrng provider must not interpose it.
+              black_box(LockResource as unsafe extern "system" fn(*mut c_void) -> *mut c_void);
+
+              // RandomState pulls the current libstd ProcessPrng path.
+              black_box(RandomState::new());
+
+              // Keep current libstd synchronization paths live so the final
+              // link also exercises YY synchronization.lib.
+              static INIT: Once = Once::new();
+              INIT.call_once(|| black_box(()));
+
+              let rw = RwLock::new(1usize);
+              *rw.write().unwrap() += 1;
+              black_box(*rw.read().unwrap());
+
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let waiter_pair = Arc::clone(&pair);
+              let waiter = thread::spawn(move || {
+                  let (lock, cv) = &*waiter_pair;
+                  let guard = lock.lock().unwrap();
+                  let (_guard, _timeout) = cv
+                      .wait_timeout_while(guard, Duration::from_millis(1), |ready| !*ready)
+                      .unwrap();
+              });
+
+              {
+                  let (lock, cv) = &*pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_all();
+              }
+              waiter.join().unwrap();
+          }
+          '@ | Set-Content -Encoding utf8 $src
+
+          & rustc $src `
+            --crate-name yy_processprng_probe `
+            --crate-type rlib `
+            --edition 2021 `
+            --target $env:RUST_TARGET `
+            -O `
+            -o $rlib
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $rlib)) {
+            throw "Rust archive build failed: $LASTEXITCODE"
+          }
+
+          # The explicit LockResource raw-dylib object must live in our rlib.
+          $probeSymbols = (& dumpbin /nologo /linkermember:1 $rlib 2>&1 | Out-String)
+          $probeSymbols | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'rust-probe-archive-symbols.txt')
+          if ($probeSymbols -notmatch '(?i)(?:__imp_)?LockResource') {
+            throw 'Probe rlib does not contain the LockResource raw-dylib control; smoke is not representative'
+          }
+
+          # ProcessPrng and WaitOnAddress/WakeByAddress* are supplied by the
+          # pinned target libstd archive, not copied into a dependent rlib.
+          # Audit that actual archive so a toolchain change cannot turn this
+          # into a vacuous success.
+          $targetLibDir = (& rustc --print target-libdir --target $env:RUST_TARGET 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $targetLibDir)) {
+            throw "Cannot locate Rust target libdir: $targetLibDir"
+          }
+          $std = Get-ChildItem -Path $targetLibDir -File -Filter 'libstd-*.rlib' | Select-Object -First 1
+          if (-not $std) { throw "libstd rlib not found in $targetLibDir" }
+
+          $stdSymbols = (& dumpbin /nologo /linkermember:1 $std.FullName 2>&1 | Out-String)
+          $stdSymbols | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'rust-libstd-symbols.txt')
+          if ($stdSymbols -notmatch '(?i)(?:__imp_)?ProcessPrng') {
+            throw 'Pinned Rust libstd does not contain ProcessPrng; smoke no longer targets the observed raw-dylib surface'
+          }
+          if ($stdSymbols -notmatch '(?i)WaitOnAddress|WakeByAddressAll|WakeByAddressSingle') {
+            throw 'Pinned Rust libstd does not contain WaitOnAddress/WakeByAddress*; smoke no longer targets the observed synchronization surface'
+          }
+
+          "RUST_PROBE_RLIB=$rlib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "RUST_STD_RLIB=$($std.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Link exactly one candidate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $main = Join-Path $env:SMOKE_DIR 'main.rs'
+          $exe = Join-Path $env:SMOKE_DIR 'processprng-closing-smoke.exe'
+          $wrapper = Join-Path $env:SMOKE_DIR 'lld-narrow-processprng.cmd'
+          $linkLog = Join-Path $env:SMOKE_DIR 'final-link-command.txt'
+          $linkOutput = Join-Path $env:SMOKE_DIR 'final-link-output.txt'
+          $map = Join-Path $env:SMOKE_DIR 'final-link.map'
+
+          @'
+          extern crate yy_processprng_probe;
+
+          fn main() {
+              yy_processprng_probe::run_probe();
+          }
+          '@ | Set-Content -Encoding utf8 $main
+
+          @"
+          @echo off
+          >"$linkLog" echo "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_VC_LTL_LIB" "$env:THUNK_YY_SYNCH_LIB" "$env:NARROW_PROCESSPRNG_LIB" %*
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_VC_LTL_LIB" "$env:THUNK_YY_SYNCH_LIB" "$env:NARROW_PROCESSPRNG_LIB" %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $wrapper
+
+          # This is the one and only final link attempt in this workflow.
+          # There is deliberately no YY Lib directory in LIBPATH and no full
+          # YY kernel32.lib argument.
+          & rustc $main `
+            --edition 2021 `
+            --target $env:RUST_TARGET `
+            -O `
+            --extern "yy_processprng_probe=$env:RUST_PROBE_RLIB" `
+            "-Clinker=$wrapper" `
+            "-Clink-arg=/map:$map" `
+            -o $exe 2>&1 | Tee-Object -FilePath $linkOutput
+          $linkRc = $LASTEXITCODE
+          if ($linkRc -ne 0) {
+            throw "Single narrow-provider link failed: $linkRc"
+          }
+          if (-not (Test-Path $exe)) { throw "Linked executable missing: $exe" }
+          if (-not (Test-Path $map)) { throw "Link map missing: $map" }
+
+          # Prove that the real YY implementation, not merely a name-only import
+          # object, was selected into the final image.
+          $mapText = Get-Content $map -Raw
+          if ($mapText.IndexOf('YY_Thunks_ProcessPrng', [System.StringComparison]::Ordinal) -lt 0) {
+            throw 'Final link did not select YY_Thunks_ProcessPrng implementation from the narrow provider'
+          }
+
+          $logged = Get-Content $linkLog -Raw
+          if ($logged.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY kernel32.lib reached the final link command'
+          }
+          $yyLibPathArg = "-LIBPATH:$env:THUNK_YY_LIB"
+          if ($logged.IndexOf($yyLibPathArg, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: YY full Lib directory reached final LIBPATH'
+          }
+
+          "SMOKE_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Audit final PE imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $imports = (& dumpbin /nologo /imports $env:SMOKE_EXE 2>&1 | Out-String)
+          $importsPath = Join-Path $env:SMOKE_DIR 'final-imports.txt'
+          $imports | Set-Content -Encoding utf8 $importsPath
+
+          $forbidden = @(
+            'ProcessPrng',
+            'bcryptprimitives.dll',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle'
+          )
+
+          $hits = @()
+          foreach ($name in $forbidden) {
+            if ($imports.IndexOf($name, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              $hits += $name
+            }
+          }
+          if ($hits.Count -gt 0) {
+            throw "Win7-incompatible imports survived: $($hits -join ', ')"
+          }
+
+          # LockResource is the positive control: it must remain a normal system
+          # import instead of being swallowed/interposed by YY's broad kernel32.
+          if ($imports.IndexOf('LockResource', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw 'LockResource control import is absent from the final PE'
+          }
+          if ($imports.IndexOf('KERNEL32.dll', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw 'KERNEL32.dll is absent from final imports; LockResource control cannot be validated'
+          }
+
+          "## YY-Thunks narrow ProcessPrng closing smoke: PASS" |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Hypothesis: a physically narrow YY-backed ProcessPrng provider plus synchronization.lib is sufficient for the representative Rust raw-dylib surface." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Full YY kernel32.lib was not supplied to the final linker." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- LockResource remains a normal KERNEL32 import." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- ProcessPrng, bcryptprimitives.dll, api-ms-win-core-synch-l1-2-0.dll and WaitOnAddress/WakeByAddress* are absent from final PE imports." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- This smoke says nothing about GOST TLS runtime behavior." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-thunks-processprng-closing-smoke-diagnostics
+          path: ${{ runner.temp }}/processprng-closing-smoke
+          if-no-files-found: warn
