@@ -239,3 +239,69 @@ Use `.github/workflows/yy-thunks-rust-smoke.yml` on the newer YY-Thunks 1.2.2 + 
 3. Require the smoke to pass both linker-conflict and PE-import gates.
 4. Run the next full Firefox build only after the smoke identifies a clean strategy.
 5. Keep CRT-model compatibility (`/MD`) separate from import-thunking decisions.
+
+---
+
+## 2026-08-23 — Narrow ProcessPrng closing smoke stopped on COFF weak-alias detection
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`  
+**Commit under test:** `517950bb31d232a0a5173c01c47c9c171e9b242d`  
+**Actions run:** `32639164528`  
+**Job:** `97193471177`  
+**Workflow:** `YY-Thunks narrow ProcessPrng closing smoke`  
+**CI result:** failed in `Build one physically narrow YY ProcessPrng provider`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32639164528>
+
+### Hypothesis
+
+Test one narrow linker strategy: isolate the real YY-Thunks 1.2.2 `ProcessPrng` redirect/implementation members from YY's complete `kernel32.lib`, combine that provider with `synchronization.lib`, and then require a representative Rust raw-dylib link plus a clean Win7 PE-import audit without supplying the complete YY `kernel32.lib` to the final linker.
+
+### Observation
+
+The provider-discovery step failed with:
+
+```text
+Expected exactly one YY-backed ProcessPrng redirect member; found 0
+```
+
+The later Rust archive, final link, and PE-import audit steps were skipped. The diagnostics artifact `yy-thunks-processprng-closing-smoke-diagnostics` was uploaded as artifact `9493229238`.
+
+Per-member `dumpbin /symbols` evidence shows that the failure was in the harness model, not evidence that the YY redirect is absent:
+
+```text
+ProcessPrng.obi:
+002 ... UNDEF ... External     | __imp_YY_Thunks_ProcessPrng
+003 ... UNDEF ... WeakExternal | __imp_ProcessPrng
+    Default index        2 Alias record
+
+ProcessPrng.obj:
+002 ... UNDEF ... External     | YY_Thunks_ProcessPrng
+003 ... UNDEF ... WeakExternal | ProcessPrng
+    Default index        2 Alias record
+```
+
+A separate `YY_Thunks_for_6.1.7600.0.obj` member defines both `YY_Thunks_ProcessPrng` and `__imp_YY_Thunks_ProcessPrng`.
+
+The failed workflow only parsed ordinary `External` records and required a non-`UNDEF` plain `ProcessPrng`/`__imp_ProcessPrng` definition. YY encodes these redirects as two `UNDEF WeakExternal` alias records whose `Default index` points at the prefixed YY symbol, so the detector necessarily returned zero candidates.
+
+The common YY implementation object is monolithic and contains normal undefined dependencies such as `__imp_LoadLibraryExW`, but it does not define the previously colliding ordinary `LockResource`/`__imp_LockResource` surface. Therefore undefined implementation dependencies must not be confused with broad ordinary definitions exported by the provider; the final PE audit remains the decisive compatibility gate.
+
+### Conclusion
+
+**Harness failure; original narrow-provider linker hypothesis remains untested by this run.**
+
+Run `32639164528` does not prove the narrow YY strategy works, but it also does not disprove it. It established the actual YY-Thunks 1.2.2 archive anatomy needed for the next attempt:
+
+1. `ProcessPrng.obj`: `ProcessPrng -> YY_Thunks_ProcessPrng` weak alias;
+2. `ProcessPrng.obi`: `__imp_ProcessPrng -> __imp_YY_Thunks_ProcessPrng` weak alias;
+3. `YY_Thunks_for_6.1.7600.0.obj`: real prefixed implementation.
+
+The smoke harness was corrected in commit `83208f74718cc70ad8c65081d2771b5babe60f09` to recognize and validate those two COFF weak aliases explicitly, select only those alias members plus the implementation member, reject defined broad ordinary kernel32 surface, keep exactly one final link candidate, and retain the final PE-import audit.
+
+### Next Win7 experiment
+
+Dispatch `.github/workflows/yy-thunks-processprng-smoke.yml` at `83208f74718cc70ad8c65081d2771b5babe60f09`.
+
+Do not run a full Firefox build yet. The corrected smoke must first reach the representative Rust link and PE-import audit. If it fails, stop at the exact next gate instead of adding another linker candidate.
