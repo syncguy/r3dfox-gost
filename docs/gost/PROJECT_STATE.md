@@ -209,38 +209,37 @@ lld-link: error: duplicate symbol: LockResource
 
 Therefore the complete YY `kernel32.lib` must not be placed ahead of the Rust archive in the Firefox link.
 
-The narrow closing-smoke line has now advanced through two harness-only failures and reached a substantive final link:
+The narrow closing-smoke strategy is now formally confirmed at representative Rust-link scale by Actions run `32644291202`, job `97207125757`, commit `fd925b1780fa3470a2cfba743a7374f7d7e644d6`. Diagnostics artifact `9494650310` shows:
 
-- run `32639164528`, job `97193471177`, SHA `517950bb...`: harness did not recognize YY's COFF `WeakExternal` aliases;
-- run `32642384623`, job `97201364265`, SHA `5ab5fdf...`: provider/representativeness gates passed, but `rustc --extern` rejected the nonstandard probe rlib filename;
-- run `32643370376`, job `97203781090`, SHA `d32ef97...`: the representative final Rust/LLD link succeeded and produced an auditable PE.
+1. all provider-construction, representative-Rust, single-link, and exact PE-import audit gates passed;
+2. `ProcessPrng` and `YY_Thunks_ProcessPrng` resolve to the same address in the final map;
+3. the complete YY `kernel32.lib` path is not supplied to the final linker;
+4. the full YY Lib directory is not supplied through final `LIBPATH`;
+5. parsed DLL imports are only `KERNEL32.dll`, `msvcrt.dll`, and `ntdll.dll`;
+6. parsed API imports retain the `LockResource` positive control but contain none of `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, or `WakeByAddressSingle`;
+7. `bcryptprimitives.dll` and `api-ms-win-core-synch-l1-2-0.dll` are absent.
 
-For run `32643370376`, diagnostics artifact `9494281868` establishes the intended narrow-strategy evidence:
+The passing strategy consists of YY-Thunks 1.2.2 `synchronization.lib` plus a physically narrow `yy-processprng.lib` built from `ProcessPrng.obj`, `ProcessPrng.obi`, and `YY_Thunks_for_6.1.7600.0.obj`. It preserves the Firefox `/MD` CRT model and does not use the complete YY `kernel32.lib` as an interposed library.
 
-1. `ProcessPrng -> YY_Thunks_ProcessPrng` and `__imp_ProcessPrng -> __imp_YY_Thunks_ProcessPrng` are active in the final link map;
-2. the complete YY `kernel32.lib` is absent from the final linker command;
-3. the full YY Lib directory is absent from final `LIBPATH`;
-4. the representative `LockResource` raw-dylib control links without the Firefox-scale duplicate-symbol class;
-5. the actual `dumpbin /imports` table contains no `ProcessPrng`, no `bcryptprimitives.dll`, no `api-ms-win-core-synch-l1-2-0.dll`, and no `WaitOnAddress` / `WakeByAddressAll` / `WakeByAddressSingle`;
-6. the final PE still imports `LockResource` from ordinary `KERNEL32.dll` as the positive control.
-
-The red result of run `32643370376` is a harness false negative, not a surviving ProcessPrng import. The old audit searched the entire raw `dumpbin` text for `ProcessPrng`, and the only match was the executable/path name `processprng-closing-smoke.exe`. Commit `fd925b1780fa3470a2cfba743a7374f7d7e644d6` fixes this by parsing exact DLL/API entries into case-insensitive sets before applying the compatibility gate.
+The remaining Windows-compatibility question has therefore moved from **finding a narrow strategy** to **testing whether that exact proven strategy scales to Firefox's real `xul.dll` link and final packaged binaries**.
 
 This does **not** change the independent GOST runtime blocker; it is a separate Win7/toolchain result.
 
 ### Next Win7 experiment
 
-Do not spend a full Firefox build cycle yet.
+Transfer the exact passing strategy into `.github/workflows/gost-poc-build-thunk.yml` as one full-scale experiment:
 
-Run the same `.github/workflows/yy-thunks-processprng-smoke.yml` at `fd925b1780fa3470a2cfba743a7374f7d7e644d6` with no linker-strategy changes. The purpose is only to convert the already-clean artifact evidence from run `32643370376` into a formal green CI gate using the corrected exact import parser.
+1. update the experiment to YY-Thunks 1.2.2;
+2. construct the same narrow ProcessPrng provider from `ProcessPrng.obj`, `ProcessPrng.obi`, and `YY_Thunks_for_6.1.7600.0.obj`;
+3. keep YY `synchronization.lib` for `WaitOnAddress` / `WakeByAddress*`;
+4. remove complete YY `kernel32.lib` interposition;
+5. do not place the full YY Lib directory in final `LIBPATH` merely to solve ProcessPrng;
+6. preserve Firefox's existing `/MD` CRT model;
+7. keep exactly one linker strategy in the full build, with no A/B order variants;
+8. replace raw substring scanning in the `xul.dll` audit with the exact parsed DLL/API-name logic proven by the closing smoke;
+9. require the full Firefox link/package to succeed and then audit the produced `xul.dll` for the known forbidden imports.
 
-If that corrected smoke is green, the next single experiment is to transfer this exact strategy into the Firefox `xul.dll` link:
-
-1. keep YY `synchronization.lib` for `WaitOnAddress` / `WakeByAddress*`;
-2. supply the narrow ProcessPrng provider built from `ProcessPrng.obj`, `ProcessPrng.obi`, and `YY_Thunks_for_6.1.7600.0.obj`;
-3. do not put the complete YY `kernel32.lib` before `gkrust`;
-4. do not put the full YY Lib directory into final `LIBPATH` merely to solve ProcessPrng;
-5. after the full build, audit the produced PE imports before claiming Windows 7 compatibility.
+A successful full build plus clean `xul.dll` import audit would confirm that the smoke strategy scales to Firefox. It would still not by itself prove complete Windows 7 runtime compatibility; actual execution on Windows 7 remains a later validation step.
 
 ## Separation of conclusions
 
