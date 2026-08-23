@@ -2,6 +2,11 @@ name: YY-Thunks narrow ProcessPrng closing smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/yy-thunks-processprng-smoke.yml"
 
 permissions:
   contents: read
@@ -282,7 +287,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           $src = Join-Path $env:SMOKE_DIR 'probe.rs'
-          $rlib = Join-Path $env:SMOKE_DIR 'yy_processprng_probe.rlib'
+          $rlib = Join-Path $env:SMOKE_DIR 'libyy_processprng_probe.rlib'
 
           @'
           use std::collections::hash_map::RandomState;
