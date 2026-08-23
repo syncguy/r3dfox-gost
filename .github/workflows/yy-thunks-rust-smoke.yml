@@ -1,0 +1,229 @@
+name: YY-Thunks Rust Win7 smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/yy-thunks-rust-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.1.7"
+  RUST_TOOLCHAIN: "nightly-2026-08-20"
+  RUST_TARGET: "x86_64-pc-windows-msvc"
+
+jobs:
+  rust-win7-import-smoke:
+    name: Rust libstd + YY-Thunks import smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Download YY-Thunks LLD-link Win7 x64 libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) {
+            $release.assets | Select-Object name,browser_download_url | Format-Table -AutoSize
+            throw "YY-Thunks v$env:YY_THUNKS_VERSION LLD-link Lib asset was not found"
+          }
+
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-rust-smoke'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match '(?i)[\\/]Lib[\\/]6\.1\.7600\.0[\\/]x64$' } |
+            Select-Object -First 1
+          if (-not $yyLib) {
+            Get-ChildItem -Path $root -Recurse -File -Filter '*.lib' | Select-Object FullName | Format-Table -AutoSize
+            throw 'YY-Thunks Lib/6.1.7600.0/x64 directory was not found'
+          }
+
+          $yyKernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          if (-not (Test-Path $yyKernel32)) {
+            throw "YY-Thunks Win7 x64 kernel32.lib was not found: $yyKernel32"
+          }
+
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$yyKernel32" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "YY-Thunks Lib path: $($yyLib.FullName)"
+          Write-Host "YY-Thunks kernel32.lib: $yyKernel32"
+
+      - name: Locate lld-link
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
+          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw "lld-link.exe was not found: $lld" }
+          "REAL_LLD_LINK=$lld" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $lld --version
+
+      - name: Generate minimal Rust libstd reproducer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'yy-rust-smoke'
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::hint::black_box;
+          use std::sync::{Arc, Condvar, Mutex, Once, RwLock};
+          use std::thread;
+          use std::time::Duration;
+
+          static INIT: Once = Once::new();
+
+          fn main() {
+              // RandomState on Windows exercises the std random-key path that has
+              // historically pulled ProcessPrng/bcryptprimitives through libstd.
+              black_box(RandomState::new());
+
+              // Exercise std synchronization paths that use WaitOnAddress and the
+              // WakeByAddress* family on newer Windows.
+              INIT.call_once(|| black_box(()));
+
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let waiter_pair = Arc::clone(&pair);
+              let waiter = thread::spawn(move || {
+                  let (lock, cv) = &*waiter_pair;
+                  let guard = lock.lock().unwrap();
+                  let (_guard, _timeout) = cv
+                      .wait_timeout_while(guard, Duration::from_millis(1), |ready| !*ready)
+                      .unwrap();
+              });
+
+              {
+                  let (lock, cv) = &*pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_all();
+              }
+              waiter.join().unwrap();
+
+              let rw = RwLock::new(7usize);
+              black_box(*rw.read().unwrap());
+              *rw.write().unwrap() += 1;
+              black_box(rw);
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'main.rs')
+          "SMOKE_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-Content (Join-Path $dir 'main.rs')
+
+      - name: Build baseline, LIBPATH-only and explicit-first variants
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'main.rs'
+          $baseline = Join-Path $env:SMOKE_DIR 'baseline.exe'
+          $libpath = Join-Path $env:SMOKE_DIR 'libpath-only.exe'
+          $explicit = Join-Path $env:SMOKE_DIR 'explicit-first.exe'
+
+          Write-Host '=== baseline: plain Rust libstd + lld-link ==='
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$env:REAL_LLD_LINK" -o $baseline
+          if ($LASTEXITCODE -ne 0) { throw "baseline rustc failed: $LASTEXITCODE" }
+
+          Write-Host '=== experiment A: YY-Thunks directory via LIBPATH only ==='
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$env:REAL_LLD_LINK" "-Clink-arg=-LIBPATH:$env:THUNK_YY_LIB" -o $libpath
+          if ($LASTEXITCODE -ne 0) { throw "LIBPATH-only rustc failed: $LASTEXITCODE" }
+
+          Write-Host '=== experiment B: prepend YY-Thunks kernel32.lib before every rustc linker argument ==='
+          $wrapper = Join-Path $env:SMOKE_DIR 'lld-link-yy-first.cmd'
+          @"
+          @echo off
+          echo ==== lld-link wrapper invocation ====>>"$env:SMOKE_DIR\explicit-linker.log"
+          echo %*>>"$env:SMOKE_DIR\explicit-linker.log"
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_YY_LIB" "$env:THUNK_YY_KERNEL32_LIB" %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $wrapper
+
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$wrapper" -o $explicit
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path (Join-Path $env:SMOKE_DIR 'explicit-linker.log')) { Get-Content (Join-Path $env:SMOKE_DIR 'explicit-linker.log') }
+            throw "explicit-first rustc failed: $LASTEXITCODE"
+          }
+
+          Get-Item $baseline,$libpath,$explicit | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+
+      - name: Audit PE imports and gate explicit-first result
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbidden = @(
+            'ProcessPrng',
+            'bcryptprimitives.dll',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle'
+          )
+
+          function Get-ImportAudit([string]$name) {
+            $exe = Join-Path $env:SMOKE_DIR "$name.exe"
+            $log = Join-Path $env:SMOKE_DIR "$name.imports.txt"
+            $text = (& dumpbin /nologo /imports $exe 2>&1 | Out-String)
+            $text | Set-Content -Encoding utf8 $log
+            $hits = @($forbidden | Where-Object { $text.IndexOf($_, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            Write-Host "=== $name forbidden imports ($($hits.Count)) ==="
+            if ($hits.Count) { $hits | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  none' }
+            [pscustomobject]@{ Name = $name; Text = $text; Hits = $hits }
+          }
+
+          $baseline = Get-ImportAudit 'baseline'
+          $libpath = Get-ImportAudit 'libpath-only'
+          $explicit = Get-ImportAudit 'explicit-first'
+
+          "## YY-Thunks Rust Win7 smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Variant | Forbidden imports |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($r in @($baseline,$libpath,$explicit)) {
+            $value = if ($r.Hits.Count) { $r.Hits -join ', ' } else { 'none' }
+            "| $($r.Name) | $value |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+          Write-Host '=== baseline dumpbin excerpt ==='
+          $baseline.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
+          Write-Host '=== explicit-first dumpbin excerpt ==='
+          $explicit.Text -split "`r?`n" | Where-Object { $_ -match 'ProcessPrng|bcryptprimitives|api-ms-win-core-synch-l1-2-0|WaitOnAddress|WakeByAddress' } | ForEach-Object { Write-Host $_ }
+
+          if ($baseline.Hits.Count -eq 0) {
+            throw 'Baseline did not reproduce any forbidden Rust/Win8+ imports; smoke test is not representative.'
+          }
+          if ($explicit.Hits.Count -ne 0) {
+            throw "YY-Thunks explicit-first experiment still has forbidden imports: $($explicit.Hits -join ', ')"
+          }
+
+      - name: Upload smoke-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-thunks-rust-smoke-diagnostics
+          path: |
+            ${{ runner.temp }}/yy-rust-smoke/*.imports.txt
+            ${{ runner.temp }}/yy-rust-smoke/explicit-linker.log
+          if-no-files-found: warn
