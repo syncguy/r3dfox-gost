@@ -179,22 +179,45 @@ The newest dedicated smoke configuration at `79061580...` combines:
 - baseline and multiple explicit linker-order variants;
 - PE-import auditing for forbidden Win8+ synchronization/crypto/API-set imports.
 
-### Current full-build snapshot
+### Full-build result: whole YY `kernel32.lib` before `gkrust` does not scale
 
 **Actions run:** `32623108290`  
+**Job:** `97162633898`  
 **Workflow:** `GOST TLS PoC build - thunk-rs experiment`  
 **Run SHA:** `a73f18e823c083c970eea649ce305da648640e2f`  
-**Snapshot status when recorded:** in progress
+**CI result:** failed in `Build r3dfox` while linking `xul.dll`
 
 Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32623108290>
 
-At the recorded snapshot, prerequisite setup, MSSPI preparation, the Win7/thunk gates, export prerequisites, and the targeted security-manager SSL compilation had succeeded. The long full-release build step was still running.
+The `a73f18e...` experiment deliberately inserted YY-Thunks `synchronization.lib` and the complete YY-Thunks `kernel32.lib` before the Rust static library so that `WaitOnAddress` / `WakeByAddress*` and `ProcessPrng` could be intercepted before Rust raw-dylib imports won resolution.
 
-### Important interpretation rule
+The full Firefox link exposed a symbol collision that the smaller smoke had not modeled:
 
-Do not attribute this run's outcome to `1b2c329...` or `79061580...`: run `32623108290` is pinned to `a73f18e...`.
+```text
+lld-link: error: duplicate symbol: LockResource
+>>> defined at gkrust.lib(48d3f1b29a630f4c-gl.o)
+>>> defined at kernel32.lib(kernel32.dll)
+```
 
-Do not mark this experiment successful or failed in the project state until the run reaches a terminal status and the final package/import audit is inspected.
+### Conclusion
+
+**Failed hypothesis at Firefox scale.** Prepending the complete YY-Thunks `kernel32.lib` before `gkrust.lib` is too broad. It exposes ordinary kernel32 definitions early enough to collide with symbols also emitted by Rust raw-dylib import objects inside `gkrust.lib`; `LockResource` is the first observed duplicate.
+
+This is a Windows Vista/7 linker result only. It does not change the independent GOST TLS runtime blocker `SEC_E_INVALID_TOKEN`.
+
+The earlier tiny smoke result that accepted a thunk-first order is therefore insufficient as a scale-up proof: the smoke must reproduce the Rust archive/raw-dylib collision class, not just produce an executable with clean final imports.
+
+### Next Win7 linker experiment
+
+Do **not** launch another full Firefox build yet.
+
+Use `.github/workflows/yy-thunks-rust-smoke.yml` on the newer YY-Thunks 1.2.2 + VC-LTL 5.2.2 line to:
+
+1. reproduce the `LockResource` collision class with a Rust archive/raw-dylib import surface representative of `gkrust.lib`;
+2. keep the specialized YY-Thunks `synchronization.lib` available for `WaitOnAddress` / `WakeByAddress*`;
+3. test a narrow resolution for `ProcessPrng` that does not prepend the entire YY `kernel32.lib` before the Rust archive;
+4. gate on both successful linking and absence of the forbidden Win8+ imports;
+5. only after a smoke variant passes both conditions, transfer that exact linker strategy into the full Firefox link and spend another full-build cycle.
 
 ---
 
@@ -211,6 +234,8 @@ Do not mark this experiment successful or failed in the project state until the 
 
 ### Windows Vista/7 build compatibility
 
-1. Let run `32623108290` reach a terminal result and inspect its final PE import audit.
-2. Evaluate the later YY-Thunks 1.2.2 + VC-LTL 5.2.2 dedicated smoke independently of that older full-build SHA.
-3. Keep CRT-model compatibility (`/MD`) separate from import-thunking decisions.
+1. Reproduce the `LockResource` duplicate-symbol class in the short YY-Thunks/Rust smoke on YY-Thunks 1.2.2 + VC-LTL 5.2.2.
+2. Find a narrow linker configuration that redirects the required Win8+ Rust imports without placing the whole YY `kernel32.lib` before `gkrust`.
+3. Require the smoke to pass both linker-conflict and PE-import gates.
+4. Run the next full Firefox build only after the smoke identifies a clean strategy.
+5. Keep CRT-model compatibility (`/MD`) separate from import-thunking decisions.
