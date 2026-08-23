@@ -77,9 +77,10 @@ These rules supplement the global Firefox instructions above and are authoritati
 Before answering a technical question about the current project state or changing code:
 1. Verify the repository default branch and the exact HEAD/ref relevant to the question.
 2. Read `docs/gost/PROJECT_STATE.md` from the current default branch.
-3. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in `docs/gost/TEST_LOG.md`.
-4. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
-5. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
+3. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
+4. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in `docs/gost/TEST_LOG.md`.
+5. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
+6. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/WORKFLOWS.md` as the workflow-role map, and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
 
 Do not resurrect a hypothesis marked resolved or rejected in these files without new evidence.
 
