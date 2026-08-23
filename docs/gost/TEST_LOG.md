@@ -201,7 +201,7 @@ lld-link: error: duplicate symbol: LockResource
 
 ### Conclusion
 
-**Failed hypothesis at Firefox scale.** Prepending the complete YY-Thunks `kernel32.lib` before `gkrust.lib` is too broad. It exposes ordinary kernel32 definitions early enough to collide with symbols also emitted by Rust raw-dylib import objects inside `gkrust.lib`; `LockResource` is the first observed duplicate.
+**Failed hypothesis at Firefox scale.** Prepending the complete YY-Thunks `kernel32.lib` before `gkrust.lib` is too broad. It exposes ordinary kernel32 definitions early enough to collide with symbols also emitted by Rust raw-dylib import objects inside `gkrust.lib`; `LockResource` is the first observed collision.
 
 This is a Windows Vista/7 linker result only. It does not change the independent GOST TLS runtime blocker `SEC_E_INVALID_TOKEN`.
 
@@ -305,3 +305,93 @@ The smoke harness was corrected in commit `83208f74718cc70ad8c65081d2771b5babe60
 Dispatch `.github/workflows/yy-thunks-processprng-smoke.yml` at `83208f74718cc70ad8c65081d2771b5babe60f09`.
 
 Do not run a full Firefox build yet. The corrected smoke must first reach the representative Rust link and PE-import audit. If it fails, stop at the exact next gate instead of adding another linker candidate.
+
+---
+
+## 2026-08-23 — Closing smoke reached Rust link but probe rlib name was rejected
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`  
+**Commit under test:** `5ab5fdf5bcf832eb15ad7d4c6f2db7635da4abed`  
+**Actions run:** `32642384623`  
+**Job:** `97201364265`  
+**Workflow:** `YY-Thunks narrow ProcessPrng closing smoke`  
+**CI result:** failed in `Link exactly one candidate`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32642384623>
+
+### Observation
+
+The corrected weak-alias/provider gates and representative Rust archive build passed. The final Rust invocation then failed before the linker experiment because the probe archive was named `yy_processprng_probe.rlib` and `rustc --extern` rejected that path as an unknown extern type.
+
+```text
+error: extern location for yy_processprng_probe is of an unknown type:
+...\yy_processprng_probe.rlib
+```
+
+The final PE audit was skipped.
+
+### Conclusion
+
+**Harness failure, not a linker-strategy result.** The provider construction and representativeness checks advanced past the earlier weak-alias failure, but this run did not test the final link because the rlib filename did not use Rust's standard `lib<crate>.rlib` form.
+
+Commit `d32ef97dac1faa5d51fe7e2b4d2ace9c6b47ec11` renamed the archive to `libyy_processprng_probe.rlib` and added a narrow push trigger for this smoke workflow.
+
+---
+
+## 2026-08-23 — Narrow ProcessPrng strategy linked cleanly; raw audit produced a basename false positive
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`  
+**Commit under test:** `d32ef97dac1faa5d51fe7e2b4d2ace9c6b47ec11`  
+**Actions run:** `32643370376`  
+**Job:** `97203781090`  
+**Workflow:** `YY-Thunks narrow ProcessPrng closing smoke`  
+**Diagnostics artifact:** `9494281868`  
+**CI result:** failed in `Audit final PE imports`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32643370376>
+
+### Observation
+
+This run reached and completed the representative final Rust/LLD link. The diagnostics prove all of the intended linker-side invariants:
+
+- `final-link.map` contains `YY_Thunks_ProcessPrng` and maps `ProcessPrng` to the same address;
+- `__imp_ProcessPrng` and `__imp_YY_Thunks_ProcessPrng` also map to the same address;
+- the complete YY `kernel32.lib` was not supplied to the final linker;
+- the full YY Lib directory was not supplied through `LIBPATH`;
+- the representative `LockResource` raw-dylib control linked without the previous duplicate-symbol failure.
+
+The job then reported:
+
+```text
+Win7-incompatible imports survived: ProcessPrng
+```
+
+However, inspection of the uploaded `final-imports.txt` shows that this is not an actual PE import. The raw `dumpbin /imports` output contains no imported `ProcessPrng`, no `bcryptprimitives.dll`, no `api-ms-win-core-synch-l1-2-0.dll`, and no `WaitOnAddress` / `WakeByAddressAll` / `WakeByAddressSingle`. It does contain the expected `KERNEL32.dll` and `LockResource` positive controls.
+
+The only `ProcessPrng` substring in the complete dump text is the executable path itself:
+
+```text
+Dump of file ...\processprng-closing-smoke\processprng-closing-smoke.exe
+```
+
+The audit at `d32ef97...` used case-insensitive `IndexOf` against the entire raw dump text, so the executable basename caused a false positive.
+
+### Conclusion
+
+**The exact narrow linker strategy satisfies the intended smoke evidence in run `32643370376`; the red Actions result is an audit-harness false negative.**
+
+This is stronger than the earlier harness failures because the actual link and PE were produced and can be audited from the artifact. The evidence shows:
+
+1. YY's two ProcessPrng weak aliases were selected;
+2. the YY implementation was selected;
+3. the broad whole-YY-`kernel32.lib` collision path was absent;
+4. the forbidden ProcessPrng / Win8+ synchronization imports are absent from the actual final import table;
+5. `LockResource` remains an ordinary `KERNEL32.dll` import.
+
+For a formal green CI gate, commit `fd925b1780fa3470a2cfba743a7374f7d7e644d6` replaces raw substring scanning with exact parsed DLL/API import names and writes the parsed sets into diagnostics.
+
+### Next Win7 experiment
+
+Run the same closing smoke at `fd925b1780fa3470a2cfba743a7374f7d7e644d6`. Do not change the linker strategy and do not run the full Firefox build until the corrected audit records a formal PASS. If that run is green, transfer this exact narrow ProcessPrng + `synchronization.lib` strategy into the Firefox `xul.dll` link as the next single experiment.
