@@ -55,3 +55,48 @@ You can find the review identifier by inspecting the commit log with:
 - Never put `DONTBUILD` (or `CLOSED TREE`) in the `-m` message of `mach try fuzzy` / `mach try compare` when you want builds to actually run. The Gecko decision task scans the message and on `DONTBUILD` strips every task from the graph: the decision task itself succeeds (Treeherder shows green) but no builds are scheduled.
 - When doing Android and Desktop front-end-only changes, use the special `./mach build faster` to skip all C++/Rust compilation.
 - Conversely, for C/C++/Obj-C/Rust only changes you can use the special `./mach build binaries` to skip all front-end-related tasks.
+
+## r3dfox GOST TLS project-specific instructions
+
+These rules supplement the global Firefox instructions above and are authoritative for this fork.
+
+### Repository and branch policy
+- Repository: `syncguy/r3dfox-gost`.
+- Default and active development branch: `agent/gost-tls-poc`.
+- Frozen baseline branch: `win-153`.
+- `win-153` is protected as a reference snapshot: updates, deletion, and force-pushes are restricted, and fork syncing is not allowed by its ruleset.
+- NEVER commit, push, merge, rebase, or otherwise modify `win-153` unless the user explicitly requests that exact operation.
+- Do not infer the active working branch from an old pull request base. PR #1 historically targets `win-153`; active work still belongs on `agent/gost-tls-poc`.
+
+### Project goal
+- Add GOST TLS support to r3dfox/Firefox through `deemru/msspi` and the Windows CryptoPro/SSPI stack.
+- Ordinary HTTPS must continue to use Firefox NSS. Only explicitly selected/allowlisted GOST TLS hosts use the MSSPI-backed transport.
+- The current PoC phase is intentionally narrow: Windows, TLS 1.2, HTTP/1.1, and server authentication first.
+
+### Mandatory context recovery
+Before answering a technical question about the current project state or changing code:
+1. Verify the repository default branch and the exact HEAD/ref relevant to the question.
+2. Read `docs/gost/PROJECT_STATE.md` from the current default branch.
+3. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in `docs/gost/TEST_LOG.md`.
+4. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
+5. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
+
+Do not resurrect a hypothesis marked resolved or rejected in these files without new evidence.
+
+### Keep investigation tracks separate
+There are two related but distinct tracks:
+- GOST TLS runtime/handshake behavior (`nsGostSSLIOLayer`, NSPR, MSSPI, SSPI, CryptoPro).
+- Windows Vista/7 binary compatibility and toolchain/linker work (Rust, YY-Thunks, VC-LTL, thunk-rs, PE import audits).
+
+A successful build does not imply a successful GOST TLS handshake, and a TLS runtime failure does not by itself imply a Win7 linker/import problem.
+
+### Upstream/version policy
+- The frozen r3dfox baseline currently comes from the r3dfox/Firefox 153 line.
+- Firefox upstream has moved to 154, but the r3dfox author had not yet published the corresponding r3dfox 154 baseline when this context was recorded.
+- Do not migrate, rebase, or retarget the project to Firefox/r3dfox 154 until the user explicitly decides to do so.
+
+### Documentation maintenance
+After a meaningful experiment:
+- Append the evidence and conclusion to `docs/gost/TEST_LOG.md`.
+- Update `docs/gost/PROJECT_STATE.md` only when the current understanding, blocker, architecture, pinned dependency, or next experiment changes.
+- Keep failed/rejected approaches in the test log so future agents do not repeat them blindly.
