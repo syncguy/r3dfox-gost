@@ -80,7 +80,7 @@ set R3DFOX_GOST_HOSTS=fzs.roskazna.ru
 
 r3dfox.exe -no-remote ^
   --MOZ_LOG=timestamp,sync,GostTLS:5 ^
-  --MOZ_LOG_FILE=C:\Temp\r3dfox-gost ^
+  --MOZ_LOG_FILE=C:\\Temp\\r3dfox-gost ^
   https://fzs.roskazna.ru/
 ```
 
@@ -326,7 +326,7 @@ The corrected weak-alias/provider gates and representative Rust archive build pa
 
 ```text
 error: extern location for yy_processprng_probe is of an unknown type:
-...\yy_processprng_probe.rlib
+...\\yy_processprng_probe.rlib
 ```
 
 The final PE audit was skipped.
@@ -373,7 +373,7 @@ However, inspection of the uploaded `final-imports.txt` shows that this is not a
 The only `ProcessPrng` substring in the complete dump text is the executable path itself:
 
 ```text
-Dump of file ...\processprng-closing-smoke\processprng-closing-smoke.exe
+Dump of file ...\\processprng-closing-smoke\\processprng-closing-smoke.exe
 ```
 
 The audit at `d32ef97...` used case-insensitive `IndexOf` against the entire raw dump text, so the executable basename caused a false positive.
@@ -454,7 +454,7 @@ Only that full-scale result can establish whether the passing smoke strategy sur
 ### Event chain
 
 1. **Run `32647338452`, job `97213486474`, commit `0eb29ecccaa3d2a0762af17e458c42cf245410d7`.** The full Firefox build/package succeeded with the narrow ProcessPrng strategy. The exact xul import audit then identified the next hard direct blocker: `KERNEL32.dll!GetSystemTimePreciseAsFileTime`, a Windows-8+ API.
-2. **Commit `b3c3d3b00c6e4a76fbfaa615b9104828c26e78ba`.** The first attempt to add precise-time members directly to the full workflow had the correct narrow-provider intent but corrupted embedded-Python `\n` literals into physical YAML-breaking line breaks. It is not experimental proof.
+2. **Commit `b3c3d3b00c6e4a76fbfaa615b9104828c26e78ba`.** The first attempt to add precise-time members directly to the full workflow had the correct narrow-provider intent but corrupted embedded-Python `\\n` literals into physical YAML-breaking line breaks. It is not experimental proof.
 3. **Run `32692410607`, commit `08203bb0d7023b7186dc11e4d765f0349aadf076`.** GitHub rejected `.github/workflows/gost-poc-build-thunk.yml` around line 446 before creating a build job, confirming the YAML corruption.
 4. **Run `32680494331`, job `97296220325`, commit `cdef097b1912f68232de13d5e41b1a84add466d6`.** The focused `YY-Thunks precise-time closing smoke` passed on its first attempt. It selected `GetSystemTimePreciseAsFileTime.obj`, `GetSystemTimePreciseAsFileTime.obi`, and `YY_Thunks_for_6.1.7600.0.obj`, verified both COFF weak aliases, rejected broad ordinary surface, linked a representative Rust raw-dylib probe without complete YY `kernel32.lib`, and removed `GetSystemTimePreciseAsFileTime` from the final PE imports while keeping `LockResource` as a normal KERNEL32 positive control.
 5. **Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00`.** Full xul-scale integration completed narrow-provider construction, libxul patching, full release build, package, release upload, import audit, and diagnostics upload. Release artifact: `9512347999`; diagnostics artifact: `9512349511`. Only the final policy gate failed.
@@ -474,3 +474,31 @@ The narrow ProcessPrng + precise-time strategy is now proven at Firefox `xul.dll
 Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only the Vista-supported `GetQueuedCompletionStatusEx` false positive from the Win8+ hard blacklist; the linker strategy is unchanged. The next full result should validate the corrected direct-import gate. After that, fix/replay the delay-load API parser before using delay-load diagnostics for runtime-path conclusions.
 
 This result is independent from the GOST TLS runtime blocker `SEC_E_INVALID_TOKEN`.
+
+---
+
+## 2026-08-24 — Portable build from run 32695496647 starts on Windows 7
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`  
+**Build Actions run:** `32695496647`  
+**Build job:** `97336702701`  
+**Build commit:** `ae3d52f42b8b6b509c1263418bead8bb9324dd00`  
+**Release artifact:** `9512347999`  
+**Portable package:** `r3dfox-v153.0.3.win64.portable.7z`  
+**Package SHA-256:** `534adf0777685f554f8948e19d84042b84520d9521a6f6084534c84c6558c08b`  
+**Runtime result:** user-reported successful launch on Windows 7
+
+### Observation
+
+The exact portable package extracted from release artifact `9512347999` was copied to a Windows 7 system and launched successfully. The browser reaches normal process/browser startup instead of failing at the Windows loader because of an unresolved direct import.
+
+No separate runtime log was supplied for this check, so the evidence scope is deliberately narrow: **startup of this exact x64 portable build on Windows 7 is confirmed**. This test does not by itself establish that every browser feature, every delay-loaded post-Win7 API path, or the GOST TLS handshake works on Windows 7.
+
+### Conclusion
+
+**Target-OS startup proof obtained.** For the exact build from run `32695496647` / commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, the Windows 7 compatibility line has progressed beyond build/link/import analysis to successful execution on the target OS.
+
+This materially strengthens the narrow YY-Thunks strategy result: the produced browser is not merely linkable/packageable with a cleaned direct-import surface; it actually starts on Windows 7.
+
+The remaining Win7 work is broader runtime coverage rather than proving basic process startup. In particular, delay-loaded post-Win7 APIs still need path/guard analysis and representative feature exercise. The separate GOST TLS runtime blocker remains `SEC_E_INVALID_TOKEN`; successful Windows 7 startup does not prove a successful GOST TLS handshake.
