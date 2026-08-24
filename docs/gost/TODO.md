@@ -37,9 +37,19 @@ Pinned MSSPI already exposes the needed handshake mechanism:
 
 Current Firefox GOST wrapper does not install an MSSPI certificate callback and does not select a client certificate.
 
+First baseline attempt on 2026-08-24 exposed an important routing prerequisite before the actual mTLS handshake could be observed. Treasury login redirects from `fzs.roskazna.ru` to `https://lk-fzs.roskazna.ru/certificate-list`. The test process had `R3DFOX_GOST_HOSTS=fzs.roskazna.ru`, so `lk-fzs.roskazna.ru` was not routed through the GOST provider and ordinary NSS failed with `SSL_ERROR_NO_CYPHER_OVERLAP`. The accompanying `GostTLS` log contains only `fzs.roskazna.ru`; no MSSPI connection to `lk-fzs.roskazna.ru` occurred. Therefore that error is not an MSSPI/mTLS failure and does not yet contain the login server's `CertificateRequest`.
+
+Next baseline capture requires no rebuild. Re-run the same proven alternative artifact with both exact hosts in the allowlist:
+
+```text
+R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru
+```
+
+The allowlist implementation supports comma/semicolon-separated exact hosts and `*.` suffix tokens, but use the two exact Treasury hosts for this experiment rather than broadening the scope unnecessarily.
+
 Planned evidence/implementation sequence:
 
-1. Capture a runtime log from the current successful build while attempting Treasury personal-cabinet login that requires a client certificate. Preserve the exact build run/SHA. Decode the server `CertificateRequest`, `SEC_I_INCOMPLETE_CREDENTIALS`, `MSSPI_X509_LOOKUP`, issuer list, and current failure/stall behavior before changing code.
+1. Capture a runtime log from run `32710363484`, job `97388836234`, source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, with both `fzs.roskazna.ru` and `lk-fzs.roskazna.ru` allowlisted. Confirm the login host reaches `ProxyStartSSL()` and MSSPI, then decode the server `CertificateRequest`, `SEC_I_INCOMPLETE_CREDENTIALS`, `MSSPI_X509_LOOKUP`, issuer list, and current failure/stall behavior before changing code.
 2. Add diagnostic handling for `MSSPI_X509_LOOKUP` without changing unrelated transport logic.
 3. Integrate `msspi_set_cert_cb()` and client-certificate loading/selection.
 4. Ensure the server certificate is verified successfully before allowing client-certificate disclosure/use.
