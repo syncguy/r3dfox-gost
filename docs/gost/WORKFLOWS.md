@@ -32,6 +32,24 @@ This is an experimental Windows Vista/7 linker/toolchain workflow. It exists to 
 
 Do not call this the project's main build. A successful or failed run here is evidence for the Windows Vista/7 compatibility track and does not by itself establish the state of the main GOST TLS build or the GOST TLS runtime handshake.
 
+## Forward VC-LTL / YY-Thunks Rust smoke
+
+Workflow file:
+
+`.github/workflows/yy-thunks-rust-smoke.yml`
+
+Workflow name:
+
+`YY-Thunks Rust Win7 smoke`
+
+Role:
+
+This is a forward-compatibility canary for current VC-LTL and YY-Thunks releases on the Rust/MSVC Win7 compatibility path. Its primary purpose is to answer whether the project can still compile and link representative Rust code when those external compatibility components are advanced to their current versions.
+
+It is not the authoritative proof for the linker strategy currently being scaled into Firefox's real `xul.dll`; that proof belongs to the dedicated closing smokes and `.github/workflows/gost-poc-build-thunk.yml`. This canary may intentionally move to newer VC-LTL/YY-Thunks versions before the full Firefox experiment does.
+
+Starting with VC-LTL 5.3.1, VC-LTL no longer supplies YY-Thunks as an automatic dependency. Therefore this workflow must treat VC-LTL and YY-Thunks as independently versioned inputs and provision both explicitly. `thunk-rs` 0.3.5 has older built-in download pins, so current-version tests must use its supported `VC_LTL` and `YY_THUNKS` path overrides rather than relying on those embedded defaults.
+
 ## Experimental Windows XP Rust/thunk smoke
 
 Workflow file:
@@ -83,6 +101,7 @@ Keep these concepts separate:
 
 - `gost-poc-build.yml` = main GOST TLS build workflow;
 - `gost-poc-build-thunk.yml` = experimental Windows Vista/7 thunk-rs build workflow;
+- `yy-thunks-rust-smoke.yml` = forward VC-LTL / YY-Thunks Rust compatibility canary;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke workflow;
 - `agent/gost-tls-poc` = active development branch used by these workflows;
 - `win-153` = protected frozen baseline branch.
