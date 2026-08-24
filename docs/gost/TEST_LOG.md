@@ -583,3 +583,53 @@ This test also proves that `msspi_set_cipherlist` is wired correctly and materia
 ### Follow-up implementation
 
 Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` implements the proxy-lifecycle fix candidate: HTTP-proxy I/O remains plaintext pass-through until `ProxyStartSSL()` activates MSSPI. This implementation still requires the existing main-workflow SSL compile gate and a new runtime log before the blocker can be considered fixed.
+
+---
+
+## 2026-08-24 — msvcr14x + Rust libstd + narrow YY-Thunks coexistence smoke passed
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/msvcr14x-win7-smoke`  
+**Commit under test:** `1abf867307ca56b97b7f2fb41e5e58e86ee08463`  
+**Actions run:** `32713958570`  
+**Job:** `97391163925`  
+**Workflow:** `msvcr14x Rust YY coexistence smoke`  
+**CI result:** success
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32713958570>
+
+### Hypothesis
+
+Test whether the modern Windows 7 compatibility pieces can coexist in one representative final PE without changing Firefox's dynamic CRT model:
+
+- ordinary C++ `/MD` / `MD_DynamicRelease` object;
+- Rust `nightly-2026-08-20` and real `libstd` surface;
+- YY-Thunks 1.2.2 `synchronization.lib`;
+- one physically narrow YY provider for `ProcessPrng` and `GetSystemTimePreciseAsFileTime`;
+- pinned `msvcr14x` commit `6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384` supplying the compatible UCRT/C++ runtime import libraries.
+
+The smoke explicitly forbids supplying the complete YY `kernel32.lib` or the full YY library directory to the final link.
+
+### Observation
+
+The run completed successfully. Its final gates require and therefore confirm for the produced representative executable:
+
+- the C++ helper remains `MD_DynamicRelease`;
+- Rust libstd's `ProcessPrng` and synchronization surface links through YY-Thunks 1.2.2;
+- `GetSystemTimePreciseAsFileTime` resolves through the same narrow YY provider;
+- `LockResource` remains a normal `KERNEL32.dll` raw-dylib positive control without the earlier duplicate-symbol collision;
+- the full YY `kernel32.lib` is absent from the final link command;
+- direct imports do not contain `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle`, `GetSystemTimePreciseAsFileTime`, or `GetOverlappedResultEx`;
+- direct DLL imports contain neither `api-ms-win-*` / `ext-ms-*` nor `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll`;
+- the selected runtime DLLs include `ucrtbase.dll` and `msvcp140.dll`;
+- the final probe executes successfully on the Windows 2022 runner.
+
+### Conclusion
+
+**Representative coexistence hypothesis confirmed.** `msvcr14x`, modern Rust/libstd, and the proven narrow YY-Thunks strategy can coexist in one `/MD` final link without reintroducing the broad YY `kernel32.lib` collision class or the tested direct CRT/API-set/Win8+ hard imports.
+
+This is representative-link proof, not yet Firefox/xul-scale proof and not a Windows 7 runtime proof for an `msvcr14x`-integrated browser.
+
+### Next Win7 experiment
+
+Move directly to one full Firefox/xul integration experiment using the same proven combination. Preserve Firefox's `/MD` model and the existing narrow YY provider. Make `msvcr14x` the selected CRT/UCRT import-library surface at link time, package its required app-local runtime DLLs, and audit the produced Firefox PE set for direct `api-ms-win-*`, `ext-ms-*`, `VCRUNTIME140*.dll`, and the known Win8+ hard imports before target-OS testing.
