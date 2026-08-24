@@ -1,0 +1,181 @@
+name: Record Win7 precise-time experiment history
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/record-win7-precise-time-history.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  record-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: agent/gost-tls-poc
+
+      - name: Update project evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          test_log = Path('docs/gost/TEST_LOG.md')
+          state = Path('docs/gost/PROJECT_STATE.md')
+          workflows = Path('docs/gost/WORKFLOWS.md')
+
+          log_text = test_log.read_text(encoding='utf-8')
+          if '32695496647' not in log_text:
+              log_text += r'''
+
+---
+
+## 2026-08-23/24 — From the first xul precise-time blocker to xul-scale narrow closure
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`
+
+This entry preserves the complete event chain for the `GetSystemTimePreciseAsFileTime` investigation. The chain must not be collapsed into a single successful run because it includes an xul-scale discovery, a malformed workflow edit, a focused closing smoke, and a later full-scale result whose red status was caused by an audit-classification error.
+
+### 1. Full xul scale exposed the next direct loader blocker
+
+**Actions run:** `32647338452`  
+**Job:** `97213486474`  
+**Commit:** `0eb29ecccaa3d2a0762af17e458c42cf245410d7`  
+**Workflow:** `GOST TLS PoC build - thunk-rs experiment`  
+**Result:** build/package succeeded; Win7 import gate failed
+
+The previously proven narrow ProcessPrng strategy scaled through the real Firefox build and package. The final xul audit showed that `ProcessPrng`, `WaitOnAddress`, and `WakeByAddress*` were no longer the hard direct-import problem. The remaining exact direct blocker was:
+
+`KERNEL32.dll!GetSystemTimePreciseAsFileTime`
+
+This API requires Windows 8, so it was a real Windows 7 loader-hard blocker at this stage.
+
+### 2. Premature full-workflow edit was malformed and is not experimental evidence
+
+**Commit:** `b3c3d3b00c6e4a76fbfaa615b9104828c26e78ba`  
+**Message:** `ci: thunk GetSystemTimePreciseAsFileTime narrowly`
+
+The intended change was to extend the narrow YY provider with `GetSystemTimePreciseAsFileTime.obj`, `GetSystemTimePreciseAsFileTime.obi`, and the shared YY implementation object. However, literal `\n` sequences inside embedded Python were accidentally turned into physical line breaks after backslashes, corrupting `.github/workflows/gost-poc-build-thunk.yml` YAML. This commit is therefore not proof of the thunk strategy.
+
+The parse failure was later observed as:
+
+**Actions run:** `32692410607`  
+**Commit:** `08203bb0d7023b7186dc11e4d765f0349aadf076`  
+**Result:** invalid workflow file around line 446; no build job was created.
+
+### 3. Focused precise-time closing smoke passed on the first attempt
+
+**Actions run:** `32680494331`  
+**Job:** `97296220325`  
+**Commit:** `cdef097b1912f68232de13d5e41b1a84add466d6`  
+**Workflow:** `YY-Thunks precise-time closing smoke`  
+**Result:** success
+
+The smoke selected exactly:
+
+- `GetSystemTimePreciseAsFileTime.obj`;
+- `GetSystemTimePreciseAsFileTime.obi`;
+- `YY_Thunks_for_6.1.7600.0.obj`.
+
+It verified both COFF weak aliases, rejected broad ordinary surface such as `LockResource`, linked a representative Rust raw-dylib probe without supplying the complete YY `kernel32.lib`, and proved that `GetSystemTimePreciseAsFileTime` did not survive as a final PE import while the `LockResource` positive control remained a normal KERNEL32 import.
+
+**Conclusion:** the symbol can be closed by a physically narrow YY provider. This was representative-link proof, not yet Firefox/xul-scale proof and not Windows 7 runtime proof.
+
+### 4. Full xul-scale integration succeeded; final red status was a false-positive policy gate
+
+**Actions run:** `32695496647`  
+**Job:** `97336702701`  
+**Commit:** `ae3d52f42b8b6b509c1263418bead8bb9324dd00`  
+**Workflow:** `GOST TLS PoC build - thunk-rs experiment`  
+**Diagnostics artifact:** `9512349511`  
+**Release artifact:** `9512347999`  
+**CI result:** final job status failure, but all build/link/package/audit steps before the policy gate succeeded
+
+The workflow constructed a single narrow provider containing the already proven ProcessPrng aliases plus the precise-time aliases and common YY implementation object. It kept YY `synchronization.lib`, preserved Firefox `/MD`, and did not reintroduce complete YY `kernel32.lib` interposition.
+
+Steps for narrow-provider construction, libxul patching, configuration, SSL target compilation, full release build, package, release upload, xul import audit, and diagnostics upload all passed. Only the final direct-import policy gate failed.
+
+The diagnostics prove:
+
+- `GetSystemTimePreciseAsFileTime` is absent from the final xul direct-import list and absent from the raw import dump;
+- `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle`, and `GetOverlappedResultEx` are also absent from the exact checked direct-import set;
+- `xul-thunk-win7-forbidden-direct-imports.txt` contains exactly `GetQueuedCompletionStatusEx`;
+- `GetQueuedCompletionStatusEx` is a genuine direct KERNEL32 import in the produced `xul.dll`.
+
+The red gate was nevertheless a harness classification error: Microsoft documents `GetQueuedCompletionStatusEx` with minimum supported client Windows Vista, so it is valid on Windows 7 and must not be in the Win8+ hard blacklist.
+
+**Current conclusion:** the narrow ProcessPrng + precise-time strategy has now been proven at Firefox `xul.dll` build/package scale. The previous hard blocker `GetSystemTimePreciseAsFileTime` is closed at the PE direct-import level. Run `32695496647` is not a Windows 7 runtime proof, but its red status must not be interpreted as a new incompatibility caused by `GetQueuedCompletionStatusEx`.
+
+### Corrective follow-up
+
+Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only `GetQueuedCompletionStatusEx` from the Win8+ hard blacklist. The linker strategy is unchanged. The next full run should verify that the corrected policy gate is clean and reveal whether any other direct loader-hard blocker remains.
+
+This entire line remains independent from the GOST TLS runtime blocker `SEC_E_INVALID_TOKEN`.
+'''
+              test_log.write_text(log_text, encoding='utf-8', newline='\n')
+
+          state_text = state.read_text(encoding='utf-8')
+          state_text = state_text.replace('Last updated: 2026-08-23', 'Last updated: 2026-08-24', 1)
+          marker = '## Separation of conclusions\n'
+          if '### Win7 xul-scale update — 2026-08-24' not in state_text:
+              update = r'''### Win7 xul-scale update — 2026-08-24
+
+The narrow YY-Thunks strategy has now crossed the Firefox/xul-scale boundary.
+
+Actions run `32695496647`, job `97336702701`, exact commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` completed narrow-provider construction, libxul patching, full release build, packaging, release upload, exact import audit, and diagnostics upload. The release artifact is `9512347999`; diagnostics are `9512349511`.
+
+The produced `xul.dll` no longer directly imports the previous Windows-8-only blocker `GetSystemTimePreciseAsFileTime`. The narrow provider therefore closes both the previously proven ProcessPrng family and precise-time symbol at full Firefox link/package scale without placing the complete YY `kernel32.lib` before Rust/gkrust.
+
+The run's final red status came only from `GetQueuedCompletionStatusEx` being incorrectly included in the Win8+ blacklist. It is a real direct KERNEL32 import, but Microsoft documents its minimum supported client as Windows Vista, so it is valid on Windows 7. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only that false-positive classification and leaves the linker strategy unchanged.
+
+Current next Win7 experiment: rerun the unchanged narrow linker strategy with the corrected direct-import gate. If no other direct Windows-8+ blocker is found, the next compatibility phase is target-OS execution/runtime validation plus separate review of delay-loaded post-Win7 APIs. A clean import audit still does not by itself prove Windows 7 runtime compatibility.
+
+The GOST TLS runtime blocker remains `SEC_E_INVALID_TOKEN` and is unaffected by this result.
+
+'''
+              if marker not in state_text:
+                  raise SystemExit('PROJECT_STATE separation marker not found')
+              state_text = state_text.replace(marker, update + marker, 1)
+          state.write_text(state_text, encoding='utf-8', newline='\n')
+
+          wf_text = workflows.read_text(encoding='utf-8')
+          start = wf_text.find('## Current full-scale thunk experiment\n')
+          end = wf_text.find('## Terminology rule\n', start)
+          if start < 0 or end < 0:
+              raise SystemExit('WORKFLOWS current experiment section markers not found')
+          current = r'''## Current full-scale thunk experiment
+
+The current full-scale Windows 7 compatibility line uses `.github/workflows/gost-poc-build-thunk.yml` with YY-Thunks 1.2.2 `synchronization.lib` plus a physically narrow provider for ProcessPrng and `GetSystemTimePreciseAsFileTime`. The complete YY `kernel32.lib` is only a source archive for selected members and must not be interposed broadly before Rust/gkrust.
+
+The workflow's xul audit deliberately separates ordinary/direct imports from delay-load imports. Direct imports are process-loader compatibility requirements and are subject to the hard gate. Delay-loaded post-Win7 APIs are recorded separately for runtime-path analysis rather than automatically treated as process-load blockers.
+
+Actions run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` proved that the narrow ProcessPrng + precise-time provider scales through the full Firefox build/package and removes `GetSystemTimePreciseAsFileTime` from xul's direct imports. The run was red only because the audit mistakenly classified Vista-supported `GetQueuedCompletionStatusEx` as Win8+. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` corrects that one policy entry without changing linker behavior and is the next full-run input.
+
+This workflow remains evidence only for the Windows Vista/7 compatibility track. It does not establish GOST TLS handshake success.
+
+'''
+          wf_text = wf_text[:start] + current + wf_text[end:]
+          workflows.write_text(wf_text, encoding='utf-8', newline='\n')
+          PY
+
+          git diff --check -- docs/gost/TEST_LOG.md docs/gost/PROJECT_STATE.md docs/gost/WORKFLOWS.md
+          grep -F '32695496647' docs/gost/TEST_LOG.md
+          grep -F 'GetQueuedCompletionStatusEx' docs/gost/PROJECT_STATE.md
+
+      - name: Commit documentation and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/record-win7-precise-time-history.yml
+          git add docs/gost/TEST_LOG.md docs/gost/PROJECT_STATE.md docs/gost/WORKFLOWS.md
+          git commit -m "docs: record xul precise-time closure"
+          git push origin HEAD:agent/gost-tls-poc
