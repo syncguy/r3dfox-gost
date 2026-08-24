@@ -707,3 +707,65 @@ DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
 The current wrapper accepts that case because it rejects only `verifyOk && verifyStatus != 0`. The pinned MSSPI implementation uses manual credential validation and `msspi_get_verify_status()` returns 0 on its internal-error path. Therefore **successful page loading is not yet proof that server-certificate validation is correctly enforced fail-closed**.
 
 This is now the next GOST-runtime security question. It is separate from the transport/CONNECT/handshake result, which is confirmed working.
+
+---
+
+## 2026-08-24 — Alternative thunk-rs full build also passes interactive Treasury workflows
+
+**Track:** GOST TLS runtime / cross-build validation  
+**Branch:** `agent/gost-tls-poc`  
+**Build commit:** `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`  
+**Actions run:** `32710363484`  
+**Job:** `97388836234`  
+**Workflow:** `GOST TLS PoC build - thunk-rs experiment`  
+**CI result:** success, attempt 2  
+**Release artifact:** `9519011295` (`r3dfox-gost-win64-thunk-experiment`)  
+**Runtime target:** `fzs.roskazna.ru` through the configured system HTTP proxy / ASUGATE
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32710363484>
+
+### Purpose
+
+Cross-check the already-proven GOST TLS source on the alternative full browser build that uses the ordinary-Rust + narrow-YY-Thunks compatibility path. This is a runtime cross-build validation, not a new TLS implementation.
+
+### Runtime evidence
+
+Uploaded runtime archive: `gost_experiment.zip`; inner log: `gost.moz_log`; SHA-256: `bbba5dfe695314c56411e872b7a997a62da1199e1bf886957a1002743b2e0039`.
+
+The log covers approximately `2026-08-24 13:16:31` through `13:19:10` UTC and contains:
+
+- 14 allowlist matches for `fzs.roskazna.ru`;
+- 14 `ProxyStartSSL` transitions;
+- 14 GOST TLS activations after the proxy tunnel;
+- 14 completed MSSPI handshakes;
+- every completed handshake negotiated TLS 1.2 (`0x0303`) and cipher suite `0xFF85`;
+- 119 successful `GostWrite msspi_write` application writes;
+- 381 `GostRead msspi_read` application reads;
+- no `HTTP/1.1 400 Bad Request` proxy failure;
+- no `SEC_E_INVALID_TOKEN`;
+- no `E/GostTLS` errors.
+
+The same still-open verification signature appears on all 14 handshakes:
+
+```text
+DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
+```
+
+so this run strengthens the transport/application result but does not close certificate-verification semantics.
+
+### Browser-visible interactive result
+
+The user did substantially more than load static pages: they navigated around the Treasury site, filled multiple forms, requested information, and received response lists from the site's web services. The browser remained functional through these interactions.
+
+This confirms that the alternative full build handles not only page HTML, scripts, and images but also **interactive request/response workflows and web-service-backed application traffic over the GOST TLS channel**.
+
+### Conclusion
+
+**Cross-build GOST runtime success confirmed.** The same exact GOST TLS source commit `4887e07d...` provides working end-to-end Treasury HTTPS behavior in both:
+
+1. the main `GOST TLS PoC build` release (`32710363486`), and
+2. the alternative ordinary-Rust + narrow-YY-Thunks full build (`32710363484`).
+
+This materially separates the TLS result from the Windows compatibility build strategy: the proven proxy/GOST runtime behavior is not specific to only one of those two full-build paths.
+
+This does not by itself prove complete Windows 7 feature compatibility for the alternative build, and it does not change the remaining certificate-verification security question.
