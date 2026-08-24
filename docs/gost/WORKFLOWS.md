@@ -16,6 +16,8 @@ Role:
 
 This is the project's main GOST TLS browser build workflow. Use results from this workflow when referring to the main project build unless a different workflow is named explicitly.
 
+It is the authoritative build line for the GOST TLS runtime/handshake track. A successful build still does not by itself prove a successful GOST handshake.
+
 ## Experimental Windows Vista/7 thunk-rs build
 
 Workflow file:
@@ -28,9 +30,65 @@ Workflow name:
 
 Role:
 
-This is an experimental Windows Vista/7 linker/toolchain workflow. It exists to test YY-Thunks, thunk-rs, VC-LTL, Rust raw-dylib import behavior, final PE imports, and related compatibility hypotheses at full Firefox/xul.dll scale.
+This is the full Firefox/xul-scale Windows Vista/7 linker/toolchain workflow. It tests YY-Thunks, thunk-rs, VC-LTL, Rust raw-dylib import behavior, final PE imports, and related compatibility hypotheses against a real packaged Firefox build.
 
-Do not call this the project's main build. A successful or failed run here is evidence for the Windows Vista/7 compatibility track and does not by itself establish the state of the main GOST TLS build or the GOST TLS runtime handshake.
+Do not call this the project's main GOST build. Results here belong to the Windows Vista/7 compatibility track and do not establish GOST TLS handshake state.
+
+Current linker strategy:
+
+- YY-Thunks 1.2.2 `synchronization.lib` for the selected synchronization redirects;
+- a physically narrow provider containing the proven ProcessPrng and `GetSystemTimePreciseAsFileTime` weak-alias members plus the common YY implementation member;
+- no broad complete-YY-`kernel32.lib` interposition before Rust/gkrust;
+- preserve Firefox's `/MD` CRT model.
+
+Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` completed the full build/package and removed `GetSystemTimePreciseAsFileTime` from xul's direct imports. Its final red status came only from incorrectly classifying Vista-supported `GetQueuedCompletionStatusEx` as Win8+. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes that one false-positive policy entry without changing linker behavior.
+
+The xul audit has a meaningful ordinary/direct import parser. Direct imports are the current process-loader hard gate.
+
+The delay-load side requires an important qualification: `dumpbin` formats delay API rows differently from ordinary import rows, and the API regex used in `ae3d52f4...` does not match that delay row shape. Therefore an empty `xul-thunk-win7-delay-import-api-names.txt` is **not** proof that no delay-loaded APIs exist. Keep the raw `xul-thunk-win7-imports.txt` diagnostic and fix/replay the delay parser before making delay-load runtime-path conclusions.
+
+## Narrow ProcessPrng closing smoke
+
+Workflow file:
+
+`.github/workflows/yy-thunks-processprng-smoke.yml`
+
+Role:
+
+This is the representative Rust/raw-dylib closing proof for the physically narrow ProcessPrng provider. It was used to reproduce the raw-dylib collision class that the broad YY `kernel32.lib` triggered and to prove a narrow archive strategy without full Firefox build cost.
+
+Formal passing evidence:
+
+- run `32644291202`;
+- job `97207125757`;
+- commit `fd925b1780fa3470a2cfba743a7374f7d7e644d6`.
+
+This smoke proved the narrow ProcessPrng strategy at representative-link scale; later full xul runs are required for Firefox-scale conclusions.
+
+## Precise-time closing smoke
+
+Workflow file:
+
+`.github/workflows/yy-thunks-precise-time-smoke.yml`
+
+Workflow name:
+
+`YY-Thunks precise-time closing smoke`
+
+Role:
+
+This is the focused closing proof for the `GetSystemTimePreciseAsFileTime` hard direct-import blocker found after the first full xul-scale narrow ProcessPrng run.
+
+Passing evidence:
+
+- run `32680494331`;
+- job `97296220325`;
+- commit `cdef097b1912f68232de13d5e41b1a84add466d6`;
+- result: success on the first attempt.
+
+It verifies the ordinary and `__imp_` COFF weak aliases, uses only the selected precise-time alias members plus the common YY implementation object, keeps a representative Rust raw-dylib `LockResource` positive control, and requires precise-time to disappear from the final PE imports without allowing the complete YY `kernel32.lib` into the final link.
+
+Passing this smoke is representative-link proof, not by itself Firefox/xul-scale or Windows 7 runtime proof. Run `32695496647` supplied the later xul-scale proof.
 
 ## Forward VC-LTL / YY-Thunks Rust smoke
 
@@ -44,11 +102,13 @@ Workflow name:
 
 Role:
 
-This is a forward-compatibility canary for current VC-LTL and YY-Thunks releases on the Rust/MSVC Win7 compatibility path. Its primary purpose is to answer whether the project can still compile and link representative Rust code when those external compatibility components are advanced to their current versions.
+This is a forward-compatibility canary for current VC-LTL and YY-Thunks releases on the Rust/MSVC Win7 compatibility path. Its primary purpose is to answer whether representative Rust code still compiles/links when external compatibility components are advanced.
 
-It is not the authoritative proof for the linker strategy currently being scaled into Firefox's real `xul.dll`; that proof belongs to the dedicated closing smokes and `.github/workflows/gost-poc-build-thunk.yml`. This canary may intentionally move to newer VC-LTL/YY-Thunks versions before the full Firefox experiment does.
+It is not the authoritative proof for the linker strategy currently used in Firefox's real `xul.dll`; that proof belongs to the dedicated closing smokes plus `.github/workflows/gost-poc-build-thunk.yml`.
 
-Starting with VC-LTL 5.3.1, VC-LTL no longer supplies YY-Thunks as an automatic dependency. Therefore this workflow must treat VC-LTL and YY-Thunks as independently versioned inputs and provision both explicitly. `thunk-rs` 0.3.5 has older built-in download pins, so current-version tests must use its supported `VC_LTL` and `YY_THUNKS` path overrides rather than relying on those embedded defaults.
+Starting with VC-LTL 5.3.1, VC-LTL no longer supplies YY-Thunks as an automatic dependency. Therefore this canary treats VC-LTL and YY-Thunks as independently versioned inputs and may use `thunk-rs` path overrides instead of its older embedded download pins.
+
+Do not conflate a canary dependency-version result with the full xul-scale linker/import result.
 
 ## Experimental Windows XP Rust/thunk smoke
 
@@ -62,48 +122,36 @@ Workflow name:
 
 Role:
 
-This is an exploratory Windows XP compatibility workflow, separate from the main GOST TLS goal. It tests whether a modern Rust/MSVC program can be pushed toward an XP-compatible binary model using `i686-pc-windows-msvc`, `thunk-rs`, an x86 PE image, Windows XP subsystem version 5.01, and explicit inspection of modern WinAPI imports such as `ProcessPrng`, `WaitOnAddress`, `WakeByAddress*`, `GetSystemTimePreciseAsFileTime`, and `GetOverlappedResultEx`.
+This is an exploratory Windows XP compatibility workflow, separate from both the GOST TLS runtime line and the Windows 7 full-xul line. It tests whether modern Rust/MSVC output can be pushed toward an XP-compatible binary model using `i686-pc-windows-msvc`, thunk techniques, XP PE subsystem settings, and import inspection.
 
-The current smoke runs the produced executable on the GitHub-hosted Windows Server 2022 runner. Therefore a successful build/run there plus PE 5.01 headers is not proof that the executable actually runs on Windows XP. Real XP runtime execution remains a separate compatibility gate.
+A successful build/run on a current GitHub-hosted Windows runner plus PE 5.01 headers is not proof that the executable runs on Windows XP. Real XP runtime execution remains a separate gate.
 
-This track is technically useful even if GOST TLS is never supported on XP. A future XP-compatible r3dfox build without GOST would still be a worthwhile outcome. The intended progression is to use small Rust/WinAPI compatibility probes first, then carry proven techniques into Firefox-scale PE/import and runtime work.
+## Current full-scale thunk evidence
 
-Potentially relevant external project:
-
-- `Chuyu-Team/msvcr14x`: <https://github.com/Chuyu-Team/msvcr14x>
-
-`msvcr14x` is relevant to the CRT/UCRT/API-set part of old-Windows compatibility: it is designed to let software built with VC2015 and newer avoid depending on a set of `api-ms-win-*` runtime DLLs, and it references YY-Thunks-related techniques. Treat it as a candidate/reference for future XP compatibility work, not as an already integrated or validated dependency of r3dfox-gost.
-
-The XP line must remain conceptually separate from the GOST TLS runtime line. XP compatibility may be pursued without MSSPI/CryptoPro/GOST support if that substantially reduces the platform constraints.
-
-## Current full-scale thunk experiment
-
-As of 2026-08-23, the current experimental run is:
+The significant completed full-scale result is:
 
 - workflow: `GOST TLS PoC build - thunk-rs experiment`;
-- run number: `#14`;
-- Actions run ID: `32647338452`;
-- job ID: `97213486474`;
-- branch: `agent/gost-tls-poc`;
-- commit SHA under test: `0eb29ecccaa3d2a0762af17e458c42cf245410d7`;
-- commit message: `ci: scale narrow ProcessPrng strategy to xul`;
-- status when this note was written: `in_progress`.
+- Actions run ID: `32695496647`;
+- job ID: `97336702701`;
+- commit SHA: `ae3d52f42b8b6b509c1263418bead8bb9324dd00`;
+- release artifact: `9512347999`;
+- diagnostics artifact: `9512349511`.
 
-Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32647338452>
+The build/package/linker strategy succeeded. `GetSystemTimePreciseAsFileTime` is no longer a direct xul import. The red final status was a direct-gate policy false positive on Vista-supported `GetQueuedCompletionStatusEx`.
 
-The hypothesis under test is whether the narrow ProcessPrng provider plus YY-Thunks `synchronization.lib`, already confirmed by the representative closing smoke, scales to the real Firefox `xul.dll` link without reintroducing the broad whole-YY-`kernel32.lib` collision class and while keeping the known forbidden Win8+ imports out of the final PE import table.
-
-The final result of this run belongs in `docs/gost/TEST_LOG.md` after the run completes and its exact outcome is inspected.
+The corrective workflow commit is `e2a9c3bcbbdfade62a15a144da9117e249cc6305`. Conclusions from its next full build must be associated with that run's actual head SHA; later documentation-only commits on the branch do not change which source/workflow revision an already-created run tested.
 
 ## Terminology rule
 
 Keep these concepts separate:
 
 - `gost-poc-build.yml` = main GOST TLS build workflow;
-- `gost-poc-build-thunk.yml` = experimental Windows Vista/7 thunk-rs build workflow;
+- `gost-poc-build-thunk.yml` = experimental Windows Vista/7 full Firefox/xul workflow;
+- `yy-thunks-processprng-smoke.yml` = representative narrow ProcessPrng closing proof;
+- `yy-thunks-precise-time-smoke.yml` = focused precise-time closing proof;
 - `yy-thunks-rust-smoke.yml` = forward VC-LTL / YY-Thunks Rust compatibility canary;
-- `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke workflow;
-- `agent/gost-tls-poc` = active development branch used by these workflows;
+- `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
+- `agent/gost-tls-poc` = active development branch;
 - `win-153` = protected frozen baseline branch.
 
-Workflow role and Git branch role are independent. Do not infer that an experimental compatibility workflow is the main build merely because it runs on the active development branch.
+Workflow role and Git branch role are independent. Do not infer that an experimental compatibility workflow is the main GOST build merely because it runs on the active development branch.
