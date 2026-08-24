@@ -282,7 +282,7 @@ jobs:
           Write-Host "YY-Thunks patched kernel32.lib (source only): $yyKernel32"
           Write-Host "YY-Thunks synchronization.lib: $yySynch"
 
-      - name: GATE - Build narrow YY ProcessPrng provider
+      - name: GATE - Build narrow YY ProcessPrng + precise-time provider
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -302,9 +302,13 @@ jobs:
 
           $directMembers = @($members | Where-Object { $_ -match '(?i)[\\/]ProcessPrng\.obj$' })
           $importMembers = @($members | Where-Object { $_ -match '(?i)[\\/]ProcessPrng\.obi$' })
+          $preciseDirectMembers = @($members | Where-Object { $_ -match '(?i)[\\/]GetSystemTimePreciseAsFileTime\.obj$' })
+          $preciseImportMembers = @($members | Where-Object { $_ -match '(?i)[\\/]GetSystemTimePreciseAsFileTime\.obi$' })
           $implMembers = @($members | Where-Object { $_ -match '(?i)[\\/]YY_Thunks_for_6\.1\.7600\.0\.obj$' })
           if ($directMembers.Count -ne 1) { throw "Expected one ProcessPrng.obj weak-alias member; found $($directMembers.Count)" }
           if ($importMembers.Count -ne 1) { throw "Expected one ProcessPrng.obi weak-alias member; found $($importMembers.Count)" }
+          if ($preciseDirectMembers.Count -ne 1) { throw "Expected one GetSystemTimePreciseAsFileTime.obj weak-alias member; found $($preciseDirectMembers.Count)" }
+          if ($preciseImportMembers.Count -ne 1) { throw "Expected one GetSystemTimePreciseAsFileTime.obi weak-alias member; found $($preciseImportMembers.Count)" }
           if ($implMembers.Count -ne 1) { throw "Expected one YY implementation member; found $($implMembers.Count)" }
 
           function Extract-Member([string]$member, [string]$name) {
@@ -368,24 +372,34 @@ jobs:
 
           $direct = Extract-Member $directMembers[0] 'direct-alias'
           $import = Extract-Member $importMembers[0] 'import-alias'
+          $preciseDirect = Extract-Member $preciseDirectMembers[0] 'precise-direct-alias'
+          $preciseImport = Extract-Member $preciseImportMembers[0] 'precise-import-alias'
           $impl = Extract-Member $implMembers[0] 'implementation'
           $directSymbols = Get-Content (Join-Path $scan 'direct-alias\symbols.txt') -Raw
           $importSymbols = Get-Content (Join-Path $scan 'import-alias\symbols.txt') -Raw
+          $preciseDirectSymbols = Get-Content (Join-Path $scan 'precise-direct-alias\symbols.txt') -Raw
+          $preciseImportSymbols = Get-Content (Join-Path $scan 'precise-import-alias\symbols.txt') -Raw
           $implSymbols = Get-Content (Join-Path $scan 'implementation\symbols.txt') -Raw
 
           if (-not (Test-WeakAlias $directSymbols 'ProcessPrng' 'YY_Thunks_ProcessPrng')) { throw 'ProcessPrng.obj is not a COFF weak alias to YY_Thunks_ProcessPrng' }
           if (-not (Test-WeakAlias $importSymbols '__imp_ProcessPrng' '__imp_YY_Thunks_ProcessPrng')) { throw 'ProcessPrng.obi is not a COFF weak alias to __imp_YY_Thunks_ProcessPrng' }
+          if (-not (Test-WeakAlias $preciseDirectSymbols 'GetSystemTimePreciseAsFileTime' 'YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'GetSystemTimePreciseAsFileTime.obj is not a COFF weak alias to YY_Thunks_GetSystemTimePreciseAsFileTime' }
+          if (-not (Test-WeakAlias $preciseImportSymbols '__imp_GetSystemTimePreciseAsFileTime' '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'GetSystemTimePreciseAsFileTime.obi is not a COFF weak alias to __imp_YY_Thunks_GetSystemTimePreciseAsFileTime' }
           if (-not (Test-DefinedExternal $implSymbols 'YY_Thunks_ProcessPrng')) { throw 'YY implementation member does not define YY_Thunks_ProcessPrng' }
           if (-not (Test-DefinedExternal $implSymbols '__imp_YY_Thunks_ProcessPrng')) { throw 'YY implementation member does not define __imp_YY_Thunks_ProcessPrng' }
+          if (-not (Test-DefinedExternal $implSymbols 'YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'YY implementation member does not define YY_Thunks_GetSystemTimePreciseAsFileTime' }
+          if (-not (Test-DefinedExternal $implSymbols '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'YY implementation member does not define __imp_YY_Thunks_GetSystemTimePreciseAsFileTime' }
 
           @(
             [pscustomobject]@{ Alias = 'ProcessPrng'; Target = 'YY_Thunks_ProcessPrng'; Member = $directMembers[0] },
             [pscustomobject]@{ Alias = '__imp_ProcessPrng'; Target = '__imp_YY_Thunks_ProcessPrng'; Member = $importMembers[0] },
-            [pscustomobject]@{ Alias = '<implementation>'; Target = 'YY_Thunks_ProcessPrng + __imp_YY_Thunks_ProcessPrng'; Member = $implMembers[0] }
+            [pscustomobject]@{ Alias = 'GetSystemTimePreciseAsFileTime'; Target = 'YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $preciseDirectMembers[0] },
+            [pscustomobject]@{ Alias = '__imp_GetSystemTimePreciseAsFileTime'; Target = '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $preciseImportMembers[0] },
+            [pscustomobject]@{ Alias = '<implementation>'; Target = 'YY_Thunks_ProcessPrng + __imp_YY_Thunks_ProcessPrng + YY_Thunks_GetSystemTimePreciseAsFileTime + __imp_YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $implMembers[0] }
           ) | Export-Csv -NoTypeInformation -Encoding utf8 (Join-Path $work 'processprng-member-map.csv')
 
           $forbiddenSurface = @('LockResource', '__imp_LockResource', 'LoadLibraryExW', '__imp_LoadLibraryExW')
-          foreach ($obj in @($direct, $import, $impl)) {
+          foreach ($obj in @($direct, $import, $preciseDirect, $preciseImport, $impl)) {
             $text = (& dumpbin /nologo /symbols $obj 2>&1 | Out-String)
             foreach ($name in $forbiddenSurface) {
               if (Test-DefinedExternal $text $name) { throw "Selected YY member defines forbidden broad ordinary symbol '$name': $obj" }
@@ -393,7 +407,7 @@ jobs:
           }
 
           $narrow = Join-Path $work 'yy-processprng.lib'
-          & lib.exe /nologo "/out:$narrow" $direct $import $impl
+          & lib.exe /nologo "/out:$narrow" $direct $import $preciseDirect $preciseImport $impl
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) { throw 'Failed to build yy-processprng.lib' }
 
           $narrowSymbols = (& dumpbin /nologo /linkermember:1 $narrow 2>&1 | Out-String)
@@ -405,13 +419,16 @@ jobs:
             return $false
           }
           if (-not (Archive-Exposes 'YY_Thunks_ProcessPrng')) { throw 'yy-processprng.lib does not contain YY_Thunks_ProcessPrng' }
+          if (-not (Archive-Exposes 'YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'yy-processprng.lib does not contain YY_Thunks_GetSystemTimePreciseAsFileTime' }
           foreach ($name in $forbiddenSurface) {
             if (Archive-Exposes $name) { throw "yy-processprng.lib exposes forbidden broad symbol '$name'" }
           }
 
           "NARROW_PROCESSPRNG_LIB=$narrow" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Direct weak alias: $($directMembers[0])"
-          Write-Host "Import weak alias: $($importMembers[0])"
+          Write-Host "ProcessPrng direct weak alias: $($directMembers[0])"
+          Write-Host "ProcessPrng import weak alias: $($importMembers[0])"
+          Write-Host "Precise-time direct weak alias: $($preciseDirectMembers[0])"
+          Write-Host "Precise-time import weak alias: $($preciseImportMembers[0])"
           Write-Host "Implementation: $($implMembers[0])"
           Write-Host "Narrow provider: $narrow"
 
@@ -425,13 +442,27 @@ jobs:
 
           path = Path('toolkit/library/moz.build')
           text = path.read_text(encoding='utf-8')
-          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n'
+          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\
+        LDFLAGS += ["-time"]\
+'
           if text.count(anchor) != 1:
               raise SystemExit(f'Expected exactly one libxul clang-cl LDFLAGS anchor, found {text.count(anchor)}')
           yy_synch = os.environ['THUNK_YY_SYNCH_LIB'].replace('\\', '/')
           narrow = os.environ['NARROW_PROCESSPRNG_LIB'].replace('\\', '/')
-          replacement = anchor + f'''\n    # r3dfox-gost Win7 scale test. Keep Firefox on its native /MD CRT model.\n    # The complete YY kernel32.lib previously collided with Rust raw-dylib\n    # LockResource at xul.dll scale. Supply only synchronization.lib and the\n    # smoke-proven narrow ProcessPrng provider before STATIC_LIBS/gkrust.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "{yy_synch}",\n            "{narrow}",\n            "-VERBOSE",\n        ]\n'''
-          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
+          replacement = anchor + f'''\
+    # r3dfox-gost Win7 scale test. Keep Firefox on its native /MD CRT model.\
+    # The complete YY kernel32.lib previously collided with Rust raw-dylib\
+    # LockResource at xul.dll scale. Supply only synchronization.lib and the\
+    # smoke-proven narrow ProcessPrng/precise-time provider before STATIC_LIBS/gkrust.\
+    if CONFIG["OS_ARCH"] == "WINNT":\
+        LDFLAGS += [\
+            "{yy_synch}",\
+            "{narrow}",\
+            "-VERBOSE",\
+        ]\
+'''
+          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\
+')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff -- toolkit\library\moz.build | Tee-Object -FilePath thunk-libxul-patch.diff
