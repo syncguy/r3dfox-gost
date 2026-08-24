@@ -13,7 +13,7 @@ permissions:
 
 env:
   YY_THUNKS_VERSION: "1.2.2"
-  VC_LTL_VERSION: "5.2.2"
+  VC_LTL_VERSION: "5.3.1"
   THUNK_RS_VERSION: "0.3.5"
   RUST_TOOLCHAIN: "nightly-2026-08-20"
   RUST_TARGET: "x86_64-pc-windows-msvc"
@@ -83,13 +83,44 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ env.RUST_TARGET }}
 
-      - name: Provision VC-LTL 5.2.2 via thunk-rs
+      - name: Provision VC-LTL 5.3.1 and YY-Thunks 1.2.2 via thunk-rs overrides
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $proj = Join-Path $env:RUNNER_TEMP 'yy-smoke-vcltl-provision'
           if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
           New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+
+          $vcArchive = Join-Path $env:RUNNER_TEMP "VC-LTL-$env:VC_LTL_VERSION-Binary.7z"
+          $vcRoot = Join-Path $env:RUNNER_TEMP "VC-LTL-$env:VC_LTL_VERSION"
+          $yyObjsArchive = Join-Path $env:RUNNER_TEMP "YY-Thunks-$env:YY_THUNKS_VERSION-Objs.zip"
+          $yyObjsRoot = Join-Path $env:RUNNER_TEMP "YY-Thunks-$env:YY_THUNKS_VERSION-Objs"
+
+          if (Test-Path $vcRoot) { Remove-Item -Recurse -Force $vcRoot }
+          Invoke-WebRequest -Uri "https://github.com/Chuyu-Team/VC-LTL5/releases/download/v$env:VC_LTL_VERSION/VC-LTL-Binary.7z" -OutFile $vcArchive
+          & 7z x -y $vcArchive "-o$vcRoot"
+          if ($LASTEXITCODE -ne 0) { throw "VC-LTL v$env:VC_LTL_VERSION extraction failed: $LASTEXITCODE" }
+
+          if (Test-Path $yyObjsRoot) { Remove-Item -Recurse -Force $yyObjsRoot }
+          Invoke-WebRequest -Uri "https://github.com/Chuyu-Team/YY-Thunks/releases/download/v$env:YY_THUNKS_VERSION/YY-Thunks-Objs.zip" -OutFile $yyObjsArchive
+          Expand-Archive -Path $yyObjsArchive -DestinationPath $yyObjsRoot
+
+          $vcLib = Join-Path $vcRoot 'TargetPlatform\6.0.6000.0\lib\x64'
+          if (-not (Test-Path $vcLib)) {
+            throw "Expected VC-LTL v$env:VC_LTL_VERSION Vista/Win7 x64 lib directory not found: $vcLib"
+          }
+          $vcLibs = @(Get-ChildItem -Path $vcLib -File -Filter '*.lib')
+          if ($vcLibs.Count -eq 0) {
+            throw "VC-LTL v$env:VC_LTL_VERSION lib directory contains no .lib files: $vcLib"
+          }
+
+          $yyObj = Join-Path $yyObjsRoot 'objs\x64\YY_Thunks_for_Win7.obj'
+          if (-not (Test-Path $yyObj)) {
+            throw "YY-Thunks v$env:YY_THUNKS_VERSION Win7 x64 object was not found: $yyObj"
+          }
+
+          $env:VC_LTL = $vcRoot
+          $env:YY_THUNKS = $yyObjsRoot
 
           @"
           [package]
@@ -108,7 +139,7 @@ jobs:
           fn main() { thunk::thunk(); }
           '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
 
-          'fn main() { println!("VC-LTL provision ok"); }' |
+          'fn main() { println!("VC-LTL + YY-Thunks provision ok"); }' |
             Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
 
           $merged = Join-Path $env:RUNNER_TEMP 'vcltl-provision.log'
@@ -116,11 +147,6 @@ jobs:
 
           Push-Location $proj
           try {
-            # Start-Process -Wait waits for the entire descendant process tree on
-            # Windows PowerShell. MSVC can leave vctip.exe alive after cargo has
-            # already exited, which previously held this step until the job timeout.
-            # cmd.exe waits for cargo itself and exposes its real exit code while
-            # merging stderr into stdout for live diagnostics.
             & cmd.exe /d /s /c "cargo build --target $env:RUST_TARGET --jobs 4 -vv 2>&1" |
               Tee-Object -FilePath $merged
             $cargoExitCode = $LASTEXITCODE
@@ -129,28 +155,21 @@ jobs:
             Pop-Location
           }
           if ($cargoExitCode -ne 0) {
-            throw "thunk-rs VC-LTL provisioning failed with exit code $cargoExitCode"
+            throw "thunk-rs compatibility provisioning failed with exit code $cargoExitCode"
           }
 
-          $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter "VC-LTL-$env:VC_LTL_VERSION" |
-            Select-Object -First 1
-          if (-not $vc) {
-            throw "thunk-rs did not provision VC-LTL-$env:VC_LTL_VERSION"
+          if (Test-Path (Join-Path $proj 'target') ) {
+            $embeddedVc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter 'VC-LTL-5.2.2' -ErrorAction SilentlyContinue | Select-Object -First 1
+            $embeddedYy = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter 'YY-Thunks-1.1.7' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($embeddedVc -or $embeddedYy) {
+              throw 'thunk-rs ignored explicit current-version overrides and provisioned an embedded legacy dependency.'
+            }
           }
 
-          $vcLib = Join-Path $vc.FullName 'TargetPlatform\6.0.6000.0\lib\x64'
-          if (-not (Test-Path $vcLib)) {
-            throw "Expected VC-LTL Vista/Win7 x64 lib directory not found: $vcLib"
-          }
-
-          $vcLibs = @(Get-ChildItem -Path $vcLib -File -Filter '*.lib')
-          if ($vcLibs.Count -eq 0) {
-            throw "VC-LTL lib directory contains no .lib files: $vcLib"
-          }
-
-          "THUNK_VC_LTL_LIB=$vcLib" |
-            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_VC_LTL_LIB=$vcLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_OBJS_ROOT=$yyObjsRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "VC-LTL v$env:VC_LTL_VERSION lib path: $vcLib"
+          Write-Host "YY-Thunks v$env:YY_THUNKS_VERSION object path: $yyObj"
           $vcLibs | Sort-Object Name | Select-Object Name,Length | Format-Table -AutoSize
 
       - name: Download YY-Thunks LLD-link Win7 x64 libraries
@@ -337,7 +356,7 @@ jobs:
             throw "explicit-all rustc failed: $LASTEXITCODE"
           }
 
-          Write-Host '=== experiment D: VC-LTL 5.2.2 LIBPATH + explicit YY-Thunks 1.2.2 libraries ==='
+          Write-Host "=== experiment D: VC-LTL $env:VC_LTL_VERSION LIBPATH + explicit YY-Thunks $env:YY_THUNKS_VERSION libraries ==="
           $vcWrapper = Join-Path $env:SMOKE_DIR 'lld-link-yy-all-vcltl.cmd'
           @"
           @echo off
@@ -400,7 +419,7 @@ jobs:
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- YY-Thunks: v$env:YY_THUNKS_VERSION" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- VC-LTL: v$env:VC_LTL_VERSION (TargetPlatform/6.0.6000.0/lib/x64)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- thunk-rs provisioning: v$env:THUNK_RS_VERSION" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- thunk-rs: v$env:THUNK_RS_VERSION with explicit VC_LTL/YY_THUNKS overrides" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "| Variant | Forbidden imports |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
