@@ -57,13 +57,17 @@ The login-host behavior is now confirmed, not hypothetical:
 
 This is the current exact mTLS blocker: **the server requests a client certificate correctly, but the Firefox GOST wrapper does not select/load one into MSSPI.**
 
+#### Sensitive-data rule for mTLS work
+
+The repository is public. Any concrete client-certificate identifier used during local testing is sensitive and must remain local. Do not commit or print to CI/public logs complete certificate SHA-1/SHA-256 fingerprints/thumbprints, serial numbers, key IDs, identifying subject/issuer DNs, private-key container/provider identifiers, PINs/passwords, PFX contents, form contents, account data, or other credential/user-originated values. Documentation should use placeholders such as `<local-cert-id>` or `known-good client certificate`. Artifact/log hashes may be retained for reproducibility only when they are not certificate-derived identifiers and the artifact itself is sanitized.
+
 Planned implementation/evidence sequence:
 
 1. Add `msspi_set_cert_cb()` handling for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
 2. Inside the callback, perform/complete server-certificate verification before disclosing a client certificate. This couples the existing fail-closed server-verification work to mTLS rather than bypassing it.
-3. Read/log the server issuer list with `msspi_get_issuerlist()` and verify selection against the real Treasury acceptable-CA set.
-4. For the first controlled proof, allow one explicitly selected known-good CryptoPro certificate from Windows `MY` to be loaded with `msspi_set_mycert()` (for example by SHA-1/key ID/subject through a diagnostic selector) while preserving its private-key provider binding.
-5. Prove a complete mTLS handshake and successful personal-cabinet navigation with that known-good certificate, including any CryptoPro PIN/private-key interaction.
+3. Read the server issuer list with `msspi_get_issuerlist()` and use only sanitized aggregate/protocol diagnostics in public logs; do not publish identifying certificate DNs from user credentials.
+4. For the first controlled proof, allow one explicitly selected known-good CryptoPro certificate from Windows `MY` to be loaded with `msspi_set_mycert()` while preserving its private-key provider binding. The concrete selector value must remain local and must not appear in repository files, commit messages, PR/issues, or CI logs.
+5. Prove a complete mTLS handshake and successful personal-cabinet navigation with that known-good certificate, including any CryptoPro PIN/private-key interaction, without logging the PIN or credential identifiers.
 6. Then design Firefox-facing certificate selection UX instead of permanently relying on an environment-variable or hard-coded certificate selector.
 7. Prove negative cases: no suitable certificate, user cancellation, wrong certificate, private-key/PIN failure, and server rejection.
 
