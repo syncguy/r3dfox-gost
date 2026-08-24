@@ -236,13 +236,32 @@ These are delay-loaded in the inspected binary and therefore must be analyzed as
 
 Separate direct imports such as `api-ms-win-crt-*` belong to CRT/UCRT deployment analysis and must not be conflated with YY-Thunks symbol interposition.
 
+### Windows 7 target-OS startup validation
+
+The exact portable package from the full xul-scale experiment has now been executed on Windows 7.
+
+Validated build identity:
+
+- Actions run `32695496647`;
+- job `97336702701`;
+- commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00`;
+- release artifact `9512347999`;
+- package `r3dfox-v153.0.3.win64.portable.7z`;
+- package SHA-256 `534adf0777685f554f8948e19d84042b84520d9521a6f6084534c84c6558c08b`.
+
+Manual target-OS result on 2026-08-24: **the browser starts successfully on Windows 7**.
+
+This is the first direct runtime proof that the current narrow YY-Thunks full-Firefox build can get through the Windows 7 loader and normal browser startup. It is stronger than a clean import audit alone and closes the question of basic startup compatibility for this exact build.
+
+The scope remains specific. Successful startup does not prove that every browser feature or every delay-loaded post-Win7 API path is safe on Windows 7, and it does not prove GOST TLS handshake success. Those are separate runtime-coverage questions.
+
 ### Current next Win7 experiments
 
-1. Obtain the full-build result for the corrected direct-import policy on commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` (or its exact descendant if the branch advances before the run is created). Always bind the conclusion to the actual run head SHA.
-2. If the corrected direct gate is clean, treat the narrow ProcessPrng + precise-time direct-import problem as closed.
-3. Fix or replay the delay-load API parser against the retained raw dump before claiming delay-load coverage.
-4. Classify the actual delay-loaded post-Win7 APIs by whether Firefox guards those runtime paths on Windows 7.
-5. Perform real Windows 7 execution/runtime validation. A clean PE import audit is necessary but not sufficient proof of compatibility.
+1. Obtain a formal full-build result with the corrected direct-import policy from commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` or the exact workflow descendant used by the next run. This is now CI/gate closure rather than a prerequisite for proving that the browser can start on Windows 7.
+2. Fix or replay the delay-load API parser against the retained raw dump before claiming complete delay-load coverage.
+3. Classify the actual delay-loaded post-Win7 APIs by whether Firefox guards those runtime paths on Windows 7.
+4. Exercise representative browser paths on Windows 7 beyond startup, especially ordinary browsing/networking and features associated with the identified delay-loaded imports.
+5. Keep any GOST TLS-on-Windows-7 test separate: bind its runtime log to the exact build run/SHA and evaluate the MSSPI/SSPI handshake independently from old-Windows loader compatibility.
 
 The forward `yy-thunks-rust-smoke.yml` canary may independently test newer VC-LTL releases such as 5.3.1. Do not conflate that canary's dependency-version investigation with the full xul linker strategy above.
 
@@ -251,8 +270,9 @@ The forward `yy-thunks-rust-smoke.yml` canary may independently test newer VC-LT
 Keep these statements distinct:
 
 - **Build success** means the selected source/toolchain combination compiled and packaged.
-- **Win7 direct-import success** means the current exact loader-hard blacklist is absent from ordinary imports; it still does not prove target-OS execution.
-- **Win7 runtime compatibility** requires actual execution and guarded handling of any relevant delay-loaded APIs/runtime dependencies.
+- **Win7 direct-import success** means the current exact loader-hard blacklist is absent from ordinary imports; it is a static compatibility property.
+- **Win7 basic startup success** is now confirmed for the exact run `32695496647` / commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` portable build on a real Windows 7 system.
+- **Broader Win7 runtime compatibility** still requires representative feature exercise and guarded handling of relevant delay-loaded APIs/runtime dependencies.
 - **GOST transport success** means MSSPI can exchange bytes through the NSPR layer.
 - **GOST TLS success** requires the complete TLS handshake and usable HTTPS traffic.
 
