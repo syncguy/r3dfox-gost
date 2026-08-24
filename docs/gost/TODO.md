@@ -37,23 +37,33 @@ Pinned MSSPI already exposes the needed handshake mechanism:
 
 Current Firefox GOST wrapper does not install an MSSPI certificate callback and does not select a client certificate.
 
-First baseline attempt on 2026-08-24 exposed an important routing prerequisite before the actual mTLS handshake could be observed. Treasury login redirects from `fzs.roskazna.ru` to `https://lk-fzs.roskazna.ru/certificate-list`. The test process had `R3DFOX_GOST_HOSTS=fzs.roskazna.ru`, so `lk-fzs.roskazna.ru` was not routed through the GOST provider and ordinary NSS failed with `SSL_ERROR_NO_CYPHER_OVERLAP`. The accompanying `GostTLS` log contains only `fzs.roskazna.ru`; no MSSPI connection to `lk-fzs.roskazna.ru` occurred. Therefore that error is not an MSSPI/mTLS failure and does not yet contain the login server's `CertificateRequest`.
+#### Confirmed Treasury mTLS baseline
 
-Next baseline capture requires no rebuild. Re-run the same proven alternative artifact with both exact hosts in the allowlist:
+The first attempt established a routing prerequisite: Treasury login redirects from `fzs.roskazna.ru` to `https://lk-fzs.roskazna.ru/certificate-list`, so the login host must also be explicitly routed through the GOST provider. With only `fzs.roskazna.ru` allowlisted, ordinary NSS failed on the login host with `SSL_ERROR_NO_CYPHER_OVERLAP`; that was not an MSSPI/mTLS failure.
 
-```text
-R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru
-```
+The follow-up capture used the same proven alternative artifact from run `32710363484`, job `97388836234`, source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, with both exact hosts allowlisted. Uploaded archive: `gost_2_mTLS.zip`; inner log `gost.moz_log`; SHA-256 `7b8cb1d2b3bd8593f4a3bbd5d5df5ab6a274fec5c7e0ccfad8bdab955b10809e`.
 
-The allowlist implementation supports comma/semicolon-separated exact hosts and `*.` suffix tokens, but use the two exact Treasury hosts for this experiment rather than broadening the scope unnecessarily.
+The login-host behavior is now confirmed, not hypothetical:
 
-Planned evidence/implementation sequence:
+- 15/15 `lk-fzs.roskazna.ru` attempts reach the GOST provider, HTTP CONNECT, `ProxyStartSSL()`, and MSSPI;
+- the server handshake contains TLS `CertificateRequest` followed by `ServerHelloDone`;
+- one decoded `CertificateRequest` has an 11,529-byte body and 34 acceptable CA distinguished names;
+- MSSPI transitions to state `0x0000000A` = `MSSPI_READING | MSSPI_X509_LOOKUP` on all 15 attempts;
+- because the Firefox wrapper has no `msspi_set_cert_cb()` callback and the client credentials use `SCH_CRED_NO_DEFAULT_CREDS`, merely placing certificates in the Windows `MY` store does not cause automatic selection;
+- Schannel sends an empty TLS client `Certificate` message (`0B 00 00 03 00 00 00`), then continues with ClientKeyExchange / ChangeCipherSpec / Finished;
+- the server responds on all 15 attempts with TLS fatal `handshake_failure` (`15 03 03 00 02 02 28`);
+- Schannel surfaces the alert as `0x80090326` (`SEC_E_ILLEGAL_MESSAGE`), leaving MSSPI in `0x40000008` = `MSSPI_ERROR | MSSPI_X509_LOOKUP`;
+- no `MSSPI handshake complete` occurs for `lk-fzs.roskazna.ru`.
 
-1. Capture a runtime log from run `32710363484`, job `97388836234`, source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, with both `fzs.roskazna.ru` and `lk-fzs.roskazna.ru` allowlisted. Confirm the login host reaches `ProxyStartSSL()` and MSSPI, then decode the server `CertificateRequest`, `SEC_I_INCOMPLETE_CREDENTIALS`, `MSSPI_X509_LOOKUP`, issuer list, and current failure/stall behavior before changing code.
-2. Add diagnostic handling for `MSSPI_X509_LOOKUP` without changing unrelated transport logic.
-3. Integrate `msspi_set_cert_cb()` and client-certificate loading/selection.
-4. Ensure the server certificate is verified successfully before allowing client-certificate disclosure/use.
-5. First prove one explicitly selected known-good CryptoPro client certificate can complete mTLS to the Treasury site.
+This is the current exact mTLS blocker: **the server requests a client certificate correctly, but the Firefox GOST wrapper does not select/load one into MSSPI.**
+
+Planned implementation/evidence sequence:
+
+1. Add `msspi_set_cert_cb()` handling for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
+2. Inside the callback, perform/complete server-certificate verification before disclosing a client certificate. This couples the existing fail-closed server-verification work to mTLS rather than bypassing it.
+3. Read/log the server issuer list with `msspi_get_issuerlist()` and verify selection against the real Treasury acceptable-CA set.
+4. For the first controlled proof, allow one explicitly selected known-good CryptoPro certificate from Windows `MY` to be loaded with `msspi_set_mycert()` (for example by SHA-1/key ID/subject through a diagnostic selector) while preserving its private-key provider binding.
+5. Prove a complete mTLS handshake and successful personal-cabinet navigation with that known-good certificate, including any CryptoPro PIN/private-key interaction.
 6. Then design Firefox-facing certificate selection UX instead of permanently relying on an environment-variable or hard-coded certificate selector.
 7. Prove negative cases: no suitable certificate, user cancellation, wrong certificate, private-key/PIN failure, and server rejection.
 
@@ -95,3 +105,4 @@ Policy:
 - Treasury pages fully render with JavaScript and images.
 - Interactive forms, information requests, and web-service response-list workflows work in the alternative thunk-rs full build.
 - The same GOST TLS source commit works in both current full-build strategies.
+- `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and is confirmed to request a client certificate; the remaining failure is client-certificate selection/loading, not cipher overlap or proxy routing.
