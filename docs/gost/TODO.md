@@ -14,13 +14,15 @@ DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
 
 Pinned MSSPI runs client Schannel with manual credential validation. `msspi_get_verify_status()` verifies the peer certificate; in client mode that means the server certificate, including chain/policy, server-auth usage, hostname, and (by default) revocation handling.
 
-Next steps:
+This work is intentionally deferred until after the first successful controlled client-certificate mTLS proof. Do not add a special insecure/server-verification-bypass mode for that proof; simply keep the existing non-gating behavior while isolating the client-certificate path.
 
-- log `msspi_last_error()` immediately when `msspi_get_verify_status()` returns 0;
-- if needed, log peer-certificate and peer-chain retrieval status;
+Later steps:
+
+- log only sanitized diagnostics needed to determine why `msspi_get_verify_status()` returns 0;
+- if needed, inspect peer-certificate and peer-chain retrieval status without publishing credential-derived identifiers;
 - determine why verification returns its internal-error path on otherwise successful Treasury sessions;
 - make the Firefox wrapper fail closed when `verifyOk == 0` as well as when the returned verification status is nonzero;
-- prove a valid `fzs.roskazna.ru` certificate succeeds;
+- prove a valid Treasury server certificate succeeds;
 - prove a wrong hostname / invalid chain is rejected.
 
 ### 2. Add client-certificate / mutual TLS (mTLS) support
@@ -32,7 +34,7 @@ Pinned MSSPI already exposes the needed handshake mechanism:
 - Schannel can return `SEC_I_INCOMPLETE_CREDENTIALS` when the server requests a client certificate;
 - MSSPI then enters `MSSPI_X509_LOOKUP`;
 - `msspi_set_cert_cb()` installs a dynamic certificate-selection callback;
-- inside that callback the application can verify the server first, read the server issuer list with `msspi_get_issuerlist()`, choose a client certificate, and load it with `msspi_set_mycert()` / related APIs;
+- the application can load the explicitly selected client certificate with `msspi_set_mycert()` / related APIs;
 - the selected certificate can come from the Windows certificate stores and retain its CryptoPro private-key binding.
 
 Current Firefox GOST wrapper does not install an MSSPI certificate callback and does not select a client certificate.
@@ -61,15 +63,44 @@ This is the current exact mTLS blocker: **the server requests a client certifica
 
 The repository is public. Any concrete client-certificate identifier used during local testing is sensitive and must remain local. Do not commit or print to CI/public logs complete certificate SHA-1/SHA-256 fingerprints/thumbprints, serial numbers, key IDs, identifying subject/issuer DNs, private-key container/provider identifiers, PINs/passwords, PFX contents, form contents, account data, or other credential/user-originated values. Documentation should use placeholders such as `<local-cert-id>` or `known-good client certificate`. Artifact/log hashes may be retained for reproducibility only when they are not certificate-derived identifiers and the artifact itself is sanitized.
 
+#### First controlled mTLS proof scope
+
+Keep the first implementation deliberately narrow. The user already trusts the exact Treasury login endpoint and will explicitly provide the intended client certificate locally.
+
+For this first proof:
+
+- do **not** make server-certificate validation a prerequisite or gate;
+- do **not** introduce or expose a special insecure/server-verification-bypass option, environment variable, build flag, or CI mode;
+- do **not** make `msspi_get_issuerlist()` matching a prerequisite for selecting the certificate;
+- do **not** auto-discover or auto-select among certificates in `MY`;
+- accept one explicitly supplied local certificate selector and use it only to load the intended certificate into MSSPI;
+- the concrete selector value must never be printed to logs, Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
+
+The goal of this proof is only to establish the client-authentication path:
+
+```text
+CertificateRequest
+  -> MSSPI_X509_LOOKUP
+  -> msspi_set_cert_cb()
+  -> explicitly selected local certificate
+  -> msspi_set_mycert()
+  -> CryptoPro private-key operation / PIN if required
+  -> non-empty client Certificate / CertificateVerify
+  -> completed mTLS handshake
+  -> successful personal-cabinet request/navigation
+```
+
+After this path is proven, return to server-certificate verification as the next mandatory security task and separately decide whether issuer-list-based filtering/selection is needed for the final Firefox-facing certificate UX.
+
 Planned implementation/evidence sequence:
 
-1. Add `msspi_set_cert_cb()` handling for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
-2. Inside the callback, perform/complete server-certificate verification before disclosing a client certificate. This couples the existing fail-closed server-verification work to mTLS rather than bypassing it.
-3. Read the server issuer list with `msspi_get_issuerlist()` and use only sanitized aggregate/protocol diagnostics in public logs; do not publish identifying certificate DNs from user credentials.
-4. For the first controlled proof, allow one explicitly selected known-good CryptoPro certificate from Windows `MY` to be loaded with `msspi_set_mycert()` while preserving its private-key provider binding. The concrete selector value must remain local and must not appear in repository files, commit messages, PR/issues, or CI logs.
-5. Prove a complete mTLS handshake and successful personal-cabinet navigation with that known-good certificate, including any CryptoPro PIN/private-key interaction, without logging the PIN or credential identifiers.
-6. Then design Firefox-facing certificate selection UX instead of permanently relying on an environment-variable or hard-coded certificate selector.
-7. Prove negative cases: no suitable certificate, user cancellation, wrong certificate, private-key/PIN failure, and server rejection.
+1. Add the narrow `msspi_set_cert_cb()` handling needed for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
+2. Load exactly one explicitly selected known-good CryptoPro certificate from Windows `MY` with `msspi_set_mycert()` while preserving its private-key provider binding. Keep the selector strictly local and silent.
+3. Prove that the client sends a non-empty certificate, performs the private-key operation / `CertificateVerify`, and completes the mTLS handshake.
+4. Prove successful personal-cabinet navigation or the corresponding authenticated application request, including any CryptoPro PIN interaction, without logging credential identifiers or user data.
+5. Then return to fail-closed server-certificate verification.
+6. After the controlled proof, design Firefox-facing certificate selection UX and decide whether issuer-list filtering should participate in final selection.
+7. Prove negative cases later: no suitable certificate, user cancellation, wrong certificate, private-key/PIN failure, and server rejection.
 
 ### 3. Broaden proxy/network coverage later
 
