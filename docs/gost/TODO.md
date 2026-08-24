@@ -16,6 +16,8 @@ Pinned MSSPI runs client Schannel with manual credential validation. `msspi_get_
 
 This work is intentionally deferred until after the first successful controlled client-certificate mTLS proof. Do not add a special insecure/server-verification-bypass mode for that proof; simply keep the existing non-gating behavior while isolating the client-certificate path.
 
+This deferral is only Stage 1 test scope. **Fail-closed server verification is mandatory Stage 2 mTLS work and must be completed before the project treats mTLS integration as finished.**
+
 Later steps:
 
 - log only sanitized diagnostics needed to determine why `msspi_get_verify_status()` returns 0;
@@ -63,7 +65,7 @@ This is the current exact mTLS blocker: **the server requests a client certifica
 
 The repository is public. Any concrete client-certificate identifier used during local testing is sensitive and must remain local. Do not commit or print to CI/public logs complete certificate SHA-1/SHA-256 fingerprints/thumbprints, serial numbers, key IDs, identifying subject/issuer DNs, private-key container/provider identifiers, PINs/passwords, PFX contents, form contents, account data, or other credential/user-originated values. Documentation should use placeholders such as `<local-cert-id>` or `known-good client certificate`. Artifact/log hashes may be retained for reproducibility only when they are not certificate-derived identifiers and the artifact itself is sanitized.
 
-#### First controlled mTLS proof scope
+#### Stage 1 — first controlled successful mTLS proof
 
 Keep the first implementation deliberately narrow. The user already trusts the exact Treasury login endpoint and will explicitly provide the intended client certificate locally.
 
@@ -76,7 +78,7 @@ For this first proof:
 - accept one explicitly supplied local certificate selector and use it only to load the intended certificate into MSSPI;
 - the concrete selector value must never be printed to logs, Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
 
-The goal of this proof is only to establish the client-authentication path:
+The Stage 1 goal is only to establish the client-authentication path:
 
 ```text
 CertificateRequest
@@ -90,17 +92,31 @@ CertificateRequest
   -> successful personal-cabinet request/navigation
 ```
 
-After this path is proven, return to server-certificate verification as the next mandatory security task and separately decide whether issuer-list-based filtering/selection is needed for the final Firefox-facing certificate UX.
+Stage 1 is complete only when a sanitized runtime log tied to an exact Actions run ID and exact source commit SHA proves the successful mTLS handshake and authenticated application traffic/navigation.
 
-Planned implementation/evidence sequence:
+#### Stage 2 — mandatory mTLS technical-debt and security closure
 
-1. Add the narrow `msspi_set_cert_cb()` handling needed for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
-2. Load exactly one explicitly selected known-good CryptoPro certificate from Windows `MY` with `msspi_set_mycert()` while preserving its private-key provider binding. Keep the selector strictly local and silent.
-3. Prove that the client sends a non-empty certificate, performs the private-key operation / `CertificateVerify`, and completes the mTLS handshake.
-4. Prove successful personal-cabinet navigation or the corresponding authenticated application request, including any CryptoPro PIN interaction, without logging credential identifiers or user data.
-5. Then return to fail-closed server-certificate verification.
-6. After the controlled proof, design Firefox-facing certificate selection UX and decide whether issuer-list filtering should participate in final selection.
-7. Prove negative cases later: no suitable certificate, user cancellation, wrong certificate, private-key/PIN failure, and server rejection.
+**Stage 2 is mandatory. A successful Stage 1 trace does not mean mTLS work is complete. Do not mark the mTLS milestone finished, production-ready, or closed until Stage 2 is completed.**
+
+After the first successful client-certificate connection, immediately perform the following debt/security work:
+
+1. Fix server-certificate verification so the MSSPI GOST path is fail-closed. Diagnose the current `msspi_get_verify_status()` internal-error result using sanitized diagnostics only; reject both `verifyOk == 0` and nonzero verification status once the verification path is understood.
+2. Prove server verification with positive and negative cases: the real Treasury server/hostname must pass, while a wrong hostname or invalid/untrusted chain must fail.
+3. Decide and implement the final role of the server-provided acceptable-issuer list (`msspi_get_issuerlist()`) in client-certificate filtering/selection. The Stage 1 explicit selector intentionally bypasses this policy question; Stage 2 must resolve it rather than silently carrying the bypass forward.
+4. Replace the Stage 1 local explicit-selector mechanism with an appropriate Firefox-facing certificate-selection flow. The final design must not depend on hard-coded certificate identifiers or require publishing local certificate identifiers in repository/CI state.
+5. Implement and test negative client-authentication paths: no suitable certificate, user cancellation, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
+6. Audit mTLS diagnostics and logging so no complete certificate fingerprint/thumbprint, serial, key ID, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is emitted to public logs or artifacts.
+7. Re-run the successful Treasury mTLS scenario after the Stage 2 changes and preserve a sanitized exact-run/exact-SHA regression trace proving that security/UX hardening did not break client authentication.
+
+Only after all applicable Stage 2 items are complete may the project treat mTLS integration as closed. Any deliberately deferred item must be explicitly approved by the user and remain recorded as an open blocker/debt item rather than disappearing from the plan.
+
+#### Planned implementation/evidence sequence
+
+1. Stage 1: add the narrow `msspi_set_cert_cb()` handling needed for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
+2. Stage 1: load exactly one explicitly selected known-good CryptoPro certificate from Windows `MY` with `msspi_set_mycert()` while preserving its private-key provider binding. Keep the selector strictly local and silent.
+3. Stage 1: prove that the client sends a non-empty certificate, performs the private-key operation / `CertificateVerify`, and completes the mTLS handshake.
+4. Stage 1: prove successful personal-cabinet navigation or the corresponding authenticated application request, including any CryptoPro PIN interaction, without logging credential identifiers or user data.
+5. Stage 2: complete every applicable item in the mandatory technical-debt/security closure section above before closing the mTLS milestone.
 
 ### 3. Broaden proxy/network coverage later
 
