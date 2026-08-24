@@ -70,8 +70,9 @@ void LogHandshakeBuffer(GostSecret* aSecret, const char* aDirection,
   static constexpr char kHex[] = "0123456789ABCDEF";
   const auto* bytes = static_cast<const uint8_t*>(aBuf);
   for (int offset = 0; offset < aLen; offset += kTlsDumpChunkSize) {
+    const int remaining = aLen - offset;
     const int chunkLen =
-        std::min(kTlsDumpChunkSize, static_cast<int>(aLen - offset));
+        remaining < kTlsDumpChunkSize ? remaining : kTlsDumpChunkSize;
     nsCString hex;
     for (int i = 0; i < chunkLen; ++i) {
       const uint8_t byte = bytes[offset + i];
