@@ -22,11 +22,55 @@ jobs:
   rust-win7-import-smoke:
     name: Rust libstd + YY-Thunks + VC-LTL import smoke
     runs-on: windows-latest
-    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          Write-Host "Existing active pagefile total: $activeMB MB"
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          if ($activeMB -ge 20480) {
+            'need=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $activeRoots = @($active | ForEach-Object {
+            if ($_.Name -match '^([A-Za-z]:)\\') { $matches[1].ToUpperInvariant() }
+          })
+          $candidate = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Where-Object { ($activeRoots -notcontains $_.DeviceID.ToUpperInvariant()) -and $_.FreeSpace -ge 30GB } |
+            Sort-Object FreeSpace -Descending |
+            Select-Object -First 1
+          if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
+          Write-Host "Selected pagefile drive: $($candidate.DeviceID), free=$([math]::Round($candidate.FreeSpace / 1GB, 2)) GB"
+          'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile after provisioning
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          Write-Host "Active pagefile total: $activeMB MB"
+          if ($activeMB -lt 20480) { throw "Smoke blocked: active pagefile is only $activeMB MB." }
 
       - name: Enable MSVC x64 environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -67,17 +111,25 @@ jobs:
           'fn main() { println!("VC-LTL provision ok"); }' |
             Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
 
-          $stdout = Join-Path $env:RUNNER_TEMP 'vcltl-provision.stdout.log'
-          $stderr = Join-Path $env:RUNNER_TEMP 'vcltl-provision.stderr.log'
           $merged = Join-Path $env:RUNNER_TEMP 'vcltl-provision.log'
-          Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
+          Remove-Item -Force -ErrorAction SilentlyContinue $merged
 
-          $cargoArgs = @('build', '--target', $env:RUST_TARGET, '--jobs', '4', '-vv')
-          $proc = Start-Process -FilePath 'cargo' -ArgumentList $cargoArgs -WorkingDirectory $proj -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
-          if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
-          if ($proc.ExitCode -ne 0) {
-            throw "thunk-rs VC-LTL provisioning failed with exit code $($proc.ExitCode)"
+          Push-Location $proj
+          try {
+            # Start-Process -Wait waits for the entire descendant process tree on
+            # Windows PowerShell. MSVC can leave vctip.exe alive after cargo has
+            # already exited, which previously held this step until the job timeout.
+            # cmd.exe waits for cargo itself and exposes its real exit code while
+            # merging stderr into stdout for live diagnostics.
+            & cmd.exe /d /s /c "cargo build --target $env:RUST_TARGET --jobs 4 -vv 2>&1" |
+              Tee-Object -FilePath $merged
+            $cargoExitCode = $LASTEXITCODE
+          }
+          finally {
+            Pop-Location
+          }
+          if ($cargoExitCode -ne 0) {
+            throw "thunk-rs VC-LTL provisioning failed with exit code $cargoExitCode"
           }
 
           $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter "VC-LTL-$env:VC_LTL_VERSION" |
