@@ -228,8 +228,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
-            ${{ env.MSVCR14X_RELEASE }}\*.dll
-            ${{ env.MSVCR14X_RELEASE }}\*.lib
+            ${{ runner.temp }}\msvcr14x\x64\Release\*.dll
+            ${{ runner.temp }}\msvcr14x\x64\Release\*.lib
 
       - name: GATE - Reject direct API-set dependencies
         shell: powershell
