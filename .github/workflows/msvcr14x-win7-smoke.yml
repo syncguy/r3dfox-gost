@@ -1,0 +1,247 @@
+name: msvcr14x Win7 CRT smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/msvcr14x-win7-smoke
+    paths:
+      - ".github/workflows/msvcr14x-win7-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+
+jobs:
+  crt-import-smoke:
+    name: msvcr14x x64 /MD import smoke
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Record toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "test_commit=$env:GITHUB_SHA"
+            "msvcr14x_repo=$env:MSVCR14X_REPO"
+            "msvcr14x_commit=$env:MSVCR14X_SHA"
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
+          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          cmd /c "where msbuild && msbuild -version" | Set-Content -Encoding utf8 diagnostics\msbuild-version.txt
+
+      - name: Fetch pinned msvcr14x source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'msvcr14x'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git init $root
+          git -C $root remote add origin $env:MSVCR14X_REPO
+          git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
+          git -C $root checkout --detach FETCH_HEAD
+          git -C $root submodule update --init --recursive --depth 1
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $env:MSVCR14X_SHA) { throw "Unexpected msvcr14x commit: $actual" }
+          "MSVCR14X_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "actual_msvcr14x_commit=$actual" | Add-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Build pinned msvcr14x Release x64
+        shell: cmd
+        run: |
+          cd /d "%MSVCR14X_ROOT%"
+          msbuild /m msvcr14x.sln /t:Build /p:Configuration=Release;Platform=x64 -r /bl:"%GITHUB_WORKSPACE%\diagnostics\msvcr14x-release-x64.binlog"
+          if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+
+      - name: GATE - Verify expected msvcr14x linker outputs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Join-Path $env:MSVCR14X_ROOT 'x64\Release'
+          if (-not (Test-Path $release)) { throw "Release directory missing: $release" }
+
+          $files = @(Get-ChildItem -LiteralPath $release -File | Sort-Object Name)
+          $files | Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 | Set-Content -Encoding utf8 diagnostics\msvcr14x-x64-release-files.txt
+
+          foreach ($required in @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')) {
+            if (-not (Test-Path (Join-Path $release $required))) {
+              throw "Expected msvcr14x x64 Release output missing: $required"
+            }
+          }
+          "MSVCR14X_RELEASE=$release" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile one ordinary /MD C++ probe object
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:GITHUB_WORKSPACE 'msvcr14x-probe'
+          New-Item -ItemType Directory -Force $work | Out-Null
+          @'
+          #include <cstdio>
+          #include <filesystem>
+          #include <mutex>
+          #include <string>
+          #include <vector>
+
+          int main() {
+            std::vector<std::string> values{"r3dfox", "win7", "msvcr14x"};
+            std::filesystem::path p = std::filesystem::current_path() / "probe";
+            std::mutex m;
+            std::lock_guard<std::mutex> guard(m);
+            std::printf("%zu %ls\n", values.size(), p.c_str());
+            return values.size() == 3 ? 0 : 1;
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $work 'probe.cpp')
+
+          Push-Location $work
+          try {
+            & cl.exe /nologo /c /MD /O2 /EHsc /std:c++20 probe.cpp /Fo:probe.obj 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\diagnostics\probe-compile.log"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & dumpbin.exe /nologo /directives probe.obj 2>&1 | Set-Content -Encoding utf8 "$env:GITHUB_WORKSPACE\diagnostics\probe-object-directives.txt"
+          } finally {
+            Pop-Location
+          }
+
+      - name: Link baseline and msvcr14x variants from the same object
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:GITHUB_WORKSPACE 'msvcr14x-probe'
+          Push-Location $work
+          try {
+            & link.exe /nologo probe.obj /out:baseline.exe /subsystem:console /incremental:no /verbose:lib 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\diagnostics\baseline-link.log"
+            if ($LASTEXITCODE -ne 0) { throw "Baseline link failed with exit code $LASTEXITCODE" }
+
+            $libPathArg = "/libpath:$env:MSVCR14X_RELEASE"
+            & link.exe /nologo probe.obj /out:msvcr14x.exe /subsystem:console /incremental:no $libPathArg /verbose:lib 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-link.log"
+            if ($LASTEXITCODE -ne 0) { throw "msvcr14x link failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Audit direct DLL imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Get-DirectDllImports([string]$binary, [string]$rawPath) {
+            $raw = @(& dumpbin.exe /nologo /imports $binary 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin failed for $binary" }
+            $raw | Set-Content -Encoding utf8 $rawPath
+
+            $mode = 'none'
+            $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($line in $raw) {
+              if ($line -match '^\s*Section contains the following imports:\s*$') {
+                $mode = 'direct'
+                continue
+              }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
+                $mode = 'delay'
+                continue
+              }
+              if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
+                [void]$set.Add($matches[1])
+              }
+            }
+            return @($set | Sort-Object)
+          }
+
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'diagnostics'
+          $work = Join-Path $env:GITHUB_WORKSPACE 'msvcr14x-probe'
+          $baseline = Get-DirectDllImports (Join-Path $work 'baseline.exe') (Join-Path $diag 'baseline-imports-raw.txt')
+          $custom = Get-DirectDllImports (Join-Path $work 'msvcr14x.exe') (Join-Path $diag 'msvcr14x-imports-raw.txt')
+          $baseline | Set-Content -Encoding utf8 (Join-Path $diag 'baseline-direct-dlls.txt')
+          $custom | Set-Content -Encoding utf8 (Join-Path $diag 'msvcr14x-direct-dlls.txt')
+
+          $customApiSets = @($custom | Where-Object { $_ -match '^(?i)(api-ms-win-|ext-ms-)' })
+          $customApiSets | Set-Content -Encoding utf8 (Join-Path $diag 'msvcr14x-forbidden-direct-api-sets.txt')
+
+          $runtimeRows = [System.Collections.Generic.List[string]]::new()
+          $runtimeApiSets = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in Get-ChildItem -LiteralPath $env:MSVCR14X_RELEASE -Filter '*.dll' -File | Sort-Object Name) {
+            $safe = $dll.Name -replace '[^A-Za-z0-9_.-]', '_'
+            $deps = Get-DirectDllImports $dll.FullName (Join-Path $diag "runtime-$safe-imports-raw.txt")
+            foreach ($dep in $deps) {
+              $runtimeRows.Add("$($dll.Name)|$dep")
+              if ($dep -match '^(?i)(api-ms-win-|ext-ms-)') {
+                $runtimeApiSets.Add("$($dll.Name)|$dep")
+              }
+            }
+          }
+          $runtimeRows | Set-Content -Encoding utf8 (Join-Path $diag 'msvcr14x-runtime-direct-dlls.txt')
+          $runtimeApiSets | Set-Content -Encoding utf8 (Join-Path $diag 'msvcr14x-runtime-forbidden-api-sets.txt')
+
+          Write-Host 'Baseline direct imports:'
+          $baseline | ForEach-Object { Write-Host "  $_" }
+          Write-Host 'msvcr14x-linked direct imports:'
+          $custom | ForEach-Object { Write-Host "  $_" }
+          Write-Host "Probe direct API-set matches: $($customApiSets.Count)"
+          Write-Host "msvcr14x runtime direct API-set matches: $($runtimeApiSets.Count)"
+
+      - name: Run linked probes on runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:GITHUB_WORKSPACE 'msvcr14x-probe'
+          & (Join-Path $work 'baseline.exe') 2>&1 | Tee-Object -FilePath diagnostics\baseline-run.txt
+          if ($LASTEXITCODE -ne 0) { throw "Baseline probe returned $LASTEXITCODE" }
+
+          Copy-Item -Force (Join-Path $env:MSVCR14X_RELEASE '*.dll') $work
+          & (Join-Path $work 'msvcr14x.exe') 2>&1 | Tee-Object -FilePath diagnostics\msvcr14x-run.txt
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x-linked probe returned $LASTEXITCODE" }
+
+      - name: Upload msvcr14x smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msvcr14x-win7-smoke-diagnostics
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            diagnostics\**\*
+            msvcr14x-probe\probe.cpp
+            msvcr14x-probe\probe.obj
+            msvcr14x-probe\baseline.exe
+            msvcr14x-probe\msvcr14x.exe
+
+      - name: Upload pinned msvcr14x x64 Release outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msvcr14x-x64-release
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ env.MSVCR14X_RELEASE }}\*.dll
+            ${{ env.MSVCR14X_RELEASE }}\*.lib
+
+      - name: GATE - Reject direct API-set dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = @(Get-Content -ErrorAction SilentlyContinue diagnostics\msvcr14x-forbidden-direct-api-sets.txt | Where-Object { $_.Trim() })
+          $runtime = @(Get-Content -ErrorAction SilentlyContinue diagnostics\msvcr14x-runtime-forbidden-api-sets.txt | Where-Object { $_.Trim() })
+          if ($probe.Count -gt 0 -or $runtime.Count -gt 0) {
+            Write-Host 'Probe matches:'
+            $probe | ForEach-Object { Write-Host "  $_" }
+            Write-Host 'Runtime matches:'
+            $runtime | ForEach-Object { Write-Host "  $_" }
+            throw 'msvcr14x smoke still has direct API-set dependencies; diagnostics were uploaded.'
+          }
+          Write-Host 'PASS: msvcr14x-linked probe and replacement runtime DLLs have no direct api-ms-win-* or ext-ms-* dependencies.'
