@@ -31,7 +31,7 @@ Later steps:
 
 This was deliberately outside Phase 1, but it is now an explicit next functional milestone.
 
-Pinned MSSPI already exposes the needed handshake mechanism:
+Pinned MSSPI exposes the needed handshake mechanism:
 
 - Schannel can return `SEC_I_INCOMPLETE_CREDENTIALS` when the server requests a client certificate;
 - MSSPI then enters `MSSPI_X509_LOOKUP`;
@@ -39,31 +39,55 @@ Pinned MSSPI already exposes the needed handshake mechanism:
 - the application can load the explicitly selected client certificate with `msspi_set_mycert()` / related APIs;
 - the selected certificate can come from the Windows certificate stores and retain its CryptoPro private-key binding.
 
-Current Firefox GOST wrapper does not install an MSSPI certificate callback and does not select a client certificate.
-
 #### Confirmed Treasury mTLS baseline
 
 The first attempt established a routing prerequisite: Treasury login redirects from `fzs.roskazna.ru` to `https://lk-fzs.roskazna.ru/certificate-list`, so the login host must also be explicitly routed through the GOST provider. With only `fzs.roskazna.ru` allowlisted, ordinary NSS failed on the login host with `SSL_ERROR_NO_CYPHER_OVERLAP`; that was not an MSSPI/mTLS failure.
 
 The follow-up capture used the same proven alternative artifact from run `32710363484`, job `97388836234`, source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, with both exact hosts allowlisted. Uploaded archive: `gost_2_mTLS.zip`; inner log `gost.moz_log`; SHA-256 `7b8cb1d2b3bd8593f4a3bbd5d5df5ab6a274fec5c7e0ccfad8bdab955b10809e`.
 
-The login-host behavior is now confirmed, not hypothetical:
+The login-host behavior is confirmed:
 
 - 15/15 `lk-fzs.roskazna.ru` attempts reach the GOST provider, HTTP CONNECT, `ProxyStartSSL()`, and MSSPI;
 - the server handshake contains TLS `CertificateRequest` followed by `ServerHelloDone`;
 - one decoded `CertificateRequest` has an 11,529-byte body and 34 acceptable CA distinguished names;
 - MSSPI transitions to state `0x0000000A` = `MSSPI_READING | MSSPI_X509_LOOKUP` on all 15 attempts;
-- because the Firefox wrapper has no `msspi_set_cert_cb()` callback and the client credentials use `SCH_CRED_NO_DEFAULT_CREDS`, merely placing certificates in the Windows `MY` store does not cause automatic selection;
-- Schannel sends an empty TLS client `Certificate` message (`0B 00 00 03 00 00 00`), then continues with ClientKeyExchange / ChangeCipherSpec / Finished;
-- the server responds on all 15 attempts with TLS fatal `handshake_failure` (`15 03 03 00 02 02 28`);
-- Schannel surfaces the alert as `0x80090326` (`SEC_E_ILLEGAL_MESSAGE`), leaving MSSPI in `0x40000008` = `MSSPI_ERROR | MSSPI_X509_LOOKUP`;
-- no `MSSPI handshake complete` occurs for `lk-fzs.roskazna.ru`.
+- at source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, the Firefox wrapper had no `msspi_set_cert_cb()` callback and client credentials used `SCH_CRED_NO_DEFAULT_CREDS`, so merely placing certificates in the Windows `MY` store did not cause automatic selection;
+- Schannel sent an empty TLS client `Certificate` message (`0B 00 00 03 00 00 00`), then continued with ClientKeyExchange / ChangeCipherSpec / Finished;
+- the server responded on all 15 attempts with TLS fatal `handshake_failure` (`15 03 03 00 02 02 28`);
+- Schannel surfaced the alert as `0x80090326` (`SEC_E_ILLEGAL_MESSAGE`), leaving MSSPI in `0x40000008` = `MSSPI_ERROR | MSSPI_X509_LOOKUP`;
+- no `MSSPI handshake complete` occurred for `lk-fzs.roskazna.ru`.
 
-This is the current exact mTLS blocker: **the server requests a client certificate correctly, but the Firefox GOST wrapper does not select/load one into MSSPI.**
+That baseline established the exact blocker: the server requests a client certificate correctly, but the tested wrapper did not select/load one into MSSPI.
+
+#### Stage 1 implementation candidate
+
+Commit `f5d04896e17f91f58b6a137af823360f4718eb29` (`feat(gost): add stage1 mTLS client cert selection`) implements the first narrow candidate in `security/manager/ssl/nsGostSSLIOLayer.cpp`.
+
+The candidate:
+
+- installs `msspi_set_cert_cb()` only for `lk-fzs.roskazna.ru`;
+- reads one local selector from `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`;
+- interprets that selector as a Windows SHA-1 certificate thumbprint;
+- searches only `CurrentUser\\MY` for the exact certificate;
+- requires a private-key provider binding before passing the certificate DER to `msspi_set_mycert()`;
+- does not auto-select another certificate and does not use issuer-list matching as a Stage 1 gate;
+- leaves the existing server-verification behavior unchanged for Stage 1;
+- suppresses raw outbound `TLSBUF` hex logging from the certificate callback onward so the client Certificate / CertificateVerify bytes cannot be published accidentally;
+- logs only sanitized selector-present/selected/error facts and never the concrete thumbprint value.
+
+This commit is an implementation candidate only until it passes the SSL compile/build gate and then a real sanitized runtime mTLS trace.
 
 #### Sensitive-data rule for mTLS work
 
 The repository is public. Any concrete client-certificate identifier used during local testing is sensitive and must remain local. Do not commit or print to CI/public logs complete certificate SHA-1/SHA-256 fingerprints/thumbprints, serial numbers, key IDs, identifying subject/issuer DNs, private-key container/provider identifiers, PINs/passwords, PFX contents, form contents, account data, or other credential/user-originated values. Documentation should use placeholders such as `<local-cert-id>` or `known-good client certificate`. Artifact/log hashes may be retained for reproducibility only when they are not certificate-derived identifiers and the artifact itself is sanitized.
+
+The Stage 1 runtime selector is specifically:
+
+```text
+R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>
+```
+
+The concrete value must remain local. Never echo or print the value in browser logs, GitHub Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
 
 #### Stage 1 — first controlled successful mTLS proof
 
@@ -75,7 +99,7 @@ For this first proof:
 - do **not** introduce or expose a special insecure/server-verification-bypass option, environment variable, build flag, or CI mode;
 - do **not** make `msspi_get_issuerlist()` matching a prerequisite for selecting the certificate;
 - do **not** auto-discover or auto-select among certificates in `MY`;
-- accept one explicitly supplied local certificate selector and use it only to load the intended certificate into MSSPI;
+- use exactly `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>` to select one known-good certificate from `CurrentUser\\MY`;
 - the concrete selector value must never be printed to logs, Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
 
 The Stage 1 goal is only to establish the client-authentication path:
@@ -84,7 +108,7 @@ The Stage 1 goal is only to establish the client-authentication path:
 CertificateRequest
   -> MSSPI_X509_LOOKUP
   -> msspi_set_cert_cb()
-  -> explicitly selected local certificate
+  -> explicitly selected local certificate by thumbprint
   -> msspi_set_mycert()
   -> CryptoPro private-key operation / PIN if required
   -> non-empty client Certificate / CertificateVerify
@@ -112,9 +136,9 @@ Only after all applicable Stage 2 items are complete may the project treat mTLS 
 
 #### Planned implementation/evidence sequence
 
-1. Stage 1: add the narrow `msspi_set_cert_cb()` handling needed for `MSSPI_X509_LOOKUP`, without changing the already-working proxy/lower-I/O path.
-2. Stage 1: load exactly one explicitly selected known-good CryptoPro certificate from Windows `MY` with `msspi_set_mycert()` while preserving its private-key provider binding. Keep the selector strictly local and silent.
-3. Stage 1: prove that the client sends a non-empty certificate, performs the private-key operation / `CertificateVerify`, and completes the mTLS handshake.
+1. Stage 1: compile/build commit `f5d04896e17f91f58b6a137af823360f4718eb29` or an exact descendant containing only corrective compile fixes to the same Stage 1 design.
+2. Stage 1: run with both Treasury hosts allowlisted and `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>` set locally; never record the concrete value.
+3. Stage 1: prove that the callback selects the certificate, the client performs the private-key operation / `CertificateVerify`, and the MSSPI mTLS handshake completes. Raw outbound client-auth bytes must remain redacted.
 4. Stage 1: prove successful personal-cabinet navigation or the corresponding authenticated application request, including any CryptoPro PIN interaction, without logging credential identifiers or user data.
 5. Stage 2: complete every applicable item in the mandatory technical-debt/security closure section above before closing the mTLS milestone.
 
@@ -156,4 +180,4 @@ Policy:
 - Treasury pages fully render with JavaScript and images.
 - Interactive forms, information requests, and web-service response-list workflows work in the alternative thunk-rs full build.
 - The same GOST TLS source commit works in both current full-build strategies.
-- `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and is confirmed to request a client certificate; the remaining failure is client-certificate selection/loading, not cipher overlap or proxy routing.
+- `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and is confirmed to request a client certificate; the remaining unproven step is successful client-certificate selection/loading and mTLS completion with the new Stage 1 candidate.
