@@ -18,6 +18,8 @@ class GostSocketControl final : public CommonSocketControl {
   void SetFileDesc(PRFileDesc* aFd);
   void HandshakeSucceeded(uint16_t aCipherSuite, uint16_t aTlsVersion);
 
+  NS_IMETHOD ProxyStartSSL() override;
+  NS_IMETHOD StartTLS() override;
   NS_IMETHOD DriveHandshake() override;
   NS_IMETHOD SetNPNList(nsTArray<nsCString>& aNPNList) override;
   NS_IMETHOD GetAlpnEarlySelection(nsACString& aResult) override;

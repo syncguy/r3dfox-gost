@@ -23,6 +23,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
     nsITLSSocketControl** aTlsSocketControl, uint32_t aFlags,
     uint32_t aTlsFlags);
 
+nsresult GostActivateTLS(PRFileDesc* aFd);
 nsresult GostDriveHandshake(PRFileDesc* aFd);
 
 #endif

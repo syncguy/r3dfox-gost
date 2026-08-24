@@ -41,6 +41,21 @@ void GostSocketControl::HandshakeSucceeded(uint16_t aCipherSuite,
   }
 }
 
+NS_IMETHODIMP GostSocketControl::ProxyStartSSL() {
+  COMMON_SOCKET_CONTROL_ASSERT_ON_OWNING_THREAD();
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("ProxyStartSSL host=%s",
+           PromiseFlatCString(GetHostName()).get()));
+  return mFd ? GostActivateTLS(mFd) : NS_ERROR_FAILURE;
+}
+
+NS_IMETHODIMP GostSocketControl::StartTLS() {
+  COMMON_SOCKET_CONTROL_ASSERT_ON_OWNING_THREAD();
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("StartTLS host=%s", PromiseFlatCString(GetHostName()).get()));
+  return mFd ? GostActivateTLS(mFd) : NS_ERROR_FAILURE;
+}
+
 NS_IMETHODIMP GostSocketControl::DriveHandshake() {
   COMMON_SOCKET_CONTROL_ASSERT_ON_OWNING_THREAD();
   return mFd ? GostDriveHandshake(mFd) : NS_ERROR_FAILURE;

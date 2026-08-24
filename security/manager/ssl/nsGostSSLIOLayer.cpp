@@ -10,6 +10,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
 #include "nsCOMPtr.h"
+#include "nsIProxyInfo.h"
 #include "nsISocketProvider.h"
 #include "nsITLSSocketControl.h"
 #include "prio.h"
@@ -38,6 +39,7 @@ struct GostSecret {
   PRFileDesc* lower = nullptr;
   MSSPI_HANDLE msspi = nullptr;
   uint32_t lastMsspiError = 0;
+  bool tlsActive = true;
   bool handshakeComplete = false;
 };
 
@@ -50,6 +52,14 @@ GostSecret* GetSecret(PRFileDesc* aFd) {
 
 PRFileDesc* FindLayer(PRFileDesc* aFd) {
   return aFd ? PR_GetIdentitiesLayer(aFd, sGostIdentity) : nullptr;
+}
+
+PRFileDesc* GetLower(GostSecret* aSecret) {
+  if (!aSecret || !aSecret->lower || !aSecret->lower->methods) {
+    PR_SetError(PR_BAD_DESCRIPTOR_ERROR, 0);
+    return nullptr;
+  }
+  return aSecret->lower;
 }
 
 void SetWouldBlock() { PR_SetError(PR_WOULD_BLOCK_ERROR, 0); }
@@ -206,6 +216,14 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
 
   nsCString host(secret->control->GetHostName());
 
+  if (!secret->tlsActive) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("DriveHandshake deferred host=%s waiting_for_proxy_tunnel=1",
+             host.get()));
+    SetWouldBlock();
+    return NS_BASE_STREAM_WOULD_BLOCK;
+  }
+
   if (secret->handshakeComplete) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("DriveHandshake already complete host=%s", host.get()));
@@ -294,6 +312,17 @@ PRInt32 GostRead(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount) {
     return -1;
   }
 
+  if (!secret->tlsActive) {
+    PRFileDesc* lower = GetLower(secret);
+    if (!lower) {
+      return -1;
+    }
+    const PRInt32 n = lower->methods->read(lower, aBuf, aAmount);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostRead proxy plaintext n=%d amount=%d", n, aAmount));
+    return n;
+  }
+
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostRead enter amount=%d handshakeComplete=%d state=0x%08x",
            aAmount, secret->handshakeComplete, msspi_state(secret->msspi)));
@@ -324,11 +353,24 @@ PRInt32 GostRead(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount) {
 }
 
 PRInt32 GostRecv(PRFileDesc* aFd, void* aBuf, PRInt32 aAmount, PRIntn aFlags,
-                 PRIntervalTime) {
+                 PRIntervalTime aTimeout) {
   GostSecret* secret = GetSecret(aFd);
   if (!secret) {
     PR_SetError(PR_BAD_DESCRIPTOR_ERROR, 0);
     return -1;
+  }
+
+  if (!secret->tlsActive) {
+    PRFileDesc* lower = GetLower(secret);
+    if (!lower) {
+      return -1;
+    }
+    const PRInt32 n =
+        lower->methods->recv(lower, aBuf, aAmount, aFlags, aTimeout);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostRecv proxy plaintext n=%d amount=%d flags=0x%x", n,
+             aAmount, aFlags));
+    return n;
   }
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
@@ -373,6 +415,17 @@ PRInt32 GostWrite(PRFileDesc* aFd, const void* aBuf, PRInt32 aAmount) {
     return -1;
   }
 
+  if (!secret->tlsActive) {
+    PRFileDesc* lower = GetLower(secret);
+    if (!lower) {
+      return -1;
+    }
+    const PRInt32 n = lower->methods->write(lower, aBuf, aAmount);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostWrite proxy plaintext n=%d amount=%d", n, aAmount));
+    return n;
+  }
+
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostWrite enter amount=%d handshakeComplete=%d state=0x%08x",
            aAmount, secret->handshakeComplete, msspi_state(secret->msspi)));
@@ -405,6 +458,25 @@ PRInt32 GostWrite(PRFileDesc* aFd, const void* aBuf, PRInt32 aAmount) {
 
 PRInt32 GostSend(PRFileDesc* aFd, const void* aBuf, PRInt32 aAmount,
                  PRIntn aFlags, PRIntervalTime aTimeout) {
+  GostSecret* secret = GetSecret(aFd);
+  if (!secret) {
+    PR_SetError(PR_BAD_DESCRIPTOR_ERROR, 0);
+    return -1;
+  }
+
+  if (!secret->tlsActive) {
+    PRFileDesc* lower = GetLower(secret);
+    if (!lower) {
+      return -1;
+    }
+    const PRInt32 n =
+        lower->methods->send(lower, aBuf, aAmount, aFlags, aTimeout);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostSend proxy plaintext n=%d amount=%d flags=0x%x timeout=%u",
+             n, aAmount, aFlags, static_cast<unsigned int>(aTimeout)));
+    return n;
+  }
+
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostSend amount=%d flags=0x%x timeout=%u", aAmount, aFlags,
            static_cast<unsigned int>(aTimeout)));
@@ -418,6 +490,18 @@ PRInt32 GostAvailable(PRFileDesc* aFd) {
     return -1;
   }
 
+  PRFileDesc* lower = GetLower(secret);
+  if (!lower) {
+    return -1;
+  }
+
+  if (!secret->tlsActive) {
+    const PRInt32 rv = lower->methods->available(lower);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostAvailable proxy plaintext rv=%d", rv));
+    return rv;
+  }
+
   if (secret->handshakeComplete) {
     int pending = msspi_pending(secret->msspi);
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
@@ -428,7 +512,7 @@ PRInt32 GostAvailable(PRFileDesc* aFd) {
     }
   }
 
-  const PRInt32 rv = aFd->lower->methods->available(aFd->lower);
+  const PRInt32 rv = lower->methods->available(lower);
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostAvailable lower rv=%d handshakeComplete=%d", rv,
            secret->handshakeComplete));
@@ -437,13 +521,22 @@ PRInt32 GostAvailable(PRFileDesc* aFd) {
 
 PRInt16 GostPoll(PRFileDesc* aFd, PRInt16 aInFlags, PRInt16* aOutFlags) {
   GostSecret* secret = GetSecret(aFd);
-  if (!secret || !aFd->lower) {
+  PRFileDesc* lower = GetLower(secret);
+  if (!secret || !lower) {
     PR_SetError(PR_BAD_DESCRIPTOR_ERROR, 0);
     *aOutFlags = PR_POLL_ERR;
     return aInFlags;
   }
 
   *aOutFlags = 0;
+
+  if (!secret->tlsActive) {
+    const PRInt16 result = lower->methods->poll(lower, aInFlags, aOutFlags);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostPoll proxy plaintext result=0x%04x in=0x%04x out=0x%04x",
+             result, aInFlags, *aOutFlags));
+    return result;
+  }
 
   if (secret->handshakeComplete) {
     const int pending = msspi_pending(secret->msspi);
@@ -458,8 +551,7 @@ PRInt16 GostPoll(PRFileDesc* aFd, PRInt16 aInFlags, PRInt16* aOutFlags) {
       return aInFlags;
     }
 
-    const PRInt16 result =
-        aFd->lower->methods->poll(aFd->lower, aInFlags, aOutFlags);
+    const PRInt16 result = lower->methods->poll(lower, aInFlags, aOutFlags);
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("GostPoll complete lower result=0x%04x in=0x%04x out=0x%04x",
              result, aInFlags, *aOutFlags));
@@ -485,8 +577,7 @@ PRInt16 GostPoll(PRFileDesc* aFd, PRInt16 aInFlags, PRInt16* aOutFlags) {
            !!(state & MSSPI_WRITING)));
 
   PRInt16 lowerOut = 0;
-  const PRInt16 result =
-      aFd->lower->methods->poll(aFd->lower, lowerIn, &lowerOut);
+  const PRInt16 result = lower->methods->poll(lower, lowerIn, &lowerOut);
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
           ("GostPoll lower result=0x%04x lowerIn=0x%04x lowerOut=0x%04x "
@@ -531,10 +622,13 @@ PRStatus GostClose(PRFileDesc* aFd) {
 
   if (secret->msspi) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-            ("GostClose MSSPI shutdown host=%s state=0x%08x lower=%p",
+            ("GostClose MSSPI shutdown host=%s state=0x%08x lower=%p "
+             "tlsActive=%d",
              PromiseFlatCString(secret->control->GetHostName()).get(),
-             msspi_state(secret->msspi), secret->lower));
-    (void)msspi_shutdown(secret->msspi);
+             msspi_state(secret->msspi), secret->lower, secret->tlsActive));
+    if (secret->tlsActive) {
+      (void)msspi_shutdown(secret->msspi);
+    }
     (void)msspi_close(secret->msspi);
     secret->msspi = nullptr;
   }
@@ -581,6 +675,32 @@ void InitMethods() {
 
 }  // namespace
 
+nsresult GostActivateTLS(PRFileDesc* aFd) {
+  PRFileDesc* layer = FindLayer(aFd);
+  GostSecret* secret = GetSecret(layer);
+  if (!secret || !secret->msspi) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("GostActivateTLS missing GOST layer fd=%p layer=%p", aFd,
+             layer));
+    return NS_ERROR_FAILURE;
+  }
+
+  if (secret->tlsActive) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("GostActivateTLS already active host=%s state=0x%08x",
+             PromiseFlatCString(secret->control->GetHostName()).get(),
+             msspi_state(secret->msspi)));
+    return NS_OK;
+  }
+
+  secret->tlsActive = true;
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("GOST TLS activated host=%s after_proxy_tunnel=1 state=0x%08x",
+           PromiseFlatCString(secret->control->GetHostName()).get(),
+           msspi_state(secret->msspi)));
+  return NS_OK;
+}
+
 nsresult GostDriveHandshake(PRFileDesc* aFd) {
   PRFileDesc* layer = FindLayer(aFd);
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
@@ -589,16 +709,35 @@ nsresult GostDriveHandshake(PRFileDesc* aFd) {
 }
 
 nsresult nsGostSSLIOLayerAddToSocket(
-    int32_t, const char* aHost, int32_t aPort, nsIProxyInfo*,
+    int32_t, const char* aHost, int32_t aPort, nsIProxyInfo* aProxy,
     const OriginAttributes& aOriginAttributes, PRFileDesc* aSocket,
     nsITLSSocketControl** aTlsSocketControl, uint32_t aFlags, uint32_t) {
   NS_ENSURE_ARG_POINTER(aHost);
   NS_ENSURE_ARG_POINTER(aSocket);
   NS_ENSURE_ARG_POINTER(aTlsSocketControl);
 
+  nsAutoCString proxyHost;
+  nsAutoCString proxyType;
+  bool waitForHttpProxyTunnel = false;
+  if (aProxy) {
+    nsresult proxyRv = aProxy->GetHost(proxyHost);
+    if (NS_FAILED(proxyRv)) {
+      return proxyRv;
+    }
+    if (!proxyHost.IsEmpty()) {
+      proxyRv = aProxy->GetType(proxyType);
+      if (NS_FAILED(proxyRv)) {
+        return proxyRv;
+      }
+      waitForHttpProxyTunnel = proxyType.EqualsLiteral("http");
+    }
+  }
+
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-          ("AddToSocket begin host=%s port=%d socket=%p flags=0x%08x", aHost,
-           aPort, aSocket, aFlags));
+          ("AddToSocket begin host=%s port=%d socket=%p flags=0x%08x "
+           "proxyHost=%s proxyType=%s waitForHttpTunnel=%d",
+           aHost, aPort, aSocket, aFlags, proxyHost.get(), proxyType.get(),
+           waitForHttpProxyTunnel));
 
   InitMethods();
 
@@ -615,6 +754,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
 
   auto* secret = new GostSecret();
   secret->control = control;
+  secret->tlsActive = !waitForHttpProxyTunnel;
   layer->secret = reinterpret_cast<PRFilePrivate*>(secret);
 
   secret->msspi = msspi_open(secret, LowerRead, LowerWrite);
@@ -748,9 +888,9 @@ nsresult nsGostSSLIOLayerAddToSocket(
 
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
           ("attached MSSPI GOST layer host=%s port=%d TLS=1.2 socket=%p "
-           "layer=%p lower=%p state=0x%08x",
+           "layer=%p lower=%p state=0x%08x tlsActive=%d proxyType=%s",
            aHost, aPort, aSocket, activeLayer, secret->lower,
-           msspi_state(secret->msspi)));
+           msspi_state(secret->msspi), secret->tlsActive, proxyType.get()));
   return NS_OK;
 }
 
