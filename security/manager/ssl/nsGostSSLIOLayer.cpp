@@ -2,6 +2,7 @@
 #include "nsGostSSLIOLayer.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "GostSocketControl.h"
@@ -28,6 +29,9 @@ static PRIOMethods sGostMethods;
 static bool sMethodsInitialized = false;
 
 static constexpr int kForcedTlsVersion = TLS1_2_VERSION;
+static constexpr char kDefaultGostCipherList[] =
+    "C100:C101:C102:FF85:0081";
+static constexpr int kTlsDumpChunkSize = 256;
 
 struct GostSecret {
   RefPtr<GostSocketControl> control;
@@ -55,6 +59,29 @@ void SetMsspiError(GostSecret* aSecret, uint32_t aNativeError) {
     aSecret->lastMsspiError = aNativeError;
   }
   PR_SetError(PR_IO_ERROR, static_cast<PRInt32>(aNativeError));
+}
+
+void LogHandshakeBuffer(GostSecret* aSecret, const char* aDirection,
+                        const void* aBuf, int aLen) {
+  if (!aSecret || aSecret->handshakeComplete || !aBuf || aLen <= 0) {
+    return;
+  }
+
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  const auto* bytes = static_cast<const uint8_t*>(aBuf);
+  for (int offset = 0; offset < aLen; offset += kTlsDumpChunkSize) {
+    const int chunkLen =
+        std::min(kTlsDumpChunkSize, static_cast<int>(aLen - offset));
+    nsCString hex;
+    for (int i = 0; i < chunkLen; ++i) {
+      const uint8_t byte = bytes[offset + i];
+      hex.Append(kHex[byte >> 4]);
+      hex.Append(kHex[byte & 0x0F]);
+    }
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("TLSBUF direction=%s secret=%p len=%d offset=%d chunk=%d hex=%s",
+             aDirection, aSecret, aLen, offset, chunkLen, hex.get()));
+  }
 }
 
 bool IsTransientLowerError(GostSecret* aSecret, PRErrorCode aError) {
@@ -110,6 +137,7 @@ int LowerRead(void* aArg, void* aBuf, int aLen) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("LowerRead result rv=%d len=%d state=0x%08x", rv, aLen,
              stateAfter));
+    LogHandshakeBuffer(secret, "in", aBuf, rv);
     return rv;
   }
   return HandleLowerError(secret, "read", aLen);
@@ -137,6 +165,7 @@ int LowerWrite(void* aArg, const void* aBuf, int aLen) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("LowerWrite result rv=%d len=%d state=0x%08x", rv, aLen,
              stateAfter));
+    LogHandshakeBuffer(secret, "out", aBuf, rv);
     return rv;
   }
 
@@ -614,6 +643,30 @@ nsresult nsGostSSLIOLayerAddToSocket(
              "error=0x%08x state=0x%08x",
              aHost, configured, kForcedTlsVersion, msspi_last_error(),
              msspi_state(secret->msspi)));
+  }
+
+  if (configured) {
+    const char* cipherOverride = getenv("R3DFOX_GOST_CIPHERS");
+    if (cipherOverride && strcmp(cipherOverride, "default") == 0) {
+      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+              ("AddToSocket set_cipherlist host=%s mode=native-default "
+               "explicit=0 state=0x%08x",
+               aHost, msspi_state(secret->msspi)));
+    } else {
+      const char* cipherList =
+          cipherOverride && *cipherOverride ? cipherOverride
+                                            : kDefaultGostCipherList;
+      configured = msspi_set_cipherlist(
+          secret->msspi, reinterpret_cast<const uint8_t*>(cipherList),
+          strlen(cipherList));
+      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+              ("AddToSocket set_cipherlist host=%s ok=%d source=%s list=%s "
+               "error=0x%08x state=0x%08x",
+               aHost, configured,
+               cipherOverride && *cipherOverride ? "environment"
+                                                 : "gost-default",
+               cipherList, msspi_last_error(), msspi_state(secret->msspi)));
+    }
   }
 
   if (configured) {
