@@ -203,7 +203,7 @@ lld-link: error: duplicate symbol: LockResource
 
 **Failed hypothesis at Firefox scale.** Prepending the complete YY-Thunks `kernel32.lib` before `gkrust.lib` is too broad. It exposes ordinary kernel32 definitions early enough to collide with symbols also emitted by Rust raw-dylib import objects inside `gkrust.lib`; `LockResource` is the first observed collision.
 
-This is a Windows Vista/7 linker result only. It does not change the independent GOST TLS runtime blocker `SEC_E_INVALID_TOKEN`.
+This is a Windows Vista/7 linker result only. It does not change the independent GOST TLS `SEC_E_INVALID_TOKEN` runtime failure.
 
 The earlier tiny smoke result that accepted a thunk-first order is therefore insufficient as a scale-up proof: the smoke must reproduce the Rust archive/raw-dylib collision class, not just produce an executable with clean final imports.
 
@@ -502,3 +502,84 @@ No separate runtime log was supplied for this check, so the evidence scope is de
 This materially strengthens the narrow YY-Thunks strategy result: the produced browser is not merely linkable/packageable with a cleaned direct-import surface; it actually starts on Windows 7.
 
 The remaining Win7 work is broader runtime coverage rather than proving basic process startup. In particular, delay-loaded post-Win7 APIs still need path/guard analysis and representative feature exercise. The separate GOST TLS runtime blocker remains `SEC_E_INVALID_TOKEN`; successful Windows 7 startup does not prove a successful GOST TLS handshake.
+
+---
+
+## 2026-08-24 — TLS-buffer A/B capture exposed the HTTP proxy as the actual peer
+
+**Track:** GOST TLS runtime  
+**Branch:** `agent/gost-tls-poc`  
+**Build commit:** `08203bb0d7023b7186dc11e4d765f0349aadf076`  
+**Actions run:** `32692411195`  
+**Job:** `97328339347`  
+**Workflow:** `GOST TLS PoC build`  
+**CI result:** success  
+**Runtime target:** `fzs.roskazna.ru` through the configured system HTTP proxy
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32692411195>
+
+### Change under test
+
+The build added two diagnostics/controls in `nsGostSSLIOLayer.cpp`:
+
+- exact pre-handshake `TLSBUF` hex logging at the MSSPI lower-I/O callback boundary;
+- an explicit default TLS 1.2 GOST cipher list `C100:C101:C102:FF85:0081`, with `R3DFOX_GOST_CIPHERS=default` retaining the old MSSPI native cipher-list behavior for A/B comparison.
+
+### Forced GOST-list observation
+
+With no `R3DFOX_GOST_CIPHERS` override, the log confirmed:
+
+```text
+AddToSocket set_cipherlist ... ok=1 source=gost-default list=C100:C101:C102:FF85:0081
+TLSBUF direction=out ... len=122 ...
+```
+
+The 122-byte TLS 1.2 ClientHello contains exactly five offered cipher suites:
+
+`C100 C101 C102 FF85 0081`
+
+The next lower-socket input was 1038 bytes beginning with:
+
+```text
+HTTP/1.1 400 Bad Request
+Via: 1.1 ASUGATE
+Connection: close
+Proxy-Connection: close
+```
+
+The HTML body identifies proxy address `10.138.1.254`, server `ASUGATE.ctikem.ru`, and source `proxy`. MSSPI then failed with `SEC_E_INVALID_TOKEN` (`0x80090308`).
+
+### Native-default control observation
+
+With `R3DFOX_GOST_CIPHERS=default`, the log confirmed that the explicit cipher call was skipped. MSSPI emitted the previous 198-byte ClientHello with its broader native suite set plus the five GOST suites.
+
+The next input was the same 1038-byte ASUGATE HTTP 400 response. MSSPI additionally emitted:
+
+```text
+15 03 03 00 02 02 0A
+```
+
+Decoded as TLS 1.2 Alert, payload length 2, level `fatal`, description `unexpected_message`. `msspi_connect` then returned `SEC_E_INVALID_TOKEN`, followed by the already-known secondary `0x0000054f` after MSSPI was in `MSSPI_ERROR`.
+
+### Conclusion
+
+**The earlier interpretation of the roughly 1039-byte input as a real `fzs.roskazna.ru` TLS server flight is superseded.** The bytes are plaintext HTTP from the enterprise HTTP proxy, not ServerHello/Certificate data from the origin.
+
+The actual failure chain is:
+
+```text
+Firefox needs HTTP CONNECT to the proxy
+  -> GOST layer starts MSSPI on the first socket I/O
+  -> MSSPI ClientHello goes directly to ASUGATE
+  -> ASUGATE returns HTTP 400
+  -> SSPI receives HTTP bytes where it expects TLS
+  -> fatal unexpected_message / SEC_E_INVALID_TOKEN
+```
+
+This test also proves that `msspi_set_cipherlist` is wired correctly and materially changes the ClientHello. It does **not** prove whether the forced GOST list is required by the origin, because neither captured ClientHello reached `fzs.roskazna.ru`.
+
+**Current runtime blocker:** the GOST TLS layer must participate correctly in Firefox's HTTP CONNECT lifecycle and defer MSSPI until Necko calls `ProxyStartSSL()` after a successful tunnel.
+
+### Follow-up implementation
+
+Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` implements the proxy-lifecycle fix candidate: HTTP-proxy I/O remains plaintext pass-through until `ProxyStartSSL()` activates MSSPI. This implementation still requires the existing main-workflow SSL compile gate and a new runtime log before the blocker can be considered fixed.
