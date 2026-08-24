@@ -110,6 +110,44 @@ Starting with VC-LTL 5.3.1, VC-LTL no longer supplies YY-Thunks as an automatic 
 
 Do not conflate a canary dependency-version result with the full xul-scale linker/import result.
 
+## Isolated msvcr14x Win7 smoke
+
+Workflow file:
+
+`.github/workflows/msvcr14x-win7-smoke.yml`
+
+Role:
+
+This is the isolated CRT/UCRT compatibility smoke for `Chuyu-Team/msvcr14x`. It tests a normal `/MD` C++ object against the pinned msvcr14x import-library/runtime surface and audits the resulting PE for direct API-set and VCRUNTIME dependencies.
+
+It is not a Rust/YY proof and is not a full Firefox/xul proof. Its purpose is to establish that msvcr14x can replace the standard CRT/UCRT import-library surface while preserving `MD_DynamicRelease`.
+
+## msvcr14x Rust/YY coexistence smoke
+
+Workflow file:
+
+`.github/workflows/msvcr14x-rust-yy-coexistence-smoke.yml`
+
+Workflow name:
+
+`msvcr14x Rust YY coexistence smoke`
+
+Role:
+
+This is the closing representative-link proof for combining msvcr14x with modern Rust/libstd and the already-proven narrow YY-Thunks 1.2.2 strategy. It keeps an ordinary C++ `/MD` object, uses YY `synchronization.lib` plus the narrow ProcessPrng + precise-time provider, rejects complete YY `kernel32.lib` interposition, audits the final PE for direct API-set/VCRUNTIME/known Win8+ hard imports, and runs the resulting probe on the hosted Windows runner.
+
+Formal passing evidence:
+
+- run `32713958570`;
+- job `97391163925`;
+- commit `1abf867307ca56b97b7f2fb41e5e58e86ee08463`;
+- msvcr14x commit `6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384`;
+- YY-Thunks `1.2.2`;
+- Rust `nightly-2026-08-20`;
+- result: success.
+
+Passing this smoke closes the representative coexistence question only. It does not prove that msvcr14x integration scales through Firefox's full link or that the resulting browser runs on Windows 7. The next compatibility experiment belongs in the full Firefox/xul workflow line.
+
 ## Experimental Windows XP Rust/thunk smoke
 
 Workflow file:
@@ -150,8 +188,11 @@ Keep these concepts separate:
 - `yy-thunks-processprng-smoke.yml` = representative narrow ProcessPrng closing proof;
 - `yy-thunks-precise-time-smoke.yml` = focused precise-time closing proof;
 - `yy-thunks-rust-smoke.yml` = forward VC-LTL / YY-Thunks Rust compatibility canary;
+- `msvcr14x-win7-smoke.yml` = isolated msvcr14x CRT/UCRT smoke;
+- `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
 - `agent/gost-tls-poc` = active development branch;
+- `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.
 
-Workflow role and Git branch role are independent. Do not infer that an experimental compatibility workflow is the main GOST build merely because it runs on the active development branch.
+Workflow role and Git branch role are independent. Do not infer that an experimental compatibility workflow is the main GOST build merely because it runs on an active development or experiment branch.
