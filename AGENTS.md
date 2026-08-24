@@ -52,7 +52,7 @@ You can find the review identifier by inspecting the commit log with:
 - Ask if you should run a test. If you do, you probably want to run the test with `--headless`
 - Never submit patches to Phabricator without explicit user approval.
 - In commit messages, group reviewers use a `#` prefix: `r?#group-name` (e.g. `r?#linter-reviewers`), while individual reviewers do not: `r?username`
-- Never put `DONTBUILD` (or `CLOSED TREE`) in the `-m` message of `mach try fuzzy` / `mach try compare` when you want builds to actually run. The Gecko decision task scans the message and on `DONTBUILD` strips every task from the graph: the decision task itself succeeds (Treeherder shows green) but no builds are scheduled.
+- Never put `DONTBUILD` (or `CLOSED TREE`) in the `-m` message of `mach try fuzzy` when you want builds to actually run. The Gecko decision task scans the message and on `DONTBUILD` strips every task from the graph: the decision task itself succeeds (Treeherder shows green) but no builds are scheduled.
 - When doing Android and Desktop front-end-only changes, use the special `./mach build faster` to skip all C++/Rust compilation.
 - Conversely, for C/C++/Obj-C/Rust only changes you can use the special `./mach build binaries` to skip all front-end-related tasks.
 
@@ -71,16 +71,17 @@ These rules supplement the global Firefox instructions above and are authoritati
 ### Project goal
 - Add GOST TLS support to r3dfox/Firefox through `deemru/msspi` and the Windows CryptoPro/SSPI stack.
 - Ordinary HTTPS must continue to use Firefox NSS. Only explicitly selected/allowlisted GOST TLS hosts use the MSSPI-backed transport.
-- The current PoC phase is intentionally narrow: Windows, TLS 1.2, HTTP/1.1, and server authentication first.
+- Phase 1 established Windows TLS 1.2 / HTTP/1.1 server-authenticated GOST HTTPS. The next GOST work includes fail-closed server-certificate verification and client-certificate / mutual TLS integration; see `docs/gost/TODO.md`.
 
 ### Mandatory context recovery
 Before answering a technical question about the current project state or changing code:
 1. Verify the repository default branch and the exact HEAD/ref relevant to the question.
 2. Read `docs/gost/PROJECT_STATE.md` from the current default branch.
-3. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
-4. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in `docs/gost/TEST_LOG.md`.
-5. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
-6. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/WORKFLOWS.md` as the workflow-role map, and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
+3. Read `docs/gost/TODO.md` for explicit pending/deferred work and future milestones.
+4. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
+5. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in `docs/gost/TEST_LOG.md`.
+6. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
+7. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/WORKFLOWS.md` as the workflow-role map, and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
 
 Do not resurrect a hypothesis marked resolved or rejected in these files without new evidence.
 
@@ -92,12 +93,14 @@ There are two related but distinct tracks:
 A successful build does not imply a successful GOST TLS handshake, and a TLS runtime failure does not by itself imply a Win7 linker/import problem.
 
 ### Upstream/version policy
-- The frozen r3dfox baseline currently comes from the r3dfox/Firefox 153 line.
-- Firefox upstream has moved to 154, but the r3dfox author had not yet published the corresponding r3dfox 154 baseline when this context was recorded.
-- Do not migrate, rebase, or retarget the project to Firefox/r3dfox 154 until the user explicitly decides to do so.
+- This project is based on the maintained fork `Eclipse-Community/r3dfox`, not directly on Mozilla Firefox upstream.
+- The current r3dfox base/default branch is `win-153`.
+- Mozilla Firefox may advance independently; that alone is not a reason to retarget this project.
+- Monitor `Eclipse-Community/r3dfox` for its next maintained baseline. Do not migrate, rebase, or retarget this project to r3dfox 154-or-later until r3dfox itself publishes that baseline and the user explicitly decides to evaluate the upgrade.
 
 ### Documentation maintenance
 After a meaningful experiment:
 - Append the evidence and conclusion to `docs/gost/TEST_LOG.md`.
 - Update `docs/gost/PROJECT_STATE.md` only when the current understanding, blocker, architecture, pinned dependency, or next experiment changes.
+- Update `docs/gost/TODO.md` when a planned/deferred milestone is added, completed, reprioritized, or deliberately dropped.
 - Keep failed/rejected approaches in the test log so future agents do not repeat them blindly.
