@@ -72,7 +72,7 @@ The successful proxy-compatible A/B runtime test at commit `4887e07d...` shows t
 
 The earlier `caa420c25bcc2693137666b625e62a1b58fdcb0f` transport fix remains valid: the pushed GOST layer has a stable lower NSPR transport, nonblocking would-block handling works, and MSSPI exchanges bytes through that lower socket.
 
-The A/B capture from run `32692411195` established that the old `SEC_E_INVALID_TOKEN` was caused by starting MSSPI before the HTTP CONNECT tunnel existed. The roughly 1038/1039 bytes previously treated as a possible server handshake were actually plaintext `HTTP/1.1 400 Bad Request` from ASUGATE. That interpretation is superseded by the proxy-compatible run below.
+The A/B capture from run `32692411195` established that the old `SEC_E_INVALID_TOKEN` was caused by starting MSSPI before the HTTP CONNECT tunnel existed. The roughly 1038/1039 bytes previously treated as a possible server handshake were actually plaintext `HTTP/1.1 400 Bad Request` from ASUGATE. That interpretation is superseded by the proxy-compatible runs below.
 
 ### First complete GOST HTTPS success
 
@@ -117,11 +117,30 @@ Most importantly, the user confirmed browser-visible end-to-end success: **Treas
 
 Therefore the HTTP-proxy lifecycle blocker and the basic GOST TLS handshake/application-transport blocker are **closed for the tested environment and target site**. Successful compilation is no longer the strongest evidence; full page rendering is confirmed.
 
+### Alternative full-build runtime cross-check
+
+The same exact GOST TLS source commit was also tested in the alternative full browser build:
+
+- workflow: `GOST TLS PoC build - thunk-rs experiment`;
+- Actions run: `32710363484`;
+- job: `97388836234`;
+- exact build commit: `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`;
+- CI result: success, attempt 2;
+- release artifact: `9519011295` (`r3dfox-gost-win64-thunk-experiment`).
+
+This build uses the ordinary-Rust + narrow-YY-Thunks compatibility path, while carrying the same GOST SSL/TLS source.
+
+The uploaded runtime log `gost.moz_log` from `gost_experiment.zip` (SHA-256 `bbba5dfe695314c56411e872b7a997a62da1199e1bf886957a1002743b2e0039`) records 14 proxy/TLS connection sequences. All 14 reach `ProxyStartSSL()`, activate GOST TLS, complete MSSPI TLS 1.2 with suite `0xFF85`, and then carry application traffic. The capture contains 119 `msspi_write` calls and 381 `msspi_read` calls, with no `HTTP/1.1 400 Bad Request`, no `SEC_E_INVALID_TOKEN`, and no `E/GostTLS` entries.
+
+The browser-visible result is stronger than a page-load smoke: the user navigated the Treasury site, filled forms, requested information, and received response lists from the site's web services. The application remained functional across these interactive workflows.
+
+Therefore **the same GOST runtime behavior is confirmed across both current full-build strategies**. The proxy/GOST success is not specific to only the main Win7 build-std path or only the alternative ordinary-Rust + narrow-YY path. This is a GOST runtime cross-build conclusion; it does not by itself prove complete Windows 7 feature compatibility for either strategy.
+
 ### Current GOST runtime security question
 
-The next blocker is no longer transport or handshake. It is server-certificate verification semantics.
+The next blocker is no longer transport, handshake, page rendering, or interactive web-service traffic. It is server-certificate verification semantics.
 
-Successful logs contain:
+Successful logs from both full-build variants contain:
 
 ```text
 DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
@@ -129,15 +148,14 @@ DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
 
 The current wrapper calls `msspi_get_verify_status()` but rejects the connection only when `verifyOk && verifyStatus != 0`. If `msspi_get_verify_status()` itself returns 0, the wrapper continues and marks the handshake complete.
 
-Pinned MSSPI uses `SCH_CRED_MANUAL_CRED_VALIDATION` for the client path and its `msspi_get_verify_status()` returns 0 when its internal verification path reaches `ERROR_INTERNAL_ERROR`. Therefore the successful page load is **not yet proof that certificate-chain/hostname validation is enforced fail-closed**.
+Pinned MSSPI uses `SCH_CRED_MANUAL_CRED_VALIDATION` for the client path and its `msspi_get_verify_status()` returns 0 when its internal verification path reaches `ERROR_INTERNAL_ERROR`. Therefore the successful interactive site operation is **not yet proof that certificate-chain/hostname validation is enforced fail-closed**.
 
-This must be treated as a separate security integration issue. Do not weaken the confirmed transport result: the GOST TLS channel and usable HTTPS traffic are working, but certificate-verification failure handling still needs to be made explicit and proven.
+This must be treated as a separate security integration issue. Do not weaken the confirmed transport result: the GOST TLS channel, complete page rendering, forms, requests, and web-service responses are working, but certificate-verification failure handling still needs to be made explicit and proven.
 
 ### Next GOST runtime experiments
 
 1. Instrument the `msspi_get_verify_status()` failure path with the exact `msspi_last_error()` value and, if needed, peer-certificate/chain retrieval status. Determine why the verification call returns 0 on otherwise successful connections.
 2. Once the verification API returns a meaningful result, make wrapper behavior fail-closed for both `verifyOk == 0` and nonzero verification status, then prove that the valid Treasury certificate succeeds and an invalid hostname/chain is rejected.
-3. Independently cross-check the same proven SSL/TLS code in the alternative full build from `GOST TLS PoC build - thunk-rs experiment`: run `32710363484`, job `97388836234`, exact source commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, release artifact `9519011295`. This is valuable cross-build runtime validation because it uses the same GOST TLS source with the alternative ordinary-Rust + narrow-YY compatibility path; it is not a prerequisite for the already-proven main-build GOST success.
 
 ## Windows Vista/7 build-compatibility track
 
@@ -248,7 +266,7 @@ Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only `GetQueuedComplet
 
 The ordinary/direct import parser used in run `32695496647` is sufficient for the current hard-loader gate and is the basis for the precise-time closure conclusion.
 
-The delay-load API parser is **not yet complete**. `dumpbin /imports` formats delay API rows differently from ordinary import rows. The workflow switches to a delay section and records delay DLL names, but the API regex in `ae3d52f4...` matches only the ordinary-import line shape. Therefore `xul-thunk-win7-delay-import-api-names.txt` is empty and must not be interpreted as proof that there are no delay-loaded APIs.
+The delay-load API parser is **not yet complete**. `dumpbin /imports` formats delay API rows differently from ordinary import rows. The workflow switches to a delay section and records delay DLL names, but the API regex in `ae3d52f4...` matches only the ordinary-import row shape. Therefore `xul-thunk-win7-delay-import-api-names.txt` is empty and must not be interpreted as proof that there are no delay-loaded APIs.
 
 Re-parsing the retained raw import dump with the correct delay-row shape yields 504 unique delay API names. Relevant post-Win7 candidates include:
 
@@ -336,7 +354,8 @@ Keep these statements distinct:
 - **Broader Win7 runtime compatibility** still requires representative feature exercise and guarded handling of relevant delay-loaded APIs/runtime dependencies.
 - **GOST transport success** means MSSPI can exchange bytes through the NSPR layer.
 - **GOST TLS handshake success** is confirmed for the exact main build run `32710363486` / commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`: TLS 1.2 with suite `0xFF85` completes through the system HTTP proxy.
-- **GOST HTTPS application success** is also confirmed for that build: the browser exchanges protected application data and fully renders the tested Treasury pages, including JavaScript and images.
+- **GOST HTTPS application success** is confirmed for both full-build strategies at the same exact GOST source commit `4887e07d...`: the main build fully renders Treasury pages including JavaScript/images, and the alternative thunk-rs full build additionally completes form submission, information requests, and web-service-backed response-list workflows.
+- **GOST cross-build runtime independence** is confirmed between run `32710363486` and run `32710363484`: the proxy/GOST behavior is not specific to only one of the two tested Windows build strategies.
 - **GOST certificate-verification success** is **not yet confirmed**; the current `msspi_get_verify_status()` return handling must be investigated and made explicitly fail-closed before making that security claim.
 
 ## Maintenance rule
