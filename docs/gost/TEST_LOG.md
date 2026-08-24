@@ -633,3 +633,77 @@ This is representative-link proof, not yet Firefox/xul-scale proof and not a Win
 ### Next Win7 experiment
 
 Move directly to one full Firefox/xul integration experiment using the same proven combination. Preserve Firefox's `/MD` model and the existing narrow YY provider. Make `msvcr14x` the selected CRT/UCRT import-library surface at link time, package its required app-local runtime DLLs, and audit the produced Firefox PE set for direct `api-ms-win-*`, `ext-ms-*`, `VCRUNTIME140*.dll`, and the known Win8+ hard imports before target-OS testing.
+
+---
+
+## 2026-08-24 — First complete GOST TLS page load through the system HTTP proxy
+
+**Track:** GOST TLS runtime  
+**Branch:** `agent/gost-tls-poc`  
+**Build commit:** `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`  
+**Actions run:** `32710363486`  
+**Job:** `97380247020`  
+**Workflow:** `GOST TLS PoC build`  
+**CI result:** success  
+**Release artifact:** `9518011746` (`r3dfox-gost-win64-release`)  
+**Runtime target:** `fzs.roskazna.ru` through the configured system HTTP proxy / ASUGATE
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32710363486>
+
+### Change under test
+
+Commit `4887e07d...` defers MSSPI TLS until Firefox/Necko finishes the HTTP CONNECT tunnel and invokes `ProxyStartSSL()`. Before activation the GOST NSPR layer passes proxy traffic transparently to the lower transport.
+
+The same source commit also passed the dedicated SSL compile check in run `32710363528`, job `97380247058`.
+
+### Runtime evidence
+
+Two runtime logs from this exact release build were captured:
+
+1. default explicit GOST list `C100:C101:C102:FF85:0081`;
+2. control mode `R3DFOX_GOST_CIPHERS=default`, which keeps the MSSPI native cipher list.
+
+Both logs show the intended proxy lifecycle:
+
+```text
+tlsActive=0
+GostWrite/GostRead proxy plaintext ...
+ProxyStartSSL host=fzs.roskazna.ru
+GOST TLS activated ... after_proxy_tunnel=1
+TLSBUF direction=out ... ClientHello
+TLSBUF direction=in ... real TLS handshake records
+MSSPI handshake complete host=fzs.roskazna.ru TLS=0x0303 cipher=0xff85
+```
+
+The earlier ASUGATE failure signature is absent after activation: no plaintext `HTTP/1.1 400 Bad Request`, no `SEC_E_INVALID_TOKEN`, and no fatal `unexpected_message` sequence.
+
+The explicit-list log contains seven successful `ProxyStartSSL`/MSSPI handshake sequences; the native-default control contains six. Every completed handshake negotiated TLS 1.2 (`0x0303`) and cipher suite `0xFF85`. After handshake, the logs show sustained `msspi_write` and `msspi_read` application-data traffic, demonstrating that the browser is not stopping at ServerHello/Finished but is carrying HTTPS payloads through MSSPI.
+
+### Browser-visible result
+
+The user confirmed that the Treasury site pages **loaded completely in the browser, including scripts and images**. This is the first project result that combines all of the following on the real target site:
+
+- Firefox system-proxy handling and HTTP CONNECT;
+- `ProxyStartSSL()` transition;
+- MSSPI / Windows SSPI / CryptoPro GOST TLS 1.2 handshake;
+- negotiated GOST suite `0xFF85`;
+- bidirectional protected application traffic;
+- complete browser rendering of the site, including dependent JavaScript and image resources.
+
+This is therefore stronger than a handshake-only result: **the GOST HTTPS path is operational end-to-end for the tested Treasury pages in this environment.**
+
+### Cipher-list A/B conclusion
+
+The explicit GOST list is not required for this server to complete a GOST handshake: the native-default MSSPI ClientHello also succeeds and the server selects the same `0xFF85` suite. Keeping the explicit list may still be useful to make the allowlisted GOST path deterministic and prevent negotiation of a non-GOST suite; that is a policy choice rather than the cause of the successful handshake.
+
+### Remaining security question
+
+The successful logs also contain:
+
+```text
+DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
+```
+
+The current wrapper accepts that case because it rejects only `verifyOk && verifyStatus != 0`. The pinned MSSPI implementation uses manual credential validation and `msspi_get_verify_status()` returns 0 on its internal-error path. Therefore **successful page loading is not yet proof that server-certificate validation is correctly enforced fail-closed**.
+
+This is now the next GOST-runtime security question. It is separate from the transport/CONNECT/handshake result, which is confirmed working.
