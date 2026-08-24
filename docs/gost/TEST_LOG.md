@@ -443,3 +443,34 @@ Transfer this exact strategy, without adding a second linker candidate, into `.g
 6. run one full Firefox build and apply an exact parsed import audit to the produced `xul.dll`.
 
 Only that full-scale result can establish whether the passing smoke strategy survives the real Firefox link.
+
+---
+
+## 2026-08-23/24 — GetSystemTimePreciseAsFileTime: discovery, smoke closure, and xul-scale closure
+
+**Track:** Windows Vista/7 build compatibility  
+**Branch:** `agent/gost-tls-poc`
+
+### Event chain
+
+1. **Run `32647338452`, job `97213486474`, commit `0eb29ecccaa3d2a0762af17e458c42cf245410d7`.** The full Firefox build/package succeeded with the narrow ProcessPrng strategy. The exact xul import audit then identified the next hard direct blocker: `KERNEL32.dll!GetSystemTimePreciseAsFileTime`, a Windows-8+ API.
+2. **Commit `b3c3d3b00c6e4a76fbfaa615b9104828c26e78ba`.** The first attempt to add precise-time members directly to the full workflow had the correct narrow-provider intent but corrupted embedded-Python `\n` literals into physical YAML-breaking line breaks. It is not experimental proof.
+3. **Run `32692410607`, commit `08203bb0d7023b7186dc11e4d765f0349aadf076`.** GitHub rejected `.github/workflows/gost-poc-build-thunk.yml` around line 446 before creating a build job, confirming the YAML corruption.
+4. **Run `32680494331`, job `97296220325`, commit `cdef097b1912f68232de13d5e41b1a84add466d6`.** The focused `YY-Thunks precise-time closing smoke` passed on its first attempt. It selected `GetSystemTimePreciseAsFileTime.obj`, `GetSystemTimePreciseAsFileTime.obi`, and `YY_Thunks_for_6.1.7600.0.obj`, verified both COFF weak aliases, rejected broad ordinary surface, linked a representative Rust raw-dylib probe without complete YY `kernel32.lib`, and removed `GetSystemTimePreciseAsFileTime` from the final PE imports while keeping `LockResource` as a normal KERNEL32 positive control.
+5. **Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00`.** Full xul-scale integration completed narrow-provider construction, libxul patching, full release build, package, release upload, import audit, and diagnostics upload. Release artifact: `9512347999`; diagnostics artifact: `9512349511`. Only the final policy gate failed.
+
+### Run 32695496647 evidence
+
+The diagnostics establish that `GetSystemTimePreciseAsFileTime` is absent from the final xul direct-import list and absent from the raw `dumpbin /imports` text. `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle`, and `GetOverlappedResultEx` are also absent from the checked direct-import set.
+
+`xul-thunk-win7-forbidden-direct-imports.txt` contains exactly `GetQueuedCompletionStatusEx`. That symbol is a genuine direct KERNEL32 import in this `xul.dll`, but the gate classification was wrong: Microsoft documents `GetQueuedCompletionStatusEx` with minimum supported client Windows Vista. It is therefore valid on Windows 7 and is not a Win8+ loader blocker.
+
+The direct-import conclusion is reliable. A separate diagnostics limitation was also found: `dumpbin` formats delay-load API lines differently from ordinary import lines. The workflow correctly switches direct/delay sections and records delay DLL names, but the API-name regex used by `ae3d52f4...` only matches the ordinary-import line shape. Consequently `xul-thunk-win7-delay-import-api-names.txt` is empty and must not be interpreted as evidence that the binary has no delay-loaded APIs. Re-parsing the retained raw dump with the delay-load line shape yields 504 unique delay API names, including known post-Win7 candidates such as `GetAutoRotationState`, `GetPointerFrameTouchInfo`, `GetPointerType`, `CoIncrementMTAUsage`, `RoActivateInstance`, `RoGetActivationFactory`, and Windows string APIs. This diagnostics limitation does not affect the direct-import gate or the conclusion about precise-time closure.
+
+### Conclusion and follow-up
+
+The narrow ProcessPrng + precise-time strategy is now proven at Firefox `xul.dll` build/package scale. The previous hard blocker `GetSystemTimePreciseAsFileTime` is closed at the direct PE-import level. This is not Windows 7 runtime proof.
+
+Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only the Vista-supported `GetQueuedCompletionStatusEx` false positive from the Win8+ hard blacklist; the linker strategy is unchanged. The next full result should validate the corrected direct-import gate. After that, fix/replay the delay-load API parser before using delay-load diagnostics for runtime-path conclusions.
+
+This result is independent from the GOST TLS runtime blocker `SEC_E_INVALID_TOKEN`.
