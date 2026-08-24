@@ -271,6 +271,37 @@ These are delay-loaded in the inspected binary and therefore must be analyzed as
 
 Separate direct imports such as `api-ms-win-crt-*` belong to CRT/UCRT deployment analysis and must not be conflated with YY-Thunks symbol interposition.
 
+### msvcr14x coexistence proof
+
+The CRT/UCRT compatibility direction has now passed a representative combined-link smoke without weakening the proven YY strategy.
+
+Authoritative coexistence result:
+
+- branch: `agent/msvcr14x-win7-smoke`;
+- workflow: `msvcr14x Rust YY coexistence smoke`;
+- Actions run: `32713958570`;
+- job: `97391163925`;
+- exact commit: `1abf867307ca56b97b7f2fb41e5e58e86ee08463`;
+- pinned msvcr14x commit: `6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384`;
+- YY-Thunks: `1.2.2`;
+- Rust: `nightly-2026-08-20`;
+- CI result: success.
+
+The representative final link combines an ordinary C++ `/MD` / `MD_DynamicRelease` object, modern Rust/libstd, YY `synchronization.lib`, the physically narrow ProcessPrng + precise-time provider, and msvcr14x import libraries. The final link excludes complete YY `kernel32.lib` and the full YY library directory.
+
+The successful gates establish that the representative PE:
+
+- keeps the C++ runtime model at `MD_DynamicRelease`;
+- resolves Rust/libstd `ProcessPrng` and synchronization requirements through the proven narrow YY strategy;
+- resolves `GetSystemTimePreciseAsFileTime` through the same narrow provider;
+- keeps `LockResource` as a normal KERNEL32 positive-control import without duplicate-symbol collision;
+- has no direct `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle`, `GetSystemTimePreciseAsFileTime`, or `GetOverlappedResultEx`;
+- has no direct `api-ms-win-*`, `ext-ms-*`, `VCRUNTIME140.dll`, or `VCRUNTIME140_1.dll` dependency;
+- selects `ucrtbase.dll` and `msvcp140.dll` from the msvcr14x runtime surface;
+- executes successfully on the Windows 2022 runner.
+
+This closes the representative coexistence question. It does **not** yet prove that msvcr14x integration scales through the complete Firefox/xul link or that an msvcr14x-integrated Firefox package starts on Windows 7.
+
 ### Windows 7 target-OS startup validation
 
 The exact portable package from the full xul-scale experiment has now been executed on Windows 7.
@@ -292,11 +323,12 @@ The scope remains specific. Successful startup does not prove that every browser
 
 ### Current next Win7 experiments
 
-1. Obtain a formal full-build result with the corrected direct-import policy from commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` or the exact workflow descendant used by the next run. This is now CI/gate closure rather than a prerequisite for proving that the browser can start on Windows 7.
-2. Fix or replay the delay-load API parser against the retained raw dump before claiming complete delay-load coverage.
-3. Classify the actual delay-loaded post-Win7 APIs by whether Firefox guards those runtime paths on Windows 7.
-4. Exercise representative browser paths on Windows 7 beyond startup, especially ordinary browsing/networking and features associated with the identified delay-loaded imports.
-5. Keep any GOST TLS-on-Windows-7 test separate: bind its runtime log to the exact build run/SHA and evaluate the MSSPI/SSPI handshake independently from old-Windows loader compatibility.
+1. Integrate the exact proven coexistence strategy into one full Firefox/xul experiment: preserve `/MD`, keep YY-Thunks 1.2.2 `synchronization.lib` plus the existing physically narrow ProcessPrng + precise-time provider, select pinned msvcr14x import libraries at link time, and package the required app-local msvcr14x runtime DLLs. Audit the produced Firefox PE set for direct `api-ms-win-*`, `ext-ms-*`, `VCRUNTIME140*.dll`, and the known Win8+ hard imports before target-OS testing.
+2. Run the resulting portable package on Windows 7 without the current copied API-set/UCRT compatibility bundle. This is the decisive target-OS proof for the msvcr14x-integrated build.
+3. Obtain or retain a formal full-build result with the corrected direct-import policy from commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` or an exact descendant as CI/gate hygiene; this is no longer prerequisite for basic Win7 startup proof.
+4. Fix or replay the delay-load API parser against the retained raw dump before claiming complete delay-load coverage.
+5. Classify the actual delay-loaded post-Win7 APIs by whether Firefox guards those runtime paths on Windows 7, and exercise representative browser paths beyond startup.
+6. Keep any GOST TLS-on-Windows-7 test separate: bind its runtime log to the exact build run/SHA and evaluate the MSSPI/SSPI handshake independently from old-Windows loader compatibility.
 
 The forward `yy-thunks-rust-smoke.yml` canary may independently test newer VC-LTL releases such as 5.3.1. Do not conflate that canary's dependency-version investigation with the full xul linker strategy above.
 
@@ -306,7 +338,8 @@ Keep these statements distinct:
 
 - **Build success** means the selected source/toolchain combination compiled and packaged.
 - **Win7 direct-import success** means the current exact loader-hard blacklist is absent from ordinary imports; it is a static compatibility property.
-- **Win7 basic startup success** is now confirmed for the exact run `32695496647` / commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` portable build on a real Windows 7 system.
+- **Win7 representative msvcr14x coexistence success** is confirmed by run `32713958570` / commit `1abf867307ca56b97b7f2fb41e5e58e86ee08463`; it proves the combined `/MD` + Rust/libstd + narrow YY + msvcr14x link model at smoke scale, not at full Firefox scale.
+- **Win7 basic startup success** is confirmed for the exact run `32695496647` / commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` portable build on a real Windows 7 system; that build predates msvcr14x integration.
 - **Broader Win7 runtime compatibility** still requires representative feature exercise and guarded handling of relevant delay-loaded APIs/runtime dependencies.
 - **GOST transport success** means MSSPI can exchange bytes through the NSPR layer.
 - **GOST TLS success** requires the complete TLS handshake and usable HTTPS traffic.
