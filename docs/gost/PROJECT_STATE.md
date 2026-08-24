@@ -14,7 +14,7 @@ This file is the current technical synthesis for the GOST TLS fork. For chronolo
 
 ## Version policy
 
-The current r3dfox baseline is from the Firefox/r3dfox 153 line. Firefox upstream has moved to 154, but this project must not automatically migrate, rebase, or retarget to 154. That is a separate future decision requiring explicit user direction.
+The project is based on `Eclipse-Community/r3dfox`, whose maintained/default line is still `win-153` as of 2026-08-24. Mozilla Firefox upstream having moved to 154 is not by itself a reason to retarget this fork. Continue on the current r3dfox 153 base, monitor `Eclipse-Community/r3dfox` for a newer maintained baseline, and evaluate any base migration only after r3dfox itself publishes such a line and the user explicitly decides to upgrade.
 
 ## Project objective
 
@@ -26,7 +26,7 @@ Design intent:
 - only allowlisted hosts are redirected to a GOST-capable TLS transport backed by `deemru/msspi` and Windows SSPI/CryptoPro;
 - the first phase remains constrained to Windows, TLS 1.2, HTTP/1.1, and server authentication while transport and handshake behavior are stabilized.
 
-The primary runtime test host is `fzs.roskazna.ru`.
+The primary runtime test host is `fzs.roskazna.ru`. Treasury client-certificate login additionally uses `lk-fzs.roskazna.ru`.
 
 ## GOST TLS runtime track
 
@@ -136,26 +136,65 @@ The browser-visible result is stronger than a page-load smoke: the user navigate
 
 Therefore **the same GOST runtime behavior is confirmed across both current full-build strategies**. The proxy/GOST success is not specific to only the main Win7 build-std path or only the alternative ordinary-Rust + narrow-YY path. This is a GOST runtime cross-build conclusion; it does not by itself prove complete Windows 7 feature compatibility for either strategy.
 
-### Current GOST runtime security question
+### Treasury client-certificate / mTLS baseline
 
-The next blocker is no longer transport, handshake, page rendering, or interactive web-service traffic. It is server-certificate verification semantics.
+Treasury certificate login redirects from `fzs.roskazna.ru` to `https://lk-fzs.roskazna.ru/certificate-list`. An initial attempt with only `fzs.roskazna.ru` in `R3DFOX_GOST_HOSTS` left the login host on ordinary NSS and produced `SSL_ERROR_NO_CYPHER_OVERLAP`. That result was a routing prerequisite, not an MSSPI mTLS result.
 
-Successful logs from both full-build variants contain:
+The decisive follow-up used the same alternative artifact from run `32710363484`, job `97388836234`, exact source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, with both exact Treasury hosts allowlisted. Uploaded archive: `gost_2_mTLS.zip`; inner log `gost.moz_log`; SHA-256 `7b8cb1d2b3bd8593f4a3bbd5d5df5ab6a274fec5c7e0ccfad8bdab955b10809e`.
+
+Across 15 repeated login attempts, `lk-fzs.roskazna.ru` consistently reaches the GOST socket provider, HTTP CONNECT, `ProxyStartSSL()`, and MSSPI. The TLS server flight is directly decodable as:
 
 ```text
-DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
+ServerHello
+Certificate
+CertificateRequest
+ServerHelloDone
 ```
 
-The current wrapper calls `msspi_get_verify_status()` but rejects the connection only when `verifyOk && verifyStatus != 0`. If `msspi_get_verify_status()` itself returns 0, the wrapper continues and marks the handshake complete.
+One captured `CertificateRequest` has an 11,529-byte body and contains 34 acceptable CA distinguished names. After processing it, MSSPI transitions to `0x0000000A`, which is `MSSPI_READING | MSSPI_X509_LOOKUP`. This occurs on all 15 attempts.
 
-Pinned MSSPI uses `SCH_CRED_MANUAL_CRED_VALIDATION` for the client path and its `msspi_get_verify_status()` returns 0 when its internal verification path reaches `ERROR_INTERNAL_ERROR`. Therefore the successful interactive site operation is **not yet proof that certificate-chain/hostname validation is enforced fail-closed**.
+The current wrapper does not install `msspi_set_cert_cb()`. Pinned MSSPI also creates client Schannel credentials with `SCH_CRED_NO_DEFAULT_CREDS`, so simply adding valid certificates to the Windows `MY` store does not make Schannel choose one automatically.
 
-This must be treated as a separate security integration issue. Do not weaken the confirmed transport result: the GOST TLS channel, complete page rendering, forms, requests, and web-service responses are working, but certificate-verification failure handling still needs to be made explicit and proven.
+The wire trace proves the resulting behavior. Schannel sends an empty client Certificate handshake:
+
+```text
+0B 00 00 03 00 00 00
+```
+
+and then proceeds with ClientKeyExchange / ChangeCipherSpec / Finished. The server answers on every attempt with:
+
+```text
+15 03 03 00 02 02 28
+```
+
+which is a TLS fatal `handshake_failure` alert. Schannel maps that received alert to `0x80090326` (`SEC_E_ILLEGAL_MESSAGE`); MSSPI ends in `0x40000008` = `MSSPI_ERROR | MSSPI_X509_LOOKUP`. No `MSSPI handshake complete` occurs for the login host.
+
+Therefore **the Treasury mTLS requirement is confirmed and the current blocker is precisely client-certificate selection/loading in the Firefox MSSPI wrapper**. Proxy routing, GOST cipher negotiation, and reaching the real login server are not the blocker in this capture.
+
+### Current GOST runtime security/integration questions
+
+Two related but distinct items remain:
+
+1. **Server-certificate verification must become fail-closed.** Successful ordinary Treasury sessions still contain:
+
+   ```text
+   DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
+   ```
+
+   The wrapper currently rejects only `verifyOk && verifyStatus != 0`; if `msspi_get_verify_status()` itself returns 0, it continues. Pinned MSSPI uses `SCH_CRED_MANUAL_CRED_VALIDATION`, so this is not yet proof that chain/hostname validation is enforced.
+
+2. **mTLS client-certificate selection must be integrated.** `lk-fzs.roskazna.ru` definitively reaches `MSSPI_X509_LOOKUP`, but no certificate callback exists, so an empty client certificate is sent and the server rejects the handshake.
+
+These items should be integrated safely: pinned MSSPI's intended certificate callback flow explicitly verifies the server before selecting/disclosing a client certificate. Do not solve mTLS by bypassing the outstanding server-verification problem.
 
 ### Next GOST runtime experiments
 
-1. Instrument the `msspi_get_verify_status()` failure path with the exact `msspi_last_error()` value and, if needed, peer-certificate/chain retrieval status. Determine why the verification call returns 0 on otherwise successful connections.
-2. Once the verification API returns a meaningful result, make wrapper behavior fail-closed for both `verifyOk == 0` and nonzero verification status, then prove that the valid Treasury certificate succeeds and an invalid hostname/chain is rejected.
+1. Instrument the `msspi_get_verify_status()` failure path with the exact `msspi_last_error()` value and, if needed, peer-certificate/chain retrieval status. Determine why verification returns 0 on otherwise successful Treasury sessions.
+2. Add `msspi_set_cert_cb()` handling for `MSSPI_X509_LOOKUP`. In the callback, verify the server first and read/log the real issuer list with `msspi_get_issuerlist()`.
+3. For a first controlled proof, add a diagnostic explicit selector for one known-good CryptoPro certificate from Windows `MY` and load it with `msspi_set_mycert()` while preserving the private-key provider binding. Do not rely on Schannel default certificate selection; `SCH_CRED_NO_DEFAULT_CREDS` intentionally prevents that path.
+4. Prove a complete mTLS handshake and successful personal-cabinet navigation, including CryptoPro private-key/PIN behavior.
+5. Once server verification returns a meaningful result, make wrapper behavior fail-closed for both `verifyOk == 0` and nonzero verification status, and prove valid and invalid hostname/chain cases.
+6. After the explicit-certificate proof, design Firefox-facing certificate-selection UX and negative cases rather than keeping the diagnostic selector as the final interface.
 
 ## Windows Vista/7 build-compatibility track
 
@@ -356,6 +395,8 @@ Keep these statements distinct:
 - **GOST TLS handshake success** is confirmed for the exact main build run `32710363486` / commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`: TLS 1.2 with suite `0xFF85` completes through the system HTTP proxy.
 - **GOST HTTPS application success** is confirmed for both full-build strategies at the same exact GOST source commit `4887e07d...`: the main build fully renders Treasury pages including JavaScript/images, and the alternative thunk-rs full build additionally completes form submission, information requests, and web-service-backed response-list workflows.
 - **GOST cross-build runtime independence** is confirmed between run `32710363486` and run `32710363484`: the proxy/GOST behavior is not specific to only one of the two tested Windows build strategies.
+- **Treasury mTLS requirement** is confirmed for `lk-fzs.roskazna.ru`: the server sends a real TLS `CertificateRequest`, MSSPI enters `MSSPI_X509_LOOKUP`, and the current wrapper sends an empty client certificate because no certificate-selection callback is installed.
+- **GOST client-certificate authentication success** is **not yet confirmed**; the login server rejects the empty client Certificate with fatal `handshake_failure`.
 - **GOST certificate-verification success** is **not yet confirmed**; the current `msspi_get_verify_status()` return handling must be investigated and made explicitly fail-closed before making that security claim.
 
 ## Maintenance rule
