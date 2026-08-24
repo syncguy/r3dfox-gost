@@ -14,7 +14,7 @@ The Firefox repository is very big and so it isn't advised to blindly run rg or 
 searchfox-cli --define 'AudioContext::AudioContext' # get function impl
 searchfox-cli --define 'AudioSink' # get class definition
 searchfox-cli --path ipdl -q 'MySearchTerm' # search for a text string, restrict on path
-searchfox-cli --id AudioSink -l 150 --cpp # search for identifier audio sink in C++ code, 150 results max
+searchfox-cli --id AudioSink -l 150 --cpp # search for identifier AudioSink
 ```
 - For C++, Rust and Java code, prefer searching for identifiers with `searchfox-cli`. Use text search restricted by path otherwise.
 - Do not try to use identifier search for front-end identifiers like JS object or function names, CSS classes or HTML custom element names.
@@ -84,6 +84,17 @@ Before answering a technical question about the current project state or changin
 7. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/WORKFLOWS.md` as the workflow-role map, and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
 
 Do not resurrect a hypothesis marked resolved or rejected in these files without new evidence.
+
+### Sensitive certificate and test data
+- The repository is public. Treat all client-certificate, credential, and user-originated test data as sensitive by default.
+- NEVER commit or publish a complete client-certificate thumbprint/fingerprint, including full SHA-1, SHA-256, or other certificate hash values.
+- NEVER commit or publish client-certificate serial numbers, full subject/issuer DNs that identify the user or organization, certificate key IDs, private-key container/provider identifiers, PINs/passwords, private-key material, PFX/PKCS#12 contents, or equivalent identifying credential metadata.
+- NEVER commit or publish contents of user-filled forms, personal-cabinet responses, account identifiers, or other private application data observed during runtime tests.
+- Do not paste raw client certificates, raw private mTLS captures, or unsanitized diagnostic dumps into `PROJECT_STATE.md`, `TODO.md`, `TEST_LOG.md`, issues, PR comments, commit messages, or CI logs.
+- Before publishing any mTLS/certificate experiment result, sanitize it. Record only protocol facts required to reproduce the engineering conclusion, such as host, build run/commit, TLS state, certificate-request presence, acceptable-CA count, abstract selector type, success/failure class, and sanitized error codes.
+- If a diagnostic selector needs a certificate identifier locally, keep the concrete value outside the repository and outside CI logs. Documentation may say `known-good client certificate`, `<local-cert-id>`, or equivalent; it must not contain the real identifier.
+- Full Git commit SHAs, GitHub Actions run/job IDs, artifact hashes, and hashes of non-sensitive build/log artifacts may still be recorded when useful for reproducibility. This exception does NOT apply to certificate fingerprints/thumbprints or other credential-derived identifiers.
+- If existing logs contain sensitive certificate/user data, summarize sanitized evidence rather than uploading or quoting the raw data.
 
 ### Keep investigation tracks separate
 There are two related but distinct tracks:
