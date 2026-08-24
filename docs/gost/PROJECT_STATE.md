@@ -45,7 +45,7 @@ Important pieces include:
 
 Ordinary non-allowlisted HTTPS must remain on NSS.
 
-For an ordinary HTTP proxy, Firefox/Necko owns proxy resolution, CONNECT generation, proxy authentication, response parsing, and retry behavior. The GOST layer must remain plaintext-transparent until Necko reports a successful tunnel by calling `nsITLSSocketControl::ProxyStartSSL()`. Only then may MSSPI start the origin TLS handshake inside the established CONNECT tunnel.
+For an ordinary HTTP proxy, Firefox/Necko owns proxy resolution, CONNECT generation, proxy authentication, response parsing, and retry behavior. The GOST layer remains plaintext-transparent until Necko reports a successful tunnel by calling `nsITLSSocketControl::ProxyStartSSL()`. Only then does MSSPI start the origin TLS handshake inside the established CONNECT tunnel.
 
 ### MSSPI baseline
 
@@ -66,85 +66,78 @@ Starting with commit `850a2e54aa154c025a9af35ed351c92dfe96a3d1`, the default dia
 
 `R3DFOX_GOST_CIPHERS=default` skips that explicit call and reproduces the MSSPI native cipher-list behavior. Any other non-empty value is passed as a custom explicit list.
 
-The A/B runtime capture from main-build run `32692411195` proves that this configuration switch really changes the ClientHello, but it does **not** yet prove which cipher list is required by `fzs.roskazna.ru`, because those ClientHello records were sent to the HTTP proxy rather than to the origin server.
+The successful proxy-compatible A/B runtime test at commit `4887e07d...` shows that both the explicit GOST-only list and the MSSPI native-default list complete a GOST TLS 1.2 handshake with `fzs.roskazna.ru`; both negotiate suite `0xFF85`. Therefore the explicit list is not required for this server to succeed, although it remains useful as a policy control to keep the allowlisted path deterministic and GOST-only.
 
 ### Confirmed runtime behavior
 
-The earlier `caa420c25bcc2693137666b625e62a1b58fdcb0f` transport fix remains valid: the pushed GOST layer has a stable lower NSPR transport, nonblocking would-block handling works, and MSSPI can exchange bytes through that lower socket.
+The earlier `caa420c25bcc2693137666b625e62a1b58fdcb0f` transport fix remains valid: the pushed GOST layer has a stable lower NSPR transport, nonblocking would-block handling works, and MSSPI exchanges bytes through that lower socket.
 
-The interpretation of the peer bytes from the earlier run has changed because run `32692411195` added exact TLS-buffer logging.
+The A/B capture from run `32692411195` established that the old `SEC_E_INVALID_TOKEN` was caused by starting MSSPI before the HTTP CONNECT tunnel existed. The roughly 1038/1039 bytes previously treated as a possible server handshake were actually plaintext `HTTP/1.1 400 Bad Request` from ASUGATE. That interpretation is superseded by the proxy-compatible run below.
 
-Authoritative A/B build and logs:
+### First complete GOST HTTPS success
+
+Authoritative main build:
 
 - workflow: `GOST TLS PoC build`;
-- Actions run: `32692411195`;
-- job: `97328339347`;
-- exact build commit: `08203bb0d7023b7186dc11e4d765f0349aadf076`;
+- Actions run: `32710363486`;
+- job: `97380247020`;
+- exact build commit: `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` (`fix(gost): defer MSSPI until proxy tunnel`);
 - CI result: success;
-- runtime host: `fzs.roskazna.ru` through the configured system HTTP proxy.
+- release artifact: `9518011746` (`r3dfox-gost-win64-release`).
 
-Forced GOST-list run:
+The same source commit passed the dedicated SSL compile check:
 
-- `msspi_set_cipherlist(..., "C100:C101:C102:FF85:0081")` succeeded;
-- MSSPI emitted a 122-byte TLS 1.2 ClientHello offering only `C100`, `C101`, `C102`, `FF85`, and `0081`;
-- the next 1038 bytes received from the lower socket begin with ASCII `HTTP/1.1 400 Bad Request` and identify `Via: 1.1 ASUGATE`, proxy address `10.138.1.254`, server `ASUGATE.ctikem.ru`, source `proxy`.
+- run `32710363528`;
+- job `97380247058`;
+- result: success, including `Compile security manager SSL target objects`.
 
-Native-default control run:
+Runtime target: `fzs.roskazna.ru` through the configured system HTTP proxy / ASUGATE.
 
-- `R3DFOX_GOST_CIPHERS=default` skipped the explicit cipher call;
-- MSSPI emitted the previous 198-byte ClientHello with the broader native suite set plus the GOST suites;
-- the lower socket returned the same 1038-byte ASUGATE HTTP 400 response;
-- MSSPI then emitted `15 03 03 00 02 02 0A`, a TLS 1.2 fatal `unexpected_message` alert;
-- `msspi_connect` returned `SEC_E_INVALID_TOKEN` (`0x80090308`), followed later by the already-known secondary `0x0000054f` after MSSPI had entered `MSSPI_ERROR`.
-
-Therefore the old description of those roughly 1039 bytes as a real server TLS handshake flight is superseded. The origin server had not yet received either ClientHello. SSPI was rejecting plaintext HTTP proxy error data as an invalid TLS token.
-
-### Current runtime blocker
-
-The current proven blocker is the Firefox HTTP-proxy lifecycle:
+The runtime logs confirm the intended lifecycle:
 
 ```text
-Firefox intends to send CONNECT fzs.roskazna.ru:443
-        -> old GOST layer intercepted the first socket I/O
-        -> MSSPI started TLS immediately
-        -> TLS ClientHello was sent directly to ASUGATE
-        -> ASUGATE returned HTTP/1.1 400 Bad Request
-        -> SSPI consumed HTTP bytes as TLS and returned SEC_E_INVALID_TOKEN
-```
-
-This means `SEC_E_INVALID_TOKEN` from the captured runs is not evidence that CryptoPro rejected a real `fzs.roskazna.ru` GOST handshake. The project has not yet observed the origin server's real ServerHello in the MSSPI path.
-
-### Proxy-compatible implementation under test
-
-Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` (`fix(gost): defer MSSPI until proxy tunnel`) implements the next runtime experiment without changing the Win7/toolchain line:
-
-- reads resolved `nsIProxyInfo` supplied by Firefox rather than consulting Windows proxy settings independently;
-- for an ordinary `http` proxy, creates/configures MSSPI but starts the GOST layer with TLS inactive;
-- while TLS is inactive, `read`, `recv`, `write`, `send`, `available`, and `poll` pass transparently to the stored lower NSPR transport;
-- `GostSocketControl` now implements `ProxyStartSSL()` and `StartTLS()`;
-- those entry points only activate MSSPI TLS state; they do not synchronously force a handshake;
-- `DriveHandshake` refuses to enter MSSPI before TLS activation;
-- direct/non-HTTP-proxy behavior retains immediate TLS activation;
-- MSSPI shutdown is skipped when a proxy connection closes before TLS was ever activated.
-
-This commit is an implementation hypothesis until the existing main-workflow SSL compile gate and a runtime test both pass. Do not call the proxy blocker fixed merely because the source change exists.
-
-### Next runtime experiment
-
-Use the existing `.github/workflows/gost-poc-build.yml` main GOST build. Its `GATE - Compile security manager SSL target objects` is the first compile check for commit `4887e07d...`; only the run whose head SHA is exactly that commit (or a deliberately identified descendant containing the same source) is evidence for this change.
-
-If the full build produces a runnable artifact, test it with the real system HTTP proxy and preserve the GOST log. The decisive expected sequence is:
-
-```text
-attached MSSPI GOST layer ... tlsActive=0 proxyType=http
-GostWrite/GostRead ... proxy plaintext ...
+tlsActive=0
+GostWrite/GostRead proxy plaintext ...
 ProxyStartSSL host=fzs.roskazna.ru
 GOST TLS activated ... after_proxy_tunnel=1
 TLSBUF direction=out ... ClientHello
-TLSBUF direction=in ... real TLS record from fzs.roskazna.ru
+TLSBUF direction=in ... real TLS handshake records
+MSSPI handshake complete host=fzs.roskazna.ru TLS=0x0303 cipher=0xff85
+msspi_write / msspi_read ... protected application data
 ```
 
-The first high-value runtime gate is that the post-activation input must no longer begin with `HTTP/1.1 400 Bad Request`. Only after a real origin TLS response is captured can cipher selection, certificate messages, and any subsequent SSPI error be diagnosed meaningfully.
+Two A/B logs were captured from the exact same build:
+
+- explicit GOST-only cipher list `C100:C101:C102:FF85:0081`: seven successful proxy/TLS connection sequences;
+- `R3DFOX_GOST_CIPHERS=default`: six successful proxy/TLS connection sequences.
+
+Every completed handshake in both logs negotiated TLS 1.2 (`0x0303`) and suite `0xFF85`. After each handshake the logs show bidirectional MSSPI application-data traffic. The old proxy failure signatures (`HTTP/1.1 400`, `SEC_E_INVALID_TOKEN`, fatal `unexpected_message`) do not recur after TLS activation.
+
+Most importantly, the user confirmed browser-visible end-to-end success: **Treasury pages loaded completely, including JavaScript and images**. This is the first confirmed project milestone where the real browser, the configured system proxy, HTTP CONNECT, MSSPI/CryptoPro GOST TLS, protected HTTP traffic, dependent resource loading, and final page rendering all work together.
+
+Therefore the HTTP-proxy lifecycle blocker and the basic GOST TLS handshake/application-transport blocker are **closed for the tested environment and target site**. Successful compilation is no longer the strongest evidence; full page rendering is confirmed.
+
+### Current GOST runtime security question
+
+The next blocker is no longer transport or handshake. It is server-certificate verification semantics.
+
+Successful logs contain:
+
+```text
+DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
+```
+
+The current wrapper calls `msspi_get_verify_status()` but rejects the connection only when `verifyOk && verifyStatus != 0`. If `msspi_get_verify_status()` itself returns 0, the wrapper continues and marks the handshake complete.
+
+Pinned MSSPI uses `SCH_CRED_MANUAL_CRED_VALIDATION` for the client path and its `msspi_get_verify_status()` returns 0 when its internal verification path reaches `ERROR_INTERNAL_ERROR`. Therefore the successful page load is **not yet proof that certificate-chain/hostname validation is enforced fail-closed**.
+
+This must be treated as a separate security integration issue. Do not weaken the confirmed transport result: the GOST TLS channel and usable HTTPS traffic are working, but certificate-verification failure handling still needs to be made explicit and proven.
+
+### Next GOST runtime experiments
+
+1. Instrument the `msspi_get_verify_status()` failure path with the exact `msspi_last_error()` value and, if needed, peer-certificate/chain retrieval status. Determine why the verification call returns 0 on otherwise successful connections.
+2. Once the verification API returns a meaningful result, make wrapper behavior fail-closed for both `verifyOk == 0` and nonzero verification status, then prove that the valid Treasury certificate succeeds and an invalid hostname/chain is rejected.
+3. Independently cross-check the same proven SSL/TLS code in the alternative full build from `GOST TLS PoC build - thunk-rs experiment`: run `32710363484`, job `97388836234`, exact source commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, release artifact `9519011295`. This is valuable cross-build runtime validation because it uses the same GOST TLS source with the alternative ordinary-Rust + narrow-YY compatibility path; it is not a prerequisite for the already-proven main-build GOST success.
 
 ## Windows Vista/7 build-compatibility track
 
@@ -255,7 +248,7 @@ Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only `GetQueuedComplet
 
 The ordinary/direct import parser used in run `32695496647` is sufficient for the current hard-loader gate and is the basis for the precise-time closure conclusion.
 
-The delay-load API parser is **not yet complete**. `dumpbin /imports` formats delay API rows differently from ordinary import rows. The workflow switches to a delay section and records delay DLL names, but the API regex in `ae3d52f4...` matches only the ordinary-import row shape. Therefore `xul-thunk-win7-delay-import-api-names.txt` is empty and must not be interpreted as proof that there are no delay-loaded APIs.
+The delay-load API parser is **not yet complete**. `dumpbin /imports` formats delay API rows differently from ordinary import rows. The workflow switches to a delay section and records delay DLL names, but the API regex in `ae3d52f4...` matches only the ordinary-import line shape. Therefore `xul-thunk-win7-delay-import-api-names.txt` is empty and must not be interpreted as proof that there are no delay-loaded APIs.
 
 Re-parsing the retained raw import dump with the correct delay-row shape yields 504 unique delay API names. Relevant post-Win7 candidates include:
 
@@ -342,9 +335,9 @@ Keep these statements distinct:
 - **Win7 basic startup success** is confirmed for the exact run `32695496647` / commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` portable build on a real Windows 7 system; that build predates msvcr14x integration.
 - **Broader Win7 runtime compatibility** still requires representative feature exercise and guarded handling of relevant delay-loaded APIs/runtime dependencies.
 - **GOST transport success** means MSSPI can exchange bytes through the NSPR layer.
-- **GOST TLS success** requires the complete TLS handshake and usable HTTPS traffic.
-
-At present the lower transport path works, but the last runtime capture did not reach the origin server because MSSPI started before the HTTP CONNECT tunnel was established. Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` contains the proxy-lifecycle fix candidate and is awaiting compile/runtime validation.
+- **GOST TLS handshake success** is confirmed for the exact main build run `32710363486` / commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`: TLS 1.2 with suite `0xFF85` completes through the system HTTP proxy.
+- **GOST HTTPS application success** is also confirmed for that build: the browser exchanges protected application data and fully renders the tested Treasury pages, including JavaScript and images.
+- **GOST certificate-verification success** is **not yet confirmed**; the current `msspi_get_verify_status()` return handling must be investigated and made explicitly fail-closed before making that security claim.
 
 ## Maintenance rule
 
