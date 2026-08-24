@@ -45,6 +45,8 @@ Important pieces include:
 
 Ordinary non-allowlisted HTTPS must remain on NSS.
 
+For an ordinary HTTP proxy, Firefox/Necko owns proxy resolution, CONNECT generation, proxy authentication, response parsing, and retry behavior. The GOST layer must remain plaintext-transparent until Necko reports a successful tunnel by calling `nsITLSSocketControl::ProxyStartSSL()`. Only then may MSSPI start the origin TLS handshake inside the established CONNECT tunnel.
+
 ### MSSPI baseline
 
 Pinned MSSPI source commit:
@@ -58,58 +60,91 @@ The Firefox wrapper configures the client with the equivalent of:
 - `msspi_set_hostname`;
 - `msspi_set_peerauth`.
 
-The current Firefox integration does not yet treat an explicit cipher-list setting as proven to be required. Chromium-Gost's MSSPI path does configure an explicit cipher list, so cipher negotiation remains a high-value comparison point.
+Starting with commit `850a2e54aa154c025a9af35ed351c92dfe96a3d1`, the default diagnostic GOST mode also calls `msspi_set_cipherlist` with:
+
+`C100:C101:C102:FF85:0081`
+
+`R3DFOX_GOST_CIPHERS=default` skips that explicit call and reproduces the MSSPI native cipher-list behavior. Any other non-empty value is passed as a custom explicit list.
+
+The A/B runtime capture from main-build run `32692411195` proves that this configuration switch really changes the ClientHello, but it does **not** yet prove which cipher list is required by `fzs.roskazna.ru`, because those ClientHello records were sent to the HTTP proxy rather than to the origin server.
 
 ### Confirmed runtime behavior
 
-The transport-side NSPR/MSSPI integration is far enough to exchange a real TLS handshake flight with the server.
+The earlier `caa420c25bcc2693137666b625e62a1b58fdcb0f` transport fix remains valid: the pushed GOST layer has a stable lower NSPR transport, nonblocking would-block handling works, and MSSPI can exchange bytes through that lower socket.
 
-With the `caa420c25bcc2693137666b625e62a1b58fdcb0f` transport fix and the successful main-build Actions run `32571061759`:
+The interpretation of the peer bytes from the earlier run has changed because run `32692411195` added exact TLS-buffer logging.
 
-1. `fzs.roskazna.ru` matches the allowlist.
-2. A TCP socket is created.
-3. MSSPI is opened and configured as a TLS 1.2 client.
-4. The GOST NSPR layer is pushed.
-5. The wrapper resolves and stores the real lower transport after the push.
-6. MSSPI emits a 198-byte initial TLS flight; `LowerWrite` sends all 198 bytes.
-7. The first nonblocking read returns Winsock `10035` / would-block and is correctly treated as pending.
-8. A later `LowerRead` receives 1039 bytes from the server.
-9. The failure occurs only after those server bytes reach SSPI.
+Authoritative A/B build and logs:
 
-This proves the earlier callback/lower-layer transport bug is no longer the current blocker. Do not return to redesigning Poll/LowerRead/LowerWrite unless new evidence shows a transport regression.
+- workflow: `GOST TLS PoC build`;
+- Actions run: `32692411195`;
+- job: `97328339347`;
+- exact build commit: `08203bb0d7023b7186dc11e4d765f0349aadf076`;
+- CI result: success;
+- runtime host: `fzs.roskazna.ru` through the configured system HTTP proxy.
+
+Forced GOST-list run:
+
+- `msspi_set_cipherlist(..., "C100:C101:C102:FF85:0081")` succeeded;
+- MSSPI emitted a 122-byte TLS 1.2 ClientHello offering only `C100`, `C101`, `C102`, `FF85`, and `0081`;
+- the next 1038 bytes received from the lower socket begin with ASCII `HTTP/1.1 400 Bad Request` and identify `Via: 1.1 ASUGATE`, proxy address `10.138.1.254`, server `ASUGATE.ctikem.ru`, source `proxy`.
+
+Native-default control run:
+
+- `R3DFOX_GOST_CIPHERS=default` skipped the explicit cipher call;
+- MSSPI emitted the previous 198-byte ClientHello with the broader native suite set plus the GOST suites;
+- the lower socket returned the same 1038-byte ASUGATE HTTP 400 response;
+- MSSPI then emitted `15 03 03 00 02 02 0A`, a TLS 1.2 fatal `unexpected_message` alert;
+- `msspi_connect` returned `SEC_E_INVALID_TOKEN` (`0x80090308`), followed later by the already-known secondary `0x0000054f` after MSSPI had entered `MSSPI_ERROR`.
+
+Therefore the old description of those roughly 1039 bytes as a real server TLS handshake flight is superseded. The origin server had not yet received either ClientHello. SSPI was rejecting plaintext HTTP proxy error data as an invalid TLS token.
 
 ### Current runtime blocker
 
-After receiving the 1039-byte server handshake flight, the call through MSSPI to `InitializeSecurityContextA` fails with:
-
-`0x80090308` — `SEC_E_INVALID_TOKEN`
-
-MSSPI then enters `MSSPI_ERROR` (`0x40000000`). A later `0x0000054f` / `ERROR_INTERNAL_ERROR` is secondary because MSSPI is already in its terminal error state.
-
-Observed flow:
+The current proven blocker is the Firefox HTTP-proxy lifecycle:
 
 ```text
-Firefox/MSSPI
-  -> 198-byte client TLS flight
-fzs.roskazna.ru
-  -> 1039-byte server TLS flight
-SSPI InitializeSecurityContextA
-  -> SEC_E_INVALID_TOKEN (0x80090308)
-MSSPI/SSPI
-  -> 7-byte output, likely a TLS Alert
+Firefox intends to send CONNECT fzs.roskazna.ru:443
+        -> old GOST layer intercepted the first socket I/O
+        -> MSSPI started TLS immediately
+        -> TLS ClientHello was sent directly to ASUGATE
+        -> ASUGATE returned HTTP/1.1 400 Bad Request
+        -> SSPI consumed HTTP bytes as TLS and returned SEC_E_INVALID_TOKEN
 ```
 
-The next runtime analysis should determine what SSPI rejected rather than modifying the NSPR transport again.
+This means `SEC_E_INVALID_TOKEN` from the captured runs is not evidence that CryptoPro rejected a real `fzs.roskazna.ru` GOST handshake. The project has not yet observed the origin server's real ServerHello in the MSSPI path.
 
-Highest-value questions remain:
+### Proxy-compatible implementation under test
 
-1. What exactly is in the ClientHello emitted by the current MSSPI configuration?
-2. What TLS records and handshake messages are in the server response?
-3. Which cipher suite did the ServerHello select?
-4. What are the exact 7 bytes emitted after `SEC_E_INVALID_TOKEN`?
-5. How does this differ from Chromium-Gost's explicit MSSPI cipher-list setup?
+Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` (`fix(gost): defer MSSPI until proxy tunnel`) implements the next runtime experiment without changing the Win7/toolchain line:
 
-Keep runtime conclusions tied to the exact main-build run/SHA and runtime log used for the test.
+- reads resolved `nsIProxyInfo` supplied by Firefox rather than consulting Windows proxy settings independently;
+- for an ordinary `http` proxy, creates/configures MSSPI but starts the GOST layer with TLS inactive;
+- while TLS is inactive, `read`, `recv`, `write`, `send`, `available`, and `poll` pass transparently to the stored lower NSPR transport;
+- `GostSocketControl` now implements `ProxyStartSSL()` and `StartTLS()`;
+- those entry points only activate MSSPI TLS state; they do not synchronously force a handshake;
+- `DriveHandshake` refuses to enter MSSPI before TLS activation;
+- direct/non-HTTP-proxy behavior retains immediate TLS activation;
+- MSSPI shutdown is skipped when a proxy connection closes before TLS was ever activated.
+
+This commit is an implementation hypothesis until the existing main-workflow SSL compile gate and a runtime test both pass. Do not call the proxy blocker fixed merely because the source change exists.
+
+### Next runtime experiment
+
+Use the existing `.github/workflows/gost-poc-build.yml` main GOST build. Its `GATE - Compile security manager SSL target objects` is the first compile check for commit `4887e07d...`; only the run whose head SHA is exactly that commit (or a deliberately identified descendant containing the same source) is evidence for this change.
+
+If the full build produces a runnable artifact, test it with the real system HTTP proxy and preserve the GOST log. The decisive expected sequence is:
+
+```text
+attached MSSPI GOST layer ... tlsActive=0 proxyType=http
+GostWrite/GostRead ... proxy plaintext ...
+ProxyStartSSL host=fzs.roskazna.ru
+GOST TLS activated ... after_proxy_tunnel=1
+TLSBUF direction=out ... ClientHello
+TLSBUF direction=in ... real TLS record from fzs.roskazna.ru
+```
+
+The first high-value runtime gate is that the post-activation input must no longer begin with `HTTP/1.1 400 Bad Request`. Only after a real origin TLS response is captured can cipher selection, certificate messages, and any subsequent SSPI error be diagnosed meaningfully.
 
 ## Windows Vista/7 build-compatibility track
 
@@ -276,7 +311,7 @@ Keep these statements distinct:
 - **GOST transport success** means MSSPI can exchange bytes through the NSPR layer.
 - **GOST TLS success** requires the complete TLS handshake and usable HTTPS traffic.
 
-At present the NSPR transport exchange is working, but the GOST TLS handshake is not yet complete because SSPI rejects the server flight with `SEC_E_INVALID_TOKEN`.
+At present the lower transport path works, but the last runtime capture did not reach the origin server because MSSPI started before the HTTP CONNECT tunnel was established. Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` contains the proxy-lifecycle fix candidate and is awaiting compile/runtime validation.
 
 ## Maintenance rule
 
