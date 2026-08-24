@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef XP_WIN
+#  include <windows.h>
+#  include <wincrypt.h>
+#endif
+
 #include "GostSocketControl.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Logging.h"
@@ -32,15 +37,22 @@ static bool sMethodsInitialized = false;
 static constexpr int kForcedTlsVersion = TLS1_2_VERSION;
 static constexpr char kDefaultGostCipherList[] =
     "C100:C101:C102:FF85:0081";
+static constexpr char kStage1MtlsHost[] = "lk-fzs.roskazna.ru";
+static constexpr char kClientCertThumbprintEnv[] =
+    "R3DFOX_GOST_CLIENT_CERT_THUMBPRINT";
 static constexpr int kTlsDumpChunkSize = 256;
+static constexpr size_t kSha1ThumbprintBytes = 20;
 
 struct GostSecret {
   RefPtr<GostSocketControl> control;
   PRFileDesc* lower = nullptr;
   MSSPI_HANDLE msspi = nullptr;
+  nsCString clientCertThumbprint;
   uint32_t lastMsspiError = 0;
   bool tlsActive = true;
   bool handshakeComplete = false;
+  bool redactOutboundHandshake = false;
+  bool clientCertLoaded = false;
 };
 
 GostSecret* GetSecret(PRFileDesc* aFd) {
@@ -71,9 +83,152 @@ void SetMsspiError(GostSecret* aSecret, uint32_t aNativeError) {
   PR_SetError(PR_IO_ERROR, static_cast<PRInt32>(aNativeError));
 }
 
+int HexValue(char aChar) {
+  if (aChar >= '0' && aChar <= '9') {
+    return aChar - '0';
+  }
+  if (aChar >= 'a' && aChar <= 'f') {
+    return aChar - 'a' + 10;
+  }
+  if (aChar >= 'A' && aChar <= 'F') {
+    return aChar - 'A' + 10;
+  }
+  return -1;
+}
+
+bool ParseSha1Thumbprint(const nsACString& aValue,
+                         uint8_t (&aHash)[kSha1ThumbprintBytes]) {
+  size_t nibble = 0;
+  memset(aHash, 0, sizeof(aHash));
+  for (uint32_t i = 0; i < aValue.Length(); ++i) {
+    const char c = aValue.CharAt(i);
+    if (c == ' ' || c == '\t' || c == ':' || c == '-') {
+      continue;
+    }
+    const int value = HexValue(c);
+    if (value < 0 || nibble >= kSha1ThumbprintBytes * 2) {
+      return false;
+    }
+    if ((nibble & 1) == 0) {
+      aHash[nibble / 2] = static_cast<uint8_t>(value << 4);
+    } else {
+      aHash[nibble / 2] |= static_cast<uint8_t>(value);
+    }
+    ++nibble;
+  }
+  return nibble == kSha1ThumbprintBytes * 2;
+}
+
+int SelectStage1ClientCertificate(void* aArg) {
+  GostSecret* secret = static_cast<GostSecret*>(aArg);
+  if (!secret || !secret->msspi || !secret->control) {
+    return 0;
+  }
+
+  secret->redactOutboundHandshake = true;
+  nsCString host(secret->control->GetHostName());
+  if (!host.EqualsLiteral(kStage1MtlsHost)) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("client certificate callback rejected unexpected host=%s",
+             host.get()));
+    return 0;
+  }
+
+  if (secret->clientCertThumbprint.IsEmpty()) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("client certificate selector missing host=%s selector=thumbprint",
+             host.get()));
+    return 0;
+  }
+
+#ifdef XP_WIN
+  uint8_t hash[kSha1ThumbprintBytes];
+  if (!ParseSha1Thumbprint(secret->clientCertThumbprint, hash)) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("client certificate selector malformed host=%s selector=thumbprint",
+             host.get()));
+    return 0;
+  }
+
+  HCERTSTORE store = CertOpenStore(
+      CERT_STORE_PROV_SYSTEM_W, 0, 0,
+      CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG |
+          CERT_STORE_READONLY_FLAG,
+      L"MY");
+  if (!store) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("client certificate store open failed host=%s error=0x%08lx",
+             host.get(), GetLastError()));
+    return 0;
+  }
+
+  CRYPT_HASH_BLOB hashBlob = {};
+  hashBlob.cbData = static_cast<DWORD>(sizeof(hash));
+  hashBlob.pbData = hash;
+  PCCERT_CONTEXT cert = CertFindCertificateInStore(
+      store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_SHA1_HASH,
+      &hashBlob, nullptr);
+  if (!cert) {
+    const DWORD error = GetLastError();
+    CertCloseStore(store, 0);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("client certificate not found host=%s selector=thumbprint "
+             "store=current-user-my error=0x%08lx",
+             host.get(), error));
+    return 0;
+  }
+
+  DWORD keyProviderInfoSize = 0;
+  if (!CertGetCertificateContextProperty(cert, CERT_KEY_PROV_INFO_PROP_ID,
+                                         nullptr, &keyProviderInfoSize) ||
+      keyProviderInfoSize == 0) {
+    const DWORD error = GetLastError();
+    CertFreeCertificateContext(cert);
+    CertCloseStore(store, 0);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("client certificate has no private-key binding host=%s "
+             "selector=thumbprint store=current-user-my error=0x%08lx",
+             host.get(), error));
+    return 0;
+  }
+
+  const int selected =
+      msspi_set_mycert(secret->msspi, cert->pbCertEncoded, cert->cbCertEncoded);
+  const uint32_t nativeError = msspi_last_error();
+  CertFreeCertificateContext(cert);
+  CertCloseStore(store, 0);
+
+  if (!selected) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("msspi_set_mycert failed host=%s selector=thumbprint "
+             "store=current-user-my error=0x%08x",
+             host.get(), nativeError));
+    return 0;
+  }
+
+  secret->clientCertLoaded = true;
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("client certificate selected host=%s selector=thumbprint "
+           "store=current-user-my private_key_binding=1",
+           host.get()));
+  return 1;
+#else
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+          ("client certificate selection unavailable host=%s", host.get()));
+  return 0;
+#endif
+}
+
 void LogHandshakeBuffer(GostSecret* aSecret, const char* aDirection,
                         const void* aBuf, int aLen) {
   if (!aSecret || aSecret->handshakeComplete || !aBuf || aLen <= 0) {
+    return;
+  }
+
+  if (aSecret->redactOutboundHandshake && strcmp(aDirection, "out") == 0) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("TLSBUF direction=out secret=%p len=%d redacted=client-auth",
+             aSecret, aLen));
     return;
   }
 
@@ -299,9 +454,9 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
                                       static_cast<uint16_t>(tlsVersion));
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
           ("MSSPI handshake complete host=%s TLS=0x%04x cipher=0x%04x "
-           "state=0x%08x",
+           "state=0x%08x client_cert_loaded=%d",
            host.get(), static_cast<unsigned int>(tlsVersion), cipherSuite,
-           msspi_state(secret->msspi)));
+           msspi_state(secret->msspi), secret->clientCertLoaded));
   return NS_OK;
 }
 
@@ -757,6 +912,16 @@ nsresult nsGostSSLIOLayerAddToSocket(
   secret->tlsActive = !waitForHttpProxyTunnel;
   layer->secret = reinterpret_cast<PRFilePrivate*>(secret);
 
+  if (strcmp(aHost, kStage1MtlsHost) == 0) {
+    const char* selector = getenv(kClientCertThumbprintEnv);
+    if (selector && *selector) {
+      secret->clientCertThumbprint.Assign(selector);
+    }
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("AddToSocket mTLS Stage1 host=%s selector=thumbprint present=%d",
+             aHost, !secret->clientCertThumbprint.IsEmpty()));
+  }
+
   secret->msspi = msspi_open(secret, LowerRead, LowerWrite);
   if (!secret->msspi) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
@@ -825,6 +990,16 @@ nsresult nsGostSSLIOLayerAddToSocket(
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
             ("AddToSocket set_peerauth host=%s ok=%d error=0x%08x "
              "state=0x%08x",
+             aHost, configured, msspi_last_error(),
+             msspi_state(secret->msspi)));
+  }
+
+  if (configured && strcmp(aHost, kStage1MtlsHost) == 0) {
+    configured =
+        msspi_set_cert_cb(secret->msspi, SelectStage1ClientCertificate);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("AddToSocket set_cert_cb host=%s ok=%d selector=thumbprint "
+             "error=0x%08x state=0x%08x",
              aHost, configured, msspi_last_error(),
              msspi_state(secret->msspi)));
   }
