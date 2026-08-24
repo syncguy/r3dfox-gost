@@ -634,7 +634,7 @@ jobs:
 
           $knownWin8Apis = @(
             'ProcessPrng','WaitOnAddress','WakeByAddressAll','WakeByAddressSingle',
-            'GetSystemTimePreciseAsFileTime','GetOverlappedResultEx','GetQueuedCompletionStatusEx'
+            'GetSystemTimePreciseAsFileTime','GetOverlappedResultEx'
           )
           $knownWin8Dlls = @('bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll')
 
