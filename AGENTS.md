@@ -79,7 +79,7 @@ Before answering a technical question about the current project state or changin
 2. Read `docs/gost/PROJECT_STATE.md` from the current default branch.
 3. Read `docs/gost/TODO.md` for explicit pending/deferred work and future milestones.
 4. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
-5. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in the current `docs/gost/TEST_LOG.md` and, when the event predates the current volume, in `docs/gost/TEST_LOG_2026-08-22_2026-08-24.md`.
+5. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in the current `docs/gost/TEST_LOG.md` and, when the event predates the current volume, in the relevant dated `docs/gost/TEST_LOG_*.md` historical volume.
 6. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
 7. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/WORKFLOWS.md` as the workflow-role map, `docs/gost/TEST_LOG.md` as the active experiment log, and dated `TEST_LOG_*.md` volumes as the preserved historical evidence trail. Prefer verified repository/run state over conversational memory.
 
@@ -116,3 +116,21 @@ After a meaningful experiment:
 - Update `docs/gost/PROJECT_STATE.md` only when the current understanding, blocker, architecture, pinned dependency, or next experiment changes.
 - Update `docs/gost/TODO.md` when a planned/deferred milestone is added, completed, reprioritized, or deliberately dropped.
 - Keep failed/rejected approaches in the active or historical test logs so future agents do not repeat them blindly.
+
+### TEST_LOG rotation procedure
+Rotate the active experiment log proactively when `docs/gost/TEST_LOG.md` becomes large enough that routine fetch/update operations are cumbersome, truncated, or risky. Rotation is normal documentation maintenance and does not require a separate user decision unless the user has requested a different archival scheme.
+
+Use this exact procedure:
+1. Verify the current default branch and exact HEAD immediately before the rotation. Do not rotate from stale content.
+2. Fetch the current `docs/gost/TEST_LOG.md` and record its blob SHA.
+3. Choose a dated historical filename of the form `docs/gost/TEST_LOG_YYYY-MM-DD_YYYY-MM-DD.md`, covering the first and last experiment dates in the volume. If the active volume begins with a continuation note rather than an experiment, use the first actual experiment date.
+4. Preserve the completed volume unchanged. Prefer reusing the exact existing blob for the dated historical path so the historical content is byte-identical. Do not summarize, rewrite, compact, reorder, or delete old failures during rotation.
+5. Replace `docs/gost/TEST_LOG.md` with a small new active volume. Its header must link to the immediately preceding dated volume, state that older evidence is preserved there, link to `PROJECT_STATE.md` and `TODO.md`, and retain the sanitization/append-only rules.
+6. If a meaningful experiment triggered the rotation, put that experiment into the new active `TEST_LOG.md` in the same documentation operation. Do not rotate first and postpone recording the evidence.
+7. Update `docs/gost/PROJECT_STATE.md` so its evidence-trail introduction points to the current `TEST_LOG.md` plus the dated historical volume(s). If the experiment changed the current blocker or confirmed state, update that synthesis at the same time.
+8. Update `docs/gost/TODO.md` if the experiment completed, reprioritized, added, or exposed planned/deferred work. Its introduction should continue to describe the current log as active and dated `TEST_LOG_*.md` files as historical evidence.
+9. Update this `AGENTS.md` only when the log topology or rotation convention itself changes; ordinary future rotations should follow this procedure without repeatedly editing `AGENTS.md`.
+10. Verify after writes that: the historical file exists; its blob matches the pre-rotation active-log blob when no correction was intended; the new `TEST_LOG.md` links to the historical volume; `PROJECT_STATE.md` and `TODO.md` contain no stale statements about the old active log; and the branch HEAD is the expected docs-only descendant.
+11. Keep source-under-test identity separate from docs-only HEAD. A rotation/docs commit must never be cited as the binary or source SHA for a runtime/build result that actually tested an earlier code commit.
+
+For later rotations, do not rename or chain-rewrite older historical volumes. Create one new dated volume from the then-current `TEST_LOG.md`, start a fresh active `TEST_LOG.md`, and keep all previous dated volumes authoritative and immutable. When researching an older event, read the active volume and whichever dated volume contains the relevant date/run/SHA; do not assume the newest historical volume contains all prior history.
