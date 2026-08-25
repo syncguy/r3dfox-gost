@@ -123,7 +123,8 @@
 #endif
 #ifdef MOZ_ENABLE_V4L2
 ; Similar to glxtest, this tests the hardware decoding for Video for Linux.
-; Currently, it doesn't ship for Firefox targeting typical Intel CPU (or compatible).
+; It is separate because it may crash, and handling this within Firefox
+; itself would be more challenging.
 @BINPATH@/v4l2test
 #endif
 #ifdef MOZ_ENABLE_VAAPI
@@ -283,6 +284,7 @@
 ; r3dfox specific files.
 @RESPATH@/defaults/pref/local-settings.js
 @RESPATH@/distribution/policies.json
+@RESPATH@/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi
 @RESPATH@/config.cfg
 
 # channel-prefs.js has been removed on macOS.
