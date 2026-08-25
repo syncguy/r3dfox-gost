@@ -90,12 +90,14 @@ Workflow name:
 
 The workflow is based on the build-critical path of `.github/workflows/gost-poc-build.yml`: it uses the same Windows runner model, MozillaBuild setup, pagefile requirements, pinned MSSPI source, release mozconfig, pinned Rust build-std path, configure/export gates, full `mach build`, and `mach package`. The unrelated Win7 PE import audit is intentionally not part of this extension-packaging proof.
 
-The workflow runs on `agent/gost-tls-poc` only when either of these paths changes:
+The workflow runs on `agent/gost-tls-poc` when any of these packaging inputs changes:
 
 - `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`;
+- `r3dfox/moz.build`;
+- `browser/installer/package-manifest.in`;
 - `.github/workflows/cryptopro-mozilla-packaging-smoke.yml`.
 
-It does **not** trigger on `r3dfox/moz.build`, `build/update-cryptopro-extension.py`, `security/manager/ssl/nsGostSSLIOLayer.cpp`, or either full-build workflow YAML.
+It does **not** currently trigger on `build/update-cryptopro-extension.py`, `security/manager/ssl/nsGostSSLIOLayer.cpp`, or either full-build workflow YAML.
 
 The integration-specific stages are:
 
@@ -110,14 +112,16 @@ The integration-specific stages are:
 First integration run:
 
 - Actions run: `32817910715`;
+- job: `97709832302`;
 - source-under-test SHA: `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560`;
-- status at launch: queued/in progress;
-- this SHA includes the `r3dfox/moz.build` packaging declaration from parent commit `8e1cd63...`.
+- CI result: failure at `GATE - Verify CryptoPro XPI in final portable archive`.
 
-Do not call the real Mozilla packaging integration proven until this exact run or a later exact run completes the `dist/bin` and final-package gates successfully.
+That run proved the real Mozilla `FINAL_TARGET_FILES` path through `dist/bin`: the selected XPI was present at `obj-gost-win64/dist/bin/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` and passed the workflow hash/manifest-ID checks. The full Firefox build and `mach package` also succeeded. The extracted portable archive contained no matching XPI because `browser/installer/package-manifest.in` is a separate dist/bin-to-package staging allowlist and did not include the CryptoPro extension path for this r3dfox build configuration.
+
+The corrective branch state at commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`. The current default branch contains that correction. A later exact workflow run must still prove that both the already-passing real `dist/bin` gate and the final portable-archive path/hash gate pass together before the real Mozilla packaging integration is called proven.
 
 ### Full-build integration boundary
 
-`.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` remain unchanged by the extension experiment. The two already-running Stage 2.1 full builds are pinned to their earlier source SHA and are unaffected by the extension commits.
+`.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` remain unchanged by the extension experiment. The Stage 2.1 full-build evidence remains tied to its own earlier source SHA and is unaffected by the later extension commits.
 
 After the dedicated Mozilla packaging workflow is green, transfer only the already-proved updater preparation and final package gates into the two main full-build workflows. A later clean-profile runtime test must separately prove that Firefox discovers/installs the bundled extension and that extension update behavior remains functional.
