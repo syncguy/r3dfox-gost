@@ -164,6 +164,34 @@ This is an exploratory Windows XP compatibility workflow, separate from both the
 
 A successful build/run on a current GitHub-hosted Windows runner plus PE 5.01 headers is not proof that the executable runs on Windows XP. Real XP runtime execution remains a separate gate.
 
+## CryptoPro extension packaging smoke
+
+Workflow file:
+
+`.github/workflows/cryptopro-extension-smoke.yml`
+
+Workflow name:
+
+`CryptoPro extension packaging smoke`
+
+Role:
+
+This is the dedicated low-cost integration smoke for the bundled CryptoPro CAdES Firefox extension. It is separate from the GOST TLS runtime/handshake track and from the Windows Vista/7 linker/toolchain track.
+
+It tests `build/update-cryptopro-extension.py` and the committed fallback XPI without compiling Firefox. Its gates cover fallback integrity, forced network failure, invalid-fallback hard failure, acceptance of a valid downloaded candidate, malformed-candidate fallback, wrong-extension-ID fallback, a live check of the official CryptoPro XPI endpoint, staging into `distribution/extensions`, and verification of the final ZIP layout/hash/extension ID.
+
+Formal passing evidence for the standalone phase:
+
+- run `32815118778`;
+- job `97701728235`;
+- code-under-test commit `2ad7025ca300613d39a227b9e7582a341260d648`;
+- evidence artifact `9551126137`;
+- result: success.
+
+This standalone success does **not** prove Mozilla `FINAL_TARGET_FILES` integration or installation by a real packaged Firefox. The next extension-track proof is the real Mozilla packaging-graph integration, still kept separate from both full browser workflows until proven.
+
+Detailed design and current extension state are recorded in [`EXTENSIONS.md`](./EXTENSIONS.md).
+
 ## Current full-scale thunk evidence
 
 The significant completed full-scale result is:
@@ -191,6 +219,7 @@ Keep these concepts separate:
 - `msvcr14x-win7-smoke.yml` = isolated msvcr14x CRT/UCRT smoke;
 - `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
+- `cryptopro-extension-smoke.yml` = standalone CryptoPro extension update/fallback/staging/package proof;
 - `agent/gost-tls-poc` = active development branch;
 - `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.
