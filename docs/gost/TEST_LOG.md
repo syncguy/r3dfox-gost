@@ -352,3 +352,33 @@ This is compile evidence only. The run does not exercise the Firefox certificate
 **The `RefCountedThreadSafe` / `AddRef` / `Release` compile regression from run `32837093952` is closed at exact source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`.**
 
 Stage 2 returns to its substantive runtime/integration work: peer-certificate acquisition/fail-closed server verification and the Firefox-facing client-certificate selection flow. No Windows Vista/7 compatibility conclusion is drawn from this SSL-only gate.
+
+---
+
+## 2026-08-25 — CryptoPro Mozilla packaging reaches dist/bin but misses final portable archive
+
+**Track:** bundled government-system extensions / Mozilla packaging integration  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560` (`test(extensions): add real Mozilla packaging smoke`)  
+**Actions run:** `32817910715`  
+**Job:** `97709832302`  
+**Workflow:** `CryptoPro Mozilla packaging smoke`  
+**CI result:** failure at `GATE - Verify CryptoPro XPI in final portable archive`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32817910715>
+
+### Observation
+
+The updater/selection gate succeeded, the full Firefox build succeeded, and `GATE - Verify CryptoPro XPI in real dist/bin` succeeded. Therefore the selected XPI reached the real Mozilla output path `obj-gost-win64/dist/bin/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` and passed the workflow's hash/manifest-ID checks. `mach package` also completed successfully.
+
+The final portable archive `r3dfox-v153.0.3.win64.portable.7z` extracted successfully, but contained zero matching CryptoPro XPI files under `distribution/extensions`.
+
+`browser/installer/package-manifest.in` is the separate dist/bin-to-package staging allowlist. At the tested SHA it explicitly packages r3dfox's `distribution/policies.json` but not the CryptoPro XPI. Its generic `@RESPATH@/distribution/*` rule is guarded by `BUILT_BY_MOZILLA`, while this dedicated r3dfox build uses official branding without `--built-by-mozilla`. Thus the successful `FINAL_TARGET_FILES.distribution.extensions` install into `dist/bin` did not imply inclusion in the portable package.
+
+### Conclusion and corrective change
+
+**The real Mozilla `FINAL_TARGET_FILES` integration is proven through `dist/bin`; the remaining blocker is specifically the installer staging manifest.** This is not an updater failure, XPI validation failure, Firefox compile failure, or `mach package` execution failure.
+
+The corrective branch state at `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact XPI path to `browser/installer/package-manifest.in`. Relative to pre-fix HEAD `c026bc62956fa7e58b60183fcf390501f05229c0`, the effective source diff is exactly one added manifest line. The next experiment is to rerun this dedicated workflow and require both the already-green real `dist/bin` gate and the final portable-archive hash/path gate to pass on one exact commit SHA.
+
+Status: diagnosis confirmed; corrective packaging change committed; CI revalidation pending.
