@@ -164,23 +164,21 @@ This is an exploratory Windows XP compatibility workflow, separate from both the
 
 A successful build/run on a current GitHub-hosted Windows runner plus PE 5.01 headers is not proof that the executable runs on Windows XP. Real XP runtime execution remains a separate gate.
 
-## CryptoPro extension packaging smoke
+## CryptoPro extension standalone smoke — historical proof
 
-Workflow file:
+Historical workflow file:
 
 `.github/workflows/cryptopro-extension-smoke.yml`
 
-Workflow name:
+Historical workflow name:
 
 `CryptoPro extension packaging smoke`
 
 Role:
 
-This is the dedicated low-cost integration smoke for the bundled CryptoPro CAdES Firefox extension. It is separate from the GOST TLS runtime/handshake track and from the Windows Vista/7 linker/toolchain track.
+This was the low-cost standalone proof for `build/update-cryptopro-extension.py` and the committed CryptoPro fallback XPI without compiling Firefox. It covered fallback integrity, forced network failure, invalid-fallback hard failure, valid-candidate acceptance, malformed-candidate fallback, wrong-extension-ID fallback, the live CryptoPro endpoint, synthetic `distribution/extensions` staging, and final synthetic ZIP verification.
 
-It tests `build/update-cryptopro-extension.py` and the committed fallback XPI without compiling Firefox. Its gates cover fallback integrity, forced network failure, invalid-fallback hard failure, acceptance of a valid downloaded candidate, malformed-candidate fallback, wrong-extension-ID fallback, a live check of the official CryptoPro XPI endpoint, staging into `distribution/extensions`, and verification of the final ZIP layout/hash/extension ID.
-
-Formal passing evidence for the standalone phase:
+Formal passing evidence:
 
 - run `32815118778`;
 - job `97701728235`;
@@ -188,7 +186,50 @@ Formal passing evidence for the standalone phase:
 - evidence artifact `9551126137`;
 - result: success.
 
-This standalone success does **not** prove Mozilla `FINAL_TARGET_FILES` integration or installation by a real packaged Firefox. The next extension-track proof is the real Mozilla packaging-graph integration, still kept separate from both full browser workflows until proven.
+The historical standalone workflow was removed by commit `628780ec29c1a72d572b33f51c543e88c2d884d5` after its updater/fallback contract was proven. Do not reinterpret that standalone success as proof of Mozilla `FINAL_TARGET_FILES` integration.
+
+## CryptoPro Mozilla packaging smoke
+
+Workflow file:
+
+`.github/workflows/cryptopro-mozilla-packaging-smoke.yml`
+
+Workflow name:
+
+`CryptoPro Mozilla packaging smoke`
+
+Role:
+
+This is the current full-build integration proof for the bundled CryptoPro CAdES Firefox extension. It is separate from the authoritative GOST runtime workflow and from the Windows Vista/7 thunk-rs compatibility workflow even though it deliberately reuses the build-critical path of the main GOST build.
+
+The workflow uses the main build's Windows runner model, MozillaBuild/pagefile setup, pinned MSSPI source, release mozconfig, pinned Rust build-std path, configure/export/SSL gates, full `mach build`, and `mach package`. It omits the unrelated Win7 PE import audit so an extension-packaging conclusion cannot be blocked or confused by the separate compatibility track.
+
+Extension-specific gates:
+
+- select a valid official XPI or committed fallback using `build/update-cryptopro-extension.py`;
+- copy only the selected XPI into the ephemeral checkout source path consumed by `r3dfox/moz.build`;
+- require the selected XPI in the real `obj-gost-win64/dist/bin/distribution/extensions` tree after the full build;
+- require exact SHA-256 and manifest ID equality against the selected candidate;
+- run real `mach package`;
+- extract the produced portable `.7z` or `.zip` and require exactly one matching XPI under `distribution/extensions` with the same SHA-256;
+- upload both the packaged browser and dedicated packaging evidence.
+
+Trigger policy:
+
+The workflow runs on `agent/gost-tls-poc` only for changes to:
+
+- `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`;
+- `.github/workflows/cryptopro-mozilla-packaging-smoke.yml`.
+
+It does not run on `r3dfox/moz.build`, `build/update-cryptopro-extension.py`, `nsGostSSLIOLayer.cpp`, or either main full-build workflow YAML.
+
+First integration run:
+
+- run `32817910715`;
+- source-under-test commit `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560`;
+- status: in progress at documentation time.
+
+The tested SHA is a descendant of `8e1cd63ccc1bb45400ea675e7e2920595b1ae379`, which added the real `FINAL_TARGET_FILES.distribution.extensions` declaration. Do not call Mozilla packaging integration proven until the real `dist/bin` and final portable-archive gates succeed for an exact run/SHA.
 
 Detailed design and current extension state are recorded in [`EXTENSIONS.md`](./EXTENSIONS.md).
 
@@ -219,7 +260,8 @@ Keep these concepts separate:
 - `msvcr14x-win7-smoke.yml` = isolated msvcr14x CRT/UCRT smoke;
 - `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
-- `cryptopro-extension-smoke.yml` = standalone CryptoPro extension update/fallback/staging/package proof;
+- `cryptopro-extension-smoke.yml` = historical standalone CryptoPro updater/fallback/staging/package proof;
+- `cryptopro-mozilla-packaging-smoke.yml` = current full Firefox CryptoPro packaging integration proof;
 - `agent/gost-tls-poc` = active development branch;
 - `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.
