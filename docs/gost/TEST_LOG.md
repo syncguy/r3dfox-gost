@@ -139,3 +139,33 @@ No MSSPI, NSPR, proxy, cipher-policy, or previously proven Stage 1 client-certif
 The minimal compile-fix descendant is `c62022a5530a61124b756648293113187b8e5b8b` (`fix(gost): repair stage2 diagnostics compile`): it copies `attr.Value` into a local mutable `CERT_RDN_VALUE_BLOB` before calling `CertRDNValueToStrW` and removes the extra `MOZ_LOG` parenthesis. The Stage 2.1 diagnostic design is otherwise unchanged.
 
 Status: superseded by the compile-fix descendant; that descendant still requires CI proof before runtime testing.
+
+---
+
+## 2026-08-25 — Stage 2.1 compile-fix passes the short SSL gate
+
+**Track:** GOST TLS runtime / Stage 2.1 observability  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `c62022a5530a61124b756648293113187b8e5b8b` (`fix(gost): repair stage2 diagnostics compile`)  
+**Actions run:** `32810337880`  
+**Job:** `97688347363`  
+**Workflow:** `GOST SSL compile check`  
+**CI result:** success
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32810337880>
+
+### Purpose
+
+Confirm that the minimal compile-fix descendant of the first Stage 2.1 diagnostics patch builds the complete `security/manager/ssl` target-object set before consuming the full browser builds.
+
+### Observation
+
+All steps of the short SSL workflow completed successfully, including `Compile security manager SSL target objects`.
+
+This proves that the Stage 2.1 diagnostics implementation, with the two compile-only defects repaired, is buildable at the SSL target level. It does not yet prove full-browser build success or runtime diagnostic behavior.
+
+### Conclusion
+
+**The Stage 2.1 compile blocker is closed for code SHA `c62022a5530a61124b756648293113187b8e5b8b`.**
+
+The next evidence required is completion of the two full builds for the same exact code SHA, followed by runtime testing of the resulting artifact(s) to inspect server-verification diagnostics and the one-per-session detailed acceptable-issuer-list dump.
