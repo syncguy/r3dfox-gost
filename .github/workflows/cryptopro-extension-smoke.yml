@@ -68,6 +68,7 @@ jobs:
           if ($exitCode -eq 0) { throw 'Invalid committed fallback was incorrectly accepted.' }
           if (Test-Path smoke\should-not-exist.xpi) { throw 'Invalid fallback unexpectedly produced an output XPI.' }
           Write-Host "Invalid fallback correctly rejected with exit code $exitCode"
+          exit 0
 
       - name: Create deterministic XPI fixtures
         shell: powershell
