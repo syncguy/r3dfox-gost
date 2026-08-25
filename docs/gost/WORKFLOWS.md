@@ -216,20 +216,25 @@ Extension-specific gates:
 
 Trigger policy:
 
-The workflow runs on `agent/gost-tls-poc` only for changes to:
+The workflow runs on `agent/gost-tls-poc` for changes to:
 
 - `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`;
+- `r3dfox/moz.build`;
+- `browser/installer/package-manifest.in`;
 - `.github/workflows/cryptopro-mozilla-packaging-smoke.yml`.
 
-It does not run on `r3dfox/moz.build`, `build/update-cryptopro-extension.py`, `nsGostSSLIOLayer.cpp`, or either main full-build workflow YAML.
+It does not currently run on `build/update-cryptopro-extension.py`, `nsGostSSLIOLayer.cpp`, or either main full-build workflow YAML.
 
 First integration run:
 
 - run `32817910715`;
+- job `97709832302`;
 - source-under-test commit `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560`;
-- status: in progress at documentation time.
+- result: failure at `GATE - Verify CryptoPro XPI in final portable archive`.
 
-The tested SHA is a descendant of `8e1cd63ccc1bb45400ea675e7e2920595b1ae379`, which added the real `FINAL_TARGET_FILES.distribution.extensions` declaration. Do not call Mozilla packaging integration proven until the real `dist/bin` and final portable-archive gates succeed for an exact run/SHA.
+The run proved the real Mozilla `FINAL_TARGET_FILES` integration through the `dist/bin` stage: the selected XPI reached `obj-gost-win64/dist/bin/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` and passed the hash/manifest-ID checks. The full Firefox build and `mach package` succeeded. The final portable archive contained no matching XPI because `browser/installer/package-manifest.in` is a separate dist/bin-to-package staging allowlist and did not include the CryptoPro extension path for this r3dfox build configuration.
+
+Commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`; that correction is present in the current default branch. A later exact workflow run must still pass both the already-green real `dist/bin` gate and the final portable-archive gate before Mozilla packaging integration is called proven.
 
 Detailed design and current extension state are recorded in [`EXTENSIONS.md`](./EXTENSIONS.md).
 
