@@ -123,8 +123,7 @@
 #endif
 #ifdef MOZ_ENABLE_V4L2
 ; Similar to glxtest, this tests the hardware decoding for Video for Linux.
-; It is separate because it may crash, and handling this within Firefox
-; itself would be more challenging.
+; Currently, it doesn't ship for Firefox targeting typical Intel CPU (or compatible).
 @BINPATH@/v4l2test
 #endif
 #ifdef MOZ_ENABLE_VAAPI
