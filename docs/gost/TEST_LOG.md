@@ -104,3 +104,38 @@ No concrete certificate thumbprint, identifying certificate metadata, PIN, priva
 The main build (`32751967162`) and the experimental thunk-rs/YY-Thunks build (`32751967189`) both successfully perform client-certificate GOST mTLS. Therefore the Stage 1 client-auth result is not specific to either current Windows build strategy.
 
 The next GOST TLS work is the mandatory Stage 2 closure already defined in `TODO.md`; successful Stage 1 runtime is not production-readiness evidence for server verification, certificate-selection UX, issuer policy, or negative paths.
+
+---
+
+## 2026-08-25 — Stage 2.1 trust diagnostics first compile fails in SSL gate
+
+**Track:** GOST TLS runtime / Stage 2.1 observability  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `6d1b21d282b7653e4d55c533439f0da212f3ab2c` (`feat(gost): add stage2 trust diagnostics`)  
+**Actions run:** `32808471365`  
+**Job:** `97683129980`  
+**Workflow:** `GOST SSL compile check`  
+**CI result:** failure at `Compile security manager SSL target objects`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32808471365>
+
+### Purpose
+
+Compile the first Stage 2.1 diagnostic implementation that adds server-verification observability and one-per-session detailed acceptable-issuer-list decoding without changing the Stage 1 trust decision.
+
+### Observation
+
+The build reached the SSL target-object compile gate and failed only in the newly added `nsGostSSLIOLayer.cpp` diagnostics:
+
+1. Two calls to Windows `CertRDNValueToStrW` passed `&attr.Value` from a `const CERT_RDN_ATTR&`. The Windows SDK signature requires a mutable `PCERT_RDN_VALUE_BLOB`, so clang-cl rejected the const qualification.
+2. One `MOZ_LOG` call in the new server-certificate diagnostics block had one extra closing parenthesis and failed parsing.
+
+No MSSPI, NSPR, proxy, cipher-policy, or previously proven Stage 1 client-certificate logic failure was reached or indicated by this run.
+
+### Conclusion
+
+**This is a compile-only defect in the first Stage 2.1 diagnostics patch, not a runtime regression.**
+
+The minimal compile-fix descendant is `c62022a5530a61124b756648293113187b8e5b8b` (`fix(gost): repair stage2 diagnostics compile`): it copies `attr.Value` into a local mutable `CERT_RDN_VALUE_BLOB` before calling `CertRDNValueToStrW` and removes the extra `MOZ_LOG` parenthesis. The Stage 2.1 diagnostic design is otherwise unchanged.
+
+Status: superseded by the compile-fix descendant; that descendant still requires CI proof before runtime testing.
