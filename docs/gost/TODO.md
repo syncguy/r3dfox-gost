@@ -1,150 +1,58 @@
 # r3dfox GOST TLS — TODO / Deferred Work
 
-This file is the persistent forward-looking backlog for work that is desired but not yet complete. `PROJECT_STATE.md` remains the authoritative current-state synthesis; the current `TEST_LOG.md` is the active evidence trail, with earlier evidence preserved in dated `TEST_LOG_*.md` volumes.
+This file is the persistent forward-looking backlog for work that is desired but not yet complete.
+
+- [`PROJECT_STATE.md`](./PROJECT_STATE.md) is the authoritative current-state synthesis.
+- [`DONE.md`](./DONE.md) is the compact registry of formally closed milestones and conclusions.
+- The current [`TEST_LOG.md`](./TEST_LOG.md) is the active evidence trail, with earlier evidence preserved in dated `TEST_LOG_*.md` volumes.
+
+Completed work does not remain here as historical narrative. When a milestone closes, preserve its detailed evidence in the test log, add a concise closure entry to `DONE.md`, and remove the completed task from this backlog.
 
 ## GOST TLS runtime — next
 
-### 1. Make server-certificate verification fail-closed
+### 1. Complete fail-closed server-certificate verification
 
-Current successful GOST sessions still log:
+Stage 2.1 diagnosis is complete and recorded in `DONE.md` / `TEST_LOG.md`.
 
-```text
-DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
-```
+The current blocker is no longer an unknown `msspi_get_verify_status()` failure: the active SSPI/CryptoPro provider returns `SEC_E_UNSUPPORTED_FUNCTION` for `SECPKG_ATTR_REMOTE_CERT_CHAIN`, leaving MSSPI without `peercert` and forcing verification into its internal-failure form.
 
-Pinned MSSPI runs client Schannel with manual credential validation. `msspi_get_verify_status()` verifies the peer certificate; in client mode that means the server certificate, including chain/policy, server-auth usage, hostname, and (by default) revocation handling.
+Required work:
 
-The first controlled client-certificate mTLS proof is now complete, so this item is no longer deferred. **Fail-closed server verification is the leading mandatory Stage 2 mTLS task and must be completed before the project treats mTLS integration as finished.**
+- switch peer-certificate acquisition to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`;
+- build the peer chain with `CertGetCertificateChain` using the acquired leaf certificate;
+- feed the repaired peer-certificate/chain state into the existing MSSPI verification path;
+- fail closed when `verifyOk == 0` or the verification status is nonzero;
+- prove the real Treasury server certificate and hostname succeed;
+- prove a wrong hostname and an invalid/untrusted chain are rejected;
+- do not introduce a production bypass that converts failed server verification into success.
 
-Required steps:
+This is a mandatory Stage 2 security gate before GOST mTLS integration can be treated as closed.
 
-- log only sanitized diagnostics needed to determine why `msspi_get_verify_status()` returns 0;
-- if needed, inspect peer-certificate and peer-chain retrieval status without publishing credential-derived identifiers;
-- determine why verification returns its internal-error path on otherwise successful Treasury sessions;
-- make the Firefox wrapper fail closed when `verifyOk == 0` as well as when the returned verification status is nonzero;
-- prove a valid Treasury server certificate succeeds;
-- prove a wrong hostname / invalid chain is rejected.
+### 2. Complete Firefox-facing client-certificate selection and mTLS security/UX closure
 
-### 2. Add client-certificate / mutual TLS (mTLS) support
+Stage 1 explicit-selector mTLS is formally complete and recorded in `DONE.md`. The explicit local selector remains useful only as a controlled diagnostic/reference path while the Firefox-facing flow is implemented and compared against the known-good behavior.
 
-This was deliberately outside Phase 1. Stage 1 client-certificate mTLS is now proven; the remaining work in this section is mandatory Stage 2 security/UX closure.
+Current compile checkpoint:
 
-Pinned MSSPI exposes the needed handshake mechanism:
+- source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`;
+- SSL compile run `32844083351`, job `97789764135`, success;
+- this proves only that the current asynchronous picker state/refcount implementation compiles, not that the picker or handshake works at runtime.
 
-- Schannel can return `SEC_I_INCOMPLETE_CREDENTIALS` when the server requests a client certificate;
-- MSSPI then enters `MSSPI_X509_LOOKUP`;
-- `msspi_set_cert_cb()` installs a dynamic certificate-selection callback;
-- the application can load the explicitly selected client certificate with `msspi_set_mycert()` / related APIs;
-- the selected certificate can come from the Windows certificate stores and retain its CryptoPro private-key binding.
+Required work:
 
-#### Confirmed Treasury mTLS baseline
+1. Complete the asynchronous Firefox-facing certificate-selection path without blocking the socket thread.
+2. Define and implement the final use of the server-provided acceptable-issuer list for candidate filtering/selection.
+3. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
+4. Define appropriate in-memory/session remembering behavior for a user selection without leaking sensitive certificate metadata.
+5. Test negative paths: no suitable certificate, user cancellation, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
+6. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
+7. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
 
-The first attempt established a routing prerequisite: Treasury login redirects from `fzs.roskazna.ru` to `https://lk-fzs.roskazna.ru/certificate-list`, so the login host must also be explicitly routed through the GOST provider. With only `fzs.roskazna.ru` allowlisted, ordinary NSS failed on the login host with `SSL_ERROR_NO_CYPHER_OVERLAP`; that was not an MSSPI/mTLS failure.
-
-The follow-up capture used the same proven alternative artifact from run `32710363484`, job `97388836234`, source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, with both exact hosts allowlisted. Uploaded archive: `gost_2_mTLS.zip`; inner log `gost.moz_log`; SHA-256 `7b8cb1d2b3bd8593f4a3bbd5d5df5ab6a274fec5c7e0ccfad8bdab955b10809e`.
-
-The login-host behavior is confirmed:
-
-- 15/15 `lk-fzs.roskazna.ru` attempts reach the GOST provider, HTTP CONNECT, `ProxyStartSSL()`, and MSSPI;
-- the server handshake contains TLS `CertificateRequest` followed by `ServerHelloDone`;
-- one decoded `CertificateRequest` has an 11,529-byte body and 34 acceptable CA distinguished names;
-- MSSPI transitions to state `0x0000000A` = `MSSPI_READING | MSSPI_X509_LOOKUP` on all 15 attempts;
-- at source SHA `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`, the Firefox wrapper had no `msspi_set_cert_cb()` callback and client credentials used `SCH_CRED_NO_DEFAULT_CREDS`, so merely placing certificates in the Windows `MY` store did not cause automatic selection;
-- Schannel sent an empty TLS client `Certificate` message (`0B 00 00 03 00 00 00`), then continued with ClientKeyExchange / ChangeCipherSpec / Finished;
-- the server responded on all 15 attempts with TLS fatal `handshake_failure` (`15 03 03 00 02 02 28`);
-- Schannel surfaced the alert as `0x80090326` (`SEC_E_ILLEGAL_MESSAGE`), leaving MSSPI in `0x40000008` = `MSSPI_ERROR | MSSPI_X509_LOOKUP`;
-- no `MSSPI handshake complete` occurred for `lk-fzs.roskazna.ru`.
-
-That baseline established the exact blocker: the server requests a client certificate correctly, but the tested wrapper did not select/load one into MSSPI.
-
-#### Stage 1 implementation and proof — COMPLETE
-
-Commit `f5d04896e17f91f58b6a137af823360f4718eb29` (`feat(gost): add stage1 mTLS client cert selection`) implements the narrow Stage 1 path in `security/manager/ssl/nsGostSSLIOLayer.cpp`.
-
-The implementation:
-
-- installs `msspi_set_cert_cb()` only for `lk-fzs.roskazna.ru`;
-- reads one local selector from `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`;
-- interprets that selector as a Windows SHA-1 certificate thumbprint;
-- searches only `CurrentUser\\MY` for the exact certificate;
-- requires a private-key provider binding before passing the certificate DER to `msspi_set_mycert()`;
-- does not auto-select another certificate and does not use issuer-list matching as a Stage 1 gate;
-- leaves the existing server-verification behavior unchanged for Stage 1;
-- suppresses raw outbound `TLSBUF` hex logging from the certificate callback onward so the client Certificate / CertificateVerify bytes cannot be published accidentally;
-- logs only sanitized selector-present/selected/error facts and never the concrete thumbprint value.
-
-Build/compile evidence for the exact Stage 1 source SHA:
-
-- main full build: run `32751967162`, job `97510763210`, success;
-- dedicated SSL compile check: run `32751967187`, job `97510762872`, success;
-- experimental thunk-rs full build: run `32751967189`, job `97510762742`, success.
-
-Runtime evidence is also successful on both full artifacts:
-
-- the main build repeatedly selects the intended certificate with `private_key_binding=1`, completes TLS 1.2 / `0xFF85` with `client_cert_loaded=1`, and successfully reaches authenticated Treasury application traffic; an additional main-build capture also succeeds with MSSPI native-default cipher selection;
-- the experimental thunk-rs/YY-Thunks build shows 12 successful certificate selections and 12 completed mTLS handshakes on `lk-fzs.roskazna.ru`, all with `private_key_binding=1`, TLS 1.2 / `0xFF85`, and `client_cert_loaded=1`, with no `0x80090326` or `E/GostTLS` failures.
-
-Therefore **Stage 1 is complete at exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` across both current full-build strategies.**
-
-#### Sensitive-data rule for mTLS work
-
-The repository is public. Any concrete client-certificate identifier used during local testing is sensitive and must remain local. Do not commit or print to CI/public logs complete certificate SHA-1/SHA-256 fingerprints/thumbprints, serial numbers, key IDs, identifying subject/issuer DNs, private-key container/provider identifiers, PINs/passwords, PFX contents, form contents, account data, or other credential/user-originated values. Documentation should use placeholders such as `<local-cert-id>` or `known-good client certificate`. Artifact/log hashes may be retained for reproducibility only when they are not certificate-derived identifiers and the artifact itself is sanitized.
-
-The Stage 1 runtime selector is specifically:
-
-```text
-R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>
-```
-
-The concrete value must remain local. Never echo or print the value in browser logs, GitHub Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
-
-#### Stage 1 — first controlled successful mTLS proof — COMPLETE
-
-Stage 1 deliberately did not make server-certificate validation or acceptable-issuer matching prerequisites and did not introduce any special insecure/server-verification-bypass option. The user provided one known-good certificate locally with `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`, and the concrete selector value remained private.
-
-The successful path is now proven:
-
-```text
-CertificateRequest
-  -> MSSPI_X509_LOOKUP
-  -> msspi_set_cert_cb()
-  -> explicitly selected local certificate by thumbprint
-  -> msspi_set_mycert()
-  -> CryptoPro private-key operation
-  -> client Certificate / CertificateVerify
-  -> completed mTLS handshake
-  -> authenticated Treasury application traffic
-```
-
-The proof is tied to exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` and exact Actions runs `32751967162` (main) and `32751967189` (experimental thunk-rs full build). Sanitized evidence is recorded in the current `TEST_LOG.md`.
-
-#### Stage 2 — mandatory mTLS technical-debt and security closure
-
-**Stage 2 is mandatory. The successful Stage 1 trace does not mean mTLS work is complete. Do not mark the mTLS milestone finished, production-ready, or closed until Stage 2 is completed.**
-
-Now perform the following debt/security work:
-
-1. Fix server-certificate verification so the MSSPI GOST path is fail-closed. Diagnose the current `msspi_get_verify_status()` internal-error result using sanitized diagnostics only; reject both `verifyOk == 0` and nonzero verification status once the verification path is understood.
-2. Prove server verification with positive and negative cases: the real Treasury server/hostname must pass, while a wrong hostname or invalid/untrusted chain must fail.
-3. Decide and implement the final role of the server-provided acceptable-issuer list (`msspi_get_issuerlist()`) in client-certificate filtering/selection. The Stage 1 explicit selector intentionally bypasses this policy question; Stage 2 must resolve it rather than silently carrying the bypass forward.
-4. Replace the Stage 1 local explicit-selector mechanism with an appropriate Firefox-facing certificate-selection flow. The final design must not depend on hard-coded certificate identifiers or require publishing local certificate identifiers in repository/CI state.
-5. Implement and test negative client-authentication paths: no suitable certificate, user cancellation, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
-6. Audit mTLS diagnostics and logging so no complete certificate fingerprint/thumbprint, serial, key ID, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is emitted to public logs or artifacts.
-7. Re-run the successful Treasury mTLS scenario after the Stage 2 changes and preserve a sanitized exact-run/exact-SHA regression trace proving that security/UX hardening did not break client authentication.
-
-Only after all applicable Stage 2 items are complete may the project treat mTLS integration as closed. Any deliberately deferred item must be explicitly approved by the user and remain recorded as an open blocker/debt item rather than disappearing from the plan.
-
-#### Current implementation/evidence sequence
-
-1. **DONE — Stage 1:** exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` compiled and packaged successfully in the main, SSL-check, and experimental full-build workflows.
-2. **DONE — Stage 1:** both full artifacts successfully selected the known-good local certificate and completed real Treasury mTLS with authenticated application traffic.
-3. **DONE — Stage 2.1 diagnosis:** `REMOTE_CERT_CHAIN` is unsupported by the active SSPI/CryptoPro provider; the next implementation switches directly to `REMOTE_CERT_CONTEXT` and existing `CertGetCertificateChain`.
-4. **CURRENT — Stage 2 implementation:** combine peer-certificate acquisition repair with the first asynchronous Firefox-facing client-certificate picker while retaining the known-good thumbprint selector as the priority diagnostic path.
-5. **NEXT — Stage 2:** cover negative client-auth paths, logging/privacy audit, and final hardened regression proof.
+Only after the applicable server-verification and client-authentication items are complete may the project treat GOST mTLS integration as closed.
 
 ### 3. Broaden proxy/network coverage later
 
-The current proven environment is an ordinary HTTP proxy using CONNECT. Keep these as separate later cases rather than changing the now-working HTTP-proxy path blindly:
+The proven environment is an ordinary HTTP proxy using CONNECT. Keep these as separate later cases rather than changing the working HTTP-proxy path blindly:
 
 - direct connection without proxy;
 - HTTPS proxy / nested TLS-to-proxy then GOST TLS-to-origin;
@@ -152,6 +60,8 @@ The current proven environment is an ordinary HTTP proxy using CONNECT. Keep the
 - proxy authentication/reconnect edge cases beyond the currently exercised ASUGATE path.
 
 ## Windows Vista/7 compatibility — next/deferred
+
+Keep this track separate from GOST TLS runtime conclusions.
 
 1. Integrate the already-proven representative `msvcr14x + modern Rust/libstd + narrow YY-Thunks` combination into one full Firefox/xul build while preserving `/MD`.
 2. Audit the resulting Firefox PE set for direct `api-ms-win-*`, `ext-ms-*`, `VCRUNTIME140*.dll`, and known Win8+ hard imports.
@@ -162,34 +72,49 @@ The current proven environment is an ordinary HTTP proxy using CONNECT. Keep the
 
 ## Bundled government-system extensions — next
 
-Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md).
+Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). The standalone CryptoPro updater/fallback/package contract is already closed and recorded in `DONE.md`; real Mozilla/Firefox integration remains active.
 
-1. **DONE — standalone CryptoPro updater/fallback/package proof:** `CryptoPro extension packaging smoke` run `32815118778`, job `97701728235`, exact code-under-test SHA `2ad7025ca300613d39a227b9e7582a341260d648`, result success. The committed fallback is CryptoPro CAdES Firefox extension `1.2.14`; network failure, invalid fallback, malformed candidate, wrong ID, live official download, staging, and final ZIP verification are covered.
-2. **NEXT — Mozilla packaging-graph proof:** connect the already-selected XPI to the real r3dfox/Firefox packaging graph through `FINAL_TARGET_FILES.distribution.extensions` and prove the resulting `dist/bin/distribution/extensions` / packaged archive layout in a dedicated minimal integration test. Keep this proof separate from the two full browser workflows while it is being debugged.
-3. **NEXT — transfer only proven integration:** after the Mozilla packaging proof passes, add the already-tested updater invocation and package verification gates to both `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` without changing their unrelated build/link/runtime logic.
-4. **LATER — real Firefox install/runtime proof:** use a clean profile from a packaged browser artifact to confirm Firefox discovers/installs the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension and that normal extension update behavior remains functional. Keep this distinct from the static packaging proof.
+### 1. Finish the real Mozilla portable-packaging proof
+
+The first full integration run `32817910715`, job `97709832302`, source SHA `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560` proved the selected XPI reaches the real `dist/bin/distribution/extensions` path and survives its hash/manifest-ID checks, but the XPI was absent from the final portable archive.
+
+The diagnosed blocker was `browser/installer/package-manifest.in`; the corrective exact-XPI manifest entry is present in the current packaging line.
+
+Current revalidation run:
+
+- run `32847887872`;
+- job `97801745453`;
+- source-under-test SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
+
+Do not close this task until one exact run/SHA passes all of these gates together:
+
+- updater/selection;
+- full Firefox build;
+- XPI verification in real `dist/bin`;
+- `mach package`;
+- extraction of the produced portable archive;
+- exactly one expected XPI under `distribution/extensions` in that archive with the selected candidate's SHA-256 and expected manifest ID.
+
+### 2. Transfer only proven extension integration into the two main browser workflows
+
+After the dedicated Mozilla packaging proof is green, add only the already-proven updater preparation and final package verification gates to:
+
+- `.github/workflows/gost-poc-build.yml`;
+- `.github/workflows/gost-poc-build-thunk.yml`.
+
+Do not mix unrelated GOST runtime or Windows compatibility changes into that transfer.
+
+### 3. Prove clean-profile Firefox runtime discovery/update behavior
+
+Using a packaged browser artifact, confirm separately that a clean Firefox profile discovers/installs the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension and that normal extension update behavior remains functional.
+
+Static package presence is not sufficient runtime proof.
 
 ## Upstream r3dfox base tracking — deferred
 
-The project is a fork of `Eclipse-Community/r3dfox`, not a direct Firefox-upstream port. As of 2026-08-24 the upstream r3dfox repository default branch is still `win-153`.
+The project is a fork of `Eclipse-Community/r3dfox`, not a direct Firefox-upstream port. Continue development on the current r3dfox 153 base.
 
-Policy:
-
-- continue development on the current r3dfox 153 base;
 - monitor `Eclipse-Community/r3dfox` for a new maintained baseline;
 - do not migrate this project directly to Mozilla Firefox 154 merely because Mozilla has released it;
 - when r3dfox itself publishes a 154-or-later baseline, evaluate the migration deliberately: compare GOST integration points, Windows compatibility changes, MSSPI/NSPR/NSS interfaces, build workflows, and regression risk;
 - perform any base upgrade only after explicit user decision.
-
-## Already confirmed — do not reopen without new evidence
-
-- HTTP proxy CONNECT lifecycle works for the tested ASUGATE environment.
-- GOST TLS 1.2 handshake completes with `fzs.roskazna.ru` and negotiates suite `0xFF85`.
-- Protected application traffic works.
-- Treasury pages fully render with JavaScript and images.
-- Interactive forms, information requests, and web-service response-list workflows work in the alternative thunk-rs full build.
-- The same GOST TLS source commit works in both current full-build strategies.
-- `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and requests a client certificate.
-- Stage 1 client-certificate GOST mTLS is confirmed successful at source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` in both the main full build (`32751967162`) and experimental thunk-rs full build (`32751967189`).
-- Stage 1 success does not close Stage 2: fail-closed server verification and the remaining mTLS security/UX debt are still mandatory.
-- Standalone CryptoPro extension update/fallback/staging/package behavior is confirmed by run `32815118778` at code-under-test SHA `2ad7025ca300613d39a227b9e7582a341260d648`; this does not yet prove real Mozilla packaging-graph integration.
