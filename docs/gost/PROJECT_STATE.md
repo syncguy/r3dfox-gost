@@ -111,7 +111,7 @@ Two A/B logs were captured from the exact same build:
 - explicit GOST-only cipher list `C100:C101:C102:FF85:0081`: seven successful proxy/TLS connection sequences;
 - `R3DFOX_GOST_CIPHERS=default`: six successful proxy/TLS connection sequences.
 
-Every completed handshake in both logs negotiated TLS 1.2 (`0x0303`) and suite `0xFF85`. After each handshake the logs show bidirectional MSSPI application-data traffic. The old proxy failure signatures (`HTTP/1.1 400`, `SEC_E_INVALID_TOKEN`, fatal `unexpected_message`) do not recur after TLS activation.
+Every completed handshake in both logs negotiated TLS 1.2 (`0x0303`) and suite `0xFF85`. After each handshake the logs show bidirectional MSSPI application-data traffic. The old proxy failure signatures (`HTTP/1.1 400 Bad Request`, `SEC_E_INVALID_TOKEN`, fatal `unexpected_message`) do not recur after TLS activation.
 
 Most importantly, the user confirmed browser-visible end-to-end success: **Treasury pages loaded completely, including JavaScript and images**. This is the first confirmed project milestone where the real browser, the configured system proxy, HTTP CONNECT, MSSPI/CryptoPro GOST TLS, protected HTTP traffic, dependent resource loading, and final page rendering all work together.
 
@@ -413,6 +413,29 @@ The scope remains specific. Successful startup does not prove that every browser
 
 The forward `yy-thunks-rust-smoke.yml` canary may independently test newer VC-LTL releases such as 5.3.1. Do not conflate that canary's dependency-version investigation with the full xul linker strategy above.
 
+## Bundled government-system extensions track
+
+This is a third, independent product-packaging track. It does not change the current GOST TLS handshake conclusions and does not establish or alter Windows Vista/7 binary compatibility.
+
+The first target is the CryptoPro CAdES Firefox extension:
+
+- extension ID: `ru.cryptopro.nmcades@cryptopro.ru`;
+- committed fallback: `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`;
+- fallback version: `1.2.14`;
+- fallback SHA-256: `3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7`;
+- updater: `build/update-cryptopro-extension.py`;
+- standalone workflow: `.github/workflows/cryptopro-extension-smoke.yml`.
+
+The standalone preparation/staging/package contract is proven by Actions run `32815118778`, job `97701728235`, exact source-under-test SHA `2ad7025ca300613d39a227b9e7582a341260d648`, result success, evidence artifact `9551126137`.
+
+That run proves valid committed fallback handling, forced network-failure fallback, invalid-fallback hard failure, acceptance of a valid downloaded candidate, malformed-candidate fallback, wrong-extension-ID fallback, a live download from the official CryptoPro endpoint, staging into a minimal `distribution/extensions` layout, and final ZIP path/hash/ID validation. During the live check the official endpoint returned the same version `1.2.14` and the same SHA-256 as the committed fallback.
+
+The successful standalone smoke does **not** yet prove Firefox/Mozilla build-system integration or extension installation by a real browser package. The two full browser workflows and `r3dfox/moz.build` were deliberately left untouched during this proof.
+
+The next extension-track experiment is a minimal Mozilla packaging-graph proof using `FINAL_TARGET_FILES.distribution.extensions` to establish that the already-selected XPI reaches the real `dist/bin/distribution/extensions` and packaged archive layout. Keep that proof separate from both full browser workflows until it is green; only then transfer the proven updater invocation and package gates into the main and thunk full-build workflows.
+
+Detailed extension design and evidence are in [`EXTENSIONS.md`](./EXTENSIONS.md).
+
 ## Separation of conclusions
 
 Keep these statements distinct:
@@ -431,6 +454,7 @@ Keep these statements distinct:
 - **Stage 1 cross-build mTLS independence** is confirmed: the same client-auth source works through both current full-build strategies; this does not merge the GOST-runtime and Win7-compatibility investigation tracks.
 - **GOST certificate-verification success** is **not yet confirmed**; fail-closed server verification is now the leading mandatory Stage 2 security item.
 - **mTLS integration complete/production-ready** is **not yet true**; Stage 2 server verification, final certificate-selection/issuer policy, negative paths, privacy audit, and hardened regression proof remain required.
+- **CryptoPro standalone extension packaging success** is confirmed by run `32815118778` / SHA `2ad7025ca300613d39a227b9e7582a341260d648`; this proves updater/fallback/staging/package behavior but not the real Mozilla packaging graph or Firefox installation.
 
 ## Maintenance rule
 
