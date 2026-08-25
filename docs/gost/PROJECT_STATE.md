@@ -208,7 +208,11 @@ Therefore **Stage 1 client-certificate GOST mTLS is confirmed successful across 
 
 Stage 1 is complete. The current GOST runtime work is the mandatory **Stage 2 mTLS security/UX closure**.
 
-Successful ordinary and Stage 1 Treasury sessions still do not establish fail-closed server-certificate validation. Earlier successful sessions contain:
+Stage 2.1 runtime diagnostics on the main full build (run `32810337957`, job `97688347771`, source SHA `c62022a5530a61124b756648293113187b8e5b8b`) localize the current verification failure: pinned MSSPI requests `SECPKG_ATTR_REMOTE_CERT_CHAIN` on Windows and the active SSPI/CryptoPro provider returns `0x80090302` (`SEC_E_UNSUPPORTED_FUNCTION`). MSSPI therefore never obtains `peercert`, so its peer-chain/name helpers and `msspi_get_verify_status()` reach the internal-error path before certificate policy is evaluated. The next implementation uses `SECPKG_ATTR_REMOTE_CERT_CONTEXT` and the existing `CertGetCertificateChain` verifier path.
+
+The same runtime capture confirms the 34-entry acceptable-CA list is fully decoded once and repeated identical lists are suppressed for the rest of the browser session. Browser-visible Treasury use, including mTLS, remains successful.
+
+Successful ordinary and Stage 1 Treasury sessions still do not yet establish fail-closed server-certificate validation. Earlier successful sessions contain:
 
 ```text
 DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000

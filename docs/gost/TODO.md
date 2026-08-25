@@ -138,8 +138,8 @@ Only after all applicable Stage 2 items are complete may the project treat mTLS 
 
 1. **DONE — Stage 1:** exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` compiled and packaged successfully in the main, SSL-check, and experimental full-build workflows.
 2. **DONE — Stage 1:** both full artifacts successfully selected the known-good local certificate and completed real Treasury mTLS with authenticated application traffic.
-3. **CURRENT — Stage 2:** diagnose and close fail-open server-certificate verification first.
-4. **NEXT — Stage 2:** resolve acceptable-issuer/final certificate-selection policy and Firefox-facing UX.
+3. **DONE — Stage 2.1 diagnosis:** `REMOTE_CERT_CHAIN` is unsupported by the active SSPI/CryptoPro provider; the next implementation switches directly to `REMOTE_CERT_CONTEXT` and existing `CertGetCertificateChain`.
+4. **CURRENT — Stage 2 implementation:** combine peer-certificate acquisition repair with the first asynchronous Firefox-facing client-certificate picker while retaining the known-good thumbprint selector as the priority diagnostic path.
 5. **NEXT — Stage 2:** cover negative client-auth paths, logging/privacy audit, and final hardened regression proof.
 
 ### 3. Broaden proxy/network coverage later

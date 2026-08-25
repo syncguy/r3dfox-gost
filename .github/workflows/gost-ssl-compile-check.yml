@@ -87,7 +87,7 @@ jobs:
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
           [System.IO.File]::WriteAllText(
             $msspiCpp,
-            $source.Replace('#include <Windows.h>', '#include <windows.h>'),
+            $source.Replace('#include <Windows.h>', '#include <windows.h>').Replace('SECPKG_ATTR_REMOTE_CERT_CHAIN', 'SECPKG_ATTR_REMOTE_CERT_CONTEXT'),
             $utf8NoBom)
 
       - name: Register GOST and MSSPI sources in moz.build

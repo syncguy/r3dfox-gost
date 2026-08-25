@@ -263,3 +263,25 @@ Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32810337879>
 **Stage 2.1 observability code at exact SHA `c62022a5530a61124b756648293113187b8e5b8b` is proven buildable in both current full browser strategies.**
 
 This closes the buildability prerequisite for Stage 2.1. The next experiment is runtime-only: use the resulting full browser artifact to collect the new server-verification diagnostics and the detailed acceptable-issuer-list dump, while confirming that the already-proven Stage 1 client-certificate mTLS path still succeeds. The experimental artifact should then repeat the same runtime scenario as a cross-build parity check.
+
+---
+
+## 2026-08-25 — Stage 2.1 main runtime localizes verifier failure and validates issuer-list dedup
+
+**Track:** GOST TLS runtime / Stage 2.1 observability  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `c62022a5530a61124b756648293113187b8e5b8b`  
+**Main build:** run `32810337957`, job `97688347771`  
+**Runtime result:** browser-visible Treasury use succeeds without lag or visible errors
+
+### Sanitized observation
+
+The main-build runtime capture contains 12 completed GOST handshakes for `fzs.roskazna.ru` and 13 completed mTLS handshakes for `lk-fzs.roskazna.ru`. Login-host handshakes continue to report `client_cert_loaded=1`; the previous `0x80090326` failure does not recur and no `E/GostTLS` entry is present.
+
+The acceptable-issuer diagnostics return 34 entries / 11,420 DER bytes. The complete list is decoded once (`already_logged=0`) and 13 later identical observations are suppressed with `already_logged=1`, confirming browser-session dedup. All 34 entries decode as X.500 names; identifying DN values are intentionally not recorded here.
+
+Across completed connections, server peer-certificate acquisition fails consistently with `0x80090302` (`SEC_E_UNSUPPORTED_FUNCTION`) on pinned MSSPI's Windows request for `SECPKG_ATTR_REMOTE_CERT_CHAIN`. MSSPI therefore has no `peercert`, peer-chain/name helpers cannot produce data, and `msspi_get_verify_status()` returns its internal-failure form (`ok=0`). This localizes the current verifier blocker to peer-certificate acquisition rather than to a proved Treasury certificate-policy failure.
+
+### Conclusion
+
+**Stage 2.1 observability succeeded and changed the leading blocker.** The next compatibility experiment uses the already-existing MSSPI `SECPKG_ATTR_REMOTE_CERT_CONTEXT` leaf-certificate path on Windows and lets `CertGetCertificateChain` build the chain. Detailed issuer diagnostics are also confirmed usable without browser-visible performance degradation.

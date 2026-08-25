@@ -89,6 +89,15 @@ Evidence required before Stage 2.1 is closed:
 - one runtime capture shows the full acceptable-issuer list decoded once and subsequent repeated TLS connections suppressing duplicate full dumps;
 - the existing Stage 1 Treasury mTLS path still completes.
 
+## Current combined implementation experiment
+
+The next build combines two useful changes so a full Firefox build is not spent on a one-line compatibility probe:
+
+- Windows MSSPI peer-certificate acquisition is switched directly from `SECPKG_ATTR_REMOTE_CERT_CHAIN` to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`; the existing MSSPI `CertGetCertificateChain` path remains responsible for chain construction. There is no per-connection capability-probe fallback.
+- `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` remains the first and unchanged known-good client-certificate path. When it is absent, the GOST callback uses an asynchronous Firefox `nsIClientAuthDialogService` path: `MSSPI_X509_LOOKUP -> would-block -> main-thread clientauthask.xhtml -> socket-thread resume -> msspi_set_mycert`.
+- UI candidates come from `CurrentUser\\MY`, require a private-key provider binding, and are filtered against the server acceptable-CA DER names by matching subject/issuer names in the locally built certificate chain.
+- The first UI implementation reuses a selected or declined choice in process memory when the dialog requests remembering it. Persistent integration with Firefox's remember database remains later hardening work.
+
 ## Stage 2.2 — server trust decision and positive session cache
 
 After Stage 2.1 explains the verifier behavior:

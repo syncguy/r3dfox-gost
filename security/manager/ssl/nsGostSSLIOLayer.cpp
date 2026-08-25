@@ -11,6 +11,16 @@
 #endif
 
 #include "GostSocketControl.h"
+#include "mozilla/Mutex.h"
+#include "mozilla/dom/BrowsingContext.h"
+#include "nsIClientAuthDialogService.h"
+#include "nsIClientAuthRememberService.h"
+#include "nsIEventTarget.h"
+#include "nsISocketTransportService.h"
+#include "nsIX509Cert.h"
+#include "nsIX509CertDB.h"
+#include "nsServiceManagerUtils.h"
+#include "nsThreadUtils.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
@@ -385,6 +395,456 @@ void LogIssuerListOnce(GostSecret* aSecret, const nsACString& aHost) {
 }
 #endif
 
+
+#ifdef XP_WIN
+enum class GostClientCertPhase { Selecting, Selected, Declined, Failed };
+
+class GostClientCertState final
+    : public mozilla::RefCountedThreadSafe<GostClientCertState> {
+ public:
+  GostClientCertState(MSSPI_HANDLE aMsspi, GostSocketControl* aControl,
+                      const nsACString& aHost,
+                      const mozilla::OriginAttributes& aOriginAttributes,
+                      uint64_t aBrowserId,
+                      nsTArray<nsTArray<uint8_t>>&& aCandidates,
+                      nsTArray<nsTArray<uint8_t>>&& aCANames)
+      : mMutex("GostClientCertState"),
+        mMsspi(aMsspi),
+        mControl(aControl),
+        mHost(aHost),
+        mOriginAttributes(aOriginAttributes),
+        mBrowserId(aBrowserId),
+        mCandidates(std::move(aCandidates)),
+        mCANames(std::move(aCANames)) {}
+
+  mozilla::Mutex mMutex;
+  MSSPI_HANDLE mMsspi;
+  RefPtr<GostSocketControl> mControl;
+  nsCString mHost;
+  mozilla::OriginAttributes mOriginAttributes;
+  uint64_t mBrowserId;
+  nsTArray<nsTArray<uint8_t>> mCandidates;
+  nsTArray<nsTArray<uint8_t>> mCANames;
+  GostClientCertPhase mPhase = GostClientCertPhase::Selecting;
+  nsTArray<uint8_t> mSelectedDER;
+
+ private:
+  friend class mozilla::RefCountedThreadSafe<GostClientCertState>;
+  ~GostClientCertState() = default;
+};
+
+struct GostRememberedClientCert {
+  nsCString key;
+  nsTArray<uint8_t> der;
+  bool declined = false;
+};
+
+static mozilla::StaticMutex sClientCertSelectionMutex;
+static mozilla::StaticAutoPtr<nsTArray<RefPtr<GostClientCertState>>>
+    sClientCertSelections;
+static mozilla::StaticAutoPtr<nsTArray<GostRememberedClientCert>>
+    sRememberedClientCerts;
+
+nsCString GostClientCertDecisionKey(
+    const nsACString& aHost,
+    const mozilla::OriginAttributes& aOriginAttributes) {
+  nsCString key(aHost);
+  key.Append('\0');
+  nsAutoCString suffix;
+  aOriginAttributes.CreateSuffix(suffix);
+  key.Append(suffix);
+  return key;
+}
+
+RefPtr<GostClientCertState> FindGostClientCertState(MSSPI_HANDLE aMsspi) {
+  mozilla::StaticMutexAutoLock lock(sClientCertSelectionMutex);
+  if (!sClientCertSelections) {
+    return nullptr;
+  }
+  for (const auto& state : *sClientCertSelections) {
+    if (state->mMsspi == aMsspi) {
+      return state;
+    }
+  }
+  return nullptr;
+}
+
+void RemoveGostClientCertState(MSSPI_HANDLE aMsspi) {
+  mozilla::StaticMutexAutoLock lock(sClientCertSelectionMutex);
+  if (!sClientCertSelections) {
+    return;
+  }
+  for (uint32_t i = 0; i < sClientCertSelections->Length(); ++i) {
+    if ((*sClientCertSelections)[i]->mMsspi == aMsspi) {
+      sClientCertSelections->RemoveElementAt(i);
+      return;
+    }
+  }
+}
+
+bool FindRememberedGostClientCert(const nsACString& aKey,
+                                  nsTArray<uint8_t>& aDER,
+                                  bool& aDeclined) {
+  mozilla::StaticMutexAutoLock lock(sClientCertSelectionMutex);
+  if (!sRememberedClientCerts) {
+    return false;
+  }
+  for (const auto& choice : *sRememberedClientCerts) {
+    if (choice.key.Equals(aKey)) {
+      aDER = choice.der.Clone();
+      aDeclined = choice.declined;
+      return true;
+    }
+  }
+  return false;
+}
+
+void RememberGostClientCert(const nsACString& aKey,
+                            const nsTArray<uint8_t>& aDER,
+                            bool aDeclined) {
+  mozilla::StaticMutexAutoLock lock(sClientCertSelectionMutex);
+  if (!sRememberedClientCerts) {
+    sRememberedClientCerts = new nsTArray<GostRememberedClientCert>();
+  }
+  for (auto& choice : *sRememberedClientCerts) {
+    if (choice.key.Equals(aKey)) {
+      choice.der = aDER.Clone();
+      choice.declined = aDeclined;
+      return;
+    }
+  }
+  GostRememberedClientCert choice;
+  choice.key = aKey;
+  choice.der = aDER.Clone();
+  choice.declined = aDeclined;
+  sRememberedClientCerts->AppendElement(std::move(choice));
+}
+
+bool GostCertNameEquals(const CERT_NAME_BLOB& aName,
+                        const nsTArray<uint8_t>& aCAName) {
+  return aName.cbData == aCAName.Length() && aName.pbData &&
+         memcmp(aName.pbData, aCAName.Elements(), aCAName.Length()) == 0;
+}
+
+bool GostClientCertMatchesCANames(
+    PCCERT_CONTEXT aCert, const nsTArray<nsTArray<uint8_t>>& aCANames) {
+  if (aCANames.IsEmpty()) {
+    return true;
+  }
+
+  CERT_CHAIN_PARA para = {};
+  para.cbSize = sizeof(para);
+  PCCERT_CHAIN_CONTEXT chain = nullptr;
+  if (!CertGetCertificateChain(
+          nullptr, aCert, nullptr, aCert->hCertStore, &para,
+          CERT_CHAIN_CACHE_END_CERT | CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL,
+          nullptr, &chain) ||
+      !chain) {
+    return false;
+  }
+
+  bool matched = false;
+  for (DWORD chainIndex = 0; chainIndex < chain->cChain && !matched;
+       ++chainIndex) {
+    PCERT_SIMPLE_CHAIN simple = chain->rgpChain[chainIndex];
+    for (DWORD element = 0; element < simple->cElement && !matched; ++element) {
+      PCCERT_CONTEXT current = simple->rgpElement[element]->pCertContext;
+      for (const auto& caName : aCANames) {
+        if (GostCertNameEquals(current->pCertInfo->Subject, caName) ||
+            GostCertNameEquals(current->pCertInfo->Issuer, caName)) {
+          matched = true;
+          break;
+        }
+      }
+    }
+  }
+  CertFreeCertificateChain(chain);
+  return matched;
+}
+
+bool CollectGostCANames(MSSPI_HANDLE aMsspi,
+                        nsTArray<nsTArray<uint8_t>>& aCANames) {
+  size_t count = 0;
+  if (!msspi_get_issuerlist(aMsspi, nullptr, nullptr, &count)) {
+    return false;
+  }
+  if (!count) {
+    return true;
+  }
+  nsTArray<const uint8_t*> buffers;
+  nsTArray<size_t> lengths;
+  buffers.SetLength(count);
+  lengths.SetLength(count);
+  size_t actualCount = count;
+  if (!msspi_get_issuerlist(aMsspi, buffers.Elements(), lengths.Elements(),
+                            &actualCount)) {
+    return false;
+  }
+  for (size_t i = 0; i < actualCount; ++i) {
+    nsTArray<uint8_t> name;
+    name.AppendElements(buffers[i], lengths[i]);
+    aCANames.AppendElement(std::move(name));
+  }
+  return true;
+}
+
+bool CollectGostClientCertCandidates(
+    const nsTArray<nsTArray<uint8_t>>& aCANames,
+    nsTArray<nsTArray<uint8_t>>& aCandidates) {
+  HCERTSTORE store = CertOpenStore(
+      CERT_STORE_PROV_SYSTEM_W, 0, 0,
+      CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG |
+          CERT_STORE_READONLY_FLAG,
+      L"MY");
+  if (!store) {
+    return false;
+  }
+
+  PCCERT_CONTEXT cert = nullptr;
+  while ((cert = CertEnumCertificatesInStore(store, cert))) {
+    DWORD keyProviderInfoSize = 0;
+    if (!CertGetCertificateContextProperty(cert, CERT_KEY_PROV_INFO_PROP_ID,
+                                           nullptr, &keyProviderInfoSize) ||
+        !keyProviderInfoSize) {
+      continue;
+    }
+    if (!GostClientCertMatchesCANames(cert, aCANames)) {
+      continue;
+    }
+    nsTArray<uint8_t> der;
+    der.AppendElements(cert->pbCertEncoded, cert->cbCertEncoded);
+    aCandidates.AppendElement(std::move(der));
+  }
+  CertCloseStore(store, 0);
+  return true;
+}
+
+bool GostClientCertStateIsActive(GostClientCertState* aState) {
+  mozilla::StaticMutexAutoLock lock(sClientCertSelectionMutex);
+  if (!sClientCertSelections) {
+    return false;
+  }
+  for (const auto& state : *sClientCertSelections) {
+    if (state == aState) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void WakeGostClientCertHandshake(GostClientCertState* aState) {
+  nsCOMPtr<nsIEventTarget> socketThread(
+      do_GetService(NS_SOCKETTRANSPORTSERVICE_CONTRACTID));
+  if (!socketThread) {
+    return;
+  }
+  RefPtr<GostClientCertState> state(aState);
+  (void)socketThread->Dispatch(
+      NS_NewRunnableFunction("GostClientAuthResume", [state]() {
+        if (!GostClientCertStateIsActive(state)) {
+          return;
+        }
+        (void)state->mControl->DriveHandshake();
+      }));
+}
+
+class GostClientAuthDialogCallback final
+    : public nsIClientAuthDialogCallback {
+ public:
+  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_DECL_NSICLIENTAUTHDIALOGCALLBACK
+
+  explicit GostClientAuthDialogCallback(GostClientCertState* aState)
+      : mState(aState) {}
+
+ private:
+  ~GostClientAuthDialogCallback() = default;
+  RefPtr<GostClientCertState> mState;
+};
+
+NS_IMPL_ISUPPORTS(GostClientAuthDialogCallback, nsIClientAuthDialogCallback)
+
+NS_IMETHODIMP GostClientAuthDialogCallback::CertificateChosen(
+    nsIX509Cert* aCert,
+    nsIClientAuthRememberService::Duration aRememberDuration) {
+  nsTArray<uint8_t> der;
+  if (aCert) {
+    nsresult rv = aCert->GetRawDER(der);
+    if (NS_FAILED(rv)) {
+      {
+        mozilla::MutexAutoLock lock(mState->mMutex);
+        mState->mPhase = GostClientCertPhase::Failed;
+      }
+      WakeGostClientCertHandshake(mState);
+      return rv;
+    }
+  }
+
+  {
+    mozilla::MutexAutoLock lock(mState->mMutex);
+    mState->mSelectedDER = der.Clone();
+    mState->mPhase = aCert ? GostClientCertPhase::Selected
+                           : GostClientCertPhase::Declined;
+  }
+  if (aRememberDuration != nsIClientAuthRememberService::Once) {
+    RememberGostClientCert(
+        GostClientCertDecisionKey(mState->mHost, mState->mOriginAttributes),
+        der, !aCert);
+  }
+  WakeGostClientCertHandshake(mState);
+  return NS_OK;
+}
+
+void OpenGostClientAuthDialog(GostClientCertState* aState) {
+  MOZ_ASSERT(NS_IsMainThread());
+  RefPtr<GostClientCertState> state(aState);
+  nsCOMPtr<nsIX509CertDB> certDB(do_GetService(NS_X509CERTDB_CONTRACTID));
+  nsCOMPtr<nsIClientAuthDialogService> dialog(
+      do_GetService(NS_CLIENTAUTHDIALOGSERVICE_CONTRACTID));
+  if (!certDB || !dialog) {
+    {
+      mozilla::MutexAutoLock lock(state->mMutex);
+      state->mPhase = GostClientCertPhase::Failed;
+    }
+    WakeGostClientCertHandshake(state);
+    return;
+  }
+
+  nsTArray<RefPtr<nsIX509Cert>> certArray;
+  for (const auto& der : state->mCandidates) {
+    nsCOMPtr<nsIX509Cert> cert;
+    if (NS_SUCCEEDED(certDB->ConstructX509(der, getter_AddRefs(cert))) && cert) {
+      certArray.AppendElement(cert);
+    }
+  }
+  if (certArray.IsEmpty()) {
+    {
+      mozilla::MutexAutoLock lock(state->mMutex);
+      state->mPhase = GostClientCertPhase::Declined;
+    }
+    WakeGostClientCertHandshake(state);
+    return;
+  }
+
+  RefPtr<mozilla::dom::BrowsingContext> browsingContext;
+  if (state->mBrowserId) {
+    browsingContext =
+        mozilla::dom::BrowsingContext::GetCurrentTopByBrowserId(state->mBrowserId);
+  }
+  RefPtr<nsIClientAuthDialogCallback> callback(
+      new GostClientAuthDialogCallback(state));
+  nsresult rv = dialog->ChooseCertificate(state->mHost, certArray,
+                                          browsingContext, state->mCANames,
+                                          callback);
+  if (NS_FAILED(rv)) {
+    {
+      mozilla::MutexAutoLock lock(state->mMutex);
+      state->mPhase = GostClientCertPhase::Failed;
+    }
+    WakeGostClientCertHandshake(state);
+  }
+}
+
+int SelectFirefoxGostClientCertificate(GostSecret* aSecret,
+                                       const nsACString& aHost) {
+  const mozilla::OriginAttributes originAttributes(
+      aSecret->control->GetOriginAttributes());
+  const nsCString decisionKey(
+      GostClientCertDecisionKey(aHost, originAttributes));
+
+  nsTArray<uint8_t> rememberedDER;
+  bool rememberedDeclined = false;
+  if (FindRememberedGostClientCert(decisionKey, rememberedDER,
+                                   rememberedDeclined)) {
+    if (rememberedDeclined) {
+      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+              ("client certificate remembered host=%s selected=0 scope=session",
+               PromiseFlatCString(aHost).get()));
+      return 1;
+    }
+    const int selected = msspi_set_mycert(
+        aSecret->msspi, rememberedDER.Elements(), rememberedDER.Length());
+    if (selected) {
+      aSecret->clientCertLoaded = true;
+    }
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("client certificate remembered host=%s selected=%d scope=session",
+             PromiseFlatCString(aHost).get(), selected ? 1 : 0));
+    return selected ? 1 : 0;
+  }
+
+  RefPtr<GostClientCertState> state(
+      FindGostClientCertState(aSecret->msspi));
+  if (state) {
+    GostClientCertPhase phase;
+    nsTArray<uint8_t> der;
+    {
+      mozilla::MutexAutoLock lock(state->mMutex);
+      phase = state->mPhase;
+      der = state->mSelectedDER.Clone();
+    }
+    if (phase == GostClientCertPhase::Selecting) {
+      return -1;
+    }
+    if (phase == GostClientCertPhase::Declined) {
+      RemoveGostClientCertState(aSecret->msspi);
+      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+              ("client certificate dialog completed host=%s selected=0",
+               PromiseFlatCString(aHost).get()));
+      return 1;
+    }
+    if (phase == GostClientCertPhase::Failed || der.IsEmpty()) {
+      RemoveGostClientCertState(aSecret->msspi);
+      return 0;
+    }
+    const int selected =
+        msspi_set_mycert(aSecret->msspi, der.Elements(), der.Length());
+    RemoveGostClientCertState(aSecret->msspi);
+    if (selected) {
+      aSecret->clientCertLoaded = true;
+    }
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("client certificate dialog completed host=%s selected=%d",
+             PromiseFlatCString(aHost).get(), selected ? 1 : 0));
+    return selected ? 1 : 0;
+  }
+
+  nsTArray<nsTArray<uint8_t>> caNames;
+  if (!CollectGostCANames(aSecret->msspi, caNames)) {
+    return 0;
+  }
+  nsTArray<nsTArray<uint8_t>> candidates;
+  if (!CollectGostClientCertCandidates(caNames, candidates)) {
+    return 0;
+  }
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("client certificate candidates host=%s count=%zu mode=firefox-ui",
+           PromiseFlatCString(aHost).get(), candidates.Length()));
+  if (candidates.IsEmpty()) {
+    return 1;
+  }
+
+  uint64_t browserId = 0;
+  (void)aSecret->control->GetBrowserId(&browserId);
+  state = new GostClientCertState(aSecret->msspi, aSecret->control, aHost,
+                                  originAttributes, browserId,
+                                  std::move(candidates), std::move(caNames));
+  {
+    mozilla::StaticMutexAutoLock lock(sClientCertSelectionMutex);
+    if (!sClientCertSelections) {
+      sClientCertSelections = new nsTArray<RefPtr<GostClientCertState>>();
+    }
+    sClientCertSelections->AppendElement(state);
+  }
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("client certificate dialog requested host=%s mode=firefox-ui",
+           PromiseFlatCString(aHost).get()));
+  (void)NS_DispatchToMainThread(NS_NewRunnableFunction(
+      "GostClientAuthDialog", [state]() { OpenGostClientAuthDialog(state); }));
+  return -1;
+}
+#endif
+
 int SelectStage1ClientCertificate(void* aArg) {
   GostSecret* secret = static_cast<GostSecret*>(aArg);
   if (!secret || !secret->msspi || !secret->control) {
@@ -405,10 +865,13 @@ int SelectStage1ClientCertificate(void* aArg) {
 #endif
 
   if (secret->clientCertThumbprint.IsEmpty()) {
+#ifdef XP_WIN
+    return SelectFirefoxGostClientCertificate(secret, host);
+#else
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
-            ("client certificate selector missing host=%s selector=thumbprint",
-             host.get()));
+            ("client certificate selection unavailable host=%s", host.get()));
     return 0;
+#endif
   }
 
 #ifdef XP_WIN
@@ -1081,6 +1544,9 @@ PRStatus GostClose(PRFileDesc* aFd) {
     if (secret->tlsActive) {
       (void)msspi_shutdown(secret->msspi);
     }
+#ifdef XP_WIN
+    RemoveGostClientCertState(secret->msspi);
+#endif
     (void)msspi_close(secret->msspi);
     secret->msspi = nullptr;
   }
