@@ -16,6 +16,7 @@
 #include "nsIClientAuthDialogService.h"
 #include "nsIClientAuthRememberService.h"
 #include "nsIEventTarget.h"
+#include "nsISupportsImpl.h"
 #include "nsISocketTransportService.h"
 #include "nsIX509Cert.h"
 #include "nsIX509CertDB.h"
@@ -399,9 +400,10 @@ void LogIssuerListOnce(GostSecret* aSecret, const nsACString& aHost) {
 #ifdef XP_WIN
 enum class GostClientCertPhase { Selecting, Selected, Declined, Failed };
 
-class GostClientCertState final
-    : public mozilla::RefCountedThreadSafe<GostClientCertState> {
+class GostClientCertState final {
  public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GostClientCertState)
+
   GostClientCertState(MSSPI_HANDLE aMsspi, GostSocketControl* aControl,
                       const nsACString& aHost,
                       const mozilla::OriginAttributes& aOriginAttributes,
@@ -429,7 +431,6 @@ class GostClientCertState final
   nsTArray<uint8_t> mSelectedDER;
 
  private:
-  friend class mozilla::RefCountedThreadSafe<GostClientCertState>;
   ~GostClientCertState() = default;
 };
 
