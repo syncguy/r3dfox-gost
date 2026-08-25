@@ -285,3 +285,40 @@ Across completed connections, server peer-certificate acquisition fails consiste
 ### Conclusion
 
 **Stage 2.1 observability succeeded and changed the leading blocker.** The next compatibility experiment uses the already-existing MSSPI `SECPKG_ATTR_REMOTE_CERT_CONTEXT` leaf-certificate path on Windows and lets `CertGetCertificateChain` build the chain. Detailed issuer diagnostics are also confirmed usable without browser-visible performance degradation.
+
+---
+
+## 2026-08-25 — Firefox-facing client-cert picker first compile fails on invalid refcount API
+
+**Track:** GOST TLS runtime / Stage 2 Firefox-facing client-certificate selection  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef4007081ffe86ac3a6779327fddad67af2c8c44` (`feat(gost): add firefox client cert selection path`)  
+**Actions run:** `32837093952`  
+**Job:** `97768273059`  
+**Workflow:** `GOST SSL compile check`  
+**CI result:** failure at `Compile security manager SSL target objects`  
+**Compile-fix source SHA:** `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` (`fix(gost): use Firefox thread-safe refcounting`)
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32837093952>
+
+### Observation
+
+The new `GostClientCertState` was declared as `mozilla::RefCountedThreadSafe<GostClientCertState>`. Firefox 153 in this repository does not define `mozilla::RefCountedThreadSafe`, so clang-cl first reports the unknown template and then the expected secondary `RefPtr` errors because the class has no usable `AddRef` / `Release` methods.
+
+The state object is intentionally shared between the socket-thread handshake path and the asynchronously dispatched Firefox client-certificate dialog path, so thread-safe reference counting is still required. The native Firefox 153 mechanism in this tree is `NS_INLINE_DECL_THREADSAFE_REFCOUNTING` from `nsISupportsImpl.h`.
+
+### Fix
+
+Source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`:
+
+- adds the explicit `nsISupportsImpl.h` include;
+- removes the nonexistent `mozilla::RefCountedThreadSafe` base class;
+- declares `NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GostClientCertState)` inside the native state object;
+- removes the obsolete friend declaration;
+- retains the private destructor and the existing cross-thread ownership model.
+
+### Conclusion
+
+**Run `32837093952` is a compile-only Firefox API mismatch in the newly added Stage 2 picker state object, not evidence of an MSSPI/SSPI runtime regression and not a Windows 7 compatibility failure.**
+
+The exact reported `RefCountedThreadSafe` / `AddRef` / `Release` error cluster is repaired by source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`. CI validation of that exact source SHA is still required before treating the compile blocker as closed or drawing any runtime conclusion.
