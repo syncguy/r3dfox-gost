@@ -322,3 +322,33 @@ Source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`:
 **Run `32837093952` is a compile-only Firefox API mismatch in the newly added Stage 2 picker state object, not evidence of an MSSPI/SSPI runtime regression and not a Windows 7 compatibility failure.**
 
 The exact reported `RefCountedThreadSafe` / `AddRef` / `Release` error cluster is repaired by source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`. CI validation of that exact source SHA is still required before treating the compile blocker as closed or drawing any runtime conclusion.
+
+---
+
+## 2026-08-25 — Firefox-facing client-cert refcount fix passes SSL compile gate
+
+**Track:** GOST TLS runtime / Stage 2 Firefox-facing client-certificate selection  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` (`fix(gost): use Firefox thread-safe refcounting`)  
+**Actions run:** `32844083351`  
+**Job:** `97789764135`  
+**Workflow:** `GOST SSL compile check`  
+**CI result:** success
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32844083351>
+
+### Purpose
+
+Validate the exact compile-fix descendant of failed run `32837093952` before using the Stage 2 Firefox-facing client-certificate picker code in a full browser build or runtime experiment.
+
+### Observation
+
+The workflow completed successfully. In particular, `Compile security manager SSL target objects` passed for the exact source SHA above, so the Firefox 153 native `NS_INLINE_DECL_THREADSAFE_REFCOUNTING` implementation provides the `AddRef` / `Release` surface required by `RefPtr<GostClientCertState>` and compiles with the intended cross-thread ownership model.
+
+This is compile evidence only. The run does not exercise the Firefox certificate picker, MSSPI client authentication, server-certificate verification, or a GOST TLS handshake.
+
+### Conclusion
+
+**The `RefCountedThreadSafe` / `AddRef` / `Release` compile regression from run `32837093952` is closed at exact source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`.**
+
+Stage 2 returns to its substantive runtime/integration work: peer-certificate acquisition/fail-closed server verification and the Firefox-facing client-certificate selection flow. No Windows Vista/7 compatibility conclusion is drawn from this SSL-only gate.
