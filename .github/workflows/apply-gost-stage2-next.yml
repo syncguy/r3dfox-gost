@@ -21,7 +21,10 @@ jobs:
           persist-credentials: true
 
       - name: Apply integrated Stage 2 patch
-        run: python3 build/apply-gost-stage2-next.py
+        run: |
+          python3 build/fix-gost-stage2-patcher.py
+          python3 build/apply-gost-stage2-next.py
+          rm -f build/fix-gost-stage2-patcher.py
 
       - name: Commit integrated change
         run: |
