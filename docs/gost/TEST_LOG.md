@@ -223,3 +223,43 @@ These failures were smoke-harness defects, not failures of the committed CryptoP
 **The standalone CryptoPro extension update/fallback/staging/package mechanism is proven at SHA `2ad7025ca300613d39a227b9e7582a341260d648`.**
 
 This does not yet prove integration with Mozilla `FINAL_TARGET_FILES` or a real Firefox package. The next extension-track experiment is a minimal Mozilla build-system integration proof that connects the selected XPI to the real `r3dfox/moz.build` packaging graph without first modifying either full GOST browser workflow. Only after that proof should the already-tested preparation and package gates be transferred into the two full browser builds.
+
+---
+
+## 2026-08-25 — Stage 2.1 diagnostics build successfully in both full browser strategies
+
+**Track:** GOST TLS runtime / Stage 2.1 observability  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `c62022a5530a61124b756648293113187b8e5b8b` (`fix(gost): repair stage2 diagnostics compile`)
+
+### Main full build
+
+- **Actions run:** `32810337957`
+- **Job:** `97688347771`
+- **Workflow:** `GOST TLS PoC build`
+- **CI result:** success
+- `GATE - Compile security manager SSL target objects`: success
+- `Build release r3dfox`: success
+- package/upload: success
+- Win7 import audit and final known-Win8+ import gate: success
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32810337957>
+
+### Experimental thunk-rs full build
+
+- **Actions run:** `32810337879`
+- **Job:** `97688347489`
+- **Workflow:** `GOST TLS PoC build - thunk-rs experiment`
+- **CI result:** success
+- `GATE - Compile security manager SSL target objects`: success
+- `Build release r3dfox with narrow YY-Thunks linker path`: success
+- package/upload: success
+- thunked `xul.dll` Win7 import audit and final known-Win8+ import gate: success
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32810337879>
+
+### Conclusion
+
+**Stage 2.1 observability code at exact SHA `c62022a5530a61124b756648293113187b8e5b8b` is proven buildable in both current full browser strategies.**
+
+This closes the buildability prerequisite for Stage 2.1. The next experiment is runtime-only: use the resulting full browser artifact to collect the new server-verification diagnostics and the detailed acceptable-issuer-list dump, while confirming that the already-proven Stage 1 client-certificate mTLS path still succeeds. The experimental artifact should then repeat the same runtime scenario as a cross-build parity check.
