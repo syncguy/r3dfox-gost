@@ -14,10 +14,13 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/StaticMutex.h"
+#include "mozilla/StaticPtr.h"
 #include "nsCOMPtr.h"
 #include "nsIProxyInfo.h"
 #include "nsISocketProvider.h"
 #include "nsITLSSocketControl.h"
+#include "nsTArray.h"
 #include "prio.h"
 #include "prerr.h"
 #include "prerror.h"
@@ -33,6 +36,8 @@ namespace {
 static PRDescIdentity sGostIdentity = PR_INVALID_IO_LAYER;
 static PRIOMethods sGostMethods;
 static bool sMethodsInitialized = false;
+static mozilla::StaticMutex sIssuerLogMutex;
+static mozilla::StaticAutoPtr<nsTArray<nsCString>> sLoggedIssuerLists;
 
 static constexpr int kForcedTlsVersion = TLS1_2_VERSION;
 static constexpr char kDefaultGostCipherList[] =
@@ -48,6 +53,7 @@ struct GostSecret {
   PRFileDesc* lower = nullptr;
   MSSPI_HANDLE msspi = nullptr;
   nsCString clientCertThumbprint;
+  int32_t port = -1;
   uint32_t lastMsspiError = 0;
   bool tlsActive = true;
   bool handshakeComplete = false;
@@ -119,6 +125,265 @@ bool ParseSha1Thumbprint(const nsACString& aValue,
   return nibble == kSha1ThumbprintBytes * 2;
 }
 
+#ifdef XP_WIN
+nsCString WideToUtf8(const WCHAR* aValue) {
+  if (!aValue || !*aValue) {
+    return nsCString();
+  }
+
+  const int length =
+      WideCharToMultiByte(CP_UTF8, 0, aValue, -1, nullptr, 0, nullptr, nullptr);
+  if (length <= 1) {
+    return nsCString();
+  }
+
+  nsTArray<char> buffer;
+  buffer.SetLength(length);
+  if (!WideCharToMultiByte(CP_UTF8, 0, aValue, -1, buffer.Elements(), length,
+                           nullptr, nullptr)) {
+    return nsCString();
+  }
+  return nsCString(buffer.Elements(), length - 1);
+}
+
+void AppendIssuerIdentityBytes(nsCString& aKey, const void* aData,
+                               size_t aLength) {
+  aKey.Append(reinterpret_cast<const char*>(aData), aLength);
+}
+
+bool MarkIssuerListFirstSeen(const nsACString& aHost, int32_t aPort,
+                             const nsTArray<const uint8_t*>& aIssuers,
+                             const nsTArray<size_t>& aLengths) {
+  nsCString key(aHost);
+  key.Append('\0');
+  AppendIssuerIdentityBytes(key, &aPort, sizeof(aPort));
+  const uint32_t count = aIssuers.Length();
+  AppendIssuerIdentityBytes(key, &count, sizeof(count));
+  for (uint32_t i = 0; i < count; ++i) {
+    const uint64_t length = static_cast<uint64_t>(aLengths[i]);
+    AppendIssuerIdentityBytes(key, &length, sizeof(length));
+    if (aIssuers[i] && aLengths[i]) {
+      AppendIssuerIdentityBytes(key, aIssuers[i], aLengths[i]);
+    }
+  }
+
+  mozilla::StaticMutexAutoLock lock(sIssuerLogMutex);
+  if (!sLoggedIssuerLists) {
+    sLoggedIssuerLists = new nsTArray<nsCString>();
+  }
+  for (const auto& logged : *sLoggedIssuerLists) {
+    if (logged.Equals(key)) {
+      return false;
+    }
+  }
+  sLoggedIssuerLists->AppendElement(std::move(key));
+  return true;
+}
+
+void LogIssuerDer(const nsACString& aHost, int32_t aPort, size_t aIndex,
+                  const uint8_t* aData, size_t aLength) {
+  if (!aData || !aLength) {
+    return;
+  }
+
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  for (size_t offset = 0; offset < aLength; offset += kTlsDumpChunkSize) {
+    const size_t remaining = aLength - offset;
+    const size_t chunkLen =
+        remaining < kTlsDumpChunkSize ? remaining : kTlsDumpChunkSize;
+    nsCString hex;
+    hex.SetCapacity(chunkLen * 2);
+    for (size_t i = 0; i < chunkLen; ++i) {
+      const uint8_t byte = aData[offset + i];
+      hex.Append(kHex[byte >> 4]);
+      hex.Append(kHex[byte & 0x0F]);
+    }
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+            ("issuer-list DER host=%s port=%d index=%zu offset=%zu chunk=%zu "
+             "hex=%s",
+             PromiseFlatCString(aHost).get(), aPort, aIndex, offset, chunkLen,
+             hex.get()));
+  }
+}
+
+void LogIssuerNameDetails(const nsACString& aHost, int32_t aPort,
+                          size_t aIndex, const uint8_t* aData,
+                          size_t aLength) {
+  if (!aData || !aLength || aLength > MAXDWORD) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("issuer-list invalid DER host=%s port=%d index=%zu der_len=%zu",
+             PromiseFlatCString(aHost).get(), aPort, aIndex, aLength));
+    return;
+  }
+
+  CERT_NAME_BLOB nameBlob = {};
+  nameBlob.cbData = static_cast<DWORD>(aLength);
+  nameBlob.pbData = const_cast<BYTE*>(aData);
+
+  DWORD formattedLength = CertNameToStrW(
+      X509_ASN_ENCODING, &nameBlob, CERT_X500_NAME_STR, nullptr, 0);
+  if (formattedLength > 1) {
+    nsTArray<WCHAR> formatted;
+    formatted.SetLength(formattedLength);
+    if (CertNameToStrW(X509_ASN_ENCODING, &nameBlob, CERT_X500_NAME_STR,
+                       formatted.Elements(), formattedLength)) {
+      nsCString dn = WideToUtf8(formatted.Elements());
+      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+              ("issuer-list DN host=%s port=%d index=%zu der_len=%zu dn=%s",
+               PromiseFlatCString(aHost).get(), aPort, aIndex, aLength,
+               dn.get()));
+    }
+  } else {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("issuer-list DN format failed host=%s port=%d index=%zu "
+             "der_len=%zu win_error=0x%08lx",
+             PromiseFlatCString(aHost).get(), aPort, aIndex, aLength,
+             GetLastError()));
+  }
+
+  CERT_NAME_INFO* nameInfo = nullptr;
+  DWORD decodedSize = 0;
+  if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_NAME, aData,
+                           static_cast<DWORD>(aLength), CRYPT_DECODE_ALLOC_FLAG,
+                           nullptr, &nameInfo, &decodedSize) ||
+      !nameInfo) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("issuer-list ASN1 decode failed host=%s port=%d index=%zu "
+             "der_len=%zu win_error=0x%08lx",
+             PromiseFlatCString(aHost).get(), aPort, aIndex, aLength,
+             GetLastError()));
+    LogIssuerDer(aHost, aPort, aIndex, aData, aLength);
+    return;
+  }
+
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("issuer-list ASN1 host=%s port=%d index=%zu rdn_count=%lu "
+           "decoded_size=%lu",
+           PromiseFlatCString(aHost).get(), aPort, aIndex,
+           static_cast<unsigned long>(nameInfo->cRDN),
+           static_cast<unsigned long>(decodedSize)));
+
+  for (DWORD rdnIndex = 0; rdnIndex < nameInfo->cRDN; ++rdnIndex) {
+    const CERT_RDN& rdn = nameInfo->rgRDN[rdnIndex];
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("issuer-list RDN host=%s port=%d index=%zu rdn=%lu "
+             "attr_count=%lu",
+             PromiseFlatCString(aHost).get(), aPort, aIndex,
+             static_cast<unsigned long>(rdnIndex),
+             static_cast<unsigned long>(rdn.cRDNAttr)));
+
+    for (DWORD attrIndex = 0; attrIndex < rdn.cRDNAttr; ++attrIndex) {
+      const CERT_RDN_ATTR& attr = rdn.rgRDNAttr[attrIndex];
+      nsCString friendlyName;
+      if (attr.pszObjId) {
+        PCCRYPT_OID_INFO oidInfo = CryptFindOIDInfo(
+            CRYPT_OID_INFO_OID_KEY, attr.pszObjId,
+            CRYPT_RDN_ATTR_OID_GROUP_ID);
+        if (oidInfo && oidInfo->pwszName) {
+          friendlyName = WideToUtf8(oidInfo->pwszName);
+        }
+      }
+
+      nsCString value;
+      const DWORD valueLength =
+          CertRDNValueToStrW(attr.dwValueType, &attr.Value, nullptr, 0);
+      if (valueLength > 1) {
+        nsTArray<WCHAR> valueBuffer;
+        valueBuffer.SetLength(valueLength);
+        if (CertRDNValueToStrW(attr.dwValueType, &attr.Value,
+                               valueBuffer.Elements(), valueLength)) {
+          value = WideToUtf8(valueBuffer.Elements());
+        }
+      }
+
+      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+              ("issuer-list ATTR host=%s port=%d index=%zu rdn=%lu attr=%lu "
+               "oid=%s name=%s value_type=%lu value_len=%lu value=%s",
+               PromiseFlatCString(aHost).get(), aPort, aIndex,
+               static_cast<unsigned long>(rdnIndex),
+               static_cast<unsigned long>(attrIndex),
+               attr.pszObjId ? attr.pszObjId : "(null)", friendlyName.get(),
+               static_cast<unsigned long>(attr.dwValueType),
+               static_cast<unsigned long>(attr.Value.cbData), value.get()));
+    }
+  }
+
+  LocalFree(nameInfo);
+  LogIssuerDer(aHost, aPort, aIndex, aData, aLength);
+}
+
+void LogIssuerListOnce(GostSecret* aSecret, const nsACString& aHost) {
+  if (!aSecret || !aSecret->msspi) {
+    return;
+  }
+
+  size_t count = 0;
+  const int countOk =
+      msspi_get_issuerlist(aSecret->msspi, nullptr, nullptr, &count);
+  const uint32_t countError = msspi_last_error();
+  if (!countOk) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("issuer-list count failed host=%s port=%d error=0x%08x "
+             "state=0x%08x",
+             PromiseFlatCString(aHost).get(), aSecret->port, countError,
+             msspi_state(aSecret->msspi)));
+    return;
+  }
+
+  if (!count) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("issuer-list host=%s port=%d count=0",
+             PromiseFlatCString(aHost).get(), aSecret->port));
+    return;
+  }
+
+  nsTArray<const uint8_t*> issuers;
+  nsTArray<size_t> lengths;
+  issuers.SetLength(count);
+  lengths.SetLength(count);
+  size_t actualCount = count;
+  const int listOk = msspi_get_issuerlist(
+      aSecret->msspi, issuers.Elements(), lengths.Elements(), &actualCount);
+  const uint32_t listError = msspi_last_error();
+  if (!listOk) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+            ("issuer-list fetch failed host=%s port=%d requested=%zu "
+             "actual=%zu error=0x%08x state=0x%08x",
+             PromiseFlatCString(aHost).get(), aSecret->port, count, actualCount,
+             listError, msspi_state(aSecret->msspi)));
+    return;
+  }
+
+  if (actualCount < issuers.Length()) {
+    issuers.TruncateLength(actualCount);
+    lengths.TruncateLength(actualCount);
+  }
+
+  size_t totalDer = 0;
+  for (size_t length : lengths) {
+    totalDer += length;
+  }
+
+  if (!MarkIssuerListFirstSeen(aHost, aSecret->port, issuers, lengths)) {
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("issuer-list host=%s port=%d count=%zu total_der=%zu "
+             "already_logged=1",
+             PromiseFlatCString(aHost).get(), aSecret->port, issuers.Length(),
+             totalDer));
+    return;
+  }
+
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("issuer-list host=%s port=%d count=%zu total_der=%zu "
+           "already_logged=0",
+           PromiseFlatCString(aHost).get(), aSecret->port, issuers.Length(),
+           totalDer));
+  for (size_t i = 0; i < issuers.Length(); ++i) {
+    LogIssuerNameDetails(aHost, aSecret->port, i, issuers[i], lengths[i]);
+  }
+}
+#endif
+
 int SelectStage1ClientCertificate(void* aArg) {
   GostSecret* secret = static_cast<GostSecret*>(aArg);
   if (!secret || !secret->msspi || !secret->control) {
@@ -133,6 +398,10 @@ int SelectStage1ClientCertificate(void* aArg) {
              host.get()));
     return 0;
   }
+
+#ifdef XP_WIN
+  LogIssuerListOnce(secret, host);
+#endif
 
   if (secret->clientCertThumbprint.IsEmpty()) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
@@ -435,12 +704,39 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
           ("DriveHandshake cipher host=%s ok=%d cipherInfo=%p suite=0x%04x",
            host.get(), cipherOk, cipherInfo, cipherSuite));
 
-  uint32_t verifyStatus = 0;
-  const int verifyOk =
-      msspi_get_verify_status(secret->msspi, &verifyStatus);
+  size_t peerCertCount = 0;
+  const int peerCertsOk =
+      msspi_get_peercerts(secret->msspi, nullptr, nullptr, &peerCertCount);
+  const uint32_t peerCertsError = msspi_last_error();
+  size_t peerChainCount = 0;
+  const int peerChainOk =
+      msspi_get_peerchain(secret->msspi, nullptr, nullptr, &peerChainCount);
+  const uint32_t peerChainError = msspi_last_error();
+  const uint8_t* peerSubject = nullptr;
+  size_t peerSubjectLen = 0;
+  const uint8_t* peerIssuer = nullptr;
+  size_t peerIssuerLen = 0;
+  const int peerNamesOk =
+      msspi_get_peernames(secret->msspi, &peerSubject, &peerSubjectLen,
+                          &peerIssuer, &peerIssuerLen);
+  const uint32_t peerNamesError = msspi_last_error();
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
-          ("DriveHandshake verify host=%s ok=%d status=0x%08x", host.get(),
-           verifyOk, verifyStatus));
+          ("server-cert diagnostics host=%s peercerts_ok=%d peercerts_count=%zu "
+           "peercerts_error=0x%08x peerchain_ok=%d peerchain_count=%zu "
+           "peerchain_error=0x%08x peernames_ok=%d subject_len=%zu "
+           "issuer_len=%zu peernames_error=0x%08x state=0x%08x",
+           host.get(), peerCertsOk, peerCertCount, peerCertsError, peerChainOk,
+           peerChainCount, peerChainError, peerNamesOk, peerSubjectLen,
+           peerIssuerLen, peerNamesError, msspi_state(secret->msspi))));
+
+  uint32_t verifyStatus = 0;
+  const int verifyOk = msspi_get_verify_status(secret->msspi, &verifyStatus);
+  const uint32_t verifyError = msspi_last_error();
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Debug,
+          ("DriveHandshake verify host=%s ok=%d status=0x%08x "
+           "error=0x%08x state=0x%08x",
+           host.get(), verifyOk, verifyStatus, verifyError,
+           msspi_state(secret->msspi)));
   if (verifyOk && verifyStatus != 0) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
             ("peer verification failed host=%s status=0x%08x", host.get(),
@@ -909,6 +1205,7 @@ nsresult nsGostSSLIOLayerAddToSocket(
 
   auto* secret = new GostSecret();
   secret->control = control;
+  secret->port = aPort;
   secret->tlsActive = !waitForHttpProxyTunnel;
   layer->secret = reinterpret_cast<PRFilePrivate*>(secret);
 
