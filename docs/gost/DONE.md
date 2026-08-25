@@ -91,4 +91,27 @@ Confirmed:
 - the official CryptoPro endpoint was successfully exercised;
 - synthetic `distribution/extensions` staging and final synthetic ZIP verification preserve the selected XPI and its identity.
 
-This closes the standalone updater/fallback contract only. Real Mozilla packaging integration, final portable-archive inclusion, transfer into the two main browser workflows, and clean-profile Firefox runtime discovery/update behavior remain separate open work in `TODO.md` and [`EXTENSIONS.md`](./EXTENSIONS.md).
+This closes the standalone updater/fallback contract only. Real Mozilla packaging integration, final portable-archive inclusion, transfer into the two main browser workflows, and clean-profile Firefox runtime discovery/update behavior remain separate work.
+
+### CryptoPro real Mozilla portable-packaging integration — COMPLETE
+
+Formal passing evidence:
+
+- source SHA: `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- run `32847887872`;
+- job `97801745453`;
+- evidence artifact `9569388324` (`cryptopro-mozilla-packaging-evidence`);
+- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`);
+- result: success.
+
+Confirmed in one exact run/SHA:
+
+- updater/selection succeeded;
+- the full Firefox build succeeded;
+- the selected XPI passed exact verification in real `dist/bin/distribution/extensions`;
+- `mach package` succeeded;
+- the produced portable archive passed the final exact XPI path/hash/manifest-ID gate under `distribution/extensions`.
+
+This closes the final-portable-archive blocker from failed run `32817910715`, job `97709832302`; that failure remains historical evidence of the diagnosed `browser/installer/package-manifest.in` omission. The dedicated real Mozilla packaging proof is complete.
+
+Transfer of the proven gates into the two main browser workflows and clean-profile Firefox discovery/install/update runtime behavior remain separate open work in `TODO.md`.

@@ -72,39 +72,20 @@ Keep this track separate from GOST TLS runtime conclusions.
 
 ## Bundled government-system extensions — next
 
-Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). The standalone CryptoPro updater/fallback/package contract is already closed and recorded in `DONE.md`; real Mozilla/Firefox integration remains active.
+Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). The standalone CryptoPro updater/fallback/package contract and the dedicated real Mozilla portable-packaging proof are closed and recorded in `DONE.md`; workflow transfer and browser runtime behavior remain active.
 
-### 1. Finish the real Mozilla portable-packaging proof
+### 1. Transfer only proven extension integration into the two main browser workflows
 
-The first full integration run `32817910715`, job `97709832302`, source SHA `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560` proved the selected XPI reaches the real `dist/bin/distribution/extensions` path and survives its hash/manifest-ID checks, but the XPI was absent from the final portable archive.
+The dedicated Mozilla packaging proof is green at run `32847887872`, job `97801745453`, source SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
 
-The diagnosed blocker was `browser/installer/package-manifest.in`; the corrective exact-XPI manifest entry is present in the current packaging line.
-
-Current revalidation run:
-
-- run `32847887872`;
-- job `97801745453`;
-- source-under-test SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
-
-Do not close this task until one exact run/SHA passes all of these gates together:
-
-- updater/selection;
-- full Firefox build;
-- XPI verification in real `dist/bin`;
-- `mach package`;
-- extraction of the produced portable archive;
-- exactly one expected XPI under `distribution/extensions` in that archive with the selected candidate's SHA-256 and expected manifest ID.
-
-### 2. Transfer only proven extension integration into the two main browser workflows
-
-After the dedicated Mozilla packaging proof is green, add only the already-proven updater preparation and final package verification gates to:
+Add only the already-proven updater preparation and final package-verification gates to:
 
 - `.github/workflows/gost-poc-build.yml`;
 - `.github/workflows/gost-poc-build-thunk.yml`.
 
 Do not mix unrelated GOST runtime or Windows compatibility changes into that transfer.
 
-### 3. Prove clean-profile Firefox runtime discovery/update behavior
+### 2. Prove clean-profile Firefox runtime discovery/update behavior
 
 Using a packaged browser artifact, confirm separately that a clean Firefox profile discovers/installs the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension and that normal extension update behavior remains functional.
 

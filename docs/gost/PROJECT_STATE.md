@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-25
 
-This file is the current technical synthesis for the GOST TLS fork. Current experiment evidence is recorded in [`TEST_LOG.md`](./TEST_LOG.md). Historical experiment evidence through 2026-08-24 is preserved in [`TEST_LOG_2026-08-22_2026-08-24.md`](./TEST_LOG_2026-08-22_2026-08-24.md). For workflow roles, see [`WORKFLOWS.md`](./WORKFLOWS.md).
+This file is the current technical synthesis for the GOST TLS fork. Current experiment evidence is recorded in [`TEST_LOG.md`](./TEST_LOG.md). Historical experiment evidence through 2026-08-24 is preserved in [`TEST_LOG_2026-08-22_2026-08-24.md`](./TEST_LOG_2026-08-22_2026-08-24.md), with earlier 2026-08-25 evidence preserved in [`TEST_LOG_2026-08-25_2026-08-25.md`](./TEST_LOG_2026-08-25_2026-08-25.md). For workflow roles, see [`WORKFLOWS.md`](./WORKFLOWS.md).
 
 ## Repository and branches
 
@@ -428,15 +428,27 @@ The first target is the CryptoPro CAdES Firefox extension:
 - fallback version: `1.2.14`;
 - fallback SHA-256: `3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7`;
 - updater: `build/update-cryptopro-extension.py`;
-- standalone workflow: `.github/workflows/cryptopro-extension-smoke.yml`.
+- dedicated real-packaging workflow: `.github/workflows/cryptopro-mozilla-packaging-smoke.yml`.
 
 The standalone preparation/staging/package contract is proven by Actions run `32815118778`, job `97701728235`, exact source-under-test SHA `2ad7025ca300613d39a227b9e7582a341260d648`, result success, evidence artifact `9551126137`.
 
 That run proves valid committed fallback handling, forced network-failure fallback, invalid-fallback hard failure, acceptance of a valid downloaded candidate, malformed-candidate fallback, wrong-extension-ID fallback, a live download from the official CryptoPro endpoint, staging into a minimal `distribution/extensions` layout, and final ZIP path/hash/ID validation. During the live check the official endpoint returned the same version `1.2.14` and the same SHA-256 as the committed fallback.
 
-The successful standalone smoke does **not** yet prove Firefox/Mozilla build-system integration or extension installation by a real browser package. The two full browser workflows and `r3dfox/moz.build` were deliberately left untouched during this proof.
+The dedicated real Mozilla packaging integration is also proven:
 
-The next extension-track experiment is a minimal Mozilla packaging-graph proof using `FINAL_TARGET_FILES.distribution.extensions` to establish that the already-selected XPI reaches the real `dist/bin/distribution/extensions` and packaged archive layout. Keep that proof separate from both full browser workflows until it is green; only then transfer the proven updater invocation and package gates into the main and thunk full-build workflows.
+- workflow: `CryptoPro Mozilla packaging smoke`;
+- Actions run `32847887872`;
+- job `97801745453`;
+- exact source-under-test SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- evidence artifact `9569388324` (`cryptopro-mozilla-packaging-evidence`);
+- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`);
+- result: success.
+
+The exact passing run completed updater/selection, the full Firefox build, selected-XPI verification in real `dist/bin/distribution/extensions`, `mach package`, and final portable-archive verification together. The expected XPI is therefore proven to survive the real Mozilla build/package graph into the produced portable archive.
+
+This closes the final-archive omission diagnosed by run `32817910715`, job `97709832302`, source SHA `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560`. That failed run remains historical evidence that `FINAL_TARGET_FILES` reaching `dist/bin` did not by itself package the XPI until the exact path was added to `browser/installer/package-manifest.in`.
+
+The next extension work is now limited to transferring only the proven updater preparation and final package-verification gates into `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml`, followed by a separate clean-profile Firefox runtime proof for discovery/install/update behavior. Static package presence is not runtime installation proof.
 
 Detailed extension design and evidence are in [`EXTENSIONS.md`](./EXTENSIONS.md).
 
@@ -459,6 +471,7 @@ Keep these statements distinct:
 - **GOST certificate-verification success** is **not yet confirmed**; fail-closed server verification is now the leading mandatory Stage 2 security item.
 - **mTLS integration complete/production-ready** is **not yet true**; Stage 2 server verification, final certificate-selection/issuer policy, negative paths, privacy audit, and hardened regression proof remain required.
 - **CryptoPro standalone extension packaging success** is confirmed by run `32815118778` / SHA `2ad7025ca300613d39a227b9e7582a341260d648`; this proves updater/fallback/staging/package behavior but not the real Mozilla packaging graph or Firefox installation.
+- **CryptoPro real Mozilla portable-packaging success** is confirmed by run `32847887872`, job `97801745453`, SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`; this proves the selected XPI survives the real Firefox build and package graph into the final portable archive, but not clean-profile runtime discovery/install/update behavior.
 
 ## Maintenance rule
 

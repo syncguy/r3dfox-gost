@@ -200,7 +200,7 @@ Workflow name:
 
 Role:
 
-This is the current full-build integration proof for the bundled CryptoPro CAdES Firefox extension. It is separate from the authoritative GOST runtime workflow and from the Windows Vista/7 thunk-rs compatibility workflow even though it deliberately reuses the build-critical path of the main GOST build.
+This is the dedicated full-build integration/regression proof for the bundled CryptoPro CAdES Firefox extension. It is separate from the authoritative GOST runtime workflow and from the Windows Vista/7 thunk-rs compatibility workflow even though it deliberately reuses the build-critical path of the main GOST build.
 
 The workflow uses the main build's Windows runner model, MozillaBuild/pagefile setup, pinned MSSPI source, release mozconfig, pinned Rust build-std path, configure/export/SSL gates, full `mach build`, and `mach package`. It omits the unrelated Win7 PE import audit so an extension-packaging conclusion cannot be blocked or confused by the separate compatibility track.
 
@@ -234,7 +234,20 @@ First integration run:
 
 The run proved the real Mozilla `FINAL_TARGET_FILES` integration through the `dist/bin` stage: the selected XPI reached `obj-gost-win64/dist/bin/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` and passed the hash/manifest-ID checks. The full Firefox build and `mach package` succeeded. The final portable archive contained no matching XPI because `browser/installer/package-manifest.in` is a separate dist/bin-to-package staging allowlist and did not include the CryptoPro extension path for this r3dfox build configuration.
 
-Commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`; that correction is present in the current default branch. A later exact workflow run must still pass both the already-green real `dist/bin` gate and the final portable-archive gate before Mozilla packaging integration is called proven.
+Commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`.
+
+Formal passing revalidation:
+
+- run `32847887872`;
+- job `97801745453`;
+- code-under-test commit `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- evidence artifact `9569388324` (`cryptopro-mozilla-packaging-evidence`);
+- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`);
+- result: success.
+
+The exact passing run completed the updater/selection gate, full Firefox build, real `dist/bin` XPI verification, `mach package`, final portable-archive XPI verification, and both artifact uploads successfully. Therefore the real Mozilla portable-packaging integration is proven and the final-archive omission from run `32817910715` is closed.
+
+This workflow remains useful as focused regression coverage for extension packaging. Transfer into the two main full-browser workflows and clean-profile Firefox discovery/install/update behavior are separate follow-up tasks.
 
 Detailed design and current extension state are recorded in [`EXTENSIONS.md`](./EXTENSIONS.md).
 
@@ -266,7 +279,7 @@ Keep these concepts separate:
 - `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
 - `cryptopro-extension-smoke.yml` = historical standalone CryptoPro updater/fallback/staging/package proof;
-- `cryptopro-mozilla-packaging-smoke.yml` = current full Firefox CryptoPro packaging integration proof;
+- `cryptopro-mozilla-packaging-smoke.yml` = dedicated real-Firefox CryptoPro packaging integration/regression proof;
 - `agent/gost-tls-poc` = active development branch;
 - `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.

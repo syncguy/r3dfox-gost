@@ -68,9 +68,9 @@ That run proved committed-fallback validation, network-failure fallback, invalid
 
 The standalone workflow was retired after this proof by commit `628780ec29c1a72d572b33f51c543e88c2d884d5`; its evidence remains authoritative for the updater/fallback behavior.
 
-### Real Mozilla packaging integration — IN PROGRESS
+### Real Mozilla packaging integration — PROVEN
 
-`r3dfox/moz.build` now declares:
+`r3dfox/moz.build` declares:
 
 ```python
 FINAL_TARGET_FILES.distribution.extensions += [
@@ -80,7 +80,7 @@ FINAL_TARGET_FILES.distribution.extensions += [
 
 Integration commit: `8e1cd63ccc1bb45400ea675e7e2920595b1ae379`.
 
-Current workflow:
+Dedicated workflow:
 
 `.github/workflows/cryptopro-mozilla-packaging-smoke.yml`
 
@@ -118,10 +118,23 @@ First integration run:
 
 That run proved the real Mozilla `FINAL_TARGET_FILES` path through `dist/bin`: the selected XPI was present at `obj-gost-win64/dist/bin/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` and passed the workflow hash/manifest-ID checks. The full Firefox build and `mach package` also succeeded. The extracted portable archive contained no matching XPI because `browser/installer/package-manifest.in` is a separate dist/bin-to-package staging allowlist and did not include the CryptoPro extension path for this r3dfox build configuration.
 
-The corrective branch state at commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`. The current default branch contains that correction. A later exact workflow run must still prove that both the already-passing real `dist/bin` gate and the final portable-archive path/hash gate pass together before the real Mozilla packaging integration is called proven.
+The corrective packaging line at commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`.
+
+Formal passing revalidation:
+
+- Actions run: `32847887872`;
+- job: `97801745453`;
+- source-under-test SHA: `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- CI result: success;
+- evidence artifact: `9569388324` (`cryptopro-mozilla-packaging-evidence`);
+- packaged-browser artifact: `9569387758` (`r3dfox-cryptopro-mozilla-packaging`).
+
+In this exact run the updater/selection gate, full Firefox build, real `dist/bin` XPI verification, `mach package`, and final portable-archive XPI verification all passed together. The final archive contains exactly the expected extension path under `distribution/extensions`, and the workflow's selected-candidate SHA-256 and manifest-ID checks passed.
+
+Therefore the real Mozilla portable-packaging integration is proven. The final-archive omission diagnosed by run `32817910715` is closed; that failed run remains historical evidence of the missing installer-manifest staging rule.
 
 ### Full-build integration boundary
 
-`.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` remain unchanged by the extension experiment. The Stage 2.1 full-build evidence remains tied to its own earlier source SHA and is unaffected by the later extension commits.
+`.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` remain separate from the dedicated extension proof. The GOST TLS and Windows compatibility evidence tied to earlier source SHAs is unaffected by later extension commits.
 
-After the dedicated Mozilla packaging workflow is green, transfer only the already-proved updater preparation and final package gates into the two main full-build workflows. A later clean-profile runtime test must separately prove that Firefox discovers/installs the bundled extension and that extension update behavior remains functional.
+The next integration step is to transfer only the already-proven updater preparation and final package-verification gates into those two main full-build workflows. A later clean-profile runtime test must separately prove that Firefox discovers/installs the bundled extension and that extension update behavior remains functional.
