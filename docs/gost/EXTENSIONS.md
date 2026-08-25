@@ -18,7 +18,7 @@ Official extension update manifest declared by the current XPI:
 
 ### Committed fallback baseline
 
-The initial known-good fallback supplied on 2026-08-25 is:
+The known-good fallback supplied and vendored on 2026-08-25 is:
 
 - version: `1.2.14`;
 - extension ID: `ru.cryptopro.nmcades@cryptopro.ru`;
@@ -28,11 +28,11 @@ The initial known-good fallback supplied on 2026-08-25 is:
 - Mozilla signature structure: `META-INF/manifest.mf`, `META-INF/mozilla.sf`, `META-INF/mozilla.rsa` present;
 - COSE structure: `META-INF/cose.manifest`, `META-INF/cose.sig` present.
 
-Repository location after the one-time bootstrap step:
+Repository location:
 
 `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`
 
-The first smoke workflow may bootstrap this exact binary from the official endpoint only if its SHA-256 matches the user-supplied baseline byte-for-byte. That bootstrap is a one-time repository setup mechanism, not the intended normal update behavior.
+The one-time bootstrap is complete. Run `32814928877` validated the downloaded official XPI against the exact user-supplied SHA-256 and commit `e2102e1c9771c0115060303206144ab343de9f0c` added that exact binary to the default branch. The permanent smoke is read-only and does not commit or overwrite this fallback.
 
 ### Intended production contract
 
@@ -52,7 +52,9 @@ The updater contract is:
 
 The live CryptoPro endpoint is an integration check, not the only proof of fallback behavior. Deterministic local fixtures exercise success, network-failure, malformed-XPI, and wrong-extension-ID paths.
 
-### Current smoke scope
+The smoke validates signature-file and COSE structure only. It does not claim independent cryptographic verification of the Mozilla extension signature; Firefox remains the authority for signature enforcement when the extension is actually installed.
+
+### Standalone smoke — PROVEN
 
 Workflow:
 
@@ -62,25 +64,41 @@ Updater:
 
 `build/update-cryptopro-extension.py`
 
-The smoke runs on `agent/gost-tls-poc` when the updater, smoke workflow, or vendored fallback changes. It deliberately does not compile Firefox.
+Formal passing evidence:
 
-The initial smoke proves:
+- branch: `agent/gost-tls-poc`;
+- source-under-test SHA: `2ad7025ca300613d39a227b9e7582a341260d648`;
+- Actions run: `32815118778`;
+- job: `97701728235`;
+- evidence artifact: `9551126137` (`cryptopro-extension-smoke`);
+- result: success.
 
-- fallback validation and hard failure for an invalid fallback;
-- deterministic network-failure fallback;
-- acceptance of a structurally valid downloaded candidate;
-- rejection of malformed downloads;
-- rejection of a candidate with the wrong extension ID;
-- a live best-effort check of the official CryptoPro endpoint;
+All standalone gates passed:
+
+- exact committed-fallback validation;
+- forced network-failure fallback;
+- invalid committed fallback hard failure with no output XPI;
+- acceptance of a deterministic valid downloaded candidate;
+- malformed-XPI rejection and fallback;
+- wrong-extension-ID rejection and fallback;
+- live download from the official CryptoPro endpoint;
 - staging into a minimal `distribution/extensions` tree;
-- ZIP packaging and re-validation of the packaged XPI by ID and SHA-256.
+- final ZIP packaging and re-validation by path, ID, version, and SHA-256.
 
-### Integration boundary
+During the passing run the live official endpoint returned version `1.2.14`, size `76880`, and SHA-256 `3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7`, byte-identical to the committed fallback.
 
-During initial smoke development:
+The workflow uses sparse checkout and `contents: read`; it deliberately does not compile Firefox and cannot modify repository contents.
 
-- do not modify `.github/workflows/gost-poc-build.yml`;
-- do not modify `.github/workflows/gost-poc-build-thunk.yml`;
-- do not yet connect the XPI to the real Firefox `r3dfox/moz.build` packaging graph.
+### Integration boundary and next proof
 
-After the standalone updater/fallback/package smoke is stable, add a separate Mozilla build-system integration proof. Only after that proof should the already-tested preparation and package gates be transferred into both full browser workflows.
+The standalone updater/fallback/staging/package contract is now proven, but Mozilla build-system integration is not yet proven.
+
+Current constraints remain:
+
+- `.github/workflows/gost-poc-build.yml` is unchanged by this experiment;
+- `.github/workflows/gost-poc-build-thunk.yml` is unchanged by this experiment;
+- `r3dfox/moz.build` has not yet been changed to put the XPI into the real Firefox packaging graph.
+
+The next extension-track experiment is a separate minimal Mozilla build-system integration proof for `FINAL_TARGET_FILES.distribution.extensions`. It should demonstrate that the already-selected XPI reaches the real Firefox `dist/bin/distribution/extensions` / package layout without first modifying either full browser workflow.
+
+Only after that proof should the already-tested updater invocation and package gates be transferred into both full browser builds.
