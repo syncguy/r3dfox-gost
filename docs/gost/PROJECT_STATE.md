@@ -1,8 +1,8 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
-This file is the current technical synthesis for the GOST TLS fork. For chronology and evidence from individual experiments, see [`TEST_LOG.md`](./TEST_LOG.md). For workflow roles, see [`WORKFLOWS.md`](./WORKFLOWS.md).
+This file is the current technical synthesis for the GOST TLS fork. Current experiment evidence is recorded in [`TEST_LOG.md`](./TEST_LOG.md). Historical experiment evidence through 2026-08-24 is preserved in [`TEST_LOG_2026-08-22_2026-08-24.md`](./TEST_LOG_2026-08-22_2026-08-24.md). For workflow roles, see [`WORKFLOWS.md`](./WORKFLOWS.md).
 
 ## Repository and branches
 
@@ -132,7 +132,7 @@ This build uses the ordinary-Rust + narrow-YY-Thunks compatibility path, while c
 
 The uploaded runtime log `gost.moz_log` from `gost_experiment.zip` (SHA-256 `bbba5dfe695314c56411e872b7a997a62da1199e1bf886957a1002743b2e0039`) records 14 proxy/TLS connection sequences. All 14 reach `ProxyStartSSL()`, activate GOST TLS, complete MSSPI TLS 1.2 with suite `0xFF85`, and then carry application traffic. The capture contains 119 `msspi_write` calls and 381 `msspi_read` calls, with no `HTTP/1.1 400 Bad Request`, no `SEC_E_INVALID_TOKEN`, and no `E/GostTLS` entries.
 
-The browser-visible result is stronger than a page-load smoke: the user navigated the Treasury site, filled forms, requested information, and received response lists from the site's web services. The application remained functional across these interactive workflows.
+The browser-visible result is stronger than a page-load smoke: the user navigated the Treasury site, filled forms, requested information, and received response lists from the site's web services. The application remained functional across these interactions.
 
 Therefore **the same GOST runtime behavior is confirmed across both current full-build strategies**. The proxy/GOST success is not specific to only the main Win7 build-std path or only the alternative ordinary-Rust + narrow-YY path. This is a GOST runtime cross-build conclusion; it does not by itself prove complete Windows 7 feature compatibility for either strategy.
 
@@ -171,15 +171,14 @@ which is a TLS fatal `handshake_failure` alert. Schannel maps that received aler
 
 Therefore **the Treasury mTLS requirement is confirmed**. The tested baseline blocker was client-certificate selection/loading in the Firefox MSSPI wrapper, not proxy routing or GOST cipher negotiation.
 
-### Stage 1 mTLS implementation candidate
+### Stage 1 mTLS implementation and successful proof
 
-Code-under-test candidate:
+Code-under-test:
 
-- commit: `f5d04896e17f91f58b6a137af823360f4718eb29`;
-- file: `security/manager/ssl/nsGostSSLIOLayer.cpp`;
-- status: implementation committed, not yet compile/runtime confirmed.
+- commit: `f5d04896e17f91f58b6a137af823360f4718eb29` (`feat(gost): add stage1 mTLS client cert selection`);
+- file: `security/manager/ssl/nsGostSSLIOLayer.cpp`.
 
-The Stage 1 candidate deliberately keeps the experiment narrow:
+The Stage 1 implementation deliberately keeps the first proof narrow:
 
 - `msspi_set_cert_cb()` is installed only for `lk-fzs.roskazna.ru`;
 - the local selector is `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>`;
@@ -191,29 +190,42 @@ The Stage 1 candidate deliberately keeps the experiment narrow:
 - raw outbound `TLSBUF` hex logging is suppressed from the certificate callback onward so client Certificate / CertificateVerify bytes cannot be published accidentally;
 - sanitized logs expose only selector presence, certificate-selection success/failure class, MSSPI state/error codes, and final `client_cert_loaded` status.
 
-This candidate must first pass the SSL compile/build gate and then a sanitized runtime test before any client-certificate success claim is made.
+The exact Stage 1 code passed all relevant build gates:
+
+- main full build: run `32751967162`, job `97510763210`, workflow `GOST TLS PoC build`, result success;
+- dedicated SSL compile check: run `32751967187`, job `97510762872`, workflow `GOST SSL compile check`, result success;
+- experimental full build: run `32751967189`, job `97510762742`, workflow `GOST TLS PoC build - thunk-rs experiment`, result success.
+
+The user then successfully tested both full artifacts against the real Treasury mTLS endpoint with a known-good local certificate selected by `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`. The concrete thumbprint remained local and was not published.
+
+Sanitized main-build runtime evidence shows repeated successful certificate selection with `private_key_binding=1`, completed TLS 1.2 / `0xFF85` handshakes with `client_cert_loaded=1`, no recurrence of the old `0x80090326` rejection, and successful authenticated Treasury use. A second main-build capture also succeeded with MSSPI native-default cipher selection.
+
+The experimental thunk-rs/YY-Thunks runtime capture shows 12 successful client-certificate selections, all with `private_key_binding=1`, followed by 12 completed mTLS handshakes on `lk-fzs.roskazna.ru`, all reporting TLS 1.2 (`0x0303`), suite `0xFF85`, and `client_cert_loaded=1`; there are no `0x80090326` or `E/GostTLS` failures in that capture.
+
+Therefore **Stage 1 client-certificate GOST mTLS is confirmed successful across both current full-build strategies at exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29`**. The previous client-certificate-selection blocker is closed for the tested endpoint and environment.
 
 ### Current GOST runtime security/integration questions
 
-Two related but deliberately staged items remain:
+Stage 1 is complete. The current GOST runtime work is the mandatory **Stage 2 mTLS security/UX closure**.
 
-1. **Stage 1 client-certificate proof.** The baseline server request is confirmed and a narrow explicit-thumbprint callback candidate now exists, but successful client-certificate mTLS is not yet confirmed. The immediate next blocker is compile/build validation and then the first sanitized runtime trace showing `client_cert_loaded=1`, completed MSSPI handshake, and authenticated personal-cabinet traffic/navigation.
+Successful ordinary and Stage 1 Treasury sessions still do not establish fail-closed server-certificate validation. Earlier successful sessions contain:
 
-2. **Stage 2 server-certificate/security/UX closure.** Successful ordinary Treasury sessions still contain:
+```text
+DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
+```
 
-   ```text
-   DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
-   ```
+The current wrapper accepts that case because it rejects only `verifyOk && verifyStatus != 0`, while pinned MSSPI may return 0 from `msspi_get_verify_status()` on an internal-error path. Stage 1 intentionally left this behavior unchanged and did not add a special insecure/bypass mode.
 
-   Stage 1 intentionally does not make server validation a gate and does not add a special insecure/bypass mode. After the first successful mTLS trace, fail-closed server verification, acceptable-issuer policy, final Firefox-facing certificate selection, negative paths, and logging hardening are mandatory Stage 2 work before mTLS may be considered complete.
+Before mTLS may be considered complete, Stage 2 must close the security and integration debt defined in `TODO.md`: fail-closed server verification with positive and negative cases, final acceptable-issuer/client-certificate selection policy, Firefox-facing certificate-selection flow, negative client-auth paths, diagnostic/privacy audit, and a final hardened Treasury regression trace.
 
 ### Next GOST runtime experiments
 
-1. Build/compile commit `f5d04896e17f91f58b6a137af823360f4718eb29` or an exact descendant containing only corrective compile fixes to the same Stage 1 design.
-2. Run the resulting GOST build with both exact Treasury hosts allowlisted and `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>` set locally. The concrete thumbprint must never be copied into GitHub, diagnostics, or public logs.
-3. Confirm from the sanitized trace that `lk-fzs.roskazna.ru` reaches `MSSPI_X509_LOOKUP`, the callback selects the certificate from `CurrentUser\\MY`, outbound client-auth bytes are redacted, the handshake completes with `client_cert_loaded=1`, and authenticated application traffic/navigation succeeds.
-4. Record that exact run ID + build commit SHA in `TEST_LOG.md`. Only then is Stage 1 complete.
-5. Immediately proceed to the mandatory Stage 2 closure defined in `TODO.md`: fail-closed server verification with positive/negative cases, issuer-list/final certificate-selection policy, Firefox-facing UX, negative client-auth paths, sanitized logging audit, and final hardened regression trace.
+1. Diagnose the current `msspi_get_verify_status()` internal-error/`verifyOk == 0` behavior using sanitized diagnostics only; do not disclose client-certificate or user data.
+2. Implement fail-closed server-certificate verification so both internal verification failure and a nonzero verification status reject the connection.
+3. Prove positive and negative server-verification cases: the real Treasury server/hostname must pass, while a wrong hostname or invalid/untrusted chain must fail.
+4. Resolve the final role of `msspi_get_issuerlist()` in client-certificate filtering/selection and replace the Stage 1 explicit local selector mechanism with the appropriate Firefox-facing selection flow.
+5. Exercise the required negative client-auth paths and audit all public diagnostics for sensitive certificate/user data.
+6. Re-run the successful Treasury mTLS scenario after Stage 2 and record a sanitized exact-run/exact-SHA regression trace proving that the hardening did not break client authentication.
 
 ## Windows Vista/7 build-compatibility track
 
@@ -414,16 +426,18 @@ Keep these statements distinct:
 - **GOST TLS handshake success** is confirmed for the exact main build run `32710363486` / commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`: TLS 1.2 with suite `0xFF85` completes through the system HTTP proxy.
 - **GOST HTTPS application success** is confirmed for both full-build strategies at the same exact GOST source commit `4887e07d...`: the main build fully renders Treasury pages including JavaScript/images, and the alternative thunk-rs full build additionally completes form submission, information requests, and web-service-backed response-list workflows.
 - **GOST cross-build runtime independence** is confirmed between run `32710363486` and run `32710363484`: the proxy/GOST behavior is not specific to only one of the two tested Windows build strategies.
-- **Treasury mTLS requirement** is confirmed for `lk-fzs.roskazna.ru`: the server sends a real TLS `CertificateRequest` and the tested baseline enters `MSSPI_X509_LOOKUP`.
-- **Stage 1 mTLS implementation candidate** exists at `f5d04896e17f91f58b6a137af823360f4718eb29`; it adds explicit local thumbprint selection and sanitized client-auth logging, but compile/runtime success is not yet confirmed.
-- **GOST client-certificate authentication success** is **not yet confirmed**; a successful Stage 1 Treasury trace is still required.
-- **GOST certificate-verification success** is **not yet confirmed**; fail-closed verification is mandatory Stage 2 work after the first successful controlled mTLS proof.
+- **Treasury mTLS requirement** is confirmed for `lk-fzs.roskazna.ru`: the server sends a real TLS `CertificateRequest` and the baseline enters `MSSPI_X509_LOOKUP`.
+- **Stage 1 GOST client-certificate authentication success** is confirmed at exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` in both the main full build (`32751967162` / `97510763210`) and the experimental thunk-rs full build (`32751967189` / `97510762742`).
+- **Stage 1 cross-build mTLS independence** is confirmed: the same client-auth source works through both current full-build strategies; this does not merge the GOST-runtime and Win7-compatibility investigation tracks.
+- **GOST certificate-verification success** is **not yet confirmed**; fail-closed server verification is now the leading mandatory Stage 2 security item.
+- **mTLS integration complete/production-ready** is **not yet true**; Stage 2 server verification, final certificate-selection/issuer policy, negative paths, privacy audit, and hardened regression proof remain required.
 
 ## Maintenance rule
 
 After each meaningful test:
 
-1. append the run/SHA, hypothesis, observation, and conclusion to `TEST_LOG.md`;
-2. update this file only if the current blocker, architecture, pinned dependency, confirmed behavior, or next experiment changed;
-3. mark speculative interpretations explicitly as hypotheses;
-4. never overwrite historical failures just because a later experiment superseded them.
+1. append the run/SHA, hypothesis, observation, and conclusion to the current `TEST_LOG.md`;
+2. treat dated `TEST_LOG_*.md` files as immutable historical evidence volumes and consult them for earlier experiments;
+3. update this file only if the current blocker, architecture, pinned dependency, confirmed behavior, or next experiment changed;
+4. mark speculative interpretations explicitly as hypotheses;
+5. never overwrite historical failures just because a later experiment superseded them.
