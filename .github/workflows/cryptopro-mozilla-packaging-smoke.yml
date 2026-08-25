@@ -6,6 +6,8 @@ on:
       - agent/gost-tls-poc
     paths:
       - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
+      - "r3dfox/moz.build"
+      - "browser/installer/package-manifest.in"
       - ".github/workflows/cryptopro-mozilla-packaging-smoke.yml"
 
 permissions:
