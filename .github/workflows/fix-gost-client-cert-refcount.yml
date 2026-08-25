@@ -98,3 +98,5 @@ Status: superseded by the refcount compile-fix descendant; validation pending.
           git add security/manager/ssl/nsGostSSLIOLayer.cpp docs/gost/TEST_LOG.md .github/workflows/fix-gost-client-cert-refcount.yml
           git commit -m "fix(gost): use Firefox thread-safe refcounting"
           git push origin HEAD:agent/gost-tls-poc
+
+# Trigger after workflow exists on the branch.
