@@ -10,7 +10,7 @@ on:
       - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   cryptopro-extension-smoke:
@@ -33,26 +33,7 @@ jobs:
             r3dfox/extensions
           sparse-checkout-cone-mode: false
 
-      - name: Bootstrap exact supplied fallback if repository copy is absent
-        shell: powershell
-        env:
-          EXPECTED_BOOTSTRAP_SHA256: 3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (Test-Path $env:FALLBACK_XPI) {
-            Write-Host 'Committed fallback already present; bootstrap not needed.'
-            exit 0
-          }
-          New-Item -ItemType Directory -Force (Split-Path $env:FALLBACK_XPI) | Out-Null
-          Invoke-WebRequest -Uri $env:OFFICIAL_URL -OutFile $env:FALLBACK_XPI
-          $actual = (Get-FileHash -Algorithm SHA256 $env:FALLBACK_XPI).Hash.ToLowerInvariant()
-          if ($actual -ne $env:EXPECTED_BOOTSTRAP_SHA256) {
-            Remove-Item -Force $env:FALLBACK_XPI
-            throw "Official XPI does not match the user-supplied baseline hash. expected=$env:EXPECTED_BOOTSTRAP_SHA256 actual=$actual"
-          }
-          Write-Host "Bootstrapped exact supplied CryptoPro XPI sha256=$actual"
-
-      - name: GATE - Validate fallback baseline
+      - name: GATE - Validate committed fallback and network-failure path
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -66,26 +47,27 @@ jobs:
           $meta = Get-Content smoke\fallback-selected.json -Raw | ConvertFrom-Json
           if ($meta.source -ne 'fallback') { throw "Expected fallback source, got $($meta.source)" }
           if ($meta.selected.id -ne $env:EXTENSION_ID) { throw 'Fallback extension ID mismatch.' }
+          if ($meta.selected.version -ne '1.2.14') { throw "Unexpected committed fallback version: $($meta.selected.version)" }
+          if ($meta.selected.sha256 -ne '3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7') {
+            throw "Unexpected committed fallback SHA-256: $($meta.selected.sha256)"
+          }
 
-      - name: Commit bootstrapped fallback baseline
-        if: hashFiles('r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi') != ''
+      - name: GATE - Invalid committed fallback is a hard failure
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $tracked = @(git ls-files -- $env:FALLBACK_XPI)
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($tracked.Count -gt 0) {
-            Write-Host 'Fallback is already tracked; no bootstrap commit needed.'
-            exit 0
-          }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add --sparse -- $env:FALLBACK_XPI
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git commit -m 'chore(extensions): vendor CryptoPro XPI 1.2.14'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git push origin HEAD:agent/gost-tls-poc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force smoke\fixtures | Out-Null
+          Set-Content -Encoding ascii smoke\fixtures\broken-fallback.xpi 'not an xpi'
+          python build\update-cryptopro-extension.py `
+            --fallback smoke\fixtures\broken-fallback.xpi `
+            --url 'http://127.0.0.1:1/unreachable.xpi' `
+            --timeout 1 `
+            --output smoke\should-not-exist.xpi `
+            --metadata smoke\should-not-exist.json
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -eq 0) { throw 'Invalid committed fallback was incorrectly accepted.' }
+          if (Test-Path smoke\should-not-exist.xpi) { throw 'Invalid fallback unexpectedly produced an output XPI.' }
+          Write-Host "Invalid fallback correctly rejected with exit code $exitCode"
 
       - name: Create deterministic XPI fixtures
         shell: powershell
@@ -127,7 +109,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = ([System.Uri](Resolve-Path smoke\fixtures\valid-newer.xpi)).AbsoluteUri
+          $path = (Resolve-Path smoke\fixtures\valid-newer.xpi).Path
+          $url = ([System.Uri]$path).AbsoluteUri
           python build\update-cryptopro-extension.py `
             --fallback $env:FALLBACK_XPI `
             --url $url `
@@ -142,7 +125,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = ([System.Uri](Resolve-Path smoke\fixtures\not-an-xpi.html)).AbsoluteUri
+          $path = (Resolve-Path smoke\fixtures\not-an-xpi.html).Path
+          $url = ([System.Uri]$path).AbsoluteUri
           python build\update-cryptopro-extension.py `
             --fallback $env:FALLBACK_XPI `
             --url $url `
@@ -158,7 +142,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = ([System.Uri](Resolve-Path smoke\fixtures\wrong-id.xpi)).AbsoluteUri
+          $path = (Resolve-Path smoke\fixtures\wrong-id.xpi).Path
+          $url = ([System.Uri]$path).AbsoluteUri
           python build\update-cryptopro-extension.py `
             --fallback $env:FALLBACK_XPI `
             --url $url `
@@ -190,7 +175,6 @@ jobs:
           $dest = "smoke\dist\distribution\extensions\$env:EXTENSION_ID.xpi"
           New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
           Copy-Item -Force smoke\official-selected.xpi $dest
-
           $selected = (Get-FileHash -Algorithm SHA256 smoke\official-selected.xpi).Hash
           $staged = (Get-FileHash -Algorithm SHA256 $dest).Hash
           if ($selected -ne $staged) { throw 'Staged XPI hash differs from selected XPI.' }
