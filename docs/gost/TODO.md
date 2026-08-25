@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — TODO / Deferred Work
 
-This file is the persistent forward-looking backlog for work that is desired but not yet complete. `PROJECT_STATE.md` remains the authoritative current-state synthesis; `TEST_LOG.md` remains the evidence trail.
+This file is the persistent forward-looking backlog for work that is desired but not yet complete. `PROJECT_STATE.md` remains the authoritative current-state synthesis; the current `TEST_LOG.md` is the active evidence trail, with earlier evidence preserved in dated `TEST_LOG_*.md` volumes.
 
 ## GOST TLS runtime — next
 
@@ -14,11 +14,9 @@ DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
 
 Pinned MSSPI runs client Schannel with manual credential validation. `msspi_get_verify_status()` verifies the peer certificate; in client mode that means the server certificate, including chain/policy, server-auth usage, hostname, and (by default) revocation handling.
 
-This work is intentionally deferred until after the first successful controlled client-certificate mTLS proof. Do not add a special insecure/server-verification-bypass mode for that proof; simply keep the existing non-gating behavior while isolating the client-certificate path.
+The first controlled client-certificate mTLS proof is now complete, so this item is no longer deferred. **Fail-closed server verification is the leading mandatory Stage 2 mTLS task and must be completed before the project treats mTLS integration as finished.**
 
-This deferral is only Stage 1 test scope. **Fail-closed server verification is mandatory Stage 2 mTLS work and must be completed before the project treats mTLS integration as finished.**
-
-Later steps:
+Required steps:
 
 - log only sanitized diagnostics needed to determine why `msspi_get_verify_status()` returns 0;
 - if needed, inspect peer-certificate and peer-chain retrieval status without publishing credential-derived identifiers;
@@ -29,7 +27,7 @@ Later steps:
 
 ### 2. Add client-certificate / mutual TLS (mTLS) support
 
-This was deliberately outside Phase 1, but it is now an explicit next functional milestone.
+This was deliberately outside Phase 1. Stage 1 client-certificate mTLS is now proven; the remaining work in this section is mandatory Stage 2 security/UX closure.
 
 Pinned MSSPI exposes the needed handshake mechanism:
 
@@ -59,11 +57,11 @@ The login-host behavior is confirmed:
 
 That baseline established the exact blocker: the server requests a client certificate correctly, but the tested wrapper did not select/load one into MSSPI.
 
-#### Stage 1 implementation candidate
+#### Stage 1 implementation and proof — COMPLETE
 
-Commit `f5d04896e17f91f58b6a137af823360f4718eb29` (`feat(gost): add stage1 mTLS client cert selection`) implements the first narrow candidate in `security/manager/ssl/nsGostSSLIOLayer.cpp`.
+Commit `f5d04896e17f91f58b6a137af823360f4718eb29` (`feat(gost): add stage1 mTLS client cert selection`) implements the narrow Stage 1 path in `security/manager/ssl/nsGostSSLIOLayer.cpp`.
 
-The candidate:
+The implementation:
 
 - installs `msspi_set_cert_cb()` only for `lk-fzs.roskazna.ru`;
 - reads one local selector from `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`;
@@ -75,7 +73,18 @@ The candidate:
 - suppresses raw outbound `TLSBUF` hex logging from the certificate callback onward so the client Certificate / CertificateVerify bytes cannot be published accidentally;
 - logs only sanitized selector-present/selected/error facts and never the concrete thumbprint value.
 
-This commit is an implementation candidate only until it passes the SSL compile/build gate and then a real sanitized runtime mTLS trace.
+Build/compile evidence for the exact Stage 1 source SHA:
+
+- main full build: run `32751967162`, job `97510763210`, success;
+- dedicated SSL compile check: run `32751967187`, job `97510762872`, success;
+- experimental thunk-rs full build: run `32751967189`, job `97510762742`, success.
+
+Runtime evidence is also successful on both full artifacts:
+
+- the main build repeatedly selects the intended certificate with `private_key_binding=1`, completes TLS 1.2 / `0xFF85` with `client_cert_loaded=1`, and successfully reaches authenticated Treasury application traffic; an additional main-build capture also succeeds with MSSPI native-default cipher selection;
+- the experimental thunk-rs/YY-Thunks build shows 12 successful certificate selections and 12 completed mTLS handshakes on `lk-fzs.roskazna.ru`, all with `private_key_binding=1`, TLS 1.2 / `0xFF85`, and `client_cert_loaded=1`, with no `0x80090326` or `E/GostTLS` failures.
+
+Therefore **Stage 1 is complete at exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` across both current full-build strategies.**
 
 #### Sensitive-data rule for mTLS work
 
@@ -89,20 +98,11 @@ R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>
 
 The concrete value must remain local. Never echo or print the value in browser logs, GitHub Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
 
-#### Stage 1 — first controlled successful mTLS proof
+#### Stage 1 — first controlled successful mTLS proof — COMPLETE
 
-Keep the first implementation deliberately narrow. The user already trusts the exact Treasury login endpoint and will explicitly provide the intended client certificate locally.
+Stage 1 deliberately did not make server-certificate validation or acceptable-issuer matching prerequisites and did not introduce any special insecure/server-verification-bypass option. The user provided one known-good certificate locally with `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`, and the concrete selector value remained private.
 
-For this first proof:
-
-- do **not** make server-certificate validation a prerequisite or gate;
-- do **not** introduce or expose a special insecure/server-verification-bypass option, environment variable, build flag, or CI mode;
-- do **not** make `msspi_get_issuerlist()` matching a prerequisite for selecting the certificate;
-- do **not** auto-discover or auto-select among certificates in `MY`;
-- use exactly `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>` to select one known-good certificate from `CurrentUser\\MY`;
-- the concrete selector value must never be printed to logs, Actions output, diagnostics artifacts, commit messages, repository documentation, PRs, or issues.
-
-The Stage 1 goal is only to establish the client-authentication path:
+The successful path is now proven:
 
 ```text
 CertificateRequest
@@ -110,19 +110,19 @@ CertificateRequest
   -> msspi_set_cert_cb()
   -> explicitly selected local certificate by thumbprint
   -> msspi_set_mycert()
-  -> CryptoPro private-key operation / PIN if required
-  -> non-empty client Certificate / CertificateVerify
+  -> CryptoPro private-key operation
+  -> client Certificate / CertificateVerify
   -> completed mTLS handshake
-  -> successful personal-cabinet request/navigation
+  -> authenticated Treasury application traffic
 ```
 
-Stage 1 is complete only when a sanitized runtime log tied to an exact Actions run ID and exact source commit SHA proves the successful mTLS handshake and authenticated application traffic/navigation.
+The proof is tied to exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` and exact Actions runs `32751967162` (main) and `32751967189` (experimental thunk-rs full build). Sanitized evidence is recorded in the current `TEST_LOG.md`.
 
 #### Stage 2 — mandatory mTLS technical-debt and security closure
 
-**Stage 2 is mandatory. A successful Stage 1 trace does not mean mTLS work is complete. Do not mark the mTLS milestone finished, production-ready, or closed until Stage 2 is completed.**
+**Stage 2 is mandatory. The successful Stage 1 trace does not mean mTLS work is complete. Do not mark the mTLS milestone finished, production-ready, or closed until Stage 2 is completed.**
 
-After the first successful client-certificate connection, immediately perform the following debt/security work:
+Now perform the following debt/security work:
 
 1. Fix server-certificate verification so the MSSPI GOST path is fail-closed. Diagnose the current `msspi_get_verify_status()` internal-error result using sanitized diagnostics only; reject both `verifyOk == 0` and nonzero verification status once the verification path is understood.
 2. Prove server verification with positive and negative cases: the real Treasury server/hostname must pass, while a wrong hostname or invalid/untrusted chain must fail.
@@ -134,13 +134,13 @@ After the first successful client-certificate connection, immediately perform th
 
 Only after all applicable Stage 2 items are complete may the project treat mTLS integration as closed. Any deliberately deferred item must be explicitly approved by the user and remain recorded as an open blocker/debt item rather than disappearing from the plan.
 
-#### Planned implementation/evidence sequence
+#### Current implementation/evidence sequence
 
-1. Stage 1: compile/build commit `f5d04896e17f91f58b6a137af823360f4718eb29` or an exact descendant containing only corrective compile fixes to the same Stage 1 design.
-2. Stage 1: run with both Treasury hosts allowlisted and `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=<local-thumbprint>` set locally; never record the concrete value.
-3. Stage 1: prove that the callback selects the certificate, the client performs the private-key operation / `CertificateVerify`, and the MSSPI mTLS handshake completes. Raw outbound client-auth bytes must remain redacted.
-4. Stage 1: prove successful personal-cabinet navigation or the corresponding authenticated application request, including any CryptoPro PIN interaction, without logging credential identifiers or user data.
-5. Stage 2: complete every applicable item in the mandatory technical-debt/security closure section above before closing the mTLS milestone.
+1. **DONE — Stage 1:** exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` compiled and packaged successfully in the main, SSL-check, and experimental full-build workflows.
+2. **DONE — Stage 1:** both full artifacts successfully selected the known-good local certificate and completed real Treasury mTLS with authenticated application traffic.
+3. **CURRENT — Stage 2:** diagnose and close fail-open server-certificate verification first.
+4. **NEXT — Stage 2:** resolve acceptable-issuer/final certificate-selection policy and Firefox-facing UX.
+5. **NEXT — Stage 2:** cover negative client-auth paths, logging/privacy audit, and final hardened regression proof.
 
 ### 3. Broaden proxy/network coverage later
 
@@ -180,4 +180,6 @@ Policy:
 - Treasury pages fully render with JavaScript and images.
 - Interactive forms, information requests, and web-service response-list workflows work in the alternative thunk-rs full build.
 - The same GOST TLS source commit works in both current full-build strategies.
-- `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and is confirmed to request a client certificate; the remaining unproven step is successful client-certificate selection/loading and mTLS completion with the new Stage 1 candidate.
+- `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and requests a client certificate.
+- Stage 1 client-certificate GOST mTLS is confirmed successful at source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` in both the main full build (`32751967162`) and experimental thunk-rs full build (`32751967189`).
+- Stage 1 success does not close Stage 2: fail-closed server verification and the remaining mTLS security/UX debt are still mandatory.
