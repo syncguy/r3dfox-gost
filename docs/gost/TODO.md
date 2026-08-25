@@ -160,6 +160,15 @@ The current proven environment is an ordinary HTTP proxy using CONNECT. Keep the
 5. Expand Windows 7 runtime coverage beyond basic startup.
 6. Run GOST TLS on Windows 7 as a separate exact-run/exact-SHA runtime milestone; do not infer it from loader/startup compatibility.
 
+## Bundled government-system extensions — next
+
+Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md).
+
+1. **DONE — standalone CryptoPro updater/fallback/package proof:** `CryptoPro extension packaging smoke` run `32815118778`, job `97701728235`, exact code-under-test SHA `2ad7025ca300613d39a227b9e7582a341260d648`, result success. The committed fallback is CryptoPro CAdES Firefox extension `1.2.14`; network failure, invalid fallback, malformed candidate, wrong ID, live official download, staging, and final ZIP verification are covered.
+2. **NEXT — Mozilla packaging-graph proof:** connect the already-selected XPI to the real r3dfox/Firefox packaging graph through `FINAL_TARGET_FILES.distribution.extensions` and prove the resulting `dist/bin/distribution/extensions` / packaged archive layout in a dedicated minimal integration test. Keep this proof separate from the two full browser workflows while it is being debugged.
+3. **NEXT — transfer only proven integration:** after the Mozilla packaging proof passes, add the already-tested updater invocation and package verification gates to both `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` without changing their unrelated build/link/runtime logic.
+4. **LATER — real Firefox install/runtime proof:** use a clean profile from a packaged browser artifact to confirm Firefox discovers/installs the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension and that normal extension update behavior remains functional. Keep this distinct from the static packaging proof.
+
 ## Upstream r3dfox base tracking — deferred
 
 The project is a fork of `Eclipse-Community/r3dfox`, not a direct Firefox-upstream port. As of 2026-08-24 the upstream r3dfox repository default branch is still `win-153`.
@@ -183,3 +192,4 @@ Policy:
 - `lk-fzs.roskazna.ru` is confirmed GOST-routed when explicitly allowlisted and requests a client certificate.
 - Stage 1 client-certificate GOST mTLS is confirmed successful at source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` in both the main full build (`32751967162`) and experimental thunk-rs full build (`32751967189`).
 - Stage 1 success does not close Stage 2: fail-closed server verification and the remaining mTLS security/UX debt are still mandatory.
+- Standalone CryptoPro extension update/fallback/staging/package behavior is confirmed by run `32815118778` at code-under-test SHA `2ad7025ca300613d39a227b9e7582a341260d648`; this does not yet prove real Mozilla packaging-graph integration.
