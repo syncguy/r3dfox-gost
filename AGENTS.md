@@ -79,18 +79,18 @@ Before answering a technical question about the current project state or changin
 2. Read `docs/gost/PROJECT_STATE.md` from the current default branch.
 3. Read `docs/gost/TODO.md` for explicit pending/deferred work and future milestones.
 4. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
-5. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in `docs/gost/TEST_LOG.md`.
+5. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in the current `docs/gost/TEST_LOG.md` and, when the event predates the current volume, in `docs/gost/TEST_LOG_2026-08-22_2026-08-24.md`.
 6. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
-7. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/WORKFLOWS.md` as the workflow-role map, and `docs/gost/TEST_LOG.md` as the historical evidence trail. Prefer verified repository/run state over conversational memory.
+7. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/WORKFLOWS.md` as the workflow-role map, `docs/gost/TEST_LOG.md` as the active experiment log, and dated `TEST_LOG_*.md` volumes as the preserved historical evidence trail. Prefer verified repository/run state over conversational memory.
 
-Do not resurrect a hypothesis marked resolved or rejected in these files without new evidence.
+Do not resurrect a hypothesis marked resolved or rejected in any current or historical test-log volume without new evidence.
 
 ### Sensitive certificate and test data
 - The repository is public. Treat all client-certificate, credential, and user-originated test data as sensitive by default.
 - NEVER commit or publish a complete client-certificate thumbprint/fingerprint, including full SHA-1, SHA-256, or other certificate hash values.
 - NEVER commit or publish client-certificate serial numbers, full subject/issuer DNs that identify the user or organization, certificate key IDs, private-key container/provider identifiers, PINs/passwords, private-key material, PFX/PKCS#12 contents, or equivalent identifying credential metadata.
 - NEVER commit or publish contents of user-filled forms, personal-cabinet responses, account identifiers, or other private application data observed during runtime tests.
-- Do not paste raw client certificates, raw private mTLS captures, or unsanitized diagnostic dumps into `PROJECT_STATE.md`, `TODO.md`, `TEST_LOG.md`, issues, PR comments, commit messages, or CI logs.
+- Do not paste raw client certificates, raw private mTLS captures, or unsanitized diagnostic dumps into `PROJECT_STATE.md`, `TODO.md`, `TEST_LOG.md`, dated historical `TEST_LOG_*.md` volumes, issues, PR comments, commit messages, or CI logs.
 - Before publishing any mTLS/certificate experiment result, sanitize it. Record only protocol facts required to reproduce the engineering conclusion, such as host, build run/commit, TLS state, certificate-request presence, acceptable-CA count, abstract selector type, success/failure class, and sanitized error codes.
 - If a diagnostic selector needs a certificate identifier locally, keep the concrete value outside the repository and outside CI logs. Documentation may say `known-good client certificate`, `<local-cert-id>`, or equivalent; it must not contain the real identifier.
 - Full Git commit SHAs, GitHub Actions run/job IDs, artifact hashes, and hashes of non-sensitive build/log artifacts may still be recorded when useful for reproducibility. This exception does NOT apply to certificate fingerprints/thumbprints or other credential-derived identifiers.
@@ -111,7 +111,8 @@ A successful build does not imply a successful GOST TLS handshake, and a TLS run
 
 ### Documentation maintenance
 After a meaningful experiment:
-- Append the evidence and conclusion to `docs/gost/TEST_LOG.md`.
+- Append the evidence and conclusion to the current `docs/gost/TEST_LOG.md` only.
+- Keep completed historical `docs/gost/TEST_LOG_*.md` volumes immutable except for an explicit correction that preserves the original conclusion and explains the correction.
 - Update `docs/gost/PROJECT_STATE.md` only when the current understanding, blocker, architecture, pinned dependency, or next experiment changes.
 - Update `docs/gost/TODO.md` when a planned/deferred milestone is added, completed, reprioritized, or deliberately dropped.
-- Keep failed/rejected approaches in the test log so future agents do not repeat them blindly.
+- Keep failed/rejected approaches in the active or historical test logs so future agents do not repeat them blindly.
