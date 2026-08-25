@@ -1,0 +1,652 @@
+name: Apply GOST Stage2 next patch
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/apply-gost-stage2-next.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Apply integrated Stage 2 patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+          ns = root / 'security/manager/ssl/nsGostSSLIOLayer.cpp'
+          text = ns.read_text(encoding='utf-8')
+
+          include_old = '#include "GostSocketControl.h"\n'
+          include_new = '#include "GostSocketControl.h"\n#include "GostClientAuthSelection.h"\n'
+          if include_old not in text:
+              raise SystemExit('nsGostSSLIOLayer.cpp include anchor missing')
+          text = text.replace(include_old, include_new, 1)
+
+          old = '''  if (secret->clientCertThumbprint.IsEmpty()) {
+            MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Error,
+                    ("client certificate selector missing host=%s selector=thumbprint",
+                     host.get()));
+            return 0;
+          }
+          '''
+          new = '''  if (secret->clientCertThumbprint.IsEmpty()) {
+            bool loaded = false;
+            const int rv = GostSelectClientCertificate(
+                secret->msspi, secret->control, secret->port, &loaded);
+            if (loaded) {
+              secret->clientCertLoaded = true;
+            }
+            return rv;
+          }
+          '''
+          if old not in text:
+              raise SystemExit('Stage1 missing-selector block anchor missing')
+          text = text.replace(old, new, 1)
+
+          close_old = '    msspi_close(secret->msspi);\n'
+          close_new = ('    GostForgetClientCertificateSelection(secret->msspi);\n'
+                       '    msspi_close(secret->msspi);\n')
+          if close_old not in text:
+              raise SystemExit('msspi_close anchor missing')
+          text = text.replace(close_old, close_new, 1)
+          ns.write_text(text, encoding='utf-8')
+
+          header = r'''/* MPL 2.0 */
+          #ifndef GostClientAuthSelection_h
+          #define GostClientAuthSelection_h
+
+          #include <stdint.h>
+
+          #include "mozilla/RefPtr.h"
+          #include "msspi.h"
+
+          class GostSocketControl;
+
+          int GostSelectClientCertificate(MSSPI_HANDLE aMsspi,
+                                          GostSocketControl* aControl,
+                                          int32_t aPort, bool* aLoaded);
+          void GostForgetClientCertificateSelection(MSSPI_HANDLE aMsspi);
+
+          #endif
+          '''
+          (root / 'security/manager/ssl/GostClientAuthSelection.h').write_text(
+              header.replace('          ', ''), encoding='utf-8')
+
+          source = r'''/* MPL 2.0 */
+          #include "GostClientAuthSelection.h"
+
+          #ifdef XP_WIN
+          #  include <windows.h>
+          #  include <wincrypt.h>
+          #endif
+
+          #include "GostSocketControl.h"
+          #include "mozilla/Logging.h"
+          #include "mozilla/Mutex.h"
+          #include "mozilla/OriginAttributes.h"
+          #include "mozilla/RefPtr.h"
+          #include "mozilla/StaticMutex.h"
+          #include "mozilla/StaticPtr.h"
+          #include "mozilla/dom/BrowsingContext.h"
+          #include "nsCOMPtr.h"
+          #include "nsIClientAuthDialogService.h"
+          #include "nsIClientAuthRememberService.h"
+          #include "nsIEventTarget.h"
+          #include "nsISocketTransportService.h"
+          #include "nsIX509Cert.h"
+          #include "nsIX509CertDB.h"
+          #include "nsServiceManagerUtils.h"
+          #include "nsThreadUtils.h"
+
+          extern mozilla::LazyLogModule gGostTLSLog;
+
+          namespace {
+
+          enum class SelectionPhase { Selecting, Selected, Declined, Failed };
+
+          class SelectionState final
+              : public mozilla::RefCountedThreadSafe<SelectionState> {
+           public:
+            SelectionState(MSSPI_HANDLE aMsspi, GostSocketControl* aControl,
+                           const nsACString& aHost, int32_t aPort,
+                           const mozilla::OriginAttributes& aOriginAttributes,
+                           uint64_t aBrowserId,
+                           nsTArray<nsTArray<uint8_t>>&& aCandidates,
+                           nsTArray<nsTArray<uint8_t>>&& aCANames)
+                : mMutex("GostClientAuthSelection"),
+                  mMsspi(aMsspi),
+                  mControl(aControl),
+                  mHost(aHost),
+                  mPort(aPort),
+                  mOriginAttributes(aOriginAttributes),
+                  mBrowserId(aBrowserId),
+                  mCandidates(std::move(aCandidates)),
+                  mCANames(std::move(aCANames)) {}
+
+            mozilla::Mutex mMutex;
+            MSSPI_HANDLE mMsspi;
+            RefPtr<GostSocketControl> mControl;
+            nsCString mHost;
+            int32_t mPort;
+            mozilla::OriginAttributes mOriginAttributes;
+            uint64_t mBrowserId;
+            nsTArray<nsTArray<uint8_t>> mCandidates;
+            nsTArray<nsTArray<uint8_t>> mCANames;
+            SelectionPhase mPhase = SelectionPhase::Selecting;
+            nsTArray<uint8_t> mSelectedDER;
+            bool mRememberForSession = false;
+
+           private:
+            friend class mozilla::RefCountedThreadSafe<SelectionState>;
+            ~SelectionState() = default;
+          };
+
+          struct RememberedChoice {
+            nsCString key;
+            nsTArray<uint8_t> der;
+            bool declined = false;
+          };
+
+          static mozilla::StaticMutex sSelectionMutex;
+          static mozilla::StaticAutoPtr<nsTArray<RefPtr<SelectionState>>>
+              sSelections;
+          static mozilla::StaticAutoPtr<nsTArray<RememberedChoice>> sRemembered;
+
+          nsCString MakeDecisionKey(const nsACString& aHost,
+                                    const mozilla::OriginAttributes& aAttrs) {
+            nsCString key(aHost);
+            key.Append('\0');
+            nsAutoCString suffix;
+            aAttrs.CreateSuffix(suffix);
+            key.Append(suffix);
+            return key;
+          }
+
+          RefPtr<SelectionState> FindSelection(MSSPI_HANDLE aMsspi) {
+            mozilla::StaticMutexAutoLock lock(sSelectionMutex);
+            if (!sSelections) {
+              return nullptr;
+            }
+            for (const auto& selection : *sSelections) {
+              if (selection->mMsspi == aMsspi) {
+                return selection;
+              }
+            }
+            return nullptr;
+          }
+
+          void RemoveSelection(MSSPI_HANDLE aMsspi) {
+            mozilla::StaticMutexAutoLock lock(sSelectionMutex);
+            if (!sSelections) {
+              return;
+            }
+            for (uint32_t i = 0; i < sSelections->Length(); ++i) {
+              if ((*sSelections)[i]->mMsspi == aMsspi) {
+                sSelections->RemoveElementAt(i);
+                return;
+              }
+            }
+          }
+
+          bool FindRemembered(const nsACString& aKey, nsTArray<uint8_t>& aDER,
+                              bool& aDeclined) {
+            mozilla::StaticMutexAutoLock lock(sSelectionMutex);
+            if (!sRemembered) {
+              return false;
+            }
+            for (const auto& choice : *sRemembered) {
+              if (choice.key.Equals(aKey)) {
+                aDER = choice.der.Clone();
+                aDeclined = choice.declined;
+                return true;
+              }
+            }
+            return false;
+          }
+
+          void RememberChoice(const nsACString& aKey, const nsTArray<uint8_t>& aDER,
+                              bool aDeclined) {
+            mozilla::StaticMutexAutoLock lock(sSelectionMutex);
+            if (!sRemembered) {
+              sRemembered = new nsTArray<RememberedChoice>();
+            }
+            for (auto& choice : *sRemembered) {
+              if (choice.key.Equals(aKey)) {
+                choice.der = aDER.Clone();
+                choice.declined = aDeclined;
+                return;
+              }
+            }
+            RememberedChoice choice;
+            choice.key = aKey;
+            choice.der = aDER.Clone();
+            choice.declined = aDeclined;
+            sRemembered->AppendElement(std::move(choice));
+          }
+
+          #ifdef XP_WIN
+          bool BlobEquals(const CERT_NAME_BLOB& aName, const nsTArray<uint8_t>& aCA) {
+            return aName.cbData == aCA.Length() && aName.pbData &&
+                   memcmp(aName.pbData, aCA.Elements(), aCA.Length()) == 0;
+          }
+
+          bool MatchesAcceptableCA(PCCERT_CONTEXT aCert,
+                                   const nsTArray<nsTArray<uint8_t>>& aCANames) {
+            if (aCANames.IsEmpty()) {
+              return true;
+            }
+
+            CERT_CHAIN_PARA para = {};
+            para.cbSize = sizeof(para);
+            PCCERT_CHAIN_CONTEXT chain = nullptr;
+            if (!CertGetCertificateChain(
+                    nullptr, aCert, nullptr, aCert->hCertStore, &para,
+                    CERT_CHAIN_CACHE_END_CERT | CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL,
+                    nullptr, &chain) ||
+                !chain) {
+              return false;
+            }
+
+            bool matches = false;
+            for (DWORD chainIndex = 0; chainIndex < chain->cChain && !matches;
+                 ++chainIndex) {
+              PCERT_SIMPLE_CHAIN simple = chain->rgpChain[chainIndex];
+              for (DWORD element = 0; element < simple->cElement && !matches;
+                   ++element) {
+                PCCERT_CONTEXT current = simple->rgpElement[element]->pCertContext;
+                for (const auto& ca : aCANames) {
+                  if (BlobEquals(current->pCertInfo->Subject, ca) ||
+                      BlobEquals(current->pCertInfo->Issuer, ca)) {
+                    matches = true;
+                    break;
+                  }
+                }
+              }
+            }
+            CertFreeCertificateChain(chain);
+            return matches;
+          }
+
+          bool CollectCANames(MSSPI_HANDLE aMsspi,
+                              nsTArray<nsTArray<uint8_t>>& aCANames) {
+            size_t count = 0;
+            if (!msspi_get_issuerlist(aMsspi, nullptr, nullptr, &count)) {
+              return false;
+            }
+            if (!count) {
+              return true;
+            }
+            nsTArray<const uint8_t*> buffers;
+            nsTArray<size_t> lengths;
+            buffers.SetLength(count);
+            lengths.SetLength(count);
+            size_t actual = count;
+            if (!msspi_get_issuerlist(aMsspi, buffers.Elements(), lengths.Elements(),
+                                      &actual)) {
+              return false;
+            }
+            for (size_t i = 0; i < actual; ++i) {
+              nsTArray<uint8_t> ca;
+              ca.AppendElements(buffers[i], lengths[i]);
+              aCANames.AppendElement(std::move(ca));
+            }
+            return true;
+          }
+
+          bool CollectCandidates(const nsTArray<nsTArray<uint8_t>>& aCANames,
+                                 nsTArray<nsTArray<uint8_t>>& aCandidates) {
+            HCERTSTORE store = CertOpenStore(
+                CERT_STORE_PROV_SYSTEM_W, 0, 0,
+                CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG |
+                    CERT_STORE_READONLY_FLAG,
+                L"MY");
+            if (!store) {
+              return false;
+            }
+
+            PCCERT_CONTEXT cert = nullptr;
+            while ((cert = CertEnumCertificatesInStore(store, cert))) {
+              DWORD keyInfoSize = 0;
+              if (!CertGetCertificateContextProperty(
+                      cert, CERT_KEY_PROV_INFO_PROP_ID, nullptr, &keyInfoSize) ||
+                  !keyInfoSize) {
+                continue;
+              }
+              if (!MatchesAcceptableCA(cert, aCANames)) {
+                continue;
+              }
+              nsTArray<uint8_t> der;
+              der.AppendElements(cert->pbCertEncoded, cert->cbCertEncoded);
+              aCandidates.AppendElement(std::move(der));
+            }
+            CertCloseStore(store, 0);
+            return true;
+          }
+          #endif
+
+          bool IsStillActive(SelectionState* aState) {
+            mozilla::StaticMutexAutoLock lock(sSelectionMutex);
+            if (!sSelections) {
+              return false;
+            }
+            for (const auto& state : *sSelections) {
+              if (state == aState) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          void WakeSocketThread(SelectionState* aState) {
+            nsCOMPtr<nsIEventTarget> socketThread(
+                do_GetService(NS_SOCKETTRANSPORTSERVICE_CONTRACTID));
+            if (!socketThread) {
+              return;
+            }
+            RefPtr<SelectionState> state(aState);
+            (void)socketThread->Dispatch(
+                NS_NewRunnableFunction("GostClientAuthResume", [state]() {
+                  if (!IsStillActive(state)) {
+                    return;
+                  }
+                  (void)state->mControl->DriveHandshake();
+                }));
+          }
+
+          class DialogCallback final : public nsIClientAuthDialogCallback {
+           public:
+            NS_DECL_THREADSAFE_ISUPPORTS
+            NS_DECL_NSICLIENTAUTHDIALOGCALLBACK
+
+            explicit DialogCallback(SelectionState* aState) : mState(aState) {}
+
+           private:
+            ~DialogCallback() = default;
+            RefPtr<SelectionState> mState;
+          };
+
+          NS_IMPL_ISUPPORTS(DialogCallback, nsIClientAuthDialogCallback)
+
+          NS_IMETHODIMP DialogCallback::CertificateChosen(
+              nsIX509Cert* aCert,
+              nsIClientAuthRememberService::Duration aRememberDuration) {
+            nsTArray<uint8_t> der;
+            if (aCert) {
+              nsresult rv = aCert->GetRawDER(der);
+              if (NS_FAILED(rv)) {
+                mozilla::MutexAutoLock lock(mState->mMutex);
+                mState->mPhase = SelectionPhase::Failed;
+                WakeSocketThread(mState);
+                return rv;
+              }
+            }
+
+            const bool remember =
+                aRememberDuration != nsIClientAuthRememberService::Once;
+            {
+              mozilla::MutexAutoLock lock(mState->mMutex);
+              mState->mSelectedDER = der.Clone();
+              mState->mRememberForSession = remember;
+              mState->mPhase = aCert ? SelectionPhase::Selected
+                                     : SelectionPhase::Declined;
+            }
+            if (remember) {
+              RememberChoice(MakeDecisionKey(mState->mHost,
+                                             mState->mOriginAttributes),
+                             der, !aCert);
+            }
+            WakeSocketThread(mState);
+            return NS_OK;
+          }
+
+          void OpenDialog(SelectionState* aState) {
+            MOZ_ASSERT(NS_IsMainThread());
+            RefPtr<SelectionState> state(aState);
+
+            nsCOMPtr<nsIX509CertDB> certDB(do_GetService(NS_X509CERTDB_CONTRACTID));
+            nsCOMPtr<nsIClientAuthDialogService> dialog(
+                do_GetService(NS_CLIENTAUTHDIALOGSERVICE_CONTRACTID));
+            if (!certDB || !dialog) {
+              {
+                mozilla::MutexAutoLock lock(state->mMutex);
+                state->mPhase = SelectionPhase::Failed;
+              }
+              WakeSocketThread(state);
+              return;
+            }
+
+            nsTArray<RefPtr<nsIX509Cert>> certArray;
+            for (const auto& der : state->mCandidates) {
+              nsCOMPtr<nsIX509Cert> cert;
+              if (NS_SUCCEEDED(certDB->ConstructX509(der, getter_AddRefs(cert))) &&
+                  cert) {
+                certArray.AppendElement(cert);
+              }
+            }
+            if (certArray.IsEmpty()) {
+              {
+                mozilla::MutexAutoLock lock(state->mMutex);
+                state->mPhase = SelectionPhase::Declined;
+              }
+              WakeSocketThread(state);
+              return;
+            }
+
+            RefPtr<mozilla::dom::BrowsingContext> browsingContext;
+            if (state->mBrowserId) {
+              browsingContext = mozilla::dom::BrowsingContext::GetCurrentTopByBrowserId(
+                  state->mBrowserId);
+            }
+            RefPtr<nsIClientAuthDialogCallback> callback(new DialogCallback(state));
+            nsresult rv = dialog->ChooseCertificate(
+                state->mHost, certArray, browsingContext, state->mCANames, callback);
+            if (NS_FAILED(rv)) {
+              {
+                mozilla::MutexAutoLock lock(state->mMutex);
+                state->mPhase = SelectionPhase::Failed;
+              }
+              WakeSocketThread(state);
+            }
+          }
+
+          }  // namespace
+
+          int GostSelectClientCertificate(MSSPI_HANDLE aMsspi,
+                                          GostSocketControl* aControl,
+                                          int32_t aPort, bool* aLoaded) {
+            if (aLoaded) {
+              *aLoaded = false;
+            }
+            if (!aMsspi || !aControl) {
+              return 0;
+            }
+
+            const nsCString host(aControl->GetHostName());
+            const mozilla::OriginAttributes attrs(aControl->GetOriginAttributes());
+            const nsCString key(MakeDecisionKey(host, attrs));
+
+            nsTArray<uint8_t> rememberedDER;
+            bool rememberedDeclined = false;
+            if (FindRemembered(key, rememberedDER, rememberedDeclined)) {
+              if (rememberedDeclined) {
+                MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+                        ("client certificate remembered host=%s selected=0 scope=session",
+                         host.get()));
+                return 1;
+              }
+              const int selected = msspi_set_mycert(
+                  aMsspi, rememberedDER.Elements(), rememberedDER.Length());
+              if (selected && aLoaded) {
+                *aLoaded = true;
+              }
+              MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+                      ("client certificate remembered host=%s selected=%d scope=session",
+                       host.get(), selected ? 1 : 0));
+              return selected ? 1 : 0;
+            }
+
+            RefPtr<SelectionState> state(FindSelection(aMsspi));
+            if (state) {
+              SelectionPhase phase;
+              nsTArray<uint8_t> der;
+              {
+                mozilla::MutexAutoLock lock(state->mMutex);
+                phase = state->mPhase;
+                der = state->mSelectedDER.Clone();
+              }
+              if (phase == SelectionPhase::Selecting) {
+                return -1;
+              }
+              if (phase == SelectionPhase::Declined) {
+                RemoveSelection(aMsspi);
+                MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+                        ("client certificate dialog completed host=%s selected=0",
+                         host.get()));
+                return 1;
+              }
+              if (phase == SelectionPhase::Failed || der.IsEmpty()) {
+                RemoveSelection(aMsspi);
+                return 0;
+              }
+              const int selected =
+                  msspi_set_mycert(aMsspi, der.Elements(), der.Length());
+              RemoveSelection(aMsspi);
+              if (selected && aLoaded) {
+                *aLoaded = true;
+              }
+              MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+                      ("client certificate dialog completed host=%s selected=%d",
+                       host.get(), selected ? 1 : 0));
+              return selected ? 1 : 0;
+            }
+
+          #ifdef XP_WIN
+            nsTArray<nsTArray<uint8_t>> caNames;
+            if (!CollectCANames(aMsspi, caNames)) {
+              return 0;
+            }
+            nsTArray<nsTArray<uint8_t>> candidates;
+            if (!CollectCandidates(caNames, candidates)) {
+              return 0;
+            }
+            if (candidates.IsEmpty()) {
+              MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+                      ("client certificate candidates host=%s count=0",
+                       host.get()));
+              return 1;
+            }
+
+            uint64_t browserId = 0;
+            (void)aControl->GetBrowserId(&browserId);
+            state = new SelectionState(aMsspi, aControl, host, aPort, attrs,
+                                       browserId, std::move(candidates),
+                                       std::move(caNames));
+            {
+              mozilla::StaticMutexAutoLock lock(sSelectionMutex);
+              if (!sSelections) {
+                sSelections = new nsTArray<RefPtr<SelectionState>>();
+              }
+              sSelections->AppendElement(state);
+            }
+            MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+                    ("client certificate dialog requested host=%s mode=firefox-ui",
+                     host.get()));
+            (void)NS_DispatchToMainThread(NS_NewRunnableFunction(
+                "GostClientAuthDialog", [state]() { OpenDialog(state); }));
+            return -1;
+          #else
+            return 0;
+          #endif
+          }
+
+          void GostForgetClientCertificateSelection(MSSPI_HANDLE aMsspi) {
+            if (aMsspi) {
+              RemoveSelection(aMsspi);
+            }
+          }
+          '''
+          (root / 'security/manager/ssl/GostClientAuthSelection.cpp').write_text(
+              source.replace('          ', ''), encoding='utf-8')
+
+          workflows = [
+              root / '.github/workflows/gost-ssl-compile-check.yml',
+              root / '.github/workflows/gost-poc-build.yml',
+              root / '.github/workflows/gost-poc-build-thunk.yml',
+          ]
+          for wf in workflows:
+              w = wf.read_text(encoding='utf-8')
+              source_anchor = "$source.Replace('#include <Windows.h>', '#include <windows.h>'),"
+              source_repl = "$source.Replace('#include <Windows.h>', '#include <windows.h>').Replace('SECPKG_ATTR_REMOTE_CERT_CHAIN', 'SECPKG_ATTR_REMOTE_CERT_CONTEXT'),"
+              if source_anchor not in w:
+                  raise SystemExit(f'MSSPI patch anchor missing in {wf}')
+              w = w.replace(source_anchor, source_repl, 1)
+              list_anchor = '              "GostSocketControl.cpp",\n              "GostTLSService.cpp",\n'
+              list_repl = '              "GostSocketControl.cpp",\n              "GostClientAuthSelection.cpp",\n              "GostTLSService.cpp",\n'
+              if list_anchor not in w:
+                  raise SystemExit(f'moz.build source anchor missing in {wf}')
+              w = w.replace(list_anchor, list_repl, 1)
+              wf.write_text(w, encoding='utf-8')
+
+          plan = root / 'docs/gost/STAGE2_PLAN.md'
+          p = plan.read_text(encoding='utf-8')
+          marker = '## Stage 2.2 — server trust decision and positive session cache\n'
+          addition = '''## Current combined implementation experiment\n\nThe next build combines two changes so a full Firefox build is not spent on a one-line compatibility probe:\n\n- Windows MSSPI peer-certificate acquisition is switched from `SECPKG_ATTR_REMOTE_CERT_CHAIN` to the XP/Vista/7-compatible `SECPKG_ATTR_REMOTE_CERT_CONTEXT`; the existing MSSPI `CertGetCertificateChain` path remains responsible for chain construction.\n- `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` remains the first and unchanged known-good client-certificate path. When it is absent, the GOST callback now uses an asynchronous Firefox `nsIClientAuthDialogService` selection path: `MSSPI_X509_LOOKUP -> would-block -> main-thread clientauthask.xhtml -> socket-thread resume -> msspi_set_mycert`.\n- Candidate certificates come from `CurrentUser\\\\MY`, must have a private-key provider binding, and are filtered against the server acceptable-CA DER names by matching certificate-chain subject/issuer names.\n- The first UI implementation remembers a selected or declined choice only for the current browser process/session. Persistent Firefox remember-service integration remains later hardening work; no existing thumbprint behavior is removed.\n\n'''
+          if marker not in p:
+              raise SystemExit('STAGE2_PLAN marker missing')
+          p = p.replace(marker, addition + marker, 1)
+          plan.write_text(p, encoding='utf-8')
+
+          testlog = root / 'docs/gost/TEST_LOG.md'
+          t = testlog.read_text(encoding='utf-8')
+          t += '''\n---\n\n## 2026-08-25 — Stage 2.1 main runtime localizes verifier failure and validates issuer-list dedup\n\n**Track:** GOST TLS runtime / Stage 2.1 observability  \n**Branch:** `agent/gost-tls-poc`  \n**Code-under-test:** `c62022a5530a61124b756648293113187b8e5b8b`  \n**Main build:** run `32810337957`, job `97688347771`  \n**Runtime result:** browser-visible Treasury use succeeds without lag or visible errors\n\n### Sanitized observation\n\nThe user-provided main-build runtime capture contains 12 completed GOST handshakes for `fzs.roskazna.ru` and 13 completed mTLS handshakes for `lk-fzs.roskazna.ru`. The login-host handshakes continue to report `client_cert_loaded=1`; the previous `0x80090326` client-auth failure does not recur and no `E/GostTLS` entry is present.\n\nThe acceptable-issuer diagnostics return 34 entries / 11,420 DER bytes. The complete list is decoded once (`already_logged=0`) and 13 later identical observations are suppressed with `already_logged=1`, confirming the browser-session dedup behavior. All 34 entries decode as X.500 names; sensitive/client-identifying certificate data is not recorded here.\n\nAcross the completed connections, server peer-certificate acquisition fails consistently with `0x80090302` (`SEC_E_UNSUPPORTED_FUNCTION`) on the pinned MSSPI Windows request for `SECPKG_ATTR_REMOTE_CERT_CHAIN`. As a consequence MSSPI has no `peercert`, peer-chain and peer-name accessors cannot produce data, and `msspi_get_verify_status()` returns its internal-failure form (`ok=0`). This localizes the current verifier blocker to peer-certificate acquisition rather than to a proved Treasury certificate-policy failure.\n\n### Conclusion\n\n**Stage 2.1 observability succeeded and changed the leading blocker.** The next compatibility experiment should use the already-existing MSSPI `SECPKG_ATTR_REMOTE_CERT_CONTEXT` leaf-certificate path on Windows and let `CertGetCertificateChain` build the chain. This result also confirms that detailed issuer diagnostics are usable without browser-visible performance degradation.\n'''
+          testlog.write_text(t, encoding='utf-8')
+
+          state = root / 'docs/gost/PROJECT_STATE.md'
+          s = state.read_text(encoding='utf-8')
+          needle = 'Successful ordinary and Stage 1 Treasury sessions still do not establish fail-closed server-certificate validation. Earlier successful sessions contain:\n'
+          replacement = '''Stage 2.1 runtime diagnostics on the main full build (run `32810337957`, job `97688347771`, source SHA `c62022a5530a61124b756648293113187b8e5b8b`) localize the current verification failure: pinned MSSPI requests `SECPKG_ATTR_REMOTE_CERT_CHAIN` on Windows, and the active SSPI/CryptoPro provider returns `0x80090302` (`SEC_E_UNSUPPORTED_FUNCTION`). MSSPI therefore never obtains `peercert`, so its peer-chain/name helpers and `msspi_get_verify_status()` reach the internal-error path before certificate policy is actually evaluated. The next implementation uses `SECPKG_ATTR_REMOTE_CERT_CONTEXT` and the existing `CertGetCertificateChain` verifier path.\n\nThe same runtime capture confirms the 34-entry acceptable-CA list is fully decoded once and repeated identical lists are suppressed for the rest of the browser session. Browser-visible Treasury use, including mTLS, remains successful.\n\nSuccessful ordinary and Stage 1 Treasury sessions still do not yet establish fail-closed server-certificate validation. Earlier successful sessions contain:\n'''
+          if needle not in s:
+              raise SystemExit('PROJECT_STATE verification section anchor missing')
+          s = s.replace(needle, replacement, 1)
+          state.write_text(s, encoding='utf-8')
+
+          helper = root / '.github/workflows/apply-gost-stage2-next.yml'
+          helper.unlink()
+          PY
+
+      - name: Commit integrated change
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(gost): add firefox client cert selection path"
+          git push origin HEAD:agent/gost-tls-poc
+          git push origin --delete agent/gost-stage2-next-temp || true
+          git push origin --delete agent/gost-stage2-next-temp2 || true
+          git push origin --delete agent/gost-stage2-next-temp3 || true
+          git push origin --delete agent/gost-stage2-next-temp4 || true
+          git push origin --delete agent/gost-stage2-next-temp5 || true
+
+      - name: Dispatch GOST builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run gost-ssl-compile-check.yml --ref agent/gost-tls-poc
+          gh workflow run gost-poc-build.yml --ref agent/gost-tls-poc
+          gh workflow run gost-poc-build-thunk.yml --ref agent/gost-tls-poc
