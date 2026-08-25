@@ -169,3 +169,57 @@ This proves that the Stage 2.1 diagnostics implementation, with the two compile-
 **The Stage 2.1 compile blocker is closed for code SHA `c62022a5530a61124b756648293113187b8e5b8b`.**
 
 The next evidence required is completion of the two full builds for the same exact code SHA, followed by runtime testing of the resulting artifact(s) to inspect server-verification diagnostics and the one-per-session detailed acceptable-issuer-list dump.
+
+---
+
+## 2026-08-25 — CryptoPro extension standalone update/fallback/package smoke passes
+
+**Track:** bundled government-system extensions / packaging infrastructure  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `2ad7025ca300613d39a227b9e7582a341260d648` (`test(extensions): normalize expected failure exit`)  
+**Actions run:** `32815118778`  
+**Job:** `97701728235`  
+**Workflow:** `CryptoPro extension packaging smoke`  
+**CI result:** success  
+**Evidence artifact:** `9551126137` (`cryptopro-extension-smoke`)
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32815118778>
+
+### Purpose
+
+Prove the CryptoPro CAdES Firefox-extension preparation pipeline independently of both full browser builds and independently of the real Firefox packaging graph before integrating it into production build workflows.
+
+The committed fallback is `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`, version `1.2.14`, SHA-256 `3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7`.
+
+### Observation
+
+All standalone gates passed:
+
+- the committed fallback validates with exact ID `ru.cryptopro.nmcades@cryptopro.ru`, version `1.2.14`, expected SHA-256, valid ZIP integrity, required Mozilla signature structure, and COSE structure;
+- a forced network failure selects the committed fallback;
+- a deliberately invalid committed fallback is rejected as a hard error and produces no selected output;
+- a deterministic structurally valid downloaded candidate is accepted and selected;
+- a malformed download is rejected and the valid committed fallback is selected;
+- a structurally valid candidate carrying the wrong extension ID is rejected and the fallback is selected;
+- the live official CryptoPro URL successfully returned version `1.2.14` with the exact same SHA-256 as the committed fallback;
+- the selected live XPI was staged as `distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`;
+- the final smoke ZIP contains that exact path, preserves the selected XPI SHA-256, and re-validates the expected extension ID and version;
+- evidence artifact `9551126137` contains the smoke metadata, selected XPI files, and final package ZIP.
+
+The smoke validates signature-file/COSE structure but does not claim independent cryptographic verification of Mozilla's extension signature. Firefox remains the authority for signature enforcement when the XPI is actually installed.
+
+### Harness history
+
+Three earlier runs were intentionally left as evidence rather than rewritten:
+
+- run `32814789390`, job `97700797664`, SHA `77a2398a018b35e28435b706c956d983c2694fbd`: fallback download and validation succeeded, but the one-time bootstrap commit step failed because Windows PowerShell promoted expected `git ls-files --error-unmatch` stderr to `NativeCommandError`;
+- run `32814928877`, job `97701192432`, SHA `435d7947415ec8a693f849037b9b3b1f1614d8b8`: bootstrap commit succeeded and created `e2102e1c9771c0115060303206144ab343de9f0c` with the exact XPI, then a PowerShell `PathInfo` to `System.Uri` conversion bug stopped the deterministic candidate gate;
+- run `32815019875`, job `97701450709`, SHA `d05d95841f2edaca39aae6f1e3ea1dda251ab0b8`: the updater correctly rejected an invalid fallback with exit code 2, but PowerShell propagated the expected nonzero native exit code as the step result; the harness was fixed by explicitly normalizing that expected negative test to success.
+
+These failures were smoke-harness defects, not failures of the committed CryptoPro XPI or of the final updater contract.
+
+### Conclusion
+
+**The standalone CryptoPro extension update/fallback/staging/package mechanism is proven at SHA `2ad7025ca300613d39a227b9e7582a341260d648`.**
+
+This does not yet prove integration with Mozilla `FINAL_TARGET_FILES` or a real Firefox package. The next extension-track experiment is a minimal Mozilla build-system integration proof that connects the selected XPI to the real `r3dfox/moz.build` packaging graph without first modifying either full GOST browser workflow. Only after that proof should the already-tested preparation and package gates be transferred into the two full browser builds.
