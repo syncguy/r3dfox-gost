@@ -78,19 +78,20 @@ Before answering a technical question about the current project state or changin
 1. Verify the repository default branch and the exact HEAD/ref relevant to the question.
 2. Read `docs/gost/PROJECT_STATE.md` from the current default branch.
 3. Read `docs/gost/TODO.md` for explicit pending/deferred work and future milestones.
-4. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
-5. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in the current `docs/gost/TEST_LOG.md` and, when the event predates the current volume, in the relevant dated `docs/gost/TEST_LOG_*.md` historical volume.
-6. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
-7. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/WORKFLOWS.md` as the workflow-role map, `docs/gost/TEST_LOG.md` as the active experiment log, and dated `TEST_LOG_*.md` volumes as the preserved historical evidence trail. Prefer verified repository/run state over conversational memory.
+4. Read `docs/gost/DONE.md` when the question concerns a completed milestone, a closed blocker, an already-proven baseline, or a hypothesis that may otherwise be reopened accidentally.
+5. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs. Treat it as authoritative for the role of each workflow, especially the distinction between the main GOST build and experimental Windows Vista/7 thunk-rs builds.
+6. If the question concerns a previous build, regression, test, error, or discarded approach, read the relevant entries in the current `docs/gost/TEST_LOG.md` and, when the event predates the current volume, in the relevant dated `docs/gost/TEST_LOG_*.md` historical volume.
+7. Associate runtime logs and GitHub Actions results with their exact run ID and commit SHA before drawing conclusions.
+8. Treat `docs/gost/PROJECT_STATE.md` as the current synthesis, `docs/gost/TODO.md` as the forward backlog, `docs/gost/DONE.md` as the compact registry of formally closed milestones/conclusions, `docs/gost/WORKFLOWS.md` as the workflow-role map, `docs/gost/TEST_LOG.md` as the active experiment log, and dated `TEST_LOG_*.md` volumes as the preserved historical evidence trail. Prefer verified repository/run state over conversational memory.
 
-Do not resurrect a hypothesis marked resolved or rejected in any current or historical test-log volume without new evidence.
+Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any current or historical test-log volume without new evidence.
 
 ### Sensitive certificate and test data
 - The repository is public. Treat all client-certificate, credential, and user-originated test data as sensitive by default.
 - NEVER commit or publish a complete client-certificate thumbprint/fingerprint, including full SHA-1, SHA-256, or other certificate hash values.
 - NEVER commit or publish client-certificate serial numbers, full subject/issuer DNs that identify the user or organization, certificate key IDs, private-key container/provider identifiers, PINs/passwords, private-key material, PFX/PKCS#12 contents, or equivalent identifying credential metadata.
 - NEVER commit or publish contents of user-filled forms, personal-cabinet responses, account identifiers, or other private application data observed during runtime tests.
-- Do not paste raw client certificates, raw private mTLS captures, or unsanitized diagnostic dumps into `PROJECT_STATE.md`, `TODO.md`, `TEST_LOG.md`, dated historical `TEST_LOG_*.md` volumes, issues, PR comments, commit messages, or CI logs.
+- Do not paste raw client certificates, raw private mTLS captures, or unsanitized diagnostic dumps into `PROJECT_STATE.md`, `TODO.md`, `DONE.md`, `TEST_LOG.md`, dated historical `TEST_LOG_*.md` volumes, issues, PR comments, commit messages, or CI logs.
 - Before publishing any mTLS/certificate experiment result, sanitize it. Record only protocol facts required to reproduce the engineering conclusion, such as host, build run/commit, TLS state, certificate-request presence, acceptable-CA count, abstract selector type, success/failure class, and sanitized error codes.
 - If a diagnostic selector needs a certificate identifier locally, keep the concrete value outside the repository and outside CI logs. Documentation may say `known-good client certificate`, `<local-cert-id>`, or equivalent; it must not contain the real identifier.
 - Full Git commit SHAs, GitHub Actions run/job IDs, artifact hashes, and hashes of non-sensitive build/log artifacts may still be recorded when useful for reproducibility. This exception does NOT apply to certificate fingerprints/thumbprints or other credential-derived identifiers.
@@ -114,7 +115,8 @@ After a meaningful experiment:
 - Append the evidence and conclusion to the current `docs/gost/TEST_LOG.md` only.
 - Keep completed historical `docs/gost/TEST_LOG_*.md` volumes immutable except for an explicit correction that preserves the original conclusion and explains the correction.
 - Update `docs/gost/PROJECT_STATE.md` only when the current understanding, blocker, architecture, pinned dependency, or next experiment changes.
-- Update `docs/gost/TODO.md` when a planned/deferred milestone is added, completed, reprioritized, or deliberately dropped.
+- Keep `docs/gost/TODO.md` forward-looking. Update it when planned/deferred work is added, reprioritized, deliberately dropped, or exposed by new evidence. When a milestone is completed, remove its completed narrative from `TODO.md` after the evidence is recorded.
+- Update `docs/gost/DONE.md` when a milestone, blocker, or research conclusion is formally closed or reopened. Keep entries compact: summarize what is proven and point to authoritative evidence; do not duplicate full experiment histories from `TEST_LOG.md`.
 - Keep failed/rejected approaches in the active or historical test logs so future agents do not repeat them blindly.
 
 ### TEST_LOG rotation procedure
@@ -125,12 +127,12 @@ Use this exact procedure:
 2. Fetch the current `docs/gost/TEST_LOG.md` and record its blob SHA.
 3. Choose a dated historical filename of the form `docs/gost/TEST_LOG_YYYY-MM-DD_YYYY-MM-DD.md`, covering the first and last experiment dates in the volume. If the active volume begins with a continuation note rather than an experiment, use the first actual experiment date.
 4. Preserve the completed volume unchanged. Prefer reusing the exact existing blob for the dated historical path so the historical content is byte-identical. Do not summarize, rewrite, compact, reorder, or delete old failures during rotation.
-5. Replace `docs/gost/TEST_LOG.md` with a small new active volume. Its header must link to the immediately preceding dated volume, state that older evidence is preserved there, link to `PROJECT_STATE.md` and `TODO.md`, and retain the sanitization/append-only rules.
+5. Replace `docs/gost/TEST_LOG.md` with a small new active volume. Its header must link to the immediately preceding dated volume, state that older evidence is preserved there, link to `PROJECT_STATE.md`, `TODO.md`, and `DONE.md`, and retain the sanitization/append-only rules.
 6. If a meaningful experiment triggered the rotation, put that experiment into the new active `TEST_LOG.md` in the same documentation operation. Do not rotate first and postpone recording the evidence.
 7. Update `docs/gost/PROJECT_STATE.md` so its evidence-trail introduction points to the current `TEST_LOG.md` plus the dated historical volume(s). If the experiment changed the current blocker or confirmed state, update that synthesis at the same time.
-8. Update `docs/gost/TODO.md` if the experiment completed, reprioritized, added, or exposed planned/deferred work. Its introduction should continue to describe the current log as active and dated `TEST_LOG_*.md` files as historical evidence.
-9. Update this `AGENTS.md` only when the log topology or rotation convention itself changes; ordinary future rotations should follow this procedure without repeatedly editing `AGENTS.md`.
-10. Verify after writes that: the historical file exists; its blob matches the pre-rotation active-log blob when no correction was intended; the new `TEST_LOG.md` links to the historical volume; `PROJECT_STATE.md` and `TODO.md` contain no stale statements about the old active log; and the branch HEAD is the expected docs-only descendant.
+8. Update `docs/gost/TODO.md` if the experiment adds, reprioritizes, exposes, or deliberately drops pending/deferred work. If it formally completes a milestone, remove the completed item from `TODO.md` and add a concise closure entry to `docs/gost/DONE.md`. Their introductions should continue to describe the active and historical evidence topology correctly.
+9. Update this `AGENTS.md` only when the documentation/log topology or rotation convention itself changes; ordinary future rotations should follow this procedure without repeatedly editing `AGENTS.md`.
+10. Verify after writes that: the historical file exists; its blob matches the pre-rotation active-log blob when no correction was intended; the new `TEST_LOG.md` links to the historical volume; `PROJECT_STATE.md`, `TODO.md`, and `DONE.md` contain no stale statements about the old active log; and the branch HEAD is the expected docs-only descendant.
 11. Keep source-under-test identity separate from docs-only HEAD. A rotation/docs commit must never be cited as the binary or source SHA for a runtime/build result that actually tested an earlier code commit.
 
 For later rotations, do not rename or chain-rewrite older historical volumes. Create one new dated volume from the then-current `TEST_LOG.md`, start a fresh active `TEST_LOG.md`, and keep all previous dated volumes authoritative and immutable. When researching an older event, read the active volume and whichever dated volume contains the relevant date/run/SHA; do not assume the newest historical volume contains all prior history.
