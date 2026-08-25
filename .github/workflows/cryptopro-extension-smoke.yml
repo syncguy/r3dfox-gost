@@ -72,14 +72,16 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $tracked = git ls-files --error-unmatch -- $env:FALLBACK_XPI 2>$null
-          if ($LASTEXITCODE -eq 0) {
+          $tracked = @(git ls-files -- $env:FALLBACK_XPI)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($tracked.Count -gt 0) {
             Write-Host 'Fallback is already tracked; no bootstrap commit needed.'
             exit 0
           }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- $env:FALLBACK_XPI
+          git add --sparse -- $env:FALLBACK_XPI
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git commit -m 'chore(extensions): vendor CryptoPro XPI 1.2.14'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git push origin HEAD:agent/gost-tls-poc
