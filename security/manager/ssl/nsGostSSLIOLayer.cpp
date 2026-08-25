@@ -285,12 +285,13 @@ void LogIssuerNameDetails(const nsACString& aHost, int32_t aPort,
       }
 
       nsCString value;
+      CERT_RDN_VALUE_BLOB valueBlob = attr.Value;
       const DWORD valueLength =
-          CertRDNValueToStrW(attr.dwValueType, &attr.Value, nullptr, 0);
+          CertRDNValueToStrW(attr.dwValueType, &valueBlob, nullptr, 0);
       if (valueLength > 1) {
         nsTArray<WCHAR> valueBuffer;
         valueBuffer.SetLength(valueLength);
-        if (CertRDNValueToStrW(attr.dwValueType, &attr.Value,
+        if (CertRDNValueToStrW(attr.dwValueType, &valueBlob,
                                valueBuffer.Elements(), valueLength)) {
           value = WideToUtf8(valueBuffer.Elements());
         }
@@ -727,7 +728,7 @@ nsresult DriveHandshake(PRFileDesc* aLayer) {
            "issuer_len=%zu peernames_error=0x%08x state=0x%08x",
            host.get(), peerCertsOk, peerCertCount, peerCertsError, peerChainOk,
            peerChainCount, peerChainError, peerNamesOk, peerSubjectLen,
-           peerIssuerLen, peerNamesError, msspi_state(secret->msspi))));
+           peerIssuerLen, peerNamesError, msspi_state(secret->msspi)));
 
   uint32_t verifyStatus = 0;
   const int verifyOk = msspi_get_verify_status(secret->msspi, &verifyStatus);
