@@ -1,0 +1,100 @@
+name: Apply GOST client-cert refcount compile fix
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/fix-gost-client-cert-refcount.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Apply refcount fix and record failed compile
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('security/manager/ssl/nsGostSSLIOLayer.cpp')
+          text = source_path.read_text(encoding='utf-8')
+
+          include_anchor = '#include "nsIEventTarget.h"\n'
+          include_line = '#include "nsISupportsImpl.h"\n'
+          if include_line not in text:
+              if include_anchor not in text:
+                  raise SystemExit('nsIEventTarget include anchor missing')
+              text = text.replace(include_anchor, include_anchor + include_line, 1)
+
+          old_base = ('class GostClientCertState final\n'
+                      '    : public mozilla::RefCountedThreadSafe<GostClientCertState> {\n'
+                      ' public:\n')
+          new_base = ('class GostClientCertState final {\n'
+                      ' public:\n'
+                      '  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GostClientCertState)\n\n')
+          if old_base not in text:
+              raise SystemExit('GostClientCertState RefCountedThreadSafe anchor missing')
+          text = text.replace(old_base, new_base, 1)
+
+          old_friend = '  friend class mozilla::RefCountedThreadSafe<GostClientCertState>;\n'
+          if old_friend not in text:
+              raise SystemExit('GostClientCertState friend anchor missing')
+          text = text.replace(old_friend, '', 1)
+          source_path.write_text(text, encoding='utf-8', newline='')
+
+          log_path = Path('docs/gost/TEST_LOG.md')
+          log = log_path.read_text(encoding='utf-8')
+          entry = r'''
+
+---
+
+## 2026-08-25 — Firefox-facing client-cert picker first compile fails on invalid refcount API
+
+**Track:** GOST TLS runtime / Stage 2 Firefox-facing client-certificate selection  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef4007081ffe86ac3a6779327fddad67af2c8c44` (`feat(gost): add firefox client cert selection path`)  
+**Actions run:** `32837093952`  
+**Job:** `97768273059`  
+**Workflow:** `GOST SSL compile check`  
+**CI result:** failure at `Compile security manager SSL target objects`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32837093952>
+
+### Observation
+
+`nsGostSSLIOLayer.cpp` introduced `GostClientCertState` as `mozilla::RefCountedThreadSafe<GostClientCertState>`. The Firefox 153 MFBT refcount header in this tree does not define `mozilla::RefCountedThreadSafe`; consequently clang-cl reports the unknown template name first, followed by the expected secondary `RefPtr` errors because `GostClientCertState` has no `AddRef` / `Release` methods.
+
+This state object is shared between the socket-thread handshake path and the asynchronously dispatched Firefox client-certificate selection path, so a thread-safe refcount remains required. Firefox's native non-XPCOM mechanism for that purpose in this tree is `NS_INLINE_DECL_THREADSAFE_REFCOUNTING` from `nsISupportsImpl.h`.
+
+### Conclusion
+
+**The failure is a compile-only API mismatch in the new Stage 2 picker state object, not an MSSPI/SSPI runtime regression and not a Windows 7 linker/import issue.**
+
+The immediate descendant replaces the nonexistent `mozilla::RefCountedThreadSafe` base/friend declaration with `NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GostClientCertState)` and adds the explicit `nsISupportsImpl.h` include. The private destructor is retained. CI validation of that descendant is required before any runtime conclusion.
+
+Status: superseded by the refcount compile-fix descendant; validation pending.
+'''
+          if 'Actions run:** `32837093952`' not in log:
+              log_path.write_text(log.rstrip() + entry + '\n', encoding='utf-8', newline='')
+
+          workflow = Path('.github/workflows/fix-gost-client-cert-refcount.yml')
+          workflow.unlink()
+          PY
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add security/manager/ssl/nsGostSSLIOLayer.cpp docs/gost/TEST_LOG.md .github/workflows/fix-gost-client-cert-refcount.yml
+          git commit -m "fix(gost): use Firefox thread-safe refcounting"
+          git push origin HEAD:agent/gost-tls-poc
