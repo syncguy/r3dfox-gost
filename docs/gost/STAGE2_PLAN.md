@@ -86,14 +86,24 @@ Keep attempt state separate from remember scope:
 
 ## Clean asynchronous Firefox/Necko lifecycle
 
-The current implementation opens the Firefox picker asynchronously but does not fully participate in normal Necko client-auth lifecycle. Confirmed consequences are a busy-spin in `MSSPI_X509_LOOKUP` and Firefox's ordinary 30-second TLS-handshake timeout destroying an unanswered dialog.
+The current implementation opens the Firefox picker asynchronously but does not fully participate in normal Necko client-auth lifecycle. Confirmed consequences are a busy-spin in `MSSPI_X509_LOOKUP` and Firefox's ordinary 30-second TLS-handshake timeout destroying an unanswered GOST picker.
+
+The exact Firefox 153 source confirms the intended stock selection architecture:
+
+- `SSLGetClientAuthDataHook` runs on the Socket Thread, records the client-certificate request and returns a would-block indication;
+- after server-certificate verification, certificate selection is dispatched to the main thread;
+- the selected/no-certificate result is dispatched back to the Socket Thread to resume TLS;
+- `NSSSocketControl::SetClientAuthCertificateRequest()` calls `mTlsHandshakeCallback->ClientAuthCertificateRequested()`; the source comment states that this lets Happy Eyeballs pause other racers before PSM may show a certificate dialog;
+- `nsHttpConnection` forwards the requested/selected notifications to the HTTP transaction, whose abstract contract says Happy Eyeballs overrides these notifications to pause around the certificate dialog.
+
+Do **not** overstate the scope of those notifications. They are proven to coordinate stock client-auth/Happy-Eyeballs behavior, but the source audit has not yet proven that the notifications alone suspend `nsHttpConnection`'s 30-second TLS-handshake timeout accounting. The final GOST integration must reuse the stock lifecycle and then verify the exact timeout behavior rather than assume the callback pair automatically disables the timer.
 
 Final behavior must:
 
 - signal/participate in the normal client-auth requested/selected lifecycle where applicable;
 - put `MSSPI_X509_LOOKUP` into a truly quiescent wait while the Firefox picker is open;
 - wake/resume only from a valid current decision callback;
-- not solve the problem by globally increasing or disabling the normal TLS-handshake timeout;
+- verify with runtime evidence that an active GOST picker is not destroyed by ordinary unfinished-handshake timeout handling; if additional stock-compatible timeout accounting is required, implement that explicitly rather than globally increasing or disabling the TLS timeout;
 - treat load/socket/dialog teardown as `Aborted`, never as a remembered user decline.
 
 ## Concurrent client-auth requests — single-flight broker
@@ -164,13 +174,22 @@ must not automatically erase or replace the positive certificate choice with a n
 
 With the default GOST `Once`, no positive selection is retained automatically; a new login attempt asks for the certificate again. This is intentional.
 
-### Socket Thread blocking blocker
+### Provider UI / Socket Thread parity question
 
-Current CryptoPro interactive provider UI is entered synchronously inside `msspi_connect()` on Mozilla's Socket Thread. In the confirmed missing-media capture, one call remains blocked for about 14.1 seconds until the user cancels the CryptoPro prompt; the retry remains blocked for about 27.0 seconds until the user inserts the required key container.
+The confirmed CryptoPro insert-media UI is synchronous within the current `msspi_connect()` call on Mozilla's Socket Thread: one call remained inside the provider path for about 14.1 seconds until Cancel and the successful retry for about 27.0 seconds until media insertion.
 
-This is separate from the Firefox-picker busy-loop defect. The picker currently spins the Socket Thread while waiting asynchronously; the CryptoPro provider dialog blocks it synchronously.
+This behavior is technically different from the GOST Firefox-picker busy-spin, but **synchronous token/provider waiting is not automatically a GOST-specific defect**. Exact Firefox 153 PSM source shows that `PK11PasswordPrompt()` creates a main-thread prompt runnable and calls `SyncRunnable::DispatchToThread(GetMainThreadSerialEventTarget(), runnable)`, synchronously waiting for the token/password UI result on the originating thread. During NSS TLS work that originating work is normally driven from the Socket Thread. Therefore stock Firefox itself permits a synchronous token/PIN interaction pattern after certificate selection.
 
-Stage 2 must investigate a safe architecture that prevents long interactive provider waits from monopolizing the global Socket Thread while preserving the same Schannel/MSSPI security context. Candidate directions must be validated against the actual MSSPI/SSPI threading and context rules before implementation; do not blindly move a live Schannel context across threads or pre-acquire keys in a way that triggers invasive provider UI.
+Accordingly, do not require a custom worker-thread MSSPI redesign merely because the CryptoPro prompt blocks a `msspi_connect()` call. First preserve stock-like semantics and test whether the observed provider wait causes an actual regression beyond what Firefox accepts for interactive token authentication.
+
+Additional constraints:
+
+- pinned MSSPI documents that one handle is not thread-safe and should be used by a single thread; do not blindly move a live MSSPI/Schannel handle between Socket Thread and worker threads;
+- `msspi_connect()` can return `-1` for transport I/O or certificate-selection waiting, but an external CryptoPro provider dialog is currently inside a synchronous SSPI call and cannot be converted into event-driven would-block behavior by Necko callbacks alone;
+- if later runtime evidence shows unacceptable global-network starvation, timeout corruption or another concrete regression during long CryptoPro UI waits, investigate an asynchronous credential/provider architecture as a separate hardening step;
+- candidate discovery must still never trigger invasive provider UI before the user has selected a certificate.
+
+For stock parity, `ClientAuthCertificateRequested/Selected` should initially retain their natural meaning: the browser certificate-choice phase. Do not delay `Selected` until private-key media becomes available unless source/runtime evidence shows that Firefox's own lifecycle treats token/PIN acquisition that way.
 
 ## Issuer-aware policy
 
@@ -195,6 +214,7 @@ Before Stage 2 closure, exercise at least:
 - certificate present but private-key media absent;
 - provider media prompt Cancel;
 - media inserted on retry without browser restart;
+- long provider-media wait crossing 30 seconds;
 - PIN/private-key acquisition failure where safely testable;
 - wrong/unsuitable/expired certificate where safely available;
 - server rejection;
@@ -206,9 +226,9 @@ No negative case may poison future certificate prompts. Any explicitly remembere
 
 1. Implement GOST-scoped `Once` default, positive-only remember semantics and explicit attempt states.
 2. Add generation-safe single-flight selection for compatible simultaneous mTLS requests.
-3. Integrate the pending picker with Necko so waiters are quiescent and do not hit the ordinary 30-second unfinished-TLS timeout.
+3. Integrate the pending picker with the stock Firefox/Necko client-auth lifecycle, make the wait quiescent, and verify rather than assume the correct timeout behavior.
 4. Re-run the Treasury picker/login scenario and prove a single user selection resumes all compatible live sockets without duplicate/queued dialogs, negative remembered state or the earlier application-500 symptom.
-5. Investigate and then harden CryptoPro provider interaction so interactive key-media/PIN waits do not monopolize the global Socket Thread; preserve the proven missing-media recovery semantics.
+5. Re-run missing-media/provider interaction after the picker lifecycle fix, including a provider wait longer than 30 seconds. Treat synchronous provider waiting as stock-parity behavior unless it produces a concrete browser/network regression; only then investigate an async MSSPI/provider redesign.
 6. Complete fail-closed server-verification/override/session-cache handling and positive + negative server trust tests.
 7. Complete issuer-aware client-certificate filtering and direct token-only discovery decision.
 8. Run the full negative client-auth matrix.
