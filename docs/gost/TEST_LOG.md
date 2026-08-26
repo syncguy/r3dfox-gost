@@ -60,11 +60,49 @@ Protected application-data traffic follows immediately. The user confirmed brows
 2. **`CERT_KEY_PROV_INFO_PROP_ID` is binding metadata, not a live-key availability check.** A certificate can remain a valid picker candidate while its referenced private-key container is temporarily absent.
 3. **`client_cert_loaded=1` is not by itself proof that the private key was available.** In the current wrapper it is set after `msspi_set_mycert()` accepts the certificate. Successful completion of the subsequent mTLS handshake is the proof that CryptoPro/SSPI actually obtained and used the private key.
 4. **Provider failure must not erase a positive user certificate choice.** If the user explicitly asked to remember a selected certificate, temporary `SEC_E_NO_CREDENTIALS`, missing media, cancelled provider UI, or similar private-key failures must remain attempt-local and must not be converted into a remembered no-certificate decision.
-5. **CryptoPro interactive private-key UI currently blocks Mozilla's Socket Thread.** Unlike the Firefox picker bug, which currently busy-polls while waiting asynchronously, the provider prompt is entered synchronously inside `msspi_connect()` and holds the socket-thread call for roughly 14 s in the cancelled attempt and 27 s in the successful recovery attempt. Stage 2 must investigate how to prevent long interactive provider waits from monopolizing the global Socket Thread without breaking the Schannel/MSSPI context.
+5. **CryptoPro interactive private-key UI currently blocks Mozilla's Socket Thread.** Unlike the Firefox picker bug, which currently busy-polls while waiting asynchronously, the provider prompt is entered synchronously inside `msspi_connect()` and holds the socket-thread call for roughly 14 s in the cancelled attempt and 27 s in the successful recovery attempt. At the time of this runtime-only conclusion, Stage 2 treated that as a potential independent lifecycle blocker; the source audit below later narrows that interpretation by identifying a stock Firefox synchronous token-prompt analogue.
 6. Candidate discovery should not proactively trigger interactive CryptoPro provider UI merely to populate the Firefox certificate list. If stronger key-usability filtering is added, it must use a non-interactive/silent probe or defer actual private-key acquisition until the user has selected a certificate.
 
 The final agreed GOST UX remains: the Firefox picker defaults to `Once`, scoped only to the GOST invocation. The global Firefox `security.client_auth_certificate_default_remember_setting` must remain unchanged. With that final default, a retry after the first provider cancellation will show the Firefox picker again unless the user explicitly chose `Session` or `Permanent`; this is intentional. If the user explicitly chose `Session`, retaining the positive selection across a temporary missing-container failure is also intentional.
 
 Direct discovery of a certificate that exists only on removable/provider media and is absent from `CurrentUser\\MY` remains a separate open experiment.
 
-Status: current; missing-private-key recovery proven, provider-UI Socket Thread blocking added to the Stage 2 lifecycle blocker.
+Status: current runtime evidence; provider-blocking severity reclassified by the source audit below.
+
+---
+
+## 2026-08-26 — Firefox/NSS client-auth source audit narrows the CryptoPro Socket-Thread concern
+
+**Track:** GOST TLS runtime / Stage 2 client-auth lifecycle source audit  
+**Branch:** `agent/gost-tls-poc`  
+**Firefox source audited:** `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`  
+**Pinned MSSPI source audited:** `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`
+
+### Purpose
+
+Determine whether the stock Firefox client-auth lifecycle that should replace the GOST picker busy-spin also automatically solves the later CryptoPro insert-media wait, and whether synchronous provider/token UI on the Socket Thread is necessarily a GOST-specific defect.
+
+### Source observation
+
+`security/manager/ssl/TLSClientAuthCertSelection.cpp` documents the stock NSS client-auth sequence explicitly: `SSLGetClientAuthDataHook` runs on the Socket Thread, records that a certificate was requested and returns would-block; after server verification, certificate selection is dispatched to the main thread; the selected/no-certificate result is dispatched back to the Socket Thread so TLS can continue.
+
+`NSSSocketControl::SetClientAuthCertificateRequest()` stores the request and invokes `mTlsHandshakeCallback->ClientAuthCertificateRequested()`. The exact source comment says this lets Happy Eyeballs pause other racers before PSM may show a certificate dialog. `nsAHttpTransaction.h` likewise describes the requested/selected hooks as no-op by default with Happy Eyeballs overriding them to pause around the certificate dialog.
+
+This proves that the stock lifecycle is the correct architectural model for the **certificate-choice wait** and that the current GOST busy-spin should be replaced by a true event-driven would-block/resume path. It does not by itself prove that the callback pair suspends `nsHttpConnection`'s 30-second TLS-handshake timeout accounting. The timeout source still checks unfinished TLS elapsed time, so final GOST integration must verify the exact stock-compatible timeout behavior rather than assume the requested/selected notifications alone disable the timer.
+
+Separately, `security/manager/ssl/nsNSSCallbacks.cpp` shows that stock PSM's `PK11PasswordPrompt()` creates a main-thread password/token prompt runnable and calls `SyncRunnable::DispatchToThread(GetMainThreadSerialEventTarget(), runnable)`, synchronously waiting for the result on the originating thread. During NSS TLS work this establishes a stock Firefox precedent for synchronous interactive token/PIN waiting after certificate selection.
+
+Pinned MSSPI documentation states that the library is not thread-safe per handle: each handle should be used by a single thread, although multiple separate handles may run concurrently on different threads. Its `msspi_connect()` API returns `-1` for transport I/O or certificate-selection waiting, but the observed CryptoPro insert-media UI occurs inside a synchronous SSPI/provider call and therefore cannot be made event-driven merely by adding the Necko requested/selected callbacks.
+
+### Conclusion
+
+The two waits must be distinguished:
+
+1. **Firefox certificate picker:** current GOST spin is an integration defect. Reuse the stock would-block/main-thread-selection/socket-thread-resume lifecycle, plus single-flight coordination and correct timeout accounting.
+2. **CryptoPro media/PIN provider UI after selection:** the stock client-auth lifecycle does not make the synchronous SSPI call nonblocking. However, synchronous token UI has a stock Firefox PSM analogue, so the CryptoPro wait is no longer classified as an independently proven Stage 2 blocker solely because it holds the Socket Thread.
+
+For initial parity, keep `ClientAuthCertificateRequested/Selected` scoped to the browser certificate-choice phase, as Firefox does. Do not delay `Selected` until CryptoPro media/private-key acquisition completes unless later source/runtime evidence requires that semantic change.
+
+After the picker lifecycle fix, rerun missing-media authentication with a CryptoPro wait longer than 30 seconds and observe browser/network behavior. Only promote provider waiting to a separate asynchronous-MSSPI architecture problem if the real runtime shows a concrete regression such as unacceptable global network starvation, broken timeout state, or other behavior materially worse than stock Firefox token-auth semantics. Do not casually move a live MSSPI handle between threads because the pinned library's documented per-handle threading contract forbids treating it as generally thread-safe.
+
+Status: current; stock picker lifecycle confirmed, provider Socket-Thread blocking reclassified from mandatory blocker to parity/performance question pending runtime evidence.
