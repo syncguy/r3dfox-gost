@@ -106,3 +106,59 @@ For initial parity, keep `ClientAuthCertificateRequested/Selected` scoped to the
 After the picker lifecycle fix, rerun missing-media authentication with a CryptoPro wait longer than 30 seconds and observe browser/network behavior. Only promote provider waiting to a separate asynchronous-MSSPI architecture problem if the real runtime shows a concrete regression such as unacceptable global network starvation, broken timeout state, or other behavior materially worse than stock Firefox token-auth semantics. Do not casually move a live MSSPI handle between threads because the pinned library's documented per-handle threading contract forbids treating it as generally thread-safe.
 
 Status: current; stock picker lifecycle confirmed, provider Socket-Thread blocking reclassified from mandatory blocker to parity/performance question pending runtime evidence.
+
+---
+
+## 2026-08-26 — Coordinated Firefox client-auth implementation passes the short SSL compile gate
+
+**Track:** GOST TLS runtime / Stage 2 client-auth implementation compile validation  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `860de8e38deed326b7fcd1c547e928c5b48c72a9`  
+**Actions run:** `32951902976`  
+**Job:** `98124948374`  
+**Workflow:** `GOST SSL compile check`  
+**Result:** success
+
+### Purpose
+
+Compile the first coordinated Stage 2 client-auth implementation before spending full-browser build time and before treating any lifecycle change as runtime-proven.
+
+The source-under-test adds the new coordinated path while retaining the previously working per-socket implementation as an optional same-binary fallback. The default path is coordinated; setting `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` selects the legacy picker path. The explicit diagnostic thumbprint path remains separate and unchanged.
+
+### Actions observation
+
+GitHub Actions run `32951902976`, job `98124948374`, is bound to exact source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9` and completed with `conclusion=success`.
+
+All preparatory gates completed successfully, including MSSPI source preparation, GOST/MSSPI `moz.build` registration, configure and export prerequisites. Most importantly, step `Compile security manager SSL target objects` completed successfully.
+
+The compile-validated source contains the first implementation of:
+
+- coordinated/single-flight Firefox client-certificate decisions with multiple live MSSPI waiters;
+- a same-binary `legacy` mode for A/B comparison against the previously proven per-socket path;
+- GOST-scoped `Once` as the initial remember choice without changing Firefox's global client-auth remember default;
+- positive-only GOST remembered selections, so a null/no-certificate callback is not persisted as a negative GOST session decision;
+- stale-callback/lifetime checks for coordinated decisions;
+- `ClientAuthCertificateRequested()` / `ClientAuthCertificateSelected()` forwarding through `GostSocketControl` toward the existing Necko client-auth lifecycle;
+- a coordinated picker-wait poll path intended to become quiescent instead of repeatedly re-entering `MSSPI_X509_LOOKUP`;
+- the agreed human-facing certificate row/detail formatting changes.
+
+### Scope of the conclusion
+
+This run proves that the new Stage 2 source compiles through the project's dedicated Windows `security/manager/ssl` gate. It does **not** prove any of the following runtime properties:
+
+- that the coordinated picker actually stays single-flight under Treasury's parallel login requests;
+- that the new poll behavior eliminates the previously measured busy-spin;
+- that Necko's 30-second TLS-handshake timeout is suspended or otherwise handled correctly while the picker is open;
+- that an involuntary dialog teardown is distinguishable from an explicit user decline at the full UI/lifecycle contract level;
+- that selection/remember semantics work correctly for `Once`, `Session` and `Permanent` in runtime;
+- that the updated picker text/localization renders correctly in the installed Russian UI;
+- that Treasury mTLS still completes successfully through the coordinated path;
+- that a full Firefox browser build/package succeeds.
+
+The two full-build runs automatically created during the preceding multi-commit push series do not provide source conclusions: main run `32951903026`, job `98124948716`, and thunk-rs run `32951903069`, job `98124948880`, were cancelled during checkout before their build gates. They must be rerun from the stable final source SHA or superseded by later full-build runs tied to the exact source tested.
+
+### Conclusion
+
+The implementation phase has advanced from source-only design to a **compile-validated coordinated client-auth checkpoint** at `860de8e38deed326b7fcd1c547e928c5b48c72a9`. The next evidence must come from full-browser builds and then a sanitized exact-build Treasury runtime matrix. Busy-spin, single-flight behavior, timeout handling and final UX semantics remain open until that runtime evidence exists.
+
+Status: current compile evidence; runtime validation pending.
