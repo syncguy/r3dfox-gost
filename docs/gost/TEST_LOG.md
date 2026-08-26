@@ -2,7 +2,7 @@
 
 This is the current append-oriented engineering log.
 
-The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-25_2026-08-26.md`](./TEST_LOG_2026-08-25_2026-08-26.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For planned and deferred work, see [`TODO.md`](./TODO.md), and for formally closed milestones see [`DONE.md`](./DONE.md).
+The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-25_2026-08-26.md`](./TEST_LOG_2026-08-25_2026-08-26.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For planned and deferred work, see [`TODO.md`](./TODO.md`), and for formally closed milestones see [`DONE.md`](./DONE.md).
 
 For each completed experiment, record the exact date, branch and source-under-test SHA, GitHub Actions run/job when applicable, sanitized observation, conclusion, and whether the finding is current, superseded, or still open. Do not publish client-certificate identifiers, private credential metadata, user data, or unsanitized runtime captures; follow `/AGENTS.md`.
 
@@ -173,6 +173,8 @@ Immediately after that handshake the log shows successful protected application-
 
 The capture then exposes a separate concurrency defect. At `07:11:21.894` through `07:11:21.914 UTC`, five additional `count=1` client-auth attempts request five Firefox dialogs within roughly 20 ms. Only two `client certificate dialog completed ... selected=1` events are eventually processed in the capture, at `07:11:19.701` and `07:11:27.524 UTC`, while multiple other MSSPI states remain pending concurrently.
 
+The user later confirmed the same defect visually: after choosing the certificate in the first picker, the browser did not proceed directly into the personal cabinet and instead displayed another certificate-selection dialog. The duplicate per-socket picker requests are therefore not merely internal log noise; they are user-visible queued/repeated prompts.
+
 After the later positive selection, four connections at `07:11:30.411` through `07:11:30.442 UTC` report `client certificate remembered ... selected=1 scope=session`. Four corresponding mTLS handshakes complete successfully between `07:11:30.676` and `07:11:31.082 UTC`, all with `client_cert_loaded=1`, `verify ok=1 status=0`, TLS 1.2, and `0xFF85`.
 
 The state then becomes inconsistent. Starting at `07:11:31.755 UTC`, later connections begin reporting `client certificate remembered ... selected=0 scope=session`, followed by repeated `0x80090326` no-client-certificate failures. There is no active-path `client certificate dialog completed ... selected=0` line before this transition. Combined with the source behavior already established in the timeout experiment — a closed/stale dialog callback can write a null/Session result before the active-state guard prevents handshake wakeup — this is strong evidence that outstanding parallel dialog lifecycles can inject negative remembered decisions after positive selections have already succeeded.
@@ -184,7 +186,7 @@ The log does not include the remember-cache key or OriginAttributes in these lin
 Two conclusions are now confirmed for the exact runtime artifact:
 
 1. **Dynamic `CurrentUser\\MY` recovery works.** A certificate restored to the Windows personal store becomes eligible on a later mTLS attempt in the same browser process; no browser restart is required.
-2. **The picker needs a single-flight/coordinated concurrency model.** The real Treasury page can trigger multiple simultaneous client-auth handshakes for the same login flow. Opening one independent Firefox dialog per MSSPI socket allows queued/stale dialogs and callbacks to race with positive remembered selections and can leave later requests using a no-certificate decision.
+2. **The picker needs a single-flight/coordinated concurrency model.** The real Treasury page can trigger multiple simultaneous client-auth handshakes for the same login flow. Opening one independent Firefox dialog per MSSPI socket allows queued/stale dialogs and callbacks to race with positive remembered selections and can leave later requests using a no-certificate decision. The repeated picker is confirmed both by runtime logs and by direct user-visible behavior.
 
 This experiment does not prove direct token-only discovery because the certificate was explicitly restored to `CurrentUser\\MY`. The separate removable-media/provider-enumeration question remains open.
 
