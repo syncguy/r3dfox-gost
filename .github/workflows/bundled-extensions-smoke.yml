@@ -1,0 +1,108 @@
+name: Bundled extensions smoke
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - "build/bundled-extensions.json"
+      - "build/validate-bundled-extension.py"
+      - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
+      - "r3dfox/extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi"
+      - ".github/workflows/bundled-extensions-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate committed extension baselines
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            build
+            r3dfox/extensions
+          sparse-checkout-cone-mode: false
+
+      - name: GATE - Validate CryptoPro committed fallback
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python build\validate-bundled-extension.py `
+            'r3dfox\extensions\ru.cryptopro.nmcades@cryptopro.ru.xpi' `
+            --expected-id 'ru.cryptopro.nmcades@cryptopro.ru' `
+            --expected-version '1.2.14' `
+            --metadata 'smoke\cryptopro.json'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Validate legacy Gosuslugi committed fallback
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python build\validate-bundled-extension.py `
+            'r3dfox\extensions\pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi' `
+            --expected-id 'pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru' `
+            --expected-version '1.2.8' `
+            --require-permission nativeMessaging `
+            --require-native-host 'ru.rtlabs.ifcplugin' `
+            --metadata 'smoke\gosuslugi-legacy.json'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify registry hashes and versions
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          registry = json.loads(Path('build/bundled-extensions.json').read_text(encoding='utf-8'))
+          for item in registry['extensions']:
+              path = Path(item['fallback'])
+              if not path.is_file():
+                  raise SystemExit(f"Missing committed fallback: {path}")
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if digest != item['fallback_sha256']:
+                  raise SystemExit(f"SHA-256 mismatch for {item['id']}: {digest}")
+              print(f"registry-ok id={item['id']} version={item['fallback_version']} sha256={digest}")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Live check - legacy Gosuslugi official URL when reachable
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://ds-plugin.gosuslugi.ru/plugin/upload/assets/distrib/addon-1.2.8-fx.xpi'
+          $candidate = Join-Path $env:RUNNER_TEMP 'addon-1.2.8-fx.xpi'
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $candidate -TimeoutSec 30
+          } catch {
+            Write-Warning "Official Gosuslugi endpoint is unreachable from this runner; committed fallback remains authoritative: $($_.Exception.Message)"
+            exit 0
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 $candidate).Hash.ToLowerInvariant()
+          $expected = '72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80'
+          if ($hash -ne $expected) { throw "Reachable official XPI differs from committed baseline: $hash" }
+          python build\validate-bundled-extension.py $candidate `
+            --expected-id 'pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru' `
+            --expected-version '1.2.8' `
+            --require-permission nativeMessaging `
+            --require-native-host 'ru.rtlabs.ifcplugin'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-extensions-smoke
+          if-no-files-found: warn
+          retention-days: 30
+          path: smoke/*.json
