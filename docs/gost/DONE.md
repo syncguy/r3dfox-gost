@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed.
 
@@ -91,7 +91,7 @@ Confirmed:
 - the official CryptoPro endpoint was successfully exercised;
 - synthetic `distribution/extensions` staging and final synthetic ZIP verification preserve the selected XPI and its identity.
 
-This closes the standalone updater/fallback contract only. Real Mozilla packaging integration, final portable-archive inclusion, transfer into the two main browser workflows, and clean-profile Firefox runtime discovery/update behavior remain separate work.
+This closes the standalone updater/fallback contract only. Real Mozilla packaging integration, final portable-archive inclusion, transfer into the two main browser workflows, and Firefox runtime behavior remain separate work.
 
 ### CryptoPro real Mozilla portable-packaging integration — COMPLETE
 
@@ -114,4 +114,21 @@ Confirmed in one exact run/SHA:
 
 This closes the final-portable-archive blocker from failed run `32817910715`, job `97709832302`; that failure remains historical evidence of the diagnosed `browser/installer/package-manifest.in` omission. The dedicated real Mozilla packaging proof is complete.
 
-Transfer of the proven gates into the two main browser workflows and clean-profile Firefox discovery/install/update runtime behavior remain separate open work in `TODO.md`.
+### CryptoPro clean-profile discovery and basic functional runtime — COMPLETE
+
+Authoritative packaged-browser evidence:
+
+- source SHA: `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- run `32847887872`;
+- job `97801745453`;
+- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`).
+
+The user tested that exact portable artifact with a new profile and confirmed:
+
+- the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension is discovered automatically without manual XPI installation;
+- version `1.2.14` is enabled in Add-ons Manager;
+- normal CryptoPro signature-verification functionality works.
+
+This closes clean-profile discovery/install and basic functional-use questions for the tested artifact. A real version-to-version automatic extension update remains separately open in `TODO.md`; the current source configuration indicates that automatic updates are enabled by default, but that update transition has not yet been observed in runtime evidence.
+
+Transfer of the proven packaging gates into the two main browser workflows also remains separate open work in `TODO.md`.

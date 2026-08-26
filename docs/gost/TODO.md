@@ -72,7 +72,7 @@ Keep this track separate from GOST TLS runtime conclusions.
 
 ## Bundled government-system extensions — next
 
-Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). The standalone CryptoPro updater/fallback/package contract and the dedicated real Mozilla portable-packaging proof are closed and recorded in `DONE.md`; workflow transfer and browser runtime behavior remain active.
+Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). The standalone updater/fallback contract, real Mozilla portable-packaging proof, and clean-profile discovery/basic functional runtime proof are closed and recorded in `DONE.md`.
 
 ### 1. Transfer only proven extension integration into the two main browser workflows
 
@@ -85,11 +85,21 @@ Add only the already-proven updater preparation and final package-verification g
 
 Do not mix unrelated GOST runtime or Windows compatibility changes into that transfer.
 
-### 2. Prove clean-profile Firefox runtime discovery/update behavior
+### 2. Prove a real CryptoPro extension version-to-version update
 
-Using a packaged browser artifact, confirm separately that a clean Firefox profile discovers/installs the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension and that normal extension update behavior remains functional.
+Clean-profile discovery/install and basic functional use are already proven with packaged-browser artifact `9569387758` from run `32847887872` / source SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
 
-Static package presence is not sufficient runtime proof.
+The exact source defaults are already compatible with automatic updating: `extensions.update.enabled = true`, `extensions.update.autoUpdateDefault = true`, the per-extension UI is `Default`, and the XPI declares CryptoPro's official `ffupdates.json` update manifest. No current `r3dfox/policies.json` rule disables CryptoPro extension updates.
+
+The remaining runtime proof is the actual update transition:
+
+- start from an older valid signed CryptoPro Firefox XPI if one can be obtained safely, or wait until CryptoPro publishes a version newer than `1.2.14`;
+- use an otherwise clean profile with the extension update choice left at `Default`;
+- confirm Firefox discovers the vendor update without manual XPI installation;
+- confirm the extension advances to the newer signed version automatically;
+- re-run the normal CryptoPro signature-verification functionality after the update.
+
+Do not change the current installation architecture merely to manufacture an update proof. If an explicit enterprise policy is later desired, test it separately before replacing the standard Firefox update path.
 
 ## Upstream r3dfox base tracking — deferred
 

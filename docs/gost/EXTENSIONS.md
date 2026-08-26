@@ -133,8 +133,39 @@ In this exact run the updater/selection gate, full Firefox build, real `dist/bin
 
 Therefore the real Mozilla portable-packaging integration is proven. The final-archive omission diagnosed by run `32817910715` is closed; that failed run remains historical evidence of the missing installer-manifest staging rule.
 
+### Clean-profile Firefox runtime discovery and basic functionality — PROVEN
+
+The packaged browser from the same exact proof has now crossed the browser-runtime boundary:
+
+- source-under-test SHA: `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- Actions run: `32847887872`;
+- job: `97801745453`;
+- packaged-browser artifact: `9569387758` (`r3dfox-cryptopro-mozilla-packaging`).
+
+The user started the portable browser with a new profile. Firefox automatically discovered the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension without any manual XPI installation. Add-ons Manager showed `CryptoPro Extension for CAdES Browser Plug-in`, version `1.2.14`, enabled. The user then exercised the normal CryptoPro signature-verification functionality and confirmed it works.
+
+This closes the clean-profile discovery/install and basic functional-use questions for the tested artifact.
+
+### Automatic update behavior
+
+The same runtime test shows the extension's per-add-on setting as `Allow automatic updates: Default`.
+
+For the exact source-under-test:
+
+- `browser/app/profile/firefox.js` sets `extensions.update.autoUpdateDefault` to `true`;
+- `extensions.update.enabled` is `true`;
+- the normal extension update interval is `86400` seconds;
+- the XPI declares CryptoPro's official `ffupdates.json` update manifest;
+- `r3dfox/policies.json` does not contain a CryptoPro-specific `ExtensionSettings` override and does not disable extension updates.
+
+Therefore an untouched clean profile with the per-extension selector left at `Default` is expected to check and apply CryptoPro extension updates automatically through the vendor manifest. This is standard Firefox add-on update behavior, not a custom r3dfox updater running at browser runtime.
+
+A real version-to-version transition is **not yet runtime-proven**. The remaining proof is to start from an older valid signed CryptoPro XPI if available, or wait for a vendor version newer than `1.2.14`, and confirm that Firefox updates it automatically and that signature-verification functionality still works afterward.
+
+Do not add enterprise-policy installation or forced-update behavior merely to remove UI ambiguity unless the project explicitly chooses managed-extension semantics. The current standard Firefox defaults already enable updates; any stronger policy should be treated as a separate behavioral change and tested independently.
+
 ### Full-build integration boundary
 
 `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` remain separate from the dedicated extension proof. The GOST TLS and Windows compatibility evidence tied to earlier source SHAs is unaffected by later extension commits.
 
-The next integration step is to transfer only the already-proven updater preparation and final package-verification gates into those two main full-build workflows. A later clean-profile runtime test must separately prove that Firefox discovers/installs the bundled extension and that extension update behavior remains functional.
+The next packaging integration step is to transfer only the already-proven updater preparation and final package-verification gates into those two main full-build workflows. Extension runtime discovery/basic functionality are now proven separately; only the real version-to-version update transition remains open on the runtime side.

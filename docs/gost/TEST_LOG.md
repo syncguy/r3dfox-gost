@@ -59,3 +59,42 @@ The missing-final-archive blocker from run `32817910715` is closed and that fail
 This result closes the dedicated Mozilla packaging proof only. It does not prove clean-profile Firefox discovery/install/update runtime behavior and does not by itself prove GOST TLS runtime or Windows Vista/7 compatibility. The next extension work is to transfer only the already-proven updater preparation and final package-verification gates into the two main browser workflows, then perform the separate clean-profile runtime proof.
 
 Status: current; previous final-portable-archive blocker closed.
+
+---
+
+## 2026-08-26 — CryptoPro extension is discovered automatically in a clean profile and works at runtime
+
+**Track:** bundled government-system extensions / Firefox runtime discovery and functionality  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `17b8d9762b489ed8fc9c3a8e1595802065dd7188`  
+**Actions run:** `32847887872`  
+**Job:** `97801745453`  
+**Packaged-browser artifact:** `9569387758` (`r3dfox-cryptopro-mozilla-packaging`)  
+**Runtime evidence:** user manual test of the packaged portable browser with a new profile
+
+### Observation
+
+The user tested the exact portable artifact produced by the successful real-Mozilla packaging run.
+
+- A new Firefox profile discovers the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension automatically; no manual XPI installation is required.
+- The extension appears enabled in Add-ons Manager as `CryptoPro Extension for CAdES Browser Plug-in`, version `1.2.14`.
+- The user exercised the normal CryptoPro signature-verification functionality and confirmed that it works.
+- The Add-ons Manager shows `Allow automatic updates: Default` for this extension.
+
+A source/configuration audit for the exact source-under-test shows:
+
+- `browser/app/profile/firefox.js` sets `extensions.update.autoUpdateDefault = true`;
+- `extensions.update.enabled = true`;
+- the normal extension-update interval is `86400` seconds;
+- the bundled CryptoPro XPI declares the official CryptoPro update manifest `https://www.cryptopro.ru/sites/default/files/products/cades/extensions/ffupdates.json`;
+- `r3dfox/policies.json` contains no CryptoPro-specific `ExtensionSettings` entry and no policy disabling extension updates.
+
+### Conclusion
+
+**Clean-profile discovery/install and basic functional runtime use of the bundled CryptoPro extension are proven for artifact `9569387758` / source SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.**
+
+The `Default` update choice follows Firefox's global add-on auto-update setting. For this exact source, the global defaults have extension update checks enabled and automatic application enabled, so an untouched clean profile is expected to update this extension automatically through its vendor update manifest.
+
+A real version-to-version update has not yet been observed. That remains the only open runtime-update proof for this extension track; it should be tested with an older valid signed CryptoPro XPI or when CryptoPro publishes a version newer than `1.2.14`.
+
+Status: current; clean-profile discovery/functionality closed, real update transition still open.

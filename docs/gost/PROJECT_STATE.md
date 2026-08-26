@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 This file is the current technical synthesis for the GOST TLS fork. Current experiment evidence is recorded in [`TEST_LOG.md`](./TEST_LOG.md). Historical experiment evidence through 2026-08-24 is preserved in [`TEST_LOG_2026-08-22_2026-08-24.md`](./TEST_LOG_2026-08-22_2026-08-24.md), with earlier 2026-08-25 evidence preserved in [`TEST_LOG_2026-08-25_2026-08-25.md`](./TEST_LOG_2026-08-25_2026-08-25.md). For workflow roles, see [`WORKFLOWS.md`](./WORKFLOWS.md).
 
@@ -448,7 +448,11 @@ The exact passing run completed updater/selection, the full Firefox build, selec
 
 This closes the final-archive omission diagnosed by run `32817910715`, job `97709832302`, source SHA `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560`. That failed run remains historical evidence that `FINAL_TARGET_FILES` reaching `dist/bin` did not by itself package the XPI until the exact path was added to `browser/installer/package-manifest.in`.
 
-The next extension work is now limited to transferring only the proven updater preparation and final package-verification gates into `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml`, followed by a separate clean-profile Firefox runtime proof for discovery/install/update behavior. Static package presence is not runtime installation proof.
+The same packaged-browser artifact `9569387758` from run `32847887872` has now been tested manually with a new Firefox profile. The bundled `ru.cryptopro.nmcades@cryptopro.ru` extension is discovered automatically without manual XPI installation, appears enabled as version `1.2.14`, and the user confirmed normal CryptoPro signature-verification functionality works. Therefore clean-profile discovery/install and basic functional runtime use are **proven** for exact source SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
+
+The update configuration for that exact source is also understood. `browser/app/profile/firefox.js` sets both `extensions.update.enabled = true` and `extensions.update.autoUpdateDefault = true`, with the normal extension-update interval at `86400` seconds. The bundled XPI declares CryptoPro's official `ffupdates.json` update manifest, while `r3dfox/policies.json` has no CryptoPro-specific override and does not disable extension updates. The runtime UI shows the per-extension choice as `Default`, so an untouched clean profile is expected to use the global automatic-update behavior. A real version-to-version update has **not yet** been observed and remains the final runtime-update proof.
+
+The next extension work is limited to transferring only the proven updater preparation and final package-verification gates into `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml`, plus a later real CryptoPro version-to-version update test using an older valid signed XPI or a future vendor release newer than `1.2.14`.
 
 Detailed extension design and evidence are in [`EXTENSIONS.md`](./EXTENSIONS.md).
 
@@ -471,7 +475,9 @@ Keep these statements distinct:
 - **GOST certificate-verification success** is **not yet confirmed**; fail-closed server verification is now the leading mandatory Stage 2 security item.
 - **mTLS integration complete/production-ready** is **not yet true**; Stage 2 server verification, final certificate-selection/issuer policy, negative paths, privacy audit, and hardened regression proof remain required.
 - **CryptoPro standalone extension packaging success** is confirmed by run `32815118778` / SHA `2ad7025ca300613d39a227b9e7582a341260d648`; this proves updater/fallback/staging/package behavior but not the real Mozilla packaging graph or Firefox installation.
-- **CryptoPro real Mozilla portable-packaging success** is confirmed by run `32847887872`, job `97801745453`, SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`; this proves the selected XPI survives the real Firefox build and package graph into the final portable archive, but not clean-profile runtime discovery/install/update behavior.
+- **CryptoPro real Mozilla portable-packaging success** is confirmed by run `32847887872`, job `97801745453`, SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`; this proves the selected XPI survives the real Firefox build and package graph into the final portable archive.
+- **CryptoPro clean-profile runtime discovery/basic functionality success** is confirmed for packaged-browser artifact `9569387758` from the same run/SHA: a new profile discovers the extension automatically and normal signature-verification functionality works.
+- **CryptoPro automatic-update configuration is enabled by default** for that exact source (`extensions.update.enabled = true`, `extensions.update.autoUpdateDefault = true`, per-extension `Default`, vendor update manifest present), but a real version-to-version automatic update is **not yet runtime-proven**.
 
 ## Maintenance rule
 
