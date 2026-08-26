@@ -9,6 +9,10 @@ on:
       - "build/validate-bundled-extension.py"
       - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
       - "r3dfox/extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi"
+      - "r3dfox/extensions/gosuslugi@plugin.xpi"
+      - "r3dfox/moz.build"
+      - "r3dfox/r3dfox-bundle.js"
+      - "browser/installer/package-manifest.in"
       - ".github/workflows/bundled-extensions-smoke.yml"
   workflow_dispatch:
 
@@ -17,7 +21,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate committed extension baselines
+    name: Validate bundled extension baselines and integration
     runs-on: windows-2022
     timeout-minutes: 10
 
@@ -28,7 +32,10 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             build
+            r3dfox/moz.build
+            r3dfox/r3dfox-bundle.js
             r3dfox/extensions
+            browser/installer/package-manifest.in
           sparse-checkout-cone-mode: false
 
       - name: GATE - Validate CryptoPro committed fallback
@@ -55,6 +62,18 @@ jobs:
             --metadata 'smoke\gosuslugi-legacy.json'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: GATE - Validate Gosplugin committed fallback
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python build\validate-bundled-extension.py `
+            'r3dfox\extensions\gosuslugi@plugin.xpi' `
+            --expected-id 'gosuslugi@plugin' `
+            --expected-version '1.3.43.0' `
+            --require-permission nativeMessaging `
+            --metadata 'smoke\gosplugin.json'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: GATE - Verify registry hashes and versions
         shell: powershell
         run: |
@@ -65,6 +84,8 @@ jobs:
           from pathlib import Path
 
           registry = json.loads(Path('build/bundled-extensions.json').read_text(encoding='utf-8'))
+          if len(registry['extensions']) != 3:
+              raise SystemExit(f"Expected exactly three bundled extensions, got {len(registry['extensions'])}")
           for item in registry['extensions']:
               path = Path(item['fallback'])
               if not path.is_file():
@@ -73,6 +94,39 @@ jobs:
               if digest != item['fallback_sha256']:
                   raise SystemExit(f"SHA-256 mismatch for {item['id']}: {digest}")
               print(f"registry-ok id={item['id']} version={item['fallback_version']} sha256={digest}")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify Mozilla integration and Russian-first language default
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import json
+          from pathlib import Path
+
+          registry = json.loads(Path('build/bundled-extensions.json').read_text(encoding='utf-8'))
+          moz = Path('r3dfox/moz.build').read_text(encoding='utf-8')
+          package = Path('browser/installer/package-manifest.in').read_text(encoding='utf-8')
+          prefs = Path('r3dfox/r3dfox-bundle.js').read_text(encoding='utf-8')
+
+          for item in registry['extensions']:
+              filename = Path(item['fallback']).name
+              moz_entry = f'"extensions/{filename}"'
+              package_entry = f'@RESPATH@/distribution/extensions/{filename}'
+              if moz_entry not in moz:
+                  raise SystemExit(f'Missing moz.build extension entry: {moz_entry}')
+              if package_entry not in package:
+                  raise SystemExit(f'Missing package-manifest extension entry: {package_entry}')
+
+          if '"r3dfox-bundle.js"' not in moz:
+              raise SystemExit('r3dfox-bundle.js is not staged by r3dfox/moz.build')
+          if '@RESPATH@/defaults/pref/r3dfox-bundle.js' not in package:
+              raise SystemExit('r3dfox-bundle.js is not included by package-manifest.in')
+          expected = 'pref("intl.accept_languages", "ru, en-US, en");'
+          if expected not in prefs:
+              raise SystemExit('Russian-first intl.accept_languages default is missing')
+          print('integration-ok extensions=3 language-order=ru,en-US,en')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
