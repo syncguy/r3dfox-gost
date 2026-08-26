@@ -212,3 +212,59 @@ Release artifact `9606431408` is the exact coordinated-source browser artifact t
 The successful Win7 import gate is evidence only for the import policy exercised by this main job. It does not prove Windows 7 runtime compatibility and does not establish GOST TLS behavior on Windows 7.
 
 Status: current full-build evidence; coordinated Stage 2 runtime validation is now the immediate next experiment.
+
+---
+
+## 2026-08-26 — Legacy Gosuslugi IFCPlugin Firefox XPI baseline is vendored and validation-proven
+
+**Track:** bundled government-system extensions / legacy Gosuslugi IFCPlugin  
+**Branch:** `agent/gost-tls-poc`  
+**Final validation source SHA:** `39f59bb954eb0fe047ef2a1b506ccddc3116f988`  
+**Actions run:** `32972186494`  
+**Job:** `98188295189`  
+**Workflow:** `Bundled extensions smoke`  
+**Evidence artifact:** `9608046113` (`bundled-extensions-smoke`)  
+**Result:** success
+
+### Purpose
+
+Vendor and independently validate the user-supplied legacy Gosuslugi Firefox extension required by some Gosuslugi services, without depending on availability of the vendor download endpoint and without yet spending a full Firefox build/package cycle.
+
+### Failed bootstrap/harness history
+
+The failed runs in this sequence are preserved because they describe delivery/harness limitations rather than defects in the extension:
+
+- run `32965953164`, job `98168356957`, source SHA `4c7e2fc13a8b805f9e0db77fa948a2c3d35cc9dd`: the initial bootstrap failed at `Invoke-WebRequest`; the GitHub-hosted Windows runner could not connect to `ds-plugin.gosuslugi.ru`, so SHA/ZIP/manifest validation was never reached;
+- run `32970562907`, job `98183048135`, source SHA `93177619ce682400d4c19e7123296ea2708bb7d0`: CryptoPro validation passed, while the first manually transferred legacy XPI blob failed ZIP seeking, proving that the repository copy had been corrupted during binary transport rather than proving an upstream XPI defect;
+- run `32970754844`, job `98183671594`, source SHA `109e4b6299be7ef8ef066cb3f69037de4e3d1988`: the alternative official URL was also unreachable from the hosted runner;
+- run `32971692284`, job `98186694570`, source SHA `2a6b120faa5badd811973b9cb0785dc3cf8cab10`: the offline reconstruction gate deliberately stopped on an incorrect aggregate base64 length before replacing the fallback, protecting the repository from another corrupt binary.
+
+The corrected offline reconstruction ran as `32971970880`, job `98187592267`, source SHA `3043fe92f8779391f899061a863d387a43b6d2c6`. It reconstructed exactly `20232` bytes, required SHA-256 `72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80`, validated the XPI structure/manifest/native host, and committed the exact binary in commit `948a27194dd36f1d30b291f06c64d647d1d62f88` (`fix(extensions): restore exact legacy Gosuslugi XPI`). Temporary reconstruction files/workflow were then removed.
+
+### Final validation observation
+
+Final generic smoke run `32972186494`, job `98188295189`, source SHA `39f59bb954eb0fe047ef2a1b506ccddc3116f988` completed successfully. It independently validated both committed baselines and the registry hashes.
+
+For the legacy Gosuslugi XPI it proved:
+
+- repository path `r3dfox/extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi`;
+- extension ID `pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru`;
+- version `1.2.8`;
+- size `20232` bytes;
+- SHA-256 `72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80`;
+- valid ZIP/manifest and Mozilla signature structure;
+- COSE signature structure present;
+- Manifest V2;
+- `nativeMessaging` permission present;
+- native host reference `ru.rtlabs.ifcplugin` present;
+- no `update_url` in the manifest.
+
+The same run also revalidated the existing CryptoPro v1.2.14 fallback and its registry SHA. Both known official legacy-Gosuslugi URLs timed out from the hosted runner; this live check is intentionally non-fatal because the exact committed baseline is authoritative when the vendor endpoint is unavailable.
+
+### Conclusion
+
+The legacy Gosuslugi/IFCPlugin Firefox XPI baseline is now **vendored and short-validation-proven**. The earlier red runs are network/bootstrap/binary-delivery harness history and must not be interpreted as extension failures.
+
+This result does **not** yet prove Mozilla `FINAL_TARGET_FILES` staging, final portable-archive packaging, clean-profile Firefox discovery, or functional communication with an installed `ru.rtlabs.ifcplugin` native host. Those remain separate extension-track integration/runtime gates.
+
+Status: current baseline evidence; next step is real Mozilla packaging integration through the shared bundled-extension full-build workflow.
