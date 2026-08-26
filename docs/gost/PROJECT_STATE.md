@@ -208,28 +208,30 @@ Therefore **Stage 1 client-certificate GOST mTLS is confirmed successful across 
 
 Stage 1 is complete. The current GOST runtime work is the mandatory **Stage 2 mTLS security/UX closure**.
 
-Stage 2.1 runtime diagnostics on the main full build (run `32810337957`, job `97688347771`, source SHA `c62022a5530a61124b756648293113187b8e5b8b`) localize the current verification failure: pinned MSSPI requests `SECPKG_ATTR_REMOTE_CERT_CHAIN` on Windows and the active SSPI/CryptoPro provider returns `0x80090302` (`SEC_E_UNSUPPORTED_FUNCTION`). MSSPI therefore never obtains `peercert`, so its peer-chain/name helpers and `msspi_get_verify_status()` reach the internal-error path before certificate policy is evaluated. The next implementation uses `SECPKG_ATTR_REMOTE_CERT_CONTEXT` and the existing `CertGetCertificateChain` verifier path.
+Stage 2.1 diagnostics originally localized the server-certificate acquisition failure to `SECPKG_ATTR_REMOTE_CERT_CHAIN` returning `0x80090302` from the active SSPI/CryptoPro provider. Source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` switches that path to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`; runtime from the main build run `32844083378`, job `97789764275`, artifact `9567881847`, now shows the real Treasury host reaching `verify ok=1 status=0x00000000` with peer certificate and chain available. Positive acquisition is therefore repaired for the tested environment, but final fail-closed negative verification remains mandatory.
 
-The same runtime capture confirms the 34-entry acceptable-CA list is fully decoded once and repeated identical lists are suppressed for the rest of the browser session. Browser-visible Treasury use, including mTLS, remains successful.
+The same source also contains the first asynchronous Firefox-facing client-certificate picker. Real Treasury runtime now confirms all of the following:
 
-Successful ordinary and Stage 1 Treasury sessions still do not yet establish fail-closed server-certificate validation. Earlier successful sessions contain:
+- a timely picker selection can complete GOST mTLS with `client_cert_loaded=1`;
+- leaving the picker unanswered exposes Firefox's 30-second TLS-handshake timeout, busy-polling in `MSSPI_X509_LOOKUP`, and stale negative session caching after automatic dialog teardown;
+- zero eligible `CurrentUser\\MY` candidates are re-enumerated on every later connection and do not create a sticky negative decision;
+- restoring an eligible certificate to `CurrentUser\\MY` while the same browser process is running changes a later attempt from `count=0` to `count=1`, opens the picker, and completes real mTLS without restarting r3dfox;
+- the real login flow can create several simultaneous client-auth handshakes. The current one-dialog-per-socket implementation requested five additional dialogs within about 20 ms in the live recovery capture, after which positive remembered selections and later negative remembered outcomes were both consumed during the same page transition. The current logging does not expose enough decision-key detail to distinguish same-key overwrite from different OriginAttributes, but independent per-socket dialog lifecycles are conclusively not coordinated safely.
 
-```text
-DriveHandshake verify host=fzs.roskazna.ru ok=0 status=0x00000000
-```
+The user reported a browser-visible HTTP/application error 500 in that concurrent recovery session. The GostTLS-only log shows multiple successful mTLS handshakes and protected application-data exchanges before later no-certificate failures, and does not contain decrypted HTTP status text. The 500 therefore must not be classified as a basic TLS/client-certificate handshake failure from this capture; the client-auth race must be removed before deciding whether an independent application-layer issue remains.
 
-The current wrapper accepts that case because it rejects only `verifyOk && verifyStatus != 0`, while pinned MSSPI may return 0 from `msspi_get_verify_status()` on an internal-error path. Stage 1 intentionally left this behavior unchanged and did not add a special insecure/bypass mode.
+The agreed final picker contract is maintained in `STAGE2_PLAN.md`: stock Firefox UI, human-readable certificate rows, positive-only remembering, explicit `Pending`/`Selected`/`Declined`/`Aborted`/`NoUsableCertificate`/`Failed` attempt states, clean Necko suspend/resume, and a single-flight selection broker for compatible concurrent client-auth requests. Direct token-only/CSP/KSP discovery remains a separate open question because the live recovery proof restored the certificate to `CurrentUser\\MY`; it did not enumerate a certificate that existed only on removable media.
 
-Before mTLS may be considered complete, Stage 2 must close the security and integration debt defined in `TODO.md`: fail-closed server verification with positive and negative cases, final acceptable-issuer/client-certificate selection policy, Firefox-facing certificate-selection flow, negative client-auth paths, diagnostic/privacy audit, and a final hardened Treasury regression trace.
+Before mTLS may be considered complete, Stage 2 must close the security and integration debt defined in `TODO.md`: fail-closed server verification with positive and negative cases; coordinated, non-spinning Firefox client-auth lifecycle; final acceptable-issuer/candidate-source policy; negative client-auth paths; diagnostic/privacy audit; and a final hardened Treasury regression trace.
 
 ### Next GOST runtime experiments
 
-1. Diagnose the current `msspi_get_verify_status()` internal-error/`verifyOk == 0` behavior using sanitized diagnostics only; do not disclose client-certificate or user data.
-2. Implement fail-closed server-certificate verification so both internal verification failure and a nonzero verification status reject the connection.
-3. Prove positive and negative server-verification cases: the real Treasury server/hostname must pass, while a wrong hostname or invalid/untrusted chain must fail.
-4. Resolve the final role of `msspi_get_issuerlist()` in client-certificate filtering/selection and replace the Stage 1 explicit local selector mechanism with the appropriate Firefox-facing selection flow.
-5. Exercise the required negative client-auth paths and audit all public diagnostics for sensitive certificate/user data.
-6. Re-run the successful Treasury mTLS scenario after Stage 2 and record a sanitized exact-run/exact-SHA regression trace proving that the hardening did not break client authentication.
+1. Implement the coordinated client-auth lifecycle first: one single-flight picker for compatible concurrent requests, quiescent `MSSPI_X509_LOOKUP` waiters, stale-callback generation checks before remembered-state mutation, and positive-only remember semantics.
+2. Re-run the exact Treasury recovery/login scenario and prove one user decision can safely resume all compatible live waiters without duplicate/queued dialogs, negative-cache poisoning, busy-looping, or the 30-second timeout.
+3. Complete fail-closed server-certificate verification and prove the positive Treasury host plus wrong-hostname/invalid-chain negative cases.
+4. Finish issuer-aware candidate policy and then test whether a certificate existing only on inserted CryptoPro/removable media is discoverable without restoring/installing it into `CurrentUser\\MY`; add provider enumeration only if the current store view cannot expose it.
+5. Exercise explicit no-certificate, abort, unavailable private key/PIN/provider failure, wrong certificate, and server-rejection paths, ensuring none creates a sticky negative decision.
+6. Re-run the successful Treasury mTLS application workflow after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
 
 ## Windows Vista/7 build-compatibility track
 
@@ -437,7 +439,7 @@ That run proves valid committed fallback handling, forced network-failure fallba
 The dedicated real Mozilla packaging integration is also proven:
 
 - workflow: `CryptoPro Mozilla packaging smoke`;
-- Actions run `32847887872`;
+- Actions run: `32847887872`;
 - job `97801745453`;
 - exact source-under-test SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
 - evidence artifact `9569388324` (`cryptopro-mozilla-packaging-evidence`);
@@ -472,8 +474,10 @@ Keep these statements distinct:
 - **Treasury mTLS requirement** is confirmed for `lk-fzs.roskazna.ru`: the server sends a real TLS `CertificateRequest` and the baseline enters `MSSPI_X509_LOOKUP`.
 - **Stage 1 GOST client-certificate authentication success** is confirmed at exact source SHA `f5d04896e17f91f58b6a137af823360f4718eb29` in both the main full build (`32751967162` / `97510763210`) and the experimental thunk-rs full build (`32751967189` / `97510762742`).
 - **Stage 1 cross-build mTLS independence** is confirmed: the same client-auth source works through both current full-build strategies; this does not merge the GOST-runtime and Win7-compatibility investigation tracks.
-- **GOST certificate-verification success** is **not yet confirmed**; fail-closed server verification is now the leading mandatory Stage 2 security item.
-- **mTLS integration complete/production-ready** is **not yet true**; Stage 2 server verification, final certificate-selection/issuer policy, negative paths, privacy audit, and hardened regression proof remain required.
+- **Current Firefox-facing client-auth positive runtime** is confirmed for main artifact `9567881847` / run `32844083378` / source `5e8c8821...`: a dynamically rediscovered `CurrentUser\\MY` candidate can be selected and complete real TLS 1.2 / `0xFF85` mTLS with protected application traffic in the same browser process.
+- **Current Firefox-facing client-auth lifecycle is not production-ready**: timeout/busy-wait behavior, stale negative callbacks, and uncoordinated parallel per-socket pickers are confirmed blockers; the final path requires quiescent single-flight selection and positive-only remembered choices.
+- **GOST certificate-verification success** is **not yet confirmed as a final fail-closed policy**; positive `verify ok=1/status=0` is now observed after `REMOTE_CERT_CONTEXT`, but wrong-hostname/invalid-chain rejection and final fail-closed enforcement remain required.
+- **mTLS integration complete/production-ready** is **not yet true**; Stage 2 server verification, coordinated certificate-selection/issuer policy, negative paths, privacy audit, and hardened regression proof remain required.
 - **CryptoPro standalone extension packaging success** is confirmed by run `32815118778` / SHA `2ad7025ca300613d39a227b9e7582a341260d648`; this proves updater/fallback/staging/package behavior but not the real Mozilla packaging graph or Firefox installation.
 - **CryptoPro real Mozilla portable-packaging success** is confirmed by run `32847887872`, job `97801745453`, SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`; this proves the selected XPI survives the real Firefox build and package graph into the final portable archive.
 - **CryptoPro clean-profile runtime discovery/basic functionality success** is confirmed for packaged-browser artifact `9569387758` from the same run/SHA: a new profile discovers the extension automatically and normal signature-verification functionality works.
