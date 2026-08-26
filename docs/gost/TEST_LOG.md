@@ -63,6 +63,28 @@ The user independently confirmed the lifecycle boundary: completely terminating 
 
 The stale-callback lifetime guard itself appears to prevent resuming the already-closed MSSPI state: there is no old-socket `dialog completed`/continued handshake after `GostClose`. The bug is that the callback still mutates the process-wide remembered-decision cache before the inactive-state check prevents the wakeup.
 
-Do not fix only the visible timeout symptom. The final design must distinguish an explicit user choice/cancel from dialog destruction caused by request/socket teardown, must define deliberate remember semantics for a real Cancel, and must make the asynchronous wait state non-spinning. The exact source of the approximately 30-second underlying network timeout still requires localization against Firefox/Necko lifecycle behavior before choosing the final mechanism.
+Do not fix only the visible timeout symptom. The final design must distinguish an explicit user choice/cancel from dialog destruction caused by request/socket teardown, must define deliberate remember semantics for a real Cancel, and must make the asynchronous wait state non-spinning.
 
 Status: current; Stage 2 client-auth UX/lifecycle blocker localized, no code fix applied yet.
+
+---
+
+## 2026-08-26 — The picker timeout is Firefox's built-in 30-second TLS-handshake timeout
+
+**Track:** GOST TLS runtime / Stage 2 client-auth lifecycle source audit  
+**Branch:** `agent/gost-tls-poc`  
+**Source audited:** `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`
+
+### Observation
+
+The exact source-under-test defines `nsHttpHandler::mTLSHandshakeTimeout` as `30000` milliseconds. In `nsHttpConnection`, while the TLS handshaker is not complete, the connection measures elapsed TLS time and, once it exceeds `TLSHandshakeTimeout()`, sets close reason `TLS_TIMEOUT` and closes the transaction with `NS_ERROR_NET_TIMEOUT`. That source behavior matches the runtime capture's `30.375 s` interval from Firefox picker request to GOST socket closure.
+
+Therefore the unanswered picker is not being terminated by a Treasury or HTTP-proxy idle timeout in this capture. Firefox's own HTTP/TLS connection lifecycle closes the still-incomplete TLS handshake after approximately 30 seconds.
+
+The same `nsHttpConnection` source exposes explicit `OnClientAuthCertificateRequested()` and `OnClientAuthCertificateSelected()` notifications into the HTTP transaction. The current MSSPI picker path opens the Firefox dialog directly from the GOST SSL layer and does not yet participate in that normal Necko client-auth lifecycle. Before changing the timeout value, the correct follow-up is to understand and reuse the existing client-auth request/selection lifecycle where applicable, rather than globally weakening the TLS timeout.
+
+### Conclusion
+
+**The 30-second timer itself is now localized and is not the primary bug.** The integration problem is that the custom MSSPI asynchronous client-auth wait is still seen by Necko as an ordinary unfinished TLS handshake. The design investigation should focus on the stock Firefox/NSS client-auth lifecycle and on making `MSSPI_X509_LOOKUP` suspend/resume cleanly, while separately fixing stale-dialog/session-memory semantics.
+
+Status: current; timeout source localized, implementation decision intentionally deferred until the remaining picker UX nuances are collected.
