@@ -80,12 +80,24 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = 'https://ds-plugin.gosuslugi.ru/plugin/upload/assets/distrib/addon-1.2.8-fx.xpi'
           $candidate = Join-Path $env:RUNNER_TEMP 'addon-1.2.8-fx.xpi'
-          try {
-            Invoke-WebRequest -Uri $url -OutFile $candidate -TimeoutSec 30
-          } catch {
-            Write-Warning "Official Gosuslugi endpoint is unreachable from this runner; committed fallback remains authoritative: $($_.Exception.Message)"
+          $urls = @(
+            'https://ds-plugin.gosuslugi.ru/plugin/upload/assets/distrib/addon-1.2.8-fx.xpi',
+            'https://ds-plugin.gosuslugi.ru/assets/distrib/addon-1.2.8-fx.xpi'
+          )
+          $downloaded = $false
+          foreach ($url in $urls) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $candidate -TimeoutSec 15
+              Write-Host "Reached official Gosuslugi endpoint: $url"
+              $downloaded = $true
+              break
+            } catch {
+              Write-Warning "Official Gosuslugi endpoint is unreachable from this runner: $url - $($_.Exception.Message)"
+            }
+          }
+          if (-not $downloaded) {
+            Write-Warning 'No official Gosuslugi endpoint was reachable; committed fallback remains authoritative.'
             exit 0
           }
           $hash = (Get-FileHash -Algorithm SHA256 $candidate).Hash.ToLowerInvariant()
