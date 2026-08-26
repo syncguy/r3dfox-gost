@@ -98,6 +98,8 @@ The current source-under-test `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` combine
 - UI candidates currently come only from `CurrentUser\\MY`, require a private-key provider binding, and are filtered against the server acceptable-CA DER names by matching subject/issuer names in the locally built certificate chain.
 - The picker is runtime-reachable and a timely selection completes the real Treasury mTLS login. An unanswered picker currently exposes a 30-second Necko TLS-handshake timeout, a busy wait in `MSSPI_X509_LOOKUP`, and stale negative session caching after automatic dialog teardown; these are integration defects to fix, not reasons to increase the global TLS timeout.
 - When candidate discovery returns zero eligible `CurrentUser\\MY` certificates, no picker is opened and the current TLS attempt continues without a client certificate. The Treasury server rejects that attempt, but no negative choice is cached: each subsequent connection re-enumerates candidates.
+- Live re-enumeration is runtime-proven: restoring an eligible certificate to `CurrentUser\\MY` while the browser remains running changes a later attempt from `count=0` to `count=1`, opens the picker, and completes real mTLS without a browser restart.
+- The real Treasury login flow can create several simultaneous client-auth handshakes. The current per-socket implementation can request several independent Firefox dialogs in milliseconds; later/stale dialog callbacks can then coexist with or interfere with positive remembered selections. The final design therefore requires coordinated single-flight selection rather than one dialog per MSSPI socket.
 
 ## Agreed Firefox client-certificate picker UX/lifecycle contract
 
@@ -129,6 +131,22 @@ The implementation must distinguish attempt state from remember policy:
 Only a positive `Selected` result may be remembered, and only when the user explicitly selects a remember duration. `Declined`, `Aborted`, `NoUsableCertificate`, and `Failed` are current-attempt outcomes only and must never poison future client-certificate prompts. A later attempt must rescan candidate sources so a newly installed certificate or newly available private key can be used without restarting the browser.
 
 The asynchronous `Pending` state must be quiescent. It must integrate with the normal Firefox/Necko client-auth request/selection lifecycle sufficiently that the socket thread does not busy-poll and the normal 30-second TLS-handshake timeout does not destroy an actively awaited user decision.
+
+### Concurrent client-auth requests / single-flight selection
+
+A page may open several connections that reach the same client-certificate decision concurrently. Those compatible requests must not each create an independent picker.
+
+The final selection broker must:
+
+- define a compatibility key at least from normalized host, port, OriginAttributes, and the exact acceptable-CA/issuer-list identity; requests with materially different server issuer constraints must not be silently merged;
+- permit at most one active Firefox picker for one compatible decision key;
+- attach additional compatible MSSPI handshakes as waiters to the existing pending decision instead of opening more dialogs;
+- on `Selected`, distribute the selected certificate DER to every still-active compatible waiter and apply positive remember semantics only once for the owning decision generation;
+- on `Declined`, `Aborted`, `NoUsableCertificate`, or `Failed`, resolve only the affected in-flight decision without writing a negative session cache entry;
+- ignore callbacks from an obsolete/closed decision generation before they can mutate either remembered state or active waiters;
+- remove individual sockets from the waiter set when they close without invalidating an unrelated active selection for other live waiters.
+
+This single-flight layer is separate from the positive remembered-choice cache. The in-flight broker coordinates concurrent handshakes; the positive cache may bypass future dialogs only after an explicit successful user selection with an allowed remember duration.
 
 ### Candidate sources and removable key media
 
@@ -193,7 +211,7 @@ Work items:
 3. Determine whether matching any issuer in the client chain is the appropriate rule for the Treasury endpoint and broader GOST use.
 4. Feed the acceptable-CA constraints into Firefox-facing client-certificate selection.
 5. Replace the Stage 1 explicit `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` mechanism with an appropriate Firefox certificate picker/selection flow.
-6. Implement and test the agreed picker presentation, positive-only remember semantics, clean suspend/resume lifecycle, and re-prompt behavior after negative/aborted attempts.
+6. Implement and test the agreed picker presentation, positive-only remember semantics, clean suspend/resume lifecycle, single-flight coordination for concurrent client-auth requests, and re-prompt behavior after negative/aborted attempts.
 7. Determine whether CryptoPro/removable-media certificates that are not installed in `CurrentUser\\MY` require direct CSP/KSP/provider enumeration; if so, integrate that discovery without duplicate picker entries.
 8. Cover negative client-auth cases: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
 
