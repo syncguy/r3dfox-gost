@@ -14,16 +14,15 @@ Completed work does not remain here as historical narrative. When a milestone cl
 
 Stage 2.1 diagnosis is complete and recorded in `DONE.md` / `TEST_LOG.md`.
 
-The current blocker is no longer an unknown `msspi_get_verify_status()` failure: the active SSPI/CryptoPro provider returns `SEC_E_UNSUPPORTED_FUNCTION` for `SECPKG_ATTR_REMOTE_CERT_CHAIN`, leaving MSSPI without `peercert` and forcing verification into its internal-failure form.
+The original blocker is no longer an unknown `msspi_get_verify_status()` failure. Source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` switches peer-certificate acquisition to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`, and runtime on the main artifact from run `32844083378`, job `97789764275`, now shows the real Treasury server reaching `verify ok=1 status=0x00000000` with peer certificate and chain available.
 
 Required work:
 
-- switch peer-certificate acquisition to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`;
-- build the peer chain with `CertGetCertificateChain` using the acquired leaf certificate;
-- feed the repaired peer-certificate/chain state into the existing MSSPI verification path;
 - fail closed when `verifyOk == 0` or the verification status is nonzero;
-- prove the real Treasury server certificate and hostname succeed;
+- integrate Firefox temporary/permanent certificate overrides and the positive session-verification cache defined in `STAGE2_PLAN.md`;
+- prove the real Treasury server certificate and hostname succeed through the final gate;
 - prove a wrong hostname and an invalid/untrusted chain are rejected;
+- prove client identity/private-key operations cannot occur before server trust is established;
 - do not introduce a production bypass that converts failed server verification into success.
 
 This is a mandatory Stage 2 security gate before GOST mTLS integration can be treated as closed.
@@ -32,21 +31,26 @@ This is a mandatory Stage 2 security gate before GOST mTLS integration can be tr
 
 Stage 1 explicit-selector mTLS is formally complete and recorded in `DONE.md`. The explicit local selector remains useful only as a controlled diagnostic/reference path while the Firefox-facing flow is implemented and compared against the known-good behavior.
 
-Current compile checkpoint:
+Current runtime checkpoint:
 
 - source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`;
-- SSL compile run `32844083351`, job `97789764135`, success;
-- this proves only that the current asynchronous picker state/refcount implementation compiles, not that the picker or handshake works at runtime.
+- main build run `32844083378`, job `97789764275`, artifact `9567881847`;
+- the Firefox-facing picker is runtime-reachable and a timely user selection can complete the real Treasury mTLS login;
+- leaving the picker unanswered exposes the stock 30-second Necko TLS-handshake timeout, busy-polling in `MSSPI_X509_LOOKUP`, and stale negative session caching after automatic dialog teardown;
+- when discovery returns zero eligible `CurrentUser\\MY` candidates, no picker is opened, the Treasury handshake is rejected without a client certificate, and the next connection rescans instead of reusing a remembered negative decision.
 
 Required work:
 
-1. Complete the asynchronous Firefox-facing certificate-selection path without blocking the socket thread.
-2. Define and implement the final use of the server-provided acceptable-issuer list for candidate filtering/selection.
-3. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
-4. Define appropriate in-memory/session remembering behavior for a user selection without leaking sensitive certificate metadata.
-5. Test negative paths: no suitable certificate, user cancellation, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
-6. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
-7. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
+1. Integrate the asynchronous picker with the normal Firefox/Necko client-auth lifecycle so `MSSPI_X509_LOOKUP` is truly suspended while the UI is outstanding, does not busy-poll, and is not killed as an ordinary 30-second unfinished TLS handshake.
+2. Implement the agreed attempt-state semantics from `STAGE2_PLAN.md`: `Selected` may be remembered when explicitly requested; `Declined`, `Aborted`, `NoUsableCertificate`, and `Failed` are current-attempt outcomes only and must never suppress future prompts.
+3. Keep candidate discovery dynamic across attempts so adding/installing a certificate or making its private key available can recover without restarting the browser.
+4. Implement the agreed picker row format `${cert.displayName}, действителен до ${date} [ ${cert.issuerCommonName} ]`, use `cert.displayName` for the human-facing `Issued to` field, and verify `issuerCommonName` Cyrillic rendering in runtime.
+5. Complete the final use of the server-provided acceptable-issuer list for candidate filtering/selection, including validity/key-usage/private-key usability rules needed for production behavior.
+6. Determine whether certificates that exist only on CryptoPro/removable key media become visible through the current `CurrentUser\\MY` enumeration when the media is inserted. If not, add a planned CSP/KSP/provider discovery layer; deduplicate identical certificates and prefer a currently usable hardware/removable private-key binding when the same certificate is visible through multiple sources.
+7. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
+8. Test negative paths: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, expired/not-yet-valid or unsuitable-usage certificate where available, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
+9. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
+10. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
 
 Only after the applicable server-verification and client-authentication items are complete may the project treat GOST mTLS integration as closed.
 
