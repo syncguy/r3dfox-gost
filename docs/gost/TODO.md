@@ -33,39 +33,40 @@ Stage 1 explicit-selector mTLS is formally complete and recorded in `DONE.md`. T
 
 #### Current implementation checkpoint
 
-The first coordinated Stage 2 implementation is compile-validated at exact source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9`.
+The first coordinated Stage 2 implementation is full-browser build/package validated in the authoritative main workflow at exact source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9`.
 
-- workflow: `GOST SSL compile check`;
-- run `32951902976`;
-- job `98124948374`;
-- result: success, including `Compile security manager SSL target objects`.
+- short compile workflow: `GOST SSL compile check`;
+- compile run `32951902976`, job `98124948374`, result: success including `Compile security manager SSL target objects`;
+- main full-build workflow: `GOST TLS PoC build`;
+- full-build run `32951903026`, attempt 2, job `98130275465`, result: success;
+- release artifact `9606431408` (`r3dfox-gost-win64-release`);
+- Win7 import-audit artifact `9606431864` (`r3dfox-gost-win64-win7-import-audit`).
 
 This source defaults to coordinated client auth and retains `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` for same-binary A/B comparison with the previously working per-socket picker. It contains the first single-flight/waiter broker, GOST-scoped `Once` default, positive-only custom remembering, coordinated stale-callback guards, Necko client-auth requested/selected forwarding, a quiescent-wait poll path and the agreed picker presentation changes.
 
-The short compile gate does not prove any of those runtime properties. Main full-build run `32951903026` / job `98124948716` and thunk-rs run `32951903069` / job `98124948880` were cancelled during checkout in the preceding multi-commit push series and are not build evidence.
+Attempt 1 of main run `32951903026`, job `98124948716`, was cancelled during checkout and is superseded as build evidence by successful attempt-2 job `98130275465` at the same exact source SHA. The thunk-rs run `32951903069`, job `98124948880`, remains cancelled during checkout and provides no evidence for that separate Windows-compatibility line. The main full-build gate no longer blocks Stage 2 runtime validation.
 
-The last runtime-proven Firefox-facing baseline remains source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, main build run `32844083378`, job `97789764275`, artifact `9567881847`.
+The last runtime-proven Firefox-facing baseline remains source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, main build run `32844083378`, job `97789764275`, artifact `9567881847`. Release artifact `9606431408` is the exact coordinated-source browser artifact for the next runtime matrix.
 
-That baseline established that the picker is runtime-reachable and a timely selection can complete real Treasury mTLS, but also exposed the 30-second unanswered-picker timeout, `MSSPI_X509_LOOKUP` busy-spin, sticky negative session caching after involuntary teardown, and duplicate per-socket picker races under parallel login requests.
+That earlier runtime baseline established that the picker is runtime-reachable and a timely selection can complete real Treasury mTLS, but also exposed the 30-second unanswered-picker timeout, `MSSPI_X509_LOOKUP` busy-spin, sticky negative session caching after involuntary teardown, and duplicate per-socket picker races under parallel login requests.
 
 Required work:
 
-1. Obtain clean full-browser builds from `860de8e38deed326b7fcd1c547e928c5b48c72a9` or a later fixing descendant. Do not treat the cancelled checkout-only runs as compilation/build failures.
-2. Run coordinated mode against the real Treasury login and prove that compatible concurrent requests produce one visible picker, all live waiters resume correctly, no queued duplicate picker appears after selection, and the authenticated application flow still succeeds.
-3. Re-run the unanswered-picker scenario and quantify `DriveHandshake` / `GostPoll` activity and log growth. Prove that the earlier ~2.5k-iterations/s busy-spin is gone rather than assuming it from the new poll code.
-4. Verify the exact Firefox/Necko 30-second TLS-handshake timeout interaction while the coordinated picker is outstanding. `ClientAuthCertificateRequested/Selected` is now wired in the compile-validated source, but runtime must show whether this is sufficient. Do not globally increase or disable the timeout to mask a lifecycle bug.
-5. Prove retry/F5/new navigation after involuntary picker/load teardown starts a fresh decision and shows the picker again. No null callback from an abandoned attempt may poison later connections.
-6. Close the remaining semantic distinction between explicit `Declined` and involuntary `Aborted`. Positive-only remembering and default `Once` remove the known sticky-negative effect, but explicit Cancel versus teardown still needs a deliberate lifecycle contract and focused proof.
-7. Verify `Once`, explicit `Session`, and explicit `Permanent` behavior. Only positive `Selected` may be remembered. `Declined`, `Aborted`, `NoUsableCertificate`, provider/private-key failure and `Failed` remain attempt-local.
-8. Verify the agreed picker row/detail presentation in the real Russian UI, including Cyrillic `issuerCommonName`, the human-facing `Issued to` field, localized date rendering, and serial number remaining only in details.
-9. Keep candidate discovery dynamic across attempts so adding/installing a certificate or making its private key available can recover without restarting the browser.
-10. Complete the final use of the server-provided acceptable-issuer list for candidate filtering/selection, including validity/key-usage/private-key usability rules needed for production behavior.
-11. Determine whether certificates that exist only on CryptoPro/removable key media become visible through the current `CurrentUser\\MY` enumeration when the media is inserted. If not, add a planned CSP/KSP/provider discovery layer; deduplicate identical certificates and prefer a currently usable hardware/removable private-key binding when the same certificate is visible through multiple sources.
-12. Re-run the missing-media/provider scenario after the coordinator fix, including a provider wait longer than 30 seconds. Treat synchronous CryptoPro waiting as stock-parity behavior unless this produces a concrete browser/network regression; only then promote it to a separate async-provider architecture problem. Pinned MSSPI documents one-handle/single-thread use, so do not move a live handle between threads casually.
-13. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
-14. Test negative paths: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, expired/not-yet-valid or unsuitable-usage certificate where available, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
-15. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
-16. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
+1. Run coordinated mode from exact release artifact `9606431408` against the real Treasury login and prove that compatible concurrent requests produce one visible picker, all live waiters resume correctly, no queued duplicate picker appears after selection, and the authenticated application flow still succeeds.
+2. Re-run the unanswered-picker scenario and quantify `DriveHandshake` / `GostPoll` activity and log growth. Prove that the earlier ~2.5k-iterations/s busy-spin is gone rather than assuming it from the new poll code.
+3. Verify the exact Firefox/Necko 30-second TLS-handshake timeout interaction while the coordinated picker is outstanding. `ClientAuthCertificateRequested/Selected` is now wired in the full-build-validated source, but runtime must show whether this is sufficient. Do not globally increase or disable the timeout to mask a lifecycle bug.
+4. Prove retry/F5/new navigation after involuntary picker/load teardown starts a fresh decision and shows the picker again. No null callback from an abandoned attempt may poison later connections.
+5. Close the remaining semantic distinction between explicit `Declined` and involuntary `Aborted`. Positive-only remembering and default `Once` remove the known sticky-negative effect, but explicit Cancel versus teardown still needs a deliberate lifecycle contract and focused proof.
+6. Verify `Once`, explicit `Session`, and explicit `Permanent` behavior. Only positive `Selected` may be remembered. `Declined`, `Aborted`, `NoUsableCertificate`, provider/private-key failure and `Failed` remain attempt-local.
+7. Verify the agreed picker row/detail presentation in the real Russian UI, including Cyrillic `issuerCommonName`, the human-facing `Issued to` field, localized date rendering, and serial number remaining only in details.
+8. Keep candidate discovery dynamic across attempts so adding/installing a certificate or making its private key available can recover without restarting the browser.
+9. Complete the final use of the server-provided acceptable-issuer list for candidate filtering/selection, including validity/key-usage/private-key usability rules needed for production behavior.
+10. Determine whether certificates that exist only on CryptoPro/removable key media become visible through the current `CurrentUser\\MY` enumeration when the media is inserted. If not, add a planned CSP/KSP/provider discovery layer; deduplicate identical certificates and prefer a currently usable hardware/removable private-key binding when the same certificate is visible through multiple sources.
+11. Re-run the missing-media/provider scenario after the coordinator fix, including a provider wait longer than 30 seconds. Treat synchronous CryptoPro waiting as stock-parity behavior unless this produces a concrete browser/network regression; only then promote it to a separate async-provider architecture problem. Pinned MSSPI documents one-handle/single-thread use, so do not move a live handle between threads casually.
+12. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
+13. Test negative paths: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, expired/not-yet-valid or unsuitable-usage certificate where available, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
+14. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
+15. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
 
 Only after the applicable server-verification and client-authentication items are complete may the project treat GOST mTLS integration as closed.
 

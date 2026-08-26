@@ -162,3 +162,53 @@ The two full-build runs automatically created during the preceding multi-commit 
 The implementation phase has advanced from source-only design to a **compile-validated coordinated client-auth checkpoint** at `860de8e38deed326b7fcd1c547e928c5b48c72a9`. The next evidence must come from full-browser builds and then a sanitized exact-build Treasury runtime matrix. Busy-spin, single-flight behavior, timeout handling and final UX semantics remain open until that runtime evidence exists.
 
 Status: current compile evidence; runtime validation pending.
+
+---
+
+## 2026-08-26 — Coordinated Stage 2 source passes the authoritative main full-browser build/package gate
+
+**Track:** GOST TLS runtime / Stage 2 full-browser build validation  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `860de8e38deed326b7fcd1c547e928c5b48c72a9`  
+**Actions run:** `32951903026`  
+**Run attempt:** 2  
+**Job:** `98130275465`  
+**Workflow:** `GOST TLS PoC build`  
+**Release artifact:** `9606431408` (`r3dfox-gost-win64-release`)  
+**Win7 import-audit artifact:** `9606431864` (`r3dfox-gost-win64-win7-import-audit`)  
+**Result:** success
+
+### Purpose
+
+Close the main full-browser build/package gate for the exact coordinated Stage 2 source after attempt 1 of the same Actions run was cancelled during checkout before any meaningful build gate executed.
+
+### Actions observation
+
+GitHub Actions run `32951903026` is bound to exact source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9`. Attempt 2 completed with overall `conclusion=success`; job `98130275465` also completed with `conclusion=success`.
+
+The job passed the preparatory Rust/build-std and SSL gates, then completed the full browser pipeline:
+
+- `Build release r3dfox` — success;
+- `Audit xul.dll Win7 imports` — success;
+- `Package release r3dfox` — success;
+- `Upload release package` — success;
+- `Upload Win7 import audit` — success;
+- `GATE - Reject known Win8+ imports after artifacts are uploaded` — success.
+
+The resulting release artifact is `9606431408`. The separate audit artifact is `9606431864`.
+
+Attempt-1 job `98124948716` from this same run had been cancelled during checkout. Because attempt 2 tests the same exact run head SHA and reaches the complete pipeline successfully, the earlier cancellation is superseded for build-validity conclusions and must not be treated as a source failure.
+
+The separate thunk-rs workflow run `32951903069`, job `98124948880`, remains a cancelled checkout-only result and is not converted into Windows-compatibility evidence by this main-workflow success.
+
+### Conclusion
+
+The coordinated Stage 2 implementation at source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9` is now **full-browser build/package validated in the authoritative main GOST workflow**. The earlier short compile result is no longer the highest build-level evidence for this source.
+
+This success does **not** prove any GOST TLS runtime or client-auth behavior. In particular it does not prove single-flight picker behavior, busy-spin removal, timeout semantics, remember behavior, Russian picker rendering, server-verification closure or successful Treasury mTLS. Those remain runtime/security gates.
+
+Release artifact `9606431408` is the exact coordinated-source browser artifact to use for the next Stage 2 Treasury runtime matrix.
+
+The successful Win7 import gate is evidence only for the import policy exercised by this main job. It does not prove Windows 7 runtime compatibility and does not establish GOST TLS behavior on Windows 7.
+
+Status: current full-build evidence; coordinated Stage 2 runtime validation is now the immediate next experiment.
