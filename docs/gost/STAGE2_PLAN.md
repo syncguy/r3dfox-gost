@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Stage 2 plan
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 This document is the detailed execution plan for the mandatory Stage 2 security/UX closure after the successful Stage 1 Treasury mTLS proof at source SHA `f5d04896e17f91f58b6a137af823360f4718eb29`.
 
@@ -91,12 +91,52 @@ Evidence required before Stage 2.1 is closed:
 
 ## Current combined implementation experiment
 
-The next build combines two useful changes so a full Firefox build is not spent on a one-line compatibility probe:
+The current source-under-test `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` combines two useful changes:
 
-- Windows MSSPI peer-certificate acquisition is switched directly from `SECPKG_ATTR_REMOTE_CERT_CHAIN` to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`; the existing MSSPI `CertGetCertificateChain` path remains responsible for chain construction. There is no per-connection capability-probe fallback.
+- Windows MSSPI peer-certificate acquisition is switched directly from `SECPKG_ATTR_REMOTE_CERT_CHAIN` to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`; the existing MSSPI `CertGetCertificateChain` path remains responsible for chain construction. Runtime evidence from the main build shows the ordinary Treasury host now reaches `verify ok=1 status=0x00000000`; negative fail-closed verification is still pending.
 - `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` remains the first and unchanged known-good client-certificate path. When it is absent, the GOST callback uses an asynchronous Firefox `nsIClientAuthDialogService` path: `MSSPI_X509_LOOKUP -> would-block -> main-thread clientauthask.xhtml -> socket-thread resume -> msspi_set_mycert`.
-- UI candidates come from `CurrentUser\\MY`, require a private-key provider binding, and are filtered against the server acceptable-CA DER names by matching subject/issuer names in the locally built certificate chain.
-- The first UI implementation reuses a selected or declined choice in process memory when the dialog requests remembering it. Persistent integration with Firefox's remember database remains later hardening work.
+- UI candidates currently come only from `CurrentUser\\MY`, require a private-key provider binding, and are filtered against the server acceptable-CA DER names by matching subject/issuer names in the locally built certificate chain.
+- The picker is runtime-reachable and a timely selection completes the real Treasury mTLS login. An unanswered picker currently exposes a 30-second Necko TLS-handshake timeout, a busy wait in `MSSPI_X509_LOOKUP`, and stale negative session caching after automatic dialog teardown; these are integration defects to fix, not reasons to increase the global TLS timeout.
+- When candidate discovery returns zero eligible `CurrentUser\\MY` certificates, no picker is opened and the current TLS attempt continues without a client certificate. The Treasury server rejects that attempt, but no negative choice is cached: each subsequent connection re-enumerates candidates.
+
+## Agreed Firefox client-certificate picker UX/lifecycle contract
+
+The final Stage 2 picker must preserve the stock Firefox client-auth UI rather than introduce a separate GOST-only dialog, while adjusting the data and lifecycle contract required by the MSSPI path.
+
+### Certificate presentation
+
+The certificate dropdown row format is fixed as:
+
+```js
+`${cert.displayName}, действителен до ${date} [ ${cert.issuerCommonName} ]`
+```
+
+`date` is the certificate expiration date formatted for the UI locale. `cert.displayName` is used for the human-facing certificate owner name and replaces the current serial-number-heavy row. `cert.issuerCommonName` is used for the compact issuer label; its Cyrillic rendering must be confirmed in runtime before the UI change is closed.
+
+The details field `Issued to` must use `cert.displayName` instead of the current full `cert.subjectName`, because the tested certificate renders the structured display name correctly while the full subject DN is mojibake. Serial number remains detail-only information rather than a primary picker discriminator.
+
+### Client-auth attempt state and remembering
+
+The implementation must distinguish attempt state from remember policy:
+
+- `Pending` / selecting: a picker decision is outstanding;
+- `Selected`: the user explicitly selected a client certificate;
+- `Declined`: the user explicitly chose to continue the current attempt without a certificate;
+- `Aborted`: the dialog/load/socket was torn down without an explicit user decision;
+- `NoUsableCertificate`: discovery produced no currently usable candidate;
+- `Failed`: an internal picker/certificate/provider operation failed.
+
+Only a positive `Selected` result may be remembered, and only when the user explicitly selects a remember duration. `Declined`, `Aborted`, `NoUsableCertificate`, and `Failed` are current-attempt outcomes only and must never poison future client-certificate prompts. A later attempt must rescan candidate sources so a newly installed certificate or newly available private key can be used without restarting the browser.
+
+The asynchronous `Pending` state must be quiescent. It must integrate with the normal Firefox/Necko client-auth request/selection lifecycle sufficiently that the socket thread does not busy-poll and the normal 30-second TLS-handshake timeout does not destroy an actively awaited user decision.
+
+### Candidate sources and removable key media
+
+The first implementation intentionally discovers candidates only through `CurrentUser\\MY`. This is not yet the final source model.
+
+A certificate visible in `CurrentUser\\MY` can already be bound through `CERT_KEY_PROV_INFO_PROP_ID` to a CryptoPro CSP/KSP private-key container located on removable media; therefore "certificate in MY" and "certificate on a token" are not always distinct identities. The immediate runtime question is whether the active CryptoPro/provider stack projects a certificate that exists only on inserted key media into the Windows personal-store enumeration used by the browser.
+
+If token-only certificates are not discoverable through `CurrentUser\\MY`, add a later provider/media discovery layer using the applicable CryptoPro CSP/KSP/Windows cryptographic APIs. When the same certificate is discoverable through multiple sources, deduplicate it by certificate identity and prefer a source/context with a currently usable private-key binding, with removable/hardware-backed binding preferred where that distinction is real and observable. Do not show duplicate rows for the same certificate merely because it is visible through both the Windows store and provider/media enumeration.
 
 ## Stage 2.2 — server trust decision and positive session cache
 
@@ -153,7 +193,9 @@ Work items:
 3. Determine whether matching any issuer in the client chain is the appropriate rule for the Treasury endpoint and broader GOST use.
 4. Feed the acceptable-CA constraints into Firefox-facing client-certificate selection.
 5. Replace the Stage 1 explicit `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` mechanism with an appropriate Firefox certificate picker/selection flow.
-6. Cover negative client-auth cases: no acceptable certificate, user cancellation, wrong certificate, missing private key, CryptoPro PIN/private-key failure, and server rejection.
+6. Implement and test the agreed picker presentation, positive-only remember semantics, clean suspend/resume lifecycle, and re-prompt behavior after negative/aborted attempts.
+7. Determine whether CryptoPro/removable-media certificates that are not installed in `CurrentUser\\MY` require direct CSP/KSP/provider enumeration; if so, integrate that discovery without duplicate picker entries.
+8. Cover negative client-auth cases: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
 
 Chromium-Gost is a reference implementation, not an authority over Firefox architecture. Its useful retained patterns are:
 
