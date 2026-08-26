@@ -2,7 +2,7 @@
 
 This is the current append-oriented engineering log.
 
-The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-25_2026-08-26.md`](./TEST_LOG_2026-08-25_2026-08-26.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For planned and deferred work, see [`TODO.md`](./TODO.md`), and for formally closed milestones see [`DONE.md`](./DONE.md).
+The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-25_2026-08-26.md`](./TEST_LOG_2026-08-25_2026-08-26.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For planned and deferred work, see [`TODO.md`](./TODO.md), and for formally closed milestones see [`DONE.md`](./DONE.md).
 
 For each completed experiment, record the exact date, branch and source-under-test SHA, GitHub Actions run/job when applicable, sanitized observation, conclusion, and whether the finding is current, superseded, or still open. Do not publish client-certificate identifiers, private credential metadata, user data, or unsanitized runtime captures; follow `/AGENTS.md`.
 
