@@ -22,7 +22,9 @@ Current GOST path:
 - Firefox/Necko retains proxy resolution, HTTP CONNECT, proxy auth and retry ownership;
 - after `ProxyStartSSL()`, `nsGostSSLIOLayer.cpp` runs TLS through pinned `deemru/msspi` + Windows SSPI/CryptoPro;
 - TLS is currently constrained to TLS 1.2 / HTTP/1.1 for the PoC;
-- default explicit GOST cipher policy is `C100:C101:C102:FF85:0081`; `R3DFOX_GOST_CIPHERS=default` retains MSSPI native selection for diagnostics.
+- default explicit GOST cipher policy is `C100:C101:C102:FF85:0081`; `R3DFOX_GOST_CIPHERS=default` retains MSSPI native selection for diagnostics;
+- the current Stage 2 source defaults the Treasury client-auth path to a coordinated Firefox picker implementation; `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` keeps the previously working per-socket picker path available for same-binary A/B comparison;
+- the explicit local thumbprint selector remains a separate diagnostic/reference path and is not the intended final UX.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -51,20 +53,36 @@ Known-good Stage 1 source:
 
 With a local diagnostic thumbprint selector, both full-build strategies successfully load the real CryptoPro-bound client certificate, complete Treasury TLS 1.2 / `0xFF85` mTLS and enter authenticated application workflows. The concrete client-certificate identifier remains private and must never be committed.
 
-## Current GOST Stage 2 source-under-test
+## Current GOST Stage 2 implementation checkpoint and runtime baseline
 
-The current Firefox-facing client-auth and server-certificate acquisition experiment is bound to:
+### Compile-validated implementation checkpoint
+
+The current coordinated client-auth implementation is bound to exact source SHA:
+
+- source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9`;
+- workflow `GOST SSL compile check`;
+- run `32951902976`;
+- job `98124948374`;
+- result: success, including `Compile security manager SSL target objects`.
+
+This is the current code checkpoint for the next full-build and runtime experiments. The short compile gate proves that the Stage 2 coordinator and associated PSM/UI changes compile; it does not prove full Firefox build/package success or runtime behavior.
+
+The two full-build runs automatically created during the preceding multi-commit push series are not evidence against this source: main run `32951903026`, job `98124948716`, and thunk-rs run `32951903069`, job `98124948880`, were cancelled during checkout before any build gate. They must be rerun or superseded by later exact-SHA full builds.
+
+### Last runtime-proven Firefox-facing baseline
+
+The most recent Stage 2 runtime evidence still belongs to the earlier exact browser source/build:
 
 - source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`;
 - main Actions run `32844083378`;
 - job `97789764275`;
 - artifact `9567881847` (`r3dfox-gost-win64-release`).
 
-Do not confuse later docs-only HEADs with this binary source SHA.
+Do not attribute runtime behavior from that artifact to the later compile-only source `860de8e...`, and do not confuse later documentation-only HEADs with either binary source SHA.
 
 ### Server certificate acquisition / verification state
 
-The source switches Windows MSSPI peer-certificate acquisition from unsupported `SECPKG_ATTR_REMOTE_CERT_CHAIN` to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`, while keeping the existing `CertGetCertificateChain` path.
+The runtime-proven `5e8c8821...` source switches Windows MSSPI peer-certificate acquisition from unsupported `SECPKG_ATTR_REMOTE_CERT_CHAIN` to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`, while keeping the existing `CertGetCertificateChain` path.
 
 Runtime on the exact main artifact now obtains the Treasury peer certificate and chain and reports positive verification as `verify ok=1 status=0x00000000`. This closes the earlier acquisition failure but **does not close final server trust**. The wrapper still needs fail-closed enforcement and negative proof:
 
@@ -75,22 +93,39 @@ Runtime on the exact main artifact now obtains the Treasury peer certificate and
 - prove wrong hostname and invalid/untrusted chain fail;
 - ensure client identity/private-key operations cannot occur before server trust is established.
 
-### Firefox-facing client-certificate picker: confirmed behavior
+### Coordinated Firefox client-auth implementation status
 
-The asynchronous stock-Firefox picker path is runtime-reachable and a timely selection can complete real Treasury mTLS. Current candidate discovery enumerates `CurrentUser\\MY`, requires `CERT_KEY_PROV_INFO_PROP_ID`, filters against the server acceptable-CA list, creates Firefox `nsIX509Cert` objects and invokes the stock client-auth dialog.
+Source `860de8e38deed326b7fcd1c547e928c5b48c72a9` contains the first compile-validated implementation of the agreed Stage 2 direction:
 
-Runtime has established these lifecycle facts:
+- coordinated/single-flight client-certificate decisions with multiple live MSSPI waiters;
+- a same-binary `legacy` mode for comparison with the previously proven per-socket picker;
+- GOST-scoped `Once` as the initial remember choice without changing Firefox's global client-auth remember default;
+- positive-only custom GOST remembered selections, so null/no-certificate callbacks are not persisted as negative GOST session decisions;
+- stale-callback/lifetime checks for coordinated decisions;
+- `ClientAuthCertificateRequested()` / `ClientAuthCertificateSelected()` forwarding through `GostSocketControl` toward Necko's existing client-auth lifecycle;
+- a coordinated picker-wait poll path intended to become quiescent instead of repeatedly re-entering `MSSPI_X509_LOOKUP`;
+- the agreed human-facing certificate picker row/detail formatting changes.
 
-1. **Unanswered picker timeout / busy wait.** Firefox's built-in HTTP TLS-handshake timeout is 30 seconds. While the first custom async picker waits, `MSSPI_X509_LOOKUP` currently busy-polls instead of becoming quiescent. When Necko times the load out, tab-dialog teardown returns a null certificate with stock Session default; current code misclassifies that as a remembered decline and suppresses later prompts until process restart.
+None of those runtime properties is considered proven merely because the short SSL compile gate passed. In particular, single-flight behavior, quiescent polling, 30-second timeout interaction, Russian UI rendering, remember semantics and real Treasury mTLS success must be revalidated on an exact full-build artifact from this source or a later fixing descendant.
+
+The current implementation also does not yet establish the full `Declined` versus involuntary `Aborted` distinction at the dialog callback/lifecycle contract level. Positive-only remembering and GOST `Once` prevent the previously observed automatic null callback from poisoning the custom GOST session cache, but explicit Cancel versus involuntary teardown still needs focused runtime/source closure.
+
+### Firefox-facing client-certificate picker: runtime-proven baseline behavior
+
+The asynchronous stock-Firefox picker path in runtime source `5e8c8821...` is reachable and a timely selection can complete real Treasury mTLS. Candidate discovery enumerates `CurrentUser\\MY`, requires `CERT_KEY_PROV_INFO_PROP_ID`, filters against the server acceptable-CA list, creates Firefox `nsIX509Cert` objects and invokes the stock client-auth dialog.
+
+Runtime on that baseline established these lifecycle facts:
+
+1. **Unanswered picker timeout / busy wait.** Firefox's built-in HTTP TLS-handshake timeout is 30 seconds. While the baseline custom async picker waits, `MSSPI_X509_LOOKUP` busy-polls instead of becoming quiescent. When Necko times the load out, tab-dialog teardown returns a null certificate with stock Session default; baseline code misclassifies that as a remembered decline and suppresses later prompts until process restart.
 2. **Zero-candidate results are non-sticky.** When no eligible `CurrentUser\\MY` certificate exists, each new connection re-enumerates candidates; no negative decision is cached.
 3. **Live MY recovery works.** Restoring an eligible certificate to `CurrentUser\\MY` while r3dfox remains running changes a later attempt from `count=0` to `count=1`; the picker opens and real mTLS can succeed without browser restart.
-4. **Parallel requests need single-flight coordination.** The Treasury login flow can create several simultaneous client-auth handshakes. The current one-picker-per-socket model requested five additional dialogs within about 20 ms. The user visibly received another picker after already choosing a certificate. Stale/queued dialog callbacks can coexist with positive remembered selections and later inject no-certificate decisions. The final architecture requires one compatible in-flight selection with multiple socket waiters and generation-safe stale-callback rejection.
+4. **Parallel requests require single-flight coordination.** The Treasury login flow can create several simultaneous client-auth handshakes. The baseline one-picker-per-socket model requested five additional dialogs within about 20 ms. The user visibly received another picker after already choosing a certificate. Stale/queued dialog callbacks can coexist with positive remembered selections and later inject no-certificate decisions. This is the runtime defect the coordinated source is intended to replace.
 5. **A certificate binding is not live-key availability.** A certificate can remain present and eligible in `CurrentUser\\MY` while the referenced CryptoPro private-key container is physically absent. `CERT_KEY_PROV_INFO_PROP_ID` proves binding metadata only.
-6. **`client_cert_loaded=1` is not a private-key-availability proof.** The current wrapper sets this flag after `msspi_set_mycert()` accepts the certificate DER. Actual private-key acquisition/use happens later during `msspi_connect()` inside SSPI/CryptoPro; a completed mTLS handshake is the proof that the key was obtained and used.
+6. **`client_cert_loaded=1` is not a private-key-availability proof.** The baseline wrapper sets this flag after `msspi_set_mycert()` accepts the certificate DER. Actual private-key acquisition/use happens later during `msspi_connect()` inside SSPI/CryptoPro; a completed mTLS handshake is the proof that the key was obtained and used.
 7. **Missing key media is recoverable.** In the exact main artifact, cancelling CryptoPro's insert-media prompt fails the current handshake with `0x8009030E` (`SEC_E_NO_CREDENTIALS`) but does not create a negative certificate decision. A later attempt in the same process succeeds when the key container is inserted. The confirming capture contains nine successful login-host mTLS handshakes after recovery, all TLS 1.2 / `0xFF85` with protected application traffic; the user entered the personal cabinet successfully.
-8. **CryptoPro provider UI is synchronous inside the current Socket-Thread handshake call, but this is not yet classified as a GOST-specific blocker.** The confirmed insert-media waits hold one `msspi_connect()` call for about 14.1 seconds until Cancel and about 27.0 seconds until media insertion. A subsequent exact-source audit of Firefox 153 PSM found that stock `PK11PasswordPrompt()` also synchronously dispatches token/password UI to the main thread with `SyncRunnable::DispatchToThread(...)` and waits for the result on the originating TLS thread. Therefore synchronous token/provider waiting has a stock-Firefox analogue. It remains a parity/performance question unless runtime proves concrete network starvation, timeout corruption or another regression beyond normal Firefox token-auth behavior.
+8. **CryptoPro provider UI is synchronous inside the baseline Socket-Thread handshake call, but this is not yet classified as a GOST-specific blocker.** The confirmed insert-media waits hold one `msspi_connect()` call for about 14.1 seconds until Cancel and about 27.0 seconds until media insertion. A subsequent exact-source audit of Firefox 153 PSM found that stock `PK11PasswordPrompt()` also synchronously dispatches token/password UI to the main thread with `SyncRunnable::DispatchToThread(...)` and waits for the result on the originating TLS thread. Therefore synchronous token/provider waiting has a stock-Firefox analogue. It remains a parity/performance question unless runtime proves concrete network starvation, timeout corruption or another regression beyond normal Firefox token-auth behavior.
 
-Exact Firefox source also confirms that the ordinary NSS client-auth picker follows an event-driven model: the socket-thread client-auth hook records the request and returns would-block; selection is performed on the main thread; the result returns to the Socket Thread. `NSSSocketControl::SetClientAuthCertificateRequest()` notifies `ClientAuthCertificateRequested()` so Happy Eyeballs can pause other racers. This is the right architectural model for eliminating the custom GOST picker spin. However the callback pair has not yet been proven, by source or runtime, to automatically suspend `nsHttpConnection`'s 30-second TLS-handshake timeout accounting; that part must be verified rather than assumed.
+Exact Firefox source also confirms that the ordinary NSS client-auth picker follows an event-driven model: the socket-thread client-auth hook records the request and returns would-block; selection is performed on the main thread; the result returns to the Socket Thread. `NSSSocketControl::SetClientAuthCertificateRequest()` notifies `ClientAuthCertificateRequested()` so Happy Eyeballs can pause other racers. This is the architectural model now reflected in the compile-validated coordinated source. However neither source inspection nor compile success proves that the callback pair automatically suspends `nsHttpConnection`'s 30-second TLS-handshake timeout accounting; that part must be verified in runtime rather than assumed.
 
 ### Agreed final client-auth UX / state contract
 
@@ -121,7 +156,7 @@ Only explicit positive `Selected` may be remembered. `Declined`, `Aborted`, `NoU
 
 If a user explicitly remembered a positive certificate, a temporary provider failure such as missing key media or `SEC_E_NO_CREDENTIALS` must not automatically erase that positive decision. Conversely, with default `Once`, the next login normally asks for the certificate again.
 
-Compatible concurrent client-auth requests must use a single-flight broker keyed at least by normalized host, port, OriginAttributes and exact acceptable-CA-list identity. One picker owns the decision; additional live MSSPI sockets wait for it; stale generations cannot mutate remembered state; positive result is distributed to compatible live waiters.
+Compatible concurrent client-auth requests use a single-flight broker keyed at least by normalized host, port, OriginAttributes and exact acceptable-CA-list identity in the compile-validated source. Runtime must still prove that one picker owns the decision, additional live MSSPI sockets wait correctly, stale generations cannot mutate remembered state, and the positive result reaches all compatible live waiters safely.
 
 Candidate enumeration must not trigger invasive CryptoPro provider/PIN/media UI merely to populate the list. Any stronger key-usability probe must be silent/non-interactive, or actual key acquisition must remain deferred until after user selection.
 
@@ -129,14 +164,17 @@ Direct token-only certificate discovery remains open: current tests do not estab
 
 ### Current Stage 2 blockers / next experiments
 
-1. Implement coordinated, quiescent Firefox client-auth lifecycle: single-flight picker, waiter model, generation-safe callbacks, positive-only remembering, and GOST-scoped `Once` default.
-2. Integrate the picker wait with Firefox/Necko client-auth lifecycle so the wait becomes event-driven. Verify the exact 30-second timeout interaction rather than assuming `ClientAuthCertificateRequested/Selected` alone suspends timeout accounting; do not globally increase/disable the TLS timeout.
-3. Re-run Treasury login after the picker lifecycle fix and prove one user selection safely resumes all compatible sockets without queued dialogs, negative cache poisoning or the earlier application 500 symptom.
-4. Re-run the missing-media/provider scenario after that fix, including a provider wait longer than 30 seconds. Treat synchronous CryptoPro waiting as stock-parity behavior unless this produces a concrete browser/network regression; only then promote it to a separate async-provider architecture problem. Pinned MSSPI documents one-handle/single-thread use, so do not move a live handle between threads casually.
-5. Complete fail-closed server verification and the valid/wrong-host/untrusted negative matrix.
-6. Test direct token-only certificate discovery; add provider enumeration only if required.
-7. Exercise explicit no-certificate, abort, missing media, provider Cancel, PIN/private-key failure, wrong certificate and server rejection paths; none may become sticky negative state.
-8. Finish with a sanitized exact-run/exact-SHA Treasury mTLS regression proof.
+1. Obtain clean full-browser builds from the stable coordinated source `860de8e38deed326b7fcd1c547e928c5b48c72a9` or a later fixing descendant. The previously auto-started main/thunk runs were cancelled during checkout and are not build evidence.
+2. Run the coordinated mode against the real Treasury login and prove one visible picker safely serves compatible parallel handshakes, with no queued duplicate dialogs, no stale negative decision injection and successful mTLS/application login.
+3. Reproduce the unanswered-picker case on the coordinated build. Measure log volume and `DriveHandshake`/`GostPoll` counts to prove whether the earlier ~2.5k-iterations/s busy-spin is actually gone. Retry/F5 after involuntary teardown must show a fresh picker rather than a sticky no-certificate decision.
+4. Verify the exact 30-second Necko TLS-handshake timeout interaction. `ClientAuthCertificateRequested/Selected` has now been wired in source, but runtime must establish whether this is sufficient; do not globally increase or disable the timeout as a substitute for correct lifecycle integration.
+5. Exercise explicit no-certificate versus involuntary dialog/load abort and close the remaining `Declined`/`Aborted` semantic distinction. Neither path may poison later prompts.
+6. Re-run the missing-media/provider scenario after the coordinator fix, including a provider wait longer than 30 seconds. Treat synchronous CryptoPro waiting as stock-parity behavior unless this produces a concrete browser/network regression; only then promote it to a separate async-provider architecture problem. Pinned MSSPI documents one-handle/single-thread use, so do not move a live handle between threads casually.
+7. Verify the updated picker formatting/localization in the real Russian UI, including Cyrillic `issuerCommonName` and the human-facing `Issued to` field.
+8. Complete fail-closed server verification and the valid/wrong-host/untrusted negative matrix.
+9. Test direct token-only certificate discovery; add provider enumeration only if required.
+10. Exercise no suitable cert, missing media, provider Cancel, PIN/private-key failure, wrong certificate and server rejection paths; none may become sticky negative state.
+11. Finish with a sanitized exact-run/exact-SHA Treasury mTLS regression proof.
 
 ## Windows Vista/7 compatibility track
 
@@ -176,10 +214,11 @@ Remaining extension work: transfer only the proven updater/final-package gates i
 ## Separation of conclusions
 
 - Build success does not prove GOST handshake success.
+- The successful short SSL compile gate at source `860de8e...` proves compilation of the coordinated Stage 2 changes only; it does not prove full Firefox build/package or runtime behavior.
 - GOST transport success does not prove server trust or mTLS security closure.
-- Positive `verify ok=1/status=0` proves the repaired acquisition/positive path for the tested server, not the final fail-closed policy.
+- Positive `verify ok=1/status=0` proves the repaired acquisition/positive path for the tested runtime server, not the final fail-closed policy.
 - `msspi_set_mycert()` / `client_cert_loaded=1` proves the client certificate was installed into MSSPI, not that the private key was available; completed client-auth TLS proves actual key use.
-- Current Firefox-facing mTLS is demonstrably functional but not production-ready because picker timeout/busy-wait, stale callbacks, concurrent picker races and final server-verification hardening remain open. Synchronous CryptoPro token/media UI remains under stock-parity/performance observation rather than being an independently proven blocker.
+- Firefox-facing mTLS is demonstrably functional on the earlier runtime baseline, while the coordinated replacement is currently compile-validated but runtime-unproven. Busy-spin removal, single-flight behavior, timeout handling, final Cancel/abort semantics and updated UI remain open runtime gates. Synchronous CryptoPro token/media UI remains under stock-parity/performance observation rather than being an independently proven blocker.
 - Win7 loader/startup results and GOST runtime results are independent.
 - Extension packaging/runtime results are independent from both GOST TLS and Win7 compatibility.
 
