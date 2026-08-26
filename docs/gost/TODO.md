@@ -37,20 +37,23 @@ Current runtime checkpoint:
 - main build run `32844083378`, job `97789764275`, artifact `9567881847`;
 - the Firefox-facing picker is runtime-reachable and a timely user selection can complete the real Treasury mTLS login;
 - leaving the picker unanswered exposes the stock 30-second Necko TLS-handshake timeout, busy-polling in `MSSPI_X509_LOOKUP`, and stale negative session caching after automatic dialog teardown;
-- when discovery returns zero eligible `CurrentUser\\MY` candidates, no picker is opened, the Treasury handshake is rejected without a client certificate, and the next connection rescans instead of reusing a remembered negative decision.
+- when discovery returns zero eligible `CurrentUser\\MY` candidates, no picker is opened, the Treasury handshake is rejected without a client certificate, and the next connection rescans instead of reusing a remembered negative decision;
+- restoring an eligible certificate to `CurrentUser\\MY` while the browser remains running is detected by a later attempt and can complete real mTLS without browser restart;
+- the real Treasury login flow can issue several concurrent client-auth handshakes, and the current per-socket design can request several independent pickers in milliseconds, after which positive and stale negative remembered outcomes can both be consumed during the same page transition.
 
 Required work:
 
 1. Integrate the asynchronous picker with the normal Firefox/Necko client-auth lifecycle so `MSSPI_X509_LOOKUP` is truly suspended while the UI is outstanding, does not busy-poll, and is not killed as an ordinary 30-second unfinished TLS handshake.
 2. Implement the agreed attempt-state semantics from `STAGE2_PLAN.md`: `Selected` may be remembered when explicitly requested; `Declined`, `Aborted`, `NoUsableCertificate`, and `Failed` are current-attempt outcomes only and must never suppress future prompts.
-3. Keep candidate discovery dynamic across attempts so adding/installing a certificate or making its private key available can recover without restarting the browser.
-4. Implement the agreed picker row format `${cert.displayName}, действителен до ${date} [ ${cert.issuerCommonName} ]`, use `cert.displayName` for the human-facing `Issued to` field, and verify `issuerCommonName` Cyrillic rendering in runtime.
-5. Complete the final use of the server-provided acceptable-issuer list for candidate filtering/selection, including validity/key-usage/private-key usability rules needed for production behavior.
-6. Determine whether certificates that exist only on CryptoPro/removable key media become visible through the current `CurrentUser\\MY` enumeration when the media is inserted. If not, add a planned CSP/KSP/provider discovery layer; deduplicate identical certificates and prefer a currently usable hardware/removable private-key binding when the same certificate is visible through multiple sources.
-7. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
-8. Test negative paths: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, expired/not-yet-valid or unsuitable-usage certificate where available, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
-9. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
-10. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
+3. Add single-flight coordination for compatible concurrent client-auth requests: one picker per host/port/OriginAttributes/issuer-policy decision, multiple active MSSPI waiters sharing that decision, and generation/lifetime checks that reject stale callbacks before they can mutate remembered state.
+4. Keep candidate discovery dynamic across attempts so adding/installing a certificate or making its private key available can recover without restarting the browser.
+5. Implement the agreed picker row format `${cert.displayName}, действителен до ${date} [ ${cert.issuerCommonName} ]`, use `cert.displayName` for the human-facing `Issued to` field, and verify `issuerCommonName` Cyrillic rendering in runtime.
+6. Complete the final use of the server-provided acceptable-issuer list for candidate filtering/selection, including validity/key-usage/private-key usability rules needed for production behavior.
+7. Determine whether certificates that exist only on CryptoPro/removable key media become visible through the current `CurrentUser\\MY` enumeration when the media is inserted. If not, add a planned CSP/KSP/provider discovery layer; deduplicate identical certificates and prefer a currently usable hardware/removable private-key binding when the same certificate is visible through multiple sources.
+8. Keep the known-good explicit selector as a priority diagnostic comparison path only while the Firefox flow is being proved; the final normal UX must not depend on a hard-coded or repository-visible certificate identifier.
+9. Test negative paths: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, expired/not-yet-valid or unsuitable-usage certificate where available, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
+10. Audit diagnostics and artifacts so no complete certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, PFX content, account data, or other sensitive user-derived value is published.
+11. Re-run the successful Treasury mTLS scenario after Stage 2 hardening and preserve a sanitized exact-run/exact-SHA regression proof.
 
 Only after the applicable server-verification and client-authentication items are complete may the project treat GOST mTLS integration as closed.
 
