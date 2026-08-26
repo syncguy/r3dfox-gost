@@ -28,6 +28,7 @@ class GostCoordinatedClientCertDecision final {
         mCANames(std::move(aCANames)) {}
 
   mozilla::Mutex mMutex;
+  MSSPI_HANDLE mMsspiForDiagnostics = nullptr;
   nsCString mKey;
   nsCString mHost;
   mozilla::OriginAttributes mOriginAttributes;
@@ -311,44 +312,50 @@ void OpenGostCoordinatedClientAuthDialog(
   }
 }
 
+int ConsumeGostCoordinatedClientCertDecision(
+    GostSecret* aSecret, const nsACString& aHost,
+    GostCoordinatedClientCertDecision* aDecision) {
+  GostCoordinatedClientCertPhase phase;
+  nsTArray<uint8_t> der;
+  {
+    mozilla::MutexAutoLock lock(aDecision->mMutex);
+    phase = aDecision->mPhase;
+    der = aDecision->mSelectedDER.Clone();
+  }
+  if (phase == GostCoordinatedClientCertPhase::Selecting) {
+    return -1;
+  }
+  if (phase == GostCoordinatedClientCertPhase::Declined) {
+    RemoveGostCoordinatedClientCertWaiter(aSecret->msspi);
+    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+            ("client certificate dialog completed host=%s selected=0 "
+             "mode=coordinated",
+             PromiseFlatCString(aHost).get()));
+    return 1;
+  }
+  if (phase == GostCoordinatedClientCertPhase::Failed || der.IsEmpty()) {
+    RemoveGostCoordinatedClientCertWaiter(aSecret->msspi);
+    return 0;
+  }
+  const int selected =
+      msspi_set_mycert(aSecret->msspi, der.Elements(), der.Length());
+  RemoveGostCoordinatedClientCertWaiter(aSecret->msspi);
+  if (selected) {
+    aSecret->clientCertLoaded = true;
+  }
+  MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
+          ("client certificate dialog completed host=%s selected=%d "
+           "mode=coordinated",
+           PromiseFlatCString(aHost).get(), selected ? 1 : 0));
+  return selected ? 1 : 0;
+}
+
 int SelectCoordinatedFirefoxGostClientCertificate(GostSecret* aSecret,
                                                   const nsACString& aHost) {
   RefPtr<GostCoordinatedClientCertDecision> decision =
       FindGostCoordinatedDecisionByMsspi(aSecret->msspi);
   if (decision) {
-    GostCoordinatedClientCertPhase phase;
-    nsTArray<uint8_t> der;
-    {
-      mozilla::MutexAutoLock lock(decision->mMutex);
-      phase = decision->mPhase;
-      der = decision->mSelectedDER.Clone();
-    }
-    if (phase == GostCoordinatedClientCertPhase::Selecting) {
-      return -1;
-    }
-    if (phase == GostCoordinatedClientCertPhase::Declined) {
-      RemoveGostCoordinatedClientCertWaiter(aSecret->msspi);
-      MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
-              ("client certificate dialog completed host=%s selected=0 "
-               "mode=coordinated",
-               PromiseFlatCString(aHost).get()));
-      return 1;
-    }
-    if (phase == GostCoordinatedClientCertPhase::Failed || der.IsEmpty()) {
-      RemoveGostCoordinatedClientCertWaiter(aSecret->msspi);
-      return 0;
-    }
-    const int selected =
-        msspi_set_mycert(aSecret->msspi, der.Elements(), der.Length());
-    RemoveGostCoordinatedClientCertWaiter(aSecret->msspi);
-    if (selected) {
-      aSecret->clientCertLoaded = true;
-    }
-    MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
-            ("client certificate dialog completed host=%s selected=%d "
-             "mode=coordinated",
-             PromiseFlatCString(aHost).get(), selected ? 1 : 0));
-    return selected ? 1 : 0;
+    return ConsumeGostCoordinatedClientCertDecision(aSecret, aHost, decision);
   }
 
   nsTArray<nsTArray<uint8_t>> caNames;
@@ -380,6 +387,14 @@ int SelectCoordinatedFirefoxGostClientCertificate(GostSecret* aSecret,
   decision = FindGostCoordinatedDecisionByKey(decisionKey);
   if (decision) {
     AddGostCoordinatedWaiter(decision, aSecret->msspi, aSecret->control);
+    GostCoordinatedClientCertPhase phase;
+    {
+      mozilla::MutexAutoLock lock(decision->mMutex);
+      phase = decision->mPhase;
+    }
+    if (phase != GostCoordinatedClientCertPhase::Selecting) {
+      return ConsumeGostCoordinatedClientCertDecision(aSecret, aHost, decision);
+    }
     aSecret->control->ClientAuthCertificateRequested();
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
             ("client certificate joined existing decision host=%s "
