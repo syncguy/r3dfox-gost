@@ -13,12 +13,11 @@ permissions:
 
 jobs:
   repair:
-    name: Download exact official XPI and replace fallback
+    name: Reconstruct exact uploaded XPI and replace fallback
     runs-on: windows-2022
     timeout-minutes: 10
 
     env:
-      XPI_URL: https://ds-plugin.gosuslugi.ru/assets/distrib/addon-1.2.8-fx.xpi
       XPI_ID: pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru
       XPI_SHA256: 72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80
       XPI_PATH: r3dfox\extensions\pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi
@@ -33,14 +32,35 @@ jobs:
             r3dfox/extensions
           sparse-checkout-cone-mode: false
 
-      - name: GATE - Download and validate exact official XPI
+      - name: GATE - Reconstruct exact uploaded XPI
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          @'
+          import base64
+          import hashlib
+          import os
+          from pathlib import Path
+
+          root = Path('build/bootstrap/legacy-gosuslugi-xpi')
+          parts = sorted(root.glob('part*.b64'))
+          if len(parts) != 7:
+              raise SystemExit(f'Expected 7 bootstrap parts, found {len(parts)}')
+          encoded = ''.join(part.read_text(encoding='ascii').strip() for part in parts)
+          if len(encoded) != 26976:
+              raise SystemExit(f'Unexpected bootstrap base64 length: {len(encoded)}')
+          raw = base64.b64decode(encoded, validate=True)
+          digest = hashlib.sha256(raw).hexdigest()
+          expected = os.environ['XPI_SHA256']
+          if digest != expected:
+              raise SystemExit(f'Reconstructed XPI SHA-256 mismatch: {digest}')
+          candidate = Path(os.environ['RUNNER_TEMP']) / 'addon-1.2.8-fx.xpi'
+          candidate.write_bytes(raw)
+          print(f'reconstructed-size={len(raw)} sha256={digest} path={candidate}')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           $candidate = Join-Path $env:RUNNER_TEMP 'addon-1.2.8-fx.xpi'
-          Invoke-WebRequest -Uri $env:XPI_URL -OutFile $candidate -TimeoutSec 30
-          $hash = (Get-FileHash -Algorithm SHA256 $candidate).Hash.ToLowerInvariant()
-          if ($hash -ne $env:XPI_SHA256) { throw "Official XPI SHA-256 mismatch: $hash" }
           python build\validate-bundled-extension.py $candidate `
             --expected-id $env:XPI_ID `
             --expected-version '1.2.8' `
@@ -48,9 +68,11 @@ jobs:
             --require-native-host 'ru.rtlabs.ifcplugin' `
             --metadata legacy-gosuslugi-repair.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           Copy-Item -Force $candidate $env:XPI_PATH
           $workingHash = (Get-FileHash -Algorithm SHA256 $env:XPI_PATH).Hash.ToLowerInvariant()
           if ($workingHash -ne $env:XPI_SHA256) { throw "Working-tree XPI hash mismatch: $workingHash" }
+          Write-Host "Exact fallback reconstructed and validated: $workingHash"
 
       - name: Commit repaired exact fallback
         shell: powershell
@@ -61,5 +83,5 @@ jobs:
           git add -- $env:XPI_PATH
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { throw 'Repair produced no binary change.' }
-          git commit -m 'fix(extensions): repair legacy Gosuslugi XPI fallback'
+          git commit -m 'fix(extensions): restore exact legacy Gosuslugi XPI'
           git push origin HEAD:agent/gost-tls-poc
