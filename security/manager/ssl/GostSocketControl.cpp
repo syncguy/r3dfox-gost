@@ -41,6 +41,20 @@ void GostSocketControl::HandshakeSucceeded(uint16_t aCipherSuite,
   }
 }
 
+void GostSocketControl::ClientAuthCertificateRequested() {
+  COMMON_SOCKET_CONTROL_ASSERT_ON_OWNING_THREAD();
+  if (mHandshakeCallback) {
+    (void)mHandshakeCallback->ClientAuthCertificateRequested();
+  }
+}
+
+void GostSocketControl::ClientAuthCertificateSelected() {
+  COMMON_SOCKET_CONTROL_ASSERT_ON_OWNING_THREAD();
+  if (mHandshakeCallback) {
+    (void)mHandshakeCallback->ClientAuthCertificateSelected();
+  }
+}
+
 NS_IMETHODIMP GostSocketControl::ProxyStartSSL() {
   COMMON_SOCKET_CONTROL_ASSERT_ON_OWNING_THREAD();
   MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
