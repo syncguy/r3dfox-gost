@@ -79,6 +79,32 @@ The proven environment is an ordinary HTTP proxy using CONNECT. Keep these as se
 - SOCKS lifecycle;
 - proxy authentication/reconnect edge cases beyond the currently exercised ASUGATE path.
 
+### 4. Final UX polish: automatic one-shot GOST retry and session discovery
+
+Implement this only after the core GOST TLS / Stage 2 security and runtime work is stable. This is deliberately a final usability layer, not a substitute for the current explicit allowlist while the transport is still being hardened.
+
+Desired user behavior:
+
+- ordinary HTTPS starts through the stock NSS path exactly as Firefox does today;
+- if the initial NSS handshake fails specifically with `SSL_ERROR_NO_CYPHER_OVERLAP`, request exactly one reconnect of the same origin through the MSSPI/GOST backend;
+- keep Necko in control of socket recreation, proxy CONNECT, proxy authentication and retry ownership; do not create an MSSPI socket directly from the NSS error path;
+- a `SSL_ERROR_NO_CYPHER_OVERLAP` result is only permission to try GOST once, not proof that the site is GOST-capable;
+- never loop NSS -> GOST -> NSS -> GOST; a failed GOST retry ends that attempt with the real GOST-side error;
+- after the GOST retry completes successfully with the required GOST policy and normal server verification, remember that `host:port` as a confirmed GOST endpoint for the remainder of the browser process;
+- subsequent connections to a session-confirmed endpoint go directly through the existing GOST path without first repeating the known NSS cipher-overlap failure;
+- the session discovery cache changes backend selection only. It must never bypass certificate/hostname verification, client-authentication policy or any other per-connection security check;
+- clear automatically discovered GOST entries when the browser process exits. Do not add a persistent capability database initially; explicit configuration remains the persistent fast path;
+- keep `R3DFOX_GOST_HOSTS` as the explicit known-GOST override: matching hosts continue to enter the GOST path immediately, while the new discovery path extends coverage to previously unknown GOST-only endpoints;
+- do not broaden the trigger to certificate errors, hostname failures, client-certificate failures, CryptoPro/provider failures or arbitrary TLS errors. Those are security/authentication failures, not evidence that NSS should be replaced by a GOST retry.
+
+The intended model is therefore:
+
+`explicit GOST host -> MSSPI immediately`
+
+`unknown host -> NSS -> SSL_ERROR_NO_CYPHER_OVERLAP -> one MSSPI retry -> successful GOST -> session-confirmed GOST`
+
+This preserves the current provider split and makes GOST discovery transparent for the relatively small, repeatedly used set of GOST-only sites without probing the ordinary web through MSSPI.
+
 ## Windows Vista/7 compatibility — next/deferred
 
 Keep this track separate from GOST TLS runtime conclusions.
