@@ -88,3 +88,52 @@ The same `nsHttpConnection` source exposes explicit `OnClientAuthCertificateRequ
 **The 30-second timer itself is now localized and is not the primary bug.** The integration problem is that the custom MSSPI asynchronous client-auth wait is still seen by Necko as an ordinary unfinished TLS handshake. The design investigation should focus on the stock Firefox/NSS client-auth lifecycle and on making `MSSPI_X509_LOOKUP` suspend/resume cleanly, while separately fixing stale-dialog/session-memory semantics.
 
 Status: current; timeout source localized, implementation decision intentionally deferred until the remaining picker UX nuances are collected.
+
+---
+
+## 2026-08-26 — Zero eligible CurrentUser\\MY candidates are re-scanned on every mTLS attempt
+
+**Track:** GOST TLS runtime / Stage 2 Firefox-facing client-certificate selection  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`  
+**Actions run:** `32844083378`  
+**Job:** `97789764275`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9567881847` (`r3dfox-gost-win64-release`)  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru` through the configured HTTP proxy  
+**Runtime capture:** user-provided `gost_nocertinmy.zip`, SHA-256 `6bcfebe68c9e62d2648cdac616ba1abe5ba15f7460c09dca08c2f6657a8a9e3b`; inner `gost.moz_log`, SHA-256 `c74b81af1c8191e4cccec40368a0d7cb1e88841ffd466c4ce7ff7ac1da0e26ea`
+
+### Purpose
+
+Exercise the Firefox-facing client-auth path while no usable client certificate is available through the current `CurrentUser\\MY` discovery path, and determine whether the no-candidate result is cached or re-evaluated on later connections in the same browser process.
+
+The raw runtime log is not committed. Only sanitized lifecycle/protocol facts are recorded.
+
+### Sanitized observation
+
+The ordinary Treasury host remains healthy in the same capture: ten `fzs.roskazna.ru` connections complete TLS 1.2 / `0xFF85`, and their completed verifier diagnostics report `verify ok=1 status=0x00000000`.
+
+For `lk-fzs.roskazna.ru`, the capture contains five separate mTLS connection attempts between `06:57:18.269 UTC` and `06:57:27.060 UTC`.
+
+Every attempt shows the same sequence:
+
+- the real server acceptable-CA list is available with 34 entries;
+- candidate discovery logs `client certificate candidates ... count=0 mode=firefox-ui`;
+- no `client certificate dialog requested` event occurs;
+- no `client certificate remembered` event occurs;
+- the current callback path returns control to MSSPI without loading a client certificate;
+- the Treasury server quickly returns TLS fatal `handshake_failure`, surfaced by SSPI as `0x80090326`, and the socket closes in MSSPI error state.
+
+The capture does not expose the outbound client-auth handshake bytes because they are deliberately redacted, so the log alone is not used to claim the exact empty-Certificate wire encoding. The observed result is nevertheless consistent with the known no-client-certificate Treasury baseline: no client certificate is loaded and the server rejects the mTLS attempt.
+
+Most importantly, all five attempts independently re-run candidate discovery and report `count=0`. The zero-candidate result is therefore **not** stored in the process-wide remembered-choice cache. Unlike the unanswered-picker timeout path, this scenario does not poison later prompts for the rest of the browser session.
+
+There is no 30-second picker timeout or `MSSPI_X509_LOOKUP` UI busy-wait in this capture because the dialog is never opened when the candidate list is empty.
+
+### Conclusion
+
+**The current no-candidate path is non-sticky and recoverable in principle:** a later TLS attempt in the same browser process re-enumerates candidate sources. If a usable certificate becomes visible through the current discovery path before the next attempt, the browser can proceed to the picker without requiring a browser restart.
+
+The runtime evidence proves only zero **eligible candidates returned by the current `CurrentUser\\MY` discovery/filtering code**, not that every Windows/CryptoPro certificate source is empty. The current source does not directly enumerate removable key media/CryptoPro provider containers. A focused follow-up should therefore keep the browser process alive, insert or expose a certificate on the key medium without manually installing a separate copy into `CurrentUser\\MY`, and retry the login. If the picker appears, the active provider stack projects the token certificate into the current Windows-store discovery sufficiently for this path. If candidate count remains zero, direct CSP/KSP/provider/media enumeration becomes justified Stage 2 work.
+
+Status: current; zero-candidate retry behavior confirmed, removable-media discovery remains open.
