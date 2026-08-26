@@ -18,7 +18,10 @@ jobs:
 
     env:
       XPI_URL: https://addons.mozilla.org/firefox/downloads/file/4795372/2842830-1.3.43.0.xpi
+      EXPECTED_ID: gosuslugi@plugin
       EXPECTED_VERSION: "1.3.43.0"
+      EXPECTED_SHA256: f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc
+      XPI_PATH: r3dfox\extensions\gosuslugi@plugin.xpi
 
     steps:
       - name: Checkout repository
@@ -29,7 +32,7 @@ jobs:
             r3dfox/extensions
           sparse-checkout-cone-mode: false
 
-      - name: Download and inspect signed AMO XPI
+      - name: Download and validate exact signed AMO XPI
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -56,39 +59,38 @@ jobs:
           legacy = manifest.get('applications', {}).get('gecko', {})
           addon_id = gecko.get('id') or legacy.get('id')
           version = manifest.get('version')
-          if not addon_id:
-              raise SystemExit('Manifest does not declare a Firefox extension ID')
+          raw = path.read_bytes()
+          digest = hashlib.sha256(raw).hexdigest()
+          if addon_id != os.environ['EXPECTED_ID']:
+              raise SystemExit(f'Unexpected extension ID: {addon_id!r}')
           if version != os.environ['EXPECTED_VERSION']:
               raise SystemExit(f'Unexpected version: {version!r}')
+          if digest != os.environ['EXPECTED_SHA256']:
+              raise SystemExit(f'Unexpected SHA-256: {digest}')
           permissions = manifest.get('permissions', [])
           if 'nativeMessaging' not in permissions:
               raise SystemExit('nativeMessaging permission is missing')
-          raw = path.read_bytes()
-          meta = {
+          print(json.dumps({
               'id': addon_id,
               'version': version,
               'size': len(raw),
-              'sha256': hashlib.sha256(raw).hexdigest(),
+              'sha256': digest,
               'permissions': permissions,
               'has_cose_signature': all(x in names for x in ('META-INF/cose.manifest', 'META-INF/cose.sig')),
-          }
-          Path('gosplugin-bootstrap.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-          Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8').write(f"GOSPLUGIN_ID={addon_id}\nGOSPLUGIN_SHA256={meta['sha256']}\n")
-          print(json.dumps(meta, ensure_ascii=False, sort_keys=True))
+          }, ensure_ascii=False, sort_keys=True))
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $dest = "r3dfox\extensions\$env:GOSPLUGIN_ID.xpi"
-          Copy-Item -Force $candidate $dest
-          Write-Host "Vendoring $dest sha256=$env:GOSPLUGIN_SHA256"
+          Copy-Item -Force $candidate $env:XPI_PATH
+          $workingHash = (Get-FileHash -Algorithm SHA256 $env:XPI_PATH).Hash.ToLowerInvariant()
+          if ($workingHash -ne $env:EXPECTED_SHA256) { throw "Working-tree XPI hash mismatch: $workingHash" }
 
       - name: Commit exact validated XPI
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $dest = "r3dfox\extensions\$env:GOSPLUGIN_ID.xpi"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- $dest
+          git add -- $env:XPI_PATH
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { throw 'Validated Gosplugin XPI produced no repository change.' }
           git commit -m 'build(extensions): vendor Gosplugin Firefox XPI'
