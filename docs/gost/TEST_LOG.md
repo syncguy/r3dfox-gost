@@ -98,3 +98,59 @@ The `Default` update choice follows Firefox's global add-on auto-update setting.
 A real version-to-version update has not yet been observed. That remains the only open runtime-update proof for this extension track; it should be tested with an older valid signed CryptoPro XPI or when CryptoPro publishes a version newer than `1.2.14`.
 
 Status: current; clean-profile discovery/functionality closed, real update transition still open.
+
+---
+
+## 2026-08-26 — Firefox-facing client-cert refcount fix passes both full browser builds
+
+**Track:** GOST TLS runtime / Stage 2 Firefox-facing client-certificate selection; build validation only  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` (`fix(gost): use Firefox thread-safe refcounting`)
+
+### Main full build
+
+- **Actions run:** `32844083378`
+- **Job:** `97789764275`
+- **Workflow:** `GOST TLS PoC build`
+- **CI result:** success
+- `GATE - Compile security manager SSL target objects`: success
+- full release build: success
+- Win7 import audit: success
+- package/upload: success
+- final known-Win8+ direct-import gate: success
+- release artifact: `9567881847` (`r3dfox-gost-win64-release`), SHA-256 digest `c5c4a6774e77fc1b791237dcf6059a546d95a919eb6799c7bf04abf3ade6569d`
+- import-audit artifact: `9567882486` (`r3dfox-gost-win64-win7-import-audit`), SHA-256 digest `54d2b9b39256736eb3505da9b05b3cd4525aea7c6ea7ce1bcd160c89376f7f4e`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32844083378>
+
+### Experimental thunk-rs full build
+
+- **Actions run:** `32844083433`
+- **Job:** `97789764481`
+- **Workflow:** `GOST TLS PoC build - thunk-rs experiment`
+- **CI result:** success
+- `GATE - Compile security manager SSL target objects`: success
+- full release build with the narrow YY-Thunks linker path: success
+- package/upload: success
+- thunked `xul.dll` Win7 import audit: success
+- final known direct Win8+ import gate: success
+- release artifact: `9567061391` (`r3dfox-gost-win64-thunk-experiment`), SHA-256 digest `fe165b0b04485354a5e2dac1c7a5a54fb82946ead1b30075a5fdf22bde7122a9`
+- diagnostics artifact: `9567062774` (`r3dfox-gost-win64-thunk-diagnostics`), SHA-256 digest `a14bfdfe54ec86cae334ba812b34fb7231b585e7408d667f74fb12561b27b216`
+
+Run link: <https://github.com/syncguy/r3dfox-gost/actions/runs/32844083433>
+
+### Purpose and observation
+
+The exact source SHA is the compile-fix descendant of failed SSL-only run `32837093952`, where the new Stage 2 picker state used the nonexistent Firefox-153 `mozilla::RefCountedThreadSafe` API. Short compile run `32844083351`, job `97789764135`, had already proven the replacement with `NS_INLINE_DECL_THREADSAFE_REFCOUNTING` at the SSL-target level.
+
+These two full runs now extend that proof through both current full-browser strategies. The same Stage 2 Firefox-facing client-certificate picker/refcount source compiles, links, packages, uploads, and passes each workflow's existing direct-import compatibility gate.
+
+### Conclusion
+
+**Source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` is proven full-buildable and packageable in both current browser build strategies.** The earlier `RefCountedThreadSafe` / `AddRef` / `Release` compile regression is therefore closed not only at the short SSL compile gate but also at full Firefox/xul scale.
+
+This is intentionally a build result, not runtime proof. Neither run exercises the Firefox client-certificate dialog/selection flow, peer-certificate acquisition, fail-closed server verification, MSSPI client authentication, or a GOST TLS handshake. The next evidence for this GOST-runtime line must come from runtime testing of an artifact built from this exact source SHA (or a clearly identified descendant).
+
+For the Windows Vista/7 compatibility track, the experimental run proves only that the existing direct-import audit/gate passes for this source and linker strategy. It does not by itself prove real Windows 7 runtime compatibility.
+
+Status: current; full-build prerequisite closed, Stage 2 runtime/integration work remains open.
