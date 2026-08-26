@@ -2,236 +2,216 @@
 
 Last updated: 2026-08-26
 
-This document is the detailed execution plan for the mandatory Stage 2 security/UX closure after the successful Stage 1 Treasury mTLS proof at source SHA `f5d04896e17f91f58b6a137af823360f4718eb29`.
+This document defines the mandatory Stage 2 security/UX closure after the proven Stage 1 Treasury mTLS result. `PROJECT_STATE.md` is the current synthesis, `TODO.md` is the backlog, and `TEST_LOG.md` / dated volumes are the evidence trail.
 
-`PROJECT_STATE.md` remains the current synthesis, `TODO.md` remains the forward backlog, and `TEST_LOG.md` remains the active evidence trail. This file defines the ordered Stage 2 implementation sequence and its invariants.
+Current Firefox-facing implementation under test:
 
-## Security and performance invariants
+- source SHA `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`;
+- main run `32844083378`;
+- job `97789764275`;
+- artifact `9567881847`.
 
-1. A GOST connection may continue only after the presented server certificate is accepted by one of these paths:
-   - a matching Firefox temporary certificate override;
-   - a matching Firefox permanent certificate override;
-   - a successful full server-certificate verification performed earlier in the same browser session for the same server-certificate identity;
-   - a successful full server-certificate verification performed on the current connection.
-2. Existing Firefox certificate overrides are checked before full verification. If the exact presented certificate already has a matching temporary or permanent override, full verification is skipped.
-3. The positive verification cache is browser-session/process scoped only. It is not written to disk and is discarded when the browser exits.
-4. The positive verification-cache key must intentionally overlap Firefox override identity semantics: normalized ASCII host, normalized port, OriginAttributes, and SHA-256 identity of the exact presented server leaf certificate. A changed server certificate therefore causes a cache miss and requires a new trust decision.
-5. Only successful full verification is entered into the positive session cache. Verification failure is never converted into trust by the cache.
-6. No client certificate, client `CertificateVerify`, CryptoPro private-key proof, or protected application data may be disclosed before server trust is established through a matching Firefox override or successful verification/cache hit.
-7. The server-provided acceptable-CA/issuer list is diagnostic and later selection-policy input. A full detailed dump must not be repeated on every TLS connection. Each unique issuer list for a host/port is logged in full only on its first appearance during a browser session; repeated identical lists produce only compact cache-hit diagnostics.
-8. If an endpoint changes its issuer list during the same browser session, the changed list is a new diagnostic identity and is dumped in full once.
-9. Concrete client-certificate identifiers and private user data remain subject to the public-repository sanitization rules in `/AGENTS.md`. Server public-certificate and server issuer-policy diagnostics may be inspected locally, but permanent documentation should retain only the details needed for engineering conclusions.
+## Security invariants
 
-## Firefox override identity
+1. A GOST connection may continue only after server trust is established by a matching Firefox certificate override, a valid positive browser-session verification cache entry for the exact server identity, or successful full verification on the current connection.
+2. The positive server-verification cache is browser-session/process scoped only and is keyed by normalized host, normalized port, OriginAttributes and SHA-256 identity of the exact server leaf certificate.
+3. Verification failure or internal verifier failure is never cached as trust.
+4. No client certificate, `CertificateVerify`, private-key proof or protected application data may be disclosed before server trust is established.
+5. Client-certificate negative outcomes are attempt-local. Only an explicit positive certificate selection may be remembered.
+6. Client-certificate identifiers, subject/issuer identifying DN, provider/container identifiers, PIN/password/PFX/user data and raw sensitive captures must not be committed.
 
-The existing Firefox `nsCertOverrideService` stores and matches overrides using:
+## Current server-verification state
 
-- ASCII hostname;
-- normalized port;
-- OriginAttributes;
-- SHA-256 fingerprint of the exact presented certificate.
+Windows MSSPI peer-certificate acquisition in the current source uses `SECPKG_ATTR_REMOTE_CERT_CONTEXT` rather than unsupported `SECPKG_ATTR_REMOTE_CERT_CHAIN`; the existing Windows `CertGetCertificateChain` path remains responsible for chain construction.
 
-Temporary overrides live only for the session. Permanent overrides are written to the Firefox profile. Stage 2 must reuse this mechanism rather than introduce a GOST-only trust database or production environment variable that disables verification.
+Positive Treasury runtime now reports peer certificate/chain availability and `verify ok=1 status=0x00000000`. Final Stage 2 work must still:
 
-The intended fast-path order is:
+- fail closed when `verifyOk == 0`;
+- fail closed on any nonzero verification status;
+- check Firefox temporary/permanent overrides before full verification;
+- use the exact-identity positive session cache only after successful verification;
+- prove the real Treasury host/chain positive case;
+- prove wrong-hostname and invalid/untrusted-chain negative cases;
+- prevent all client private-key operations until the server-trust gate passes.
 
-```text
-server Certificate received
-  -> build exact server-certificate identity
-  -> Firefox HasMatchingOverride(host, port, OriginAttributes, cert)
-       -> hit: accept immediately; do not run full verification
-       -> miss: positive browser-session verification cache lookup
-            -> hit: accept immediately
-            -> miss: run full verification
-                 -> success: insert positive session-cache entry and accept
-                 -> failure: stop; later surface Firefox certificate-error/override UX
-```
+## Firefox client-certificate picker — final UX contract
 
-## Stage 2.1 — observability first
-
-Purpose: understand the current `msspi_get_verify_status()` `ok=0/status=0` behavior and obtain the complete server acceptable-issuer policy without changing the already-proven Stage 1 client-certificate selection behavior.
-
-Implementation requirements:
-
-1. Keep current Stage 1 handshake acceptance behavior unchanged for this diagnostic implementation.
-2. Add structured server-verification diagnostics around `msspi_get_verify_status()`:
-   - returned boolean/result;
-   - verification status;
-   - `msspi_last_error()` immediately after the call;
-   - MSSPI state;
-   - peer-certificate count retrieval result/error;
-   - peer-chain count retrieval result/error;
-   - server subject/issuer retrieval result and lengths when available.
-3. When MSSPI enters the client-certificate lookup path and `msspi_get_issuerlist()` is available, retrieve the complete issuer list using the documented two-pass API.
-4. Build an exact binary identity of the complete issuer list for browser-session deduplication. The identity must include entry boundaries/lengths, not merely concatenated text.
-5. On the first appearance of a unique list for a host/port during the browser session, log:
-   - host and port;
-   - issuer count;
-   - total DER bytes;
-   - each issuer index and DER length;
-   - a canonical formatted X.500 DN where Windows can format it;
-   - decoded ASN.1 `CERT_NAME_INFO` structure;
-   - each RDN and each attribute within it;
-   - attribute OID;
-   - OID friendly name when Windows knows it;
-   - ASN.1/RDN value type;
-   - decoded textual value when Windows can convert it;
-   - a clear decode/format failure and Windows error when a field cannot be decoded.
-6. At debug level, preserve enough DER diagnostics to recover from formatter ambiguity without requiring the original raw TLS handshake dump. Do not automatically copy the full issuer table into public `TEST_LOG.md`.
-7. On repeated identical issuer lists, emit one compact `already_logged=1`/cache-hit line rather than repeating the table.
-8. If the list changes, log the new list in full once.
-9. Do not yet use the issuer list to reject or filter the Stage 1 explicitly selected local client certificate. Filtering belongs to a later stage after the real server policy has been inspected.
-
-Evidence required before Stage 2.1 is closed:
-
-- SSL target compile gate passes for the exact implementation SHA;
-- one sanitized runtime capture shows verification diagnostics sufficient to explain or further localize `verifyOk=0`;
-- one runtime capture shows the full acceptable-issuer list decoded once and subsequent repeated TLS connections suppressing duplicate full dumps;
-- the existing Stage 1 Treasury mTLS path still completes.
-
-## Current combined implementation experiment
-
-The current source-under-test `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e` combines two useful changes:
-
-- Windows MSSPI peer-certificate acquisition is switched directly from `SECPKG_ATTR_REMOTE_CERT_CHAIN` to `SECPKG_ATTR_REMOTE_CERT_CONTEXT`; the existing MSSPI `CertGetCertificateChain` path remains responsible for chain construction. Runtime evidence from the main build shows the ordinary Treasury host now reaches `verify ok=1 status=0x00000000`; negative fail-closed verification is still pending.
-- `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` remains the first and unchanged known-good client-certificate path. When it is absent, the GOST callback uses an asynchronous Firefox `nsIClientAuthDialogService` path: `MSSPI_X509_LOOKUP -> would-block -> main-thread clientauthask.xhtml -> socket-thread resume -> msspi_set_mycert`.
-- UI candidates currently come only from `CurrentUser\\MY`, require a private-key provider binding, and are filtered against the server acceptable-CA DER names by matching subject/issuer names in the locally built certificate chain.
-- The picker is runtime-reachable and a timely selection completes the real Treasury mTLS login. An unanswered picker currently exposes a 30-second Necko TLS-handshake timeout, a busy wait in `MSSPI_X509_LOOKUP`, and stale negative session caching after automatic dialog teardown; these are integration defects to fix, not reasons to increase the global TLS timeout.
-- When candidate discovery returns zero eligible `CurrentUser\\MY` certificates, no picker is opened and the current TLS attempt continues without a client certificate. The Treasury server rejects that attempt, but no negative choice is cached: each subsequent connection re-enumerates candidates.
-- Live re-enumeration is runtime-proven: restoring an eligible certificate to `CurrentUser\\MY` while the browser remains running changes a later attempt from `count=0` to `count=1`, opens the picker, and completes real mTLS without a browser restart.
-- The real Treasury login flow can create several simultaneous client-auth handshakes. The current per-socket implementation can request several independent Firefox dialogs in milliseconds; later/stale dialog callbacks can then coexist with or interfere with positive remembered selections. The user visually confirmed that after completing the first certificate choice, another certificate-selection dialog was actually shown instead of the browser proceeding directly into the personal cabinet. The final design therefore requires coordinated single-flight selection rather than one dialog per MSSPI socket.
-
-## Agreed Firefox client-certificate picker UX/lifecycle contract
-
-The final Stage 2 picker must preserve the stock Firefox client-auth UI rather than introduce a separate GOST-only dialog, while adjusting the data and lifecycle contract required by the MSSPI path.
+Use the stock Firefox client-auth UI rather than introducing a separate GOST-only window. GOST-specific behavior should be supplied through invocation/lifecycle state where necessary without globally changing normal NSS client-auth defaults.
 
 ### Certificate presentation
 
-The certificate dropdown row format is fixed as:
+The dropdown row format is fixed as:
 
 ```js
 `${cert.displayName}, действителен до ${date} [ ${cert.issuerCommonName} ]`
 ```
 
-`date` is the certificate expiration date formatted for the UI locale. `cert.displayName` is used for the human-facing certificate owner name and replaces the current serial-number-heavy row. `cert.issuerCommonName` is used for the compact issuer label; its Cyrillic rendering must be confirmed in runtime before the UI change is closed.
+Requirements:
 
-The details field `Issued to` must use `cert.displayName` instead of the current full `cert.subjectName`, because the tested certificate renders the structured display name correctly while the full subject DN is mojibake. Serial number remains detail-only information rather than a primary picker discriminator.
+- `date` is the certificate expiration date formatted for the UI locale;
+- `cert.displayName` is the human-facing owner label;
+- the details field `Issued to` uses `cert.displayName` instead of full `cert.subjectName`, because the tested full Subject DN renders as mojibake while the structured display name is correct;
+- `cert.issuerCommonName` is the compact issuer label; its Cyrillic rendering must be confirmed in runtime;
+- certificate serial number remains details-only information.
 
-### Client-auth attempt state and remembering
+### Remember policy
 
-The implementation must distinguish attempt state from remember policy:
+Firefox 153 defines:
 
-- `Pending` / selecting: a picker decision is outstanding;
-- `Selected`: the user explicitly selected a client certificate;
-- `Declined`: the user explicitly chose to continue the current attempt without a certificate;
-- `Aborted`: the dialog/load/socket was torn down without an explicit user decision;
-- `NoUsableCertificate`: discovery produced no currently usable candidate;
-- `Failed`: an internal picker/certificate/provider operation failed.
+- `Once = 0`;
+- `Permanent = 1`;
+- `Session = 2`.
 
-Only a positive `Selected` result may be remembered, and only when the user explicitly selects a remember duration. `Declined`, `Aborted`, `NoUsableCertificate`, and `Failed` are current-attempt outcomes only and must never poison future client-certificate prompts. A later attempt must rescan candidate sources so a newly installed certificate or newly available private key can be used without restarting the browser.
+The stock Firefox preference currently defaults to `Session`. **Do not change the global Firefox preference.**
 
-The picker remember control must default to `Once` / "do not remember". In Firefox 153 the `nsIClientAuthRememberService::Duration` values are `Once = 0`, `Permanent = 1`, `Session = 2`, while the stock `security.client_auth_certificate_default_remember_setting` currently defaults to `2` (`Session`). The final GOST-facing flow must present `Once` initially and require an explicit user action to choose `Session` or `Permanent`. Whether this is implemented as a GOST-scoped dialog argument/override or as a deliberate global Firefox preference change must be decided before coding; ordinary NSS client-auth behavior must not be changed accidentally.
+For the GOST picker invocation only:
 
-The asynchronous `Pending` state must be quiescent. It must integrate with the normal Firefox/Necko client-auth request/selection lifecycle sufficiently that the socket thread does not busy-poll and the normal 30-second TLS-handshake timeout does not destroy an actively awaited user decision.
+- initial remember choice is `Once` / do not remember;
+- `Session` and `Permanent` apply only when the user explicitly chooses them;
+- only a positive `Selected` certificate result may be written to remembered state;
+- no negative, abort or provider-failure result may overwrite a remembered positive certificate.
 
-### Concurrent client-auth requests / single-flight selection
+### Attempt states
 
-A page may open several connections that reach the same client-certificate decision concurrently. Those compatible requests must not each create an independent picker.
+Keep attempt state separate from remember scope:
 
-The final selection broker must:
+- `Pending` — a user certificate decision is outstanding;
+- `Selected` — the user explicitly chose a certificate;
+- `Declined` — the user explicitly chose to continue the current attempt without a certificate;
+- `Aborted` — dialog/load/socket/navigation was torn down without a user decision;
+- `NoUsableCertificate` — discovery produced no currently usable candidate;
+- `Failed` — internal picker/certificate/provider operation failed.
 
-- define a compatibility key at least from normalized host, port, OriginAttributes, and the exact acceptable-CA/issuer-list identity; requests with materially different server issuer constraints must not be silently merged;
-- permit at most one active Firefox picker for one compatible decision key;
-- attach additional compatible MSSPI handshakes as waiters to the existing pending decision instead of opening more dialogs;
-- on `Selected`, distribute the selected certificate DER to every still-active compatible waiter and apply positive remember semantics only once for the owning decision generation;
-- on `Declined`, `Aborted`, `NoUsableCertificate`, or `Failed`, resolve only the affected in-flight decision without writing a negative session cache entry;
-- ignore callbacks from an obsolete/closed decision generation before they can mutate either remembered state or active waiters;
-- remove individual sockets from the waiter set when they close without invalidating an unrelated active selection for other live waiters.
+`Declined`, `Aborted`, `NoUsableCertificate` and `Failed` are current-attempt outcomes only. A later attempt must be able to re-enumerate candidates and ask again.
 
-This single-flight layer is separate from the positive remembered-choice cache. The in-flight broker coordinates concurrent handshakes; the positive cache may bypass future dialogs only after an explicit successful user selection with an allowed remember duration.
+## Clean asynchronous Firefox/Necko lifecycle
 
-### Candidate sources and removable key media
+The current implementation opens the Firefox picker asynchronously but does not fully participate in normal Necko client-auth lifecycle. Confirmed consequences are a busy-spin in `MSSPI_X509_LOOKUP` and Firefox's ordinary 30-second TLS-handshake timeout destroying an unanswered dialog.
 
-The first implementation intentionally discovers candidates only through `CurrentUser\\MY`. This is not yet the final source model.
+Final behavior must:
 
-A certificate visible in `CurrentUser\\MY` can already be bound through `CERT_KEY_PROV_INFO_PROP_ID` to a CryptoPro CSP/KSP private-key container located on removable media; therefore "certificate in MY" and "certificate on a token" are not always distinct identities. The immediate runtime question is whether the active CryptoPro/provider stack projects a certificate that exists only on inserted key media into the Windows personal-store enumeration used by the browser.
+- signal/participate in the normal client-auth requested/selected lifecycle where applicable;
+- put `MSSPI_X509_LOOKUP` into a truly quiescent wait while the Firefox picker is open;
+- wake/resume only from a valid current decision callback;
+- not solve the problem by globally increasing or disabling the normal TLS-handshake timeout;
+- treat load/socket/dialog teardown as `Aborted`, never as a remembered user decline.
 
-If token-only certificates are not discoverable through `CurrentUser\\MY`, add a later provider/media discovery layer using the applicable CryptoPro CSP/KSP/Windows cryptographic APIs. When the same certificate is discoverable through multiple sources, deduplicate it by certificate identity and prefer a source/context with a currently usable private-key binding, with removable/hardware-backed binding preferred where that distinction is real and observable. Do not show duplicate rows for the same certificate merely because it is visible through both the Windows store and provider/media enumeration.
+## Concurrent client-auth requests — single-flight broker
 
-## Stage 2.2 — server trust decision and positive session cache
+Real Treasury runtime proves that a page transition can create several simultaneous mTLS handshakes and that the current per-socket implementation can request several Firefox dialogs within milliseconds. The user visibly received a second picker after already choosing a certificate.
 
-After Stage 2.1 explains the verifier behavior:
+Compatible requests must therefore share one in-flight selection decision.
 
-1. Create/reuse an `nsIX509Cert` representation of the exact server leaf certificate.
-2. Check `nsCertOverrideService::HasMatchingOverride` first using host, normalized port, OriginAttributes, and that certificate.
-3. If a matching temporary or permanent override exists, accept without invoking full server verification.
-4. Otherwise check the process/session positive-verification cache using the same identity dimensions: host, port, OriginAttributes, SHA-256(server leaf certificate).
-5. On a cache miss, perform full verification.
-6. On full-verification success, insert the identity into the positive session cache.
-7. On verification failure or internal verification failure, do not insert anything and stop automatic continuation.
-8. Invalidate/clear the positive cache on browser shutdown and when trust/certificate-database policy changes in a way that makes an old successful decision stale.
+The broker must:
 
-Evidence requirements:
+- key compatibility at least by normalized host, port, OriginAttributes and exact acceptable-CA/issuer-list identity;
+- never silently merge requests whose server issuer constraints materially differ;
+- allow at most one active Firefox picker per compatible decision key/generation;
+- attach later compatible MSSPI handshakes as waiters;
+- on `Selected`, distribute the selected DER to every still-live compatible waiter;
+- apply positive remember semantics once for the owning decision generation;
+- resolve negative/aborted/failed generations without writing negative remembered state;
+- reject obsolete/stale callbacks before they can mutate remembered state or current waiters;
+- remove a closed socket from the waiter set without cancelling an unrelated live decision for other sockets.
 
-- first connection to a valid unchanged endpoint logs cache miss + full verification + cache insert;
-- subsequent connections in the same browser session log cache hits and do not repeat full verification;
-- a changed server certificate causes a cache miss;
-- an existing Firefox override bypasses full verification;
-- invalid/untrusted server certificate with no override does not continue automatically.
+Single-flight in-flight coordination and the positive remembered-choice cache are different layers. The former coordinates simultaneous handshakes; the latter may bypass a future picker only after an explicit positive remembered user decision.
 
-## Stage 2.3 — enforce server trust before client identity
+## Candidate discovery and removable media
 
-Rework the mTLS callback/state machine so `msspi_set_mycert()` and any CryptoPro private-key operation are impossible until server trust is established by:
+The current implementation enumerates `CurrentUser\\MY`, requires `CERT_KEY_PROV_INFO_PROP_ID`, builds local chains and filters candidates against the server acceptable-CA DER names.
 
-- matching Firefox temporary/permanent override; or
-- positive session-cache hit; or
-- successful current full verification.
+Confirmed runtime semantics:
 
-A server that has not passed one of those gates must not receive the client Certificate or CertificateVerify.
+- zero candidates are rescanned on every later connection and are not negatively cached;
+- restoring a certificate to `CurrentUser\\MY` while r3dfox remains running is detected on the next attempt;
+- `CERT_KEY_PROV_INFO_PROP_ID` proves that a certificate has provider/container binding metadata, not that the private-key container is currently reachable;
+- a certificate can therefore remain a picker candidate while its physical key medium is absent.
 
-## Stage 2.4 — Firefox certificate-error / override UX
+Direct token-only discovery is still open. Run a focused test with the certificate absent from `CurrentUser\\MY` and only the key medium/provider source present. If the certificate becomes visible through the normal store view, no direct provider enumeration is needed for that environment. If it remains invisible, add a CSP/KSP/CryptoPro provider discovery layer.
 
-Connect a failed GOST server-verification decision to Firefox's normal certificate-error workflow rather than a GOST-only bypass.
+If multiple discovery sources expose the same certificate:
 
-Required behavior:
+- deduplicate by certificate identity;
+- do not show duplicate rows merely because one identity is visible through both MY and provider/media enumeration;
+- prefer a currently usable hardware/removable private-key binding where that distinction is real and can be determined without interactive prompting.
 
-- failed verification + no existing override -> stop and surface certificate-error flow;
-- user may choose the Firefox-supported temporary/session exception or permanent exception where the underlying error is overridable;
-- retry/reconnect sees `HasMatchingOverride == true` for the exact host/port/OriginAttributes/certificate and skips full verification;
-- replacing the server certificate invalidates the match and requires a new decision.
+Candidate enumeration itself must not trigger CryptoPro PIN/media/provider UI. Any key-usability probe used before selection must be silent/non-interactive.
 
-No production `R3DFOX_GOST_IGNORE_SERVER_CERT`-style global bypass is part of the final design.
+## Private-key provider lifecycle
 
-## Stage 2.5 — issuer-aware client-certificate filtering and Firefox UX
+The latest confirmed runtime scenario keeps the client certificate in `CurrentUser\\MY` but removes the actual private-key container.
 
-Use the real Stage 2.1 issuer table and Chromium-Gost experience to design final candidate filtering.
+Observed behavior on the exact current artifact:
 
-Work items:
+- the certificate remains eligible and can be supplied through `msspi_set_mycert()`;
+- cancelling CryptoPro's insert-media notification fails the current `msspi_connect()` with `0x8009030E` (`SEC_E_NO_CREDENTIALS`);
+- this provider failure does not become a negative Firefox certificate decision;
+- a later attempt in the same browser process succeeds after the user inserts the key container;
+- after recovery, repeated Treasury login-host TLS 1.2 / `0xFF85` mTLS handshakes complete and the user enters the personal cabinet.
 
-1. Compare the known-good client certificate chain with the actual server-provided acceptable issuer names.
-2. Decide the matching rule using DER/X.500 identity rather than display-string heuristics wherever possible.
-3. Determine whether matching any issuer in the client chain is the appropriate rule for the Treasury endpoint and broader GOST use.
-4. Feed the acceptable-CA constraints into Firefox-facing client-certificate selection.
-5. Replace the Stage 1 explicit `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` mechanism with an appropriate Firefox certificate picker/selection flow.
-6. Implement and test the agreed picker presentation, `Once` as the default remember choice, positive-only remember semantics, clean suspend/resume lifecycle, single-flight coordination for concurrent client-auth requests, and re-prompt behavior after negative/aborted attempts.
-7. Determine whether CryptoPro/removable-media certificates that are not installed in `CurrentUser\\MY` require direct CSP/KSP/provider enumeration; if so, integrate that discovery without duplicate picker entries.
-8. Cover negative client-auth cases: no acceptable certificate, explicit no-certificate choice, dialog/load abort, wrong certificate, missing/unavailable private key, CryptoPro PIN/private-key failure, and server rejection.
+Important interpretation: current `client_cert_loaded=1` means that `msspi_set_mycert()` accepted the certificate DER. It is not proof that the private key was acquired. Successful completion of the client-auth TLS handshake is the proof that SSPI/CryptoPro actually obtained and used the private key.
 
-Chromium-Gost is a reference implementation, not an authority over Firefox architecture. Its useful retained patterns are:
+### Provider failure and remembered positive choice
 
-- server certificates are installed/verified before client-certificate selection;
-- `msspi_get_issuerlist()` is retrieved with the two-pass API and passed into browser client-certificate machinery;
-- issuer constraints are used to filter candidate client certificate chains.
+If the user explicitly chose `Session` or `Permanent`, a temporary provider failure such as:
 
-## Final Stage 2 regression closure
+- missing key media;
+- provider Cancel;
+- `SEC_E_NO_CREDENTIALS`;
+- PIN/private-key acquisition failure;
 
-After all applicable Stage 2 items are implemented:
+must not automatically erase or replace the positive certificate choice with a negative decision. The next attempt may retry the same selected certificate and allow CryptoPro to obtain the key again.
 
-- rerun the real Treasury GOST mTLS scenario;
-- bind runtime evidence to exact Actions run/job and exact source SHA;
-- prove server verification/override semantics;
-- prove session-cache behavior;
-- prove issuer-aware client-cert selection;
-- prove client Certificate/CertificateVerify is never disclosed before server trust;
-- prove authenticated application traffic still works;
-- preserve only sanitized evidence in the active `TEST_LOG.md`.
+With the default GOST `Once`, no positive selection is retained automatically; a new login attempt asks for the certificate again. This is intentional.
+
+### Socket Thread blocking blocker
+
+Current CryptoPro interactive provider UI is entered synchronously inside `msspi_connect()` on Mozilla's Socket Thread. In the confirmed missing-media capture, one call remains blocked for about 14.1 seconds until the user cancels the CryptoPro prompt; the retry remains blocked for about 27.0 seconds until the user inserts the required key container.
+
+This is separate from the Firefox-picker busy-loop defect. The picker currently spins the Socket Thread while waiting asynchronously; the CryptoPro provider dialog blocks it synchronously.
+
+Stage 2 must investigate a safe architecture that prevents long interactive provider waits from monopolizing the global Socket Thread while preserving the same Schannel/MSSPI security context. Candidate directions must be validated against the actual MSSPI/SSPI threading and context rules before implementation; do not blindly move a live Schannel context across threads or pre-acquire keys in a way that triggers invasive provider UI.
+
+## Issuer-aware policy
+
+Continue using the real server acceptable-CA list as binary DER/X.500 policy input, not display-string heuristics.
+
+Final work:
+
+- compare each candidate certificate chain against the actual server issuer constraints;
+- determine the correct match rule for Treasury and broader GOST endpoints;
+- enforce validity, key-usage/EKU and private-key/provider requirements appropriate for client TLS auth;
+- keep detailed issuer diagnostics deduplicated and sanitized in permanent documentation.
+
+## Negative-path matrix
+
+Before Stage 2 closure, exercise at least:
+
+- no acceptable certificate;
+- explicit no-certificate choice;
+- dialog/load/navigation abort;
+- unanswered picker beyond the former timeout boundary;
+- concurrent mTLS requests during one page transition;
+- certificate present but private-key media absent;
+- provider media prompt Cancel;
+- media inserted on retry without browser restart;
+- PIN/private-key acquisition failure where safely testable;
+- wrong/unsuitable/expired certificate where safely available;
+- server rejection;
+- stale callback after socket teardown.
+
+No negative case may poison future certificate prompts. Any explicitly remembered positive certificate should remain a positive choice unless the user changes/forgets it or the remembered identity is no longer valid under final policy.
+
+## Ordered implementation / validation sequence
+
+1. Implement GOST-scoped `Once` default, positive-only remember semantics and explicit attempt states.
+2. Add generation-safe single-flight selection for compatible simultaneous mTLS requests.
+3. Integrate the pending picker with Necko so waiters are quiescent and do not hit the ordinary 30-second unfinished-TLS timeout.
+4. Re-run the Treasury picker/login scenario and prove a single user selection resumes all compatible live sockets without duplicate/queued dialogs, negative remembered state or the earlier application-500 symptom.
+5. Investigate and then harden CryptoPro provider interaction so interactive key-media/PIN waits do not monopolize the global Socket Thread; preserve the proven missing-media recovery semantics.
+6. Complete fail-closed server-verification/override/session-cache handling and positive + negative server trust tests.
+7. Complete issuer-aware client-certificate filtering and direct token-only discovery decision.
+8. Run the full negative client-auth matrix.
+9. Run final real Treasury mTLS regression and record exact run/job/source SHA plus sanitized runtime evidence proving server trust, client selection, private-key use and authenticated application traffic.
+
+Chromium-Gost remains a reference implementation for useful MSSPI patterns, not an authority over Firefox architecture.
