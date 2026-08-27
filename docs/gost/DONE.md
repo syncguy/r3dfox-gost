@@ -2,176 +2,95 @@
 
 Last updated: 2026-08-27
 
-This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed.
-
-It is **not** an experiment log. Exact run IDs, job IDs, commit SHAs, observations, failed attempts, and superseded hypotheses remain in the current [`TEST_LOG.md`](./TEST_LOG.md) and dated `TEST_LOG_*.md` historical volumes. [`PROJECT_STATE.md`](./PROJECT_STATE.md) remains the current technical synthesis, and [`TODO.md`](./TODO.md) contains only open, deferred, or future work.
-
-Keep entries here concise. Do not copy long test histories into this file. A closed item should state what is proven, identify the key authoritative evidence when useful, and make clear which adjacent work remains open.
-
-If new evidence invalidates a closed conclusion, record the new experiment in `TEST_LOG.md`, add the reopened work to `TODO.md`, and update the relevant entry here rather than silently deleting the old conclusion.
+This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
 ## GOST TLS runtime
 
 ### Phase 1 GOST HTTPS transport baseline — COMPLETE
 
-The following baseline behavior is established for the tested Treasury environment and must not be reopened without new evidence:
+Established for the tested Treasury environment:
 
-- the Firefox/Necko HTTP proxy CONNECT lifecycle works with the tested ASUGATE environment;
-- allowlisted GOST sessions complete TLS 1.2 with `fzs.roskazna.ru` and negotiate suite `0xFF85`;
+- Firefox/Necko HTTP proxy CONNECT lifecycle works with the tested ASUGATE environment;
+- allowlisted GOST sessions complete TLS 1.2 with `fzs.roskazna.ru` and suite `0xFF85`;
 - protected HTTP application traffic works over the MSSPI-backed GOST transport;
-- Treasury pages render with JavaScript and images;
-- interactive forms, information requests, and response-list workflows have worked in the tested browser artifacts;
-- the same GOST TLS source behavior has been exercised through both current full-build strategies.
+- Treasury pages render and tested interactive workflows operate normally.
 
-Detailed transport/proxy/runtime evidence is preserved in `PROJECT_STATE.md` and the historical/current test logs.
+Detailed transport evidence remains in the test logs and `PROJECT_STATE.md`.
 
 ### Stage 1 Treasury client-certificate mTLS — COMPLETE
 
-Exact Stage 1 source SHA:
+Exact Stage 1 source `f5d04896e17f91f58b6a137af823360f4718eb29`.
 
-`f5d04896e17f91f58b6a137af823360f4718eb29`
+Authoritative main build/runtime evidence: run `32751967162`, job `97510763210`. A locally designated client certificate can be loaded by MSSPI/CryptoPro and completes real Treasury GOST TLS 1.2 / `0xFF85` mutual TLS plus authenticated protected application traffic. The concrete certificate identifier remains private.
 
-Authoritative full-build/runtime evidence:
-
-- main build: run `32751967162`, job `97510763210`;
-- experimental thunk-rs full build: run `32751967189`, job `97510762742`.
-
-Confirmed:
-
-- `lk-fzs.roskazna.ru` reaches the GOST path when explicitly allowlisted and sends a client-certificate request;
-- the Stage 1 wrapper callback selects one explicitly designated local certificate from `CurrentUser\MY` without publishing its identifier;
-- the selected certificate has an available private-key binding;
-- MSSPI loads the client certificate and completes GOST TLS 1.2 / `0xFF85` mutual TLS;
-- the previous empty-client-certificate / `0x80090326` failure is closed for the tested Stage 1 path;
-- authenticated Treasury application traffic succeeds in both current full-build strategies.
-
-Stage 1 deliberately used a local explicit selector as a controlled diagnostic mechanism. Its success does **not** close Stage 2 server-verification, issuer-policy, Firefox-facing certificate-selection UX, negative-path, or privacy-hardening work; those remain in `TODO.md`.
+Stage 1 used an explicit local selector as a diagnostic mechanism; it did not close Stage 2 browser-facing selection, negative-path, issuer-policy, or final server-trust work.
 
 ### Stage 2.1 trust observability and verifier diagnosis — COMPLETE
 
-Exact diagnostic source SHA:
+Diagnostic source `c62022a5530a61124b756648293113187b8e5b8b`; main run `32810337957`, job `97688347771`; thunk run `32810337879`, job `97688347489`; short SSL run `32810337880`, job `97688347363`.
 
-`c62022a5530a61124b756648293113187b8e5b8b`
+Closed diagnosis:
 
-Build evidence:
+- acceptable-issuer collection/deduplication works;
+- active SSPI/CryptoPro returns `0x80090302` for `SECPKG_ATTR_REMOTE_CERT_CHAIN`;
+- missing MSSPI `peercert` explains the then-observed internal verification failure;
+- next implementation path is remote leaf context plus Windows chain construction.
 
-- main full build: run `32810337957`, job `97688347771`, success;
-- experimental thunk-rs full build: run `32810337879`, job `97688347489`, success;
-- short SSL compile gate: run `32810337880`, job `97688347363`, success.
-
-Runtime diagnosis from the main-build artifact established that:
-
-- the acceptable-issuer list is returned and the detailed dump is correctly deduplicated once per browser session;
-- the active SSPI/CryptoPro provider returns `0x80090302` (`SEC_E_UNSUPPORTED_FUNCTION`) for `SECPKG_ATTR_REMOTE_CERT_CHAIN`;
-- the resulting lack of MSSPI `peercert` is why `msspi_get_verify_status()` reaches its internal-failure form in the tested path;
-- this is a peer-certificate acquisition blocker, not evidence that Treasury's real server certificate failed chain or hostname policy;
-- the next implementation path is `SECPKG_ATTR_REMOTE_CERT_CONTEXT` for the leaf certificate followed by `CertGetCertificateChain`.
-
-The diagnosis is closed; implementing and proving fail-closed server verification remains open in `TODO.md`.
+Final fail-closed server verification remains open separately.
 
 ### Stage 2 F1 close/shutdown client-auth lifecycle — COMPLETE
 
-Exact fixing source and runtime browser:
+Exact fixing source/runtime browser:
 
 - source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
-- authoritative main run `33039013849`, job `98408139479`;
-- runtime artifact `9636591432` (`r3dfox-gost-win64-release`).
+- main run `33039013849`, job `98408139479`;
+- artifact `9636591432`.
 
-T2R runtime evidence proves that unanswered-picker teardown no longer creates a replacement/orphan coordinated decision during `msspi_shutdown()`. Across three timeout cycles in one browser process, the active waiter/decision is removed before shutdown, the shutdown-time callback is rejected because the handle is closing, the abandoned UI callback is later rejected as stale, and F5 / `Try again` each produce a fresh picker without browser restart.
+T2R proves unanswered-picker teardown no longer creates a replacement/orphan decision during `msspi_shutdown()`. Across three timeout cycles, active waiters/decisions are removed, shutdown-time callback re-entry is rejected because the handle is closing, abandoned UI callbacks are stale-safe, and retries receive fresh pickers without browser restart. The capture contains zero automatic `selected=0`, `0x80090326`, `0x0000054f`, or `MSSPI_X509_LOOKUP`.
 
-The capture contains no automatic `selected=0`, no `0x80090326`, no `0x0000054f`, and no `MSSPI_X509_LOOKUP`. The old sticky post-timeout failure from source `860de8e...` is therefore closed for this tested path.
+### Stage 2 F2 positive default-`Once` fanout/scope — COMPLETE
 
-This closure does not prove F2 positive-`Once` fanout, F3 generic GIS GMP mTLS reachability, final server trust, or the full remaining client-auth matrix; those remain open.
+Exact source/runtime browser:
+
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- main run `33039013849`, job `98408139479`;
+- artifact `9636591432`.
+
+T1R proves one positive Firefox `Once` choice feeds the complete Treasury login across compatible sequential connection waves without additional UI: one picker, one lease store, seven lease reuses, eight successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes, and successful protected personal-cabinet use.
+
+T1R-B proves the scope boundary in the same browser process/context. Generation 1 is last reused at `09:07:13.004 UTC` and nominally expires at `09:07:18.004`; a real independent client-auth request at `09:09:44.169` creates fresh `decision=2` and a new Firefox picker rather than reusing generation 1. The new positive choice creates generation 2 and mTLS succeeds again.
+
+T1R-B capture identity:
+
+- `T1R-B-current.zip` SHA-256 `c2d018b8637467b4c1368bfa66399dd042d73b88c39c6de7bf07368c7524ea65`;
+- inner log SHA-256 `c30c9f61e008d8bdb321570373c1c5cf6f3bc9eaa9e980564d463d03e307686e`.
+
+Therefore default `Once` has the intended attempt-local positive fanout semantics for the tested Treasury flow: compatible sockets inside the idle window reuse the positive choice, while an independent post-expiry attempt asks again. F3 generic GIS GMP mTLS, the broader negative/client-decision matrix, provider/media scenarios, and final server trust remain open.
 
 ## Bundled government-system extensions
 
 ### CryptoPro standalone updater/fallback/package mechanism — COMPLETE
 
-Formal passing evidence:
+Source `2ad7025ca300613d39a227b9e7582a341260d648`, run `32815118778`, job `97701728235`, evidence artifact `9551126137`.
 
-- source SHA: `2ad7025ca300613d39a227b9e7582a341260d648`;
-- run `32815118778`;
-- job `97701728235`;
-- evidence artifact `9551126137` (`cryptopro-extension-smoke`);
-- result: success.
-
-Confirmed:
-
-- the committed fallback XPI validates before network update attempts;
-- network failure falls back to the committed XPI;
-- an invalid committed fallback is a hard error;
-- valid downloaded candidates are accepted only after structural validation;
-- malformed or wrong-extension-ID candidates are rejected in favor of the valid fallback;
-- the official CryptoPro endpoint was successfully exercised;
-- synthetic `distribution/extensions` staging and final synthetic ZIP verification preserve the selected XPI and its identity.
-
-This closes the standalone updater/fallback contract only. Real Mozilla packaging integration, final portable-archive inclusion, transfer into the two main browser workflows, and Firefox runtime behavior remain separate work.
+Proven: committed fallback validation, network-failure fallback, invalid-fallback hard failure, downloaded-candidate validation, malformed/wrong-ID rejection, live CryptoPro endpoint exercise, synthetic staging and final synthetic package verification.
 
 ### CryptoPro real Mozilla portable-packaging integration — COMPLETE
 
-Formal passing evidence:
+Source `17b8d9762b489ed8fc9c3a8e1595802065dd7188`, run `32847887872`, job `97801745453`, evidence artifact `9569388324`, packaged-browser artifact `9569387758`.
 
-- source SHA: `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
-- run `32847887872`;
-- job `97801745453`;
-- evidence artifact `9569388324` (`cryptopro-mozilla-packaging-evidence`);
-- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`);
-- result: success.
-
-Confirmed in one exact run/SHA:
-
-- updater/selection succeeded;
-- the full Firefox build succeeded;
-- the selected XPI passed exact verification in real `dist/bin/distribution/extensions`;
-- `mach package` succeeded;
-- the produced portable archive passed the final exact XPI path/hash/manifest-ID gate under `distribution/extensions`.
-
-This closes the final-portable-archive blocker from failed run `32817910715`, job `97709832302`; that failure remains historical evidence of the diagnosed `browser/installer/package-manifest.in` omission. The dedicated real Mozilla packaging proof is complete.
+Proven in one exact run: updater/selection, full Firefox build, real `dist/bin` extension verification, `mach package`, and final portable-archive exact extension path/hash/manifest-ID verification.
 
 ### CryptoPro clean-profile discovery and basic functional runtime — COMPLETE
 
-Authoritative packaged-browser evidence:
-
-- source SHA: `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
-- run `32847887872`;
-- job `97801745453`;
-- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`).
-
-The user tested that exact portable artifact with a new profile and confirmed:
-
-- the bundled `ru.cryptopro.nmcades@cryptopro.ru` extension is discovered automatically without manual XPI installation;
-- version `1.2.14` is enabled in Add-ons Manager;
-- normal CryptoPro signature-verification functionality works.
-
-This closes clean-profile discovery/install and basic functional-use questions for the tested artifact. A real version-to-version automatic extension update remains separately open in `TODO.md`; the current source configuration indicates that automatic updates are enabled by default, but that update transition has not yet been observed in runtime evidence.
-
-Transfer of the proven packaging gates into the two main browser workflows also remains separate open work in `TODO.md`.
+Using packaged-browser artifact `9569387758`, a fresh profile automatically discovers/enables CryptoPro CAdES extension version `1.2.14`, and normal CryptoPro signature-verification functionality works. Version-to-version automatic update remains open separately.
 
 ### Three-extension government bundle real portable packaging — COMPLETE
 
-Formal passing evidence:
+Source `b3d097de20b7a5711f161199a727bcfe9468bcc8`; short validation run `32976571124`, job `98202642893`; full packaging run `32976571122`, job `98202641607`; packaged-browser artifact `9614275050`; evidence artifact `9614275551`.
 
-- source SHA: `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
-- companion short validation: run `32976571124`, job `98202642893`, evidence artifact `9609725660`;
-- full Firefox packaging run: `32976571122`, job `98202641607`;
-- packaged-browser artifact: `9614275050` (`r3dfox-cryptopro-mozilla-packaging`);
-- packaging evidence artifact: `9614275551` (`cryptopro-mozilla-packaging-evidence`);
-- result: success.
-
-The exact `r3dfox-v153.0.3.win64.portable.7z` from that artifact was independently inspected and contains the three expected signed XPI baselines under `distribution/extensions`: CryptoPro `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, and Gosplugin `1.3.43.0`, each with the expected repository SHA-256 and manifest identity. The same portable archive's `omni.ja` contains `defaults/pref/r3dfox-bundle.js` with Russian first in `intl.accept_languages` (`ru, en-US, en`).
-
-This closes shared Mozilla staging plus final portable-package inclusion for the three-extension bundle. It does not prove native-component functionality of the two Gosuslugi extensions, does not change the browser UI locale, and does not close extension update behavior or transfer/generalization of the packaging gates into the main browser workflows; those remain in `TODO.md`.
+The portable package contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and Russian-first `intl.accept_languages` packaging.
 
 ### Three-extension clean-profile discovery/enabled state — COMPLETE
 
-Runtime evidence uses the exact packaged browser from the preceding milestone:
-
-- source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
-- full packaging run `32976571122`, job `98202641607`;
-- packaged-browser artifact `9614275050`.
-
-On 2026-08-27 the user launched this build with a completely new dedicated profile at `C:\Temp\r3dfox\profile`, explicitly clearing `R3DFOX_GOST_HOSTS`, `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`, `R3DFOX_GOST_CLIENT_AUTH_MODE`, and `R3DFOX_GOST_CIPHERS`, and opened `https://esia.gosuslugi.ru/login`. In that fresh profile, `about:addons` showed all three bundled project extensions simultaneously under **Enabled**: CryptoPro Extension for CAdES Browser Plug-in, Gosplugin, and the legacy Gosuslugi plugin extension.
-
-The visible uBlock Origin entry is expected on a fresh profile because `r3dfox/policies.json` installs `uBlock0@raymondhill.net` with `installation_mode: normal_installed`; it is not evidence of prior profile state.
-
-This closes clean-profile discovery/enabled-state for the exact three-extension artifact. It does not independently expose runtime ID/version values and does not prove CryptoPro functionality on this exact package, either Gosuslugi nativeMessaging path, extension update behavior, or runtime language-preference behavior. Those remain separate runtime gates.
+On the exact packaged browser from source `b3d097de...`, run `32976571122`, artifact `9614275050`, a fresh dedicated profile shows all three bundled project extensions enabled. Native functionality of IFCPlugin/Gosplugin and update behavior remain open separately.
