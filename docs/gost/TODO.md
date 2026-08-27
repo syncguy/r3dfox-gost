@@ -4,41 +4,28 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, F3 generic GOST mTLS host scope, and GIS-G4 cross-host decision isolation are closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
+F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, and the explicit positive `Session` lifetime baseline are closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
 
-Do not repeat T1R/T1R-B or GIS-G1/G2/G3/G4 on unchanged source merely for confirmation.
+Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or S1/S1-B/S1-C on unchanged source merely for confirmation.
 
-### 1. Finish the explicit `Session` baseline with S1-C
+### 1. Implement the planned picker UX/default change
 
-Current explicit-Session capture:
+The explicit `Session` baseline is complete:
 
-- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
-- inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`.
+- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`; inner log `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8` proves one explicit Session choice is reused for ten later matching Treasury client-auth requests in the same browser process and remains isolated from a different GIS GMP mTLS host;
+- `session-current2.zip` SHA-256 `e32b71ca51d151e553ab82c321fd8f829270e09b6a8390f7fb3ea828af3a29e7`; inner log `5b156cf0765c9aad3ceffeac6d1a845cea381f219ea168d59b318201b9f419b5` proves a new browser process receives a fresh picker and the old Session choice does not survive process restart.
 
-S1/S1-B are runtime-proven on the current artifact:
-
-- first Treasury picker is resolved with explicit `Session` (`remember=2`);
-- ten later matching `lk-fzs.roskazna.ru` client-auth requests consume the positive `scope=session` remembered choice with no second Treasury picker;
-- all eleven Treasury TLS 1.2 / `0xFF85` mTLS handshakes succeed with `client_cert_loaded=1`;
-- user-visible behavior remains authenticated across tabs/windows in the same running browser process.
-
-The raw Treasury requests in this capture all carry `browser_id=14`, so the log formally proves process-level remembered reuse; the tab/window topology is user-observed rather than represented by distinct browser IDs.
-
-**S1-C remains:** fully close r3dfox, restart with the same profile, and initiate the same Treasury client-auth flow. A fresh picker must appear because Session must not survive process restart.
-
-### 2. Implement the planned picker UX/default change
-
-After S1-C:
+Implement next:
 
 - make `Session` the default remember choice;
 - preserve explicit `Once` and the proven positive-only short fanout lease;
 - keep the current 5-second idle lease for now, with later consideration of an `about:config` preference;
 - render `Issued by` using a human-friendly issuer display in the same style as the already-improved `Issued to` rather than exposing the full raw DN in the primary details row;
-- run targeted exact-build regressions for default Session and explicit Once.
+- run targeted exact-build regressions for default Session and explicit Once after the change.
 
 The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain a separate implementation/test item; do not assume the current `Permanent` UI choice survives process restart until that is explicitly implemented and proven.
 
-### 3. Continue the remaining Stage 2 runtime matrix
+### 2. Continue the remaining Stage 2 runtime matrix
 
 Remaining groups include:
 
@@ -53,7 +40,7 @@ Remaining groups include:
 - sensitive-log audit;
 - final exact-build Treasury mTLS regression.
 
-### 4. Attribute picker timeout and residual poll churn
+### 3. Attribute picker timeout and residual poll churn
 
 T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
 
