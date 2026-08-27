@@ -140,7 +140,7 @@ The compile-validated source contains the first implementation of:
 - stale-callback/lifetime checks for coordinated decisions;
 - `ClientAuthCertificateRequested()` / `ClientAuthCertificateSelected()` forwarding through `GostSocketControl` toward the existing Necko client-auth lifecycle;
 - a coordinated picker-wait poll path intended to become quiescent instead of repeatedly re-entering `MSSPI_X509_LOOKUP`;
-- the agreed human-facing certificate picker row/detail formatting changes.
+- the agreed human-facing certificate row/detail formatting changes.
 
 ### Scope of the conclusion
 
@@ -296,6 +296,13 @@ The three intended XPI baselines are:
 - legacy Gosuslugi/IFCPlugin `pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru`, version `1.2.8`;
 - Gosplugin `gosuslugi@plugin`, version `1.3.43.0`.
 
+### Gosplugin bootstrap prerequisite / harness history
+
+The current Gosplugin baseline was obtained through a short one-time AMO bootstrap before the shared integration commit. Preserve both runs because the first red result is a workflow-harness defect rather than an XPI defect:
+
+- run `32974033522`, job `98194284032`, source SHA `339eb661782ab8b4cb5bcd1a02d930c37a862835`: step `Download and inspect signed AMO XPI` succeeded and validated ID `gosuslugi@plugin`, version `1.3.43.0`, size `1272459`, SHA-256 `f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc`, `nativeMessaging`, Mozilla signature structure and COSE. The workflow failed only afterward because `GOSPLUGIN_ID`, written to `GITHUB_ENV`, was incorrectly consumed in the same PowerShell step before GitHub Actions exposed it to the environment; the file was therefore copied as `r3dfox\extensions\.xpi`, and the subsequent commit step could not find `r3dfox\extensions\gosuslugi@plugin.xpi`. This is a harness environment-boundary failure, not an extension validation failure;
+- corrected run `32974162330`, job `98194711292`, source SHA `9984e41623d675684eb1ad78a35b7830d1e024c0`: completed successfully. The validated signed XPI was vendored by bot commit `b98d04e204e6bd95d4cd532e1640642e7828b277`.
+
 ### Source-level integration observation
 
 At source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`, all three XPI paths are declared in `r3dfox/moz.build` under `FINAL_TARGET_FILES.distribution.extensions`, and all three are explicitly listed in `browser/installer/package-manifest.in`. This intentionally applies the lesson from the earlier CryptoPro failure: reaching `dist/bin` is not enough; installer/package staging is a separate boundary.
@@ -308,7 +315,7 @@ pref("intl.accept_languages", "ru, en-US, en");
 
 This preference controls website/content language negotiation order. It does not itself change the Firefox UI locale or install a Russian UI language pack.
 
-Companion low-cost workflow `Bundled extensions smoke`, run `32976571124`, job `98202642893`, source SHA `b3d097de...`, completed successfully. It validated all three committed XPI baselines and registry hashes/versions, required the expected source/package manifest entries, and required the Russian-first language pref declaration. Evidence artifact: `9609725660`.
+Companion low-cost workflow `Bundled extensions smoke`, run `32976571124`, job `98202642893`, source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`, completed successfully. It validated all three committed XPI baselines and registry hashes/versions, required the expected source/package manifest entries, and required the Russian-first language pref declaration. Evidence artifact: `9609725660`.
 
 ### Full Firefox build/package observation
 
