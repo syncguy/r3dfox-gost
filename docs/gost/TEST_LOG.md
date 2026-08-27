@@ -397,3 +397,77 @@ Runtime order on main artifact `9636591432`:
 4. **GIS-G1 third branch:** exercise `pay.gov.ru` -> login host -> certificate host and prove generic callback registration, acceptable-CA collection and candidate enumeration on the real GIS GMP `CertificateRequest` before changing issuer matching.
 
 Status: build gates complete; F1/F2/F3 remain runtime-unproven until T2R/T1R/T1R-B/GIS-G1 evidence is captured.
+
+---
+
+## 2026-08-27 — T2R user-visible retry recovery passes three consecutive timeout cycles
+
+**Track:** GOST TLS runtime / Stage 2 coordinated Firefox client-auth lifecycle  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`  
+**Actions run:** `33039013849`  
+**Run attempt:** 1  
+**Job:** `98408139479`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9636591432` (`r3dfox-gost-win64-release`)  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru`  
+**Runtime profile:** newly created clean profile at `C:\Temp\r3dfox\profile`  
+**Runtime log target:** `C:\Temp\r3dfox\t2r*`; capture not yet supplied, hashes pending
+
+### Purpose
+
+Regression-test F1 against the exact fixing candidate. The old source `860de8e...` left a shutdown-created orphan coordinated decision after an unanswered picker timed out, so F5 / `Try again` / a fresh login in the same browser process could no longer show another picker.
+
+### Exact launch policy
+
+The browser was started with only the Treasury GOST hosts allowlisted and all diagnostic overrides cleared:
+
+```bat
+set "R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru"
+set "R3DFOX_GOST_CLIENT_CERT_THUMBPRINT="
+set "R3DFOX_GOST_CLIENT_AUTH_MODE="
+set "R3DFOX_GOST_CIPHERS="
+```
+
+The log was enabled at `GostTLS:5` and the browser opened `https://fzs.roskazna.ru/`.
+
+### User-visible observation
+
+The user entered the Treasury personal-cabinet transition and deliberately made no choice in the Firefox client-certificate picker.
+
+Cycle 1:
+
+1. picker opened;
+2. after approximately 30 seconds it closed;
+3. Firefox showed `The connection has timed out` for `lk-fzs.roskazna.ru`;
+4. without restarting the browser, the user pressed F5;
+5. a fresh Firefox client-certificate picker appeared.
+
+Cycle 2:
+
+1. the fresh picker was again left unanswered;
+2. after approximately 30 seconds it closed to the same timeout page;
+3. without restarting the browser, the user pressed `Try again`;
+4. another fresh Firefox client-certificate picker appeared.
+
+Cycle 3:
+
+1. the third picker was again left unanswered;
+2. after approximately 30 seconds it closed to the same timeout page.
+
+Thus one browser process survived three consecutive unanswered-picker timeout/teardown cycles, and both tested recovery actions independently produced a new real picker.
+
+### Conclusions
+
+1. **T2R passes its user-visible recovery criterion.** The exact failure that previously made client-auth sticky after one unanswered timeout is no longer present at the UX level on artifact `9636591432`.
+2. **Recovery is repeatable, not a one-off.** F5 after the first timeout and `Try again` after the second timeout each opened a fresh picker without restarting r3dfox.
+3. The old externally visible orphan-decision symptom — immediate later failure with no new picker — is absent across two consecutive recovery attempts.
+4. The observed picker lifetime is now approximately 30 seconds by user observation, whereas the old capture measured about 45.005 seconds. Do not attribute this difference to a specific timer or code path until the new log is inspected with exact timestamps.
+5. **F1 is not yet formally closed at the lifecycle/log level.** The generated `t2r` capture must still be inspected for the explicit closing-handle guard, pre/post waiter cleanup, absence of a shutdown-created replacement decision/orphan waiter, absence of automatic stale `selected=0` reuse, `MSSPI_X509_LOOKUP` recurrence, and current `GostPoll` rate.
+6. Because the runtime capture has not yet been supplied, this entry deliberately records no capture SHA-256 and does not claim the internal lifecycle invariants as proven.
+
+### Next experiment
+
+Preserve and inspect the `C:\Temp\r3dfox\t2r*` log from this exact session. If the lifecycle diagnostics confirm the expected F1 behavior, promote T2R/F1 to formally closed runtime evidence and proceed to T1R on the same main artifact `9636591432`.
+
+Status: **T2R user-visible PASS; F1 log-level closure pending capture inspection**.
