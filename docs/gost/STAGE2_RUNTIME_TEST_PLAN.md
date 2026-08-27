@@ -117,28 +117,73 @@ Whole capture: 2 decisions, 2 picker requests, 2 lease stores, 11 generation-1 r
 
 Do not repeat T1R/T1R-B on unchanged source merely for confirmation.
 
-## GIS-G1 — NEXT / F3 CURRENT BLOCKER
+## GIS-G1/G2/G3 — PASS / F3 CLOSED
 
-Use `STAGE2_GIS_GMP.md` and the same authoritative artifact `9636591432`.
+Current artifact `9636591432`.
 
-Old artifact `9606431408` already proved the GIS GMP path reaches `portalgisgmp.cert.roskazna.ru`, which sends a real TLS 1.2 `CertificateRequest`; the old Treasury-only callback scope then caused an empty client Certificate and server `handshake_failure` / `0x80090326`.
+Capture:
 
-Current source contains the F3 generic callback-registration/dispatch candidate. GIS-G1 must prove on the real certificate endpoint:
+- `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`;
+- inner `gis-g1.moz_log` SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`.
 
-- GOST layer attaches;
-- generic client-cert callback is registered;
-- the real server `CertificateRequest` reaches issuer collection;
-- record current acceptable-CA count; do not assume the old value 36;
-- record current local candidate count.
+GIS-G1 proves the current generic callback reaches the real `portalgisgmp.cert.roskazna.ru` client-auth decision point:
 
-Branch:
+- generic callback registration succeeds;
+- the server client-certificate request reaches the callback;
+- current acceptable-CA count is `36`;
+- candidate count is `1`;
+- one decision/waiter and one Firefox picker are created.
 
-- if candidate count > 0, continue GIS-G2 real mTLS/application login;
-- if candidate count == 0, stop and diagnose server CA identities, local chain matching, Windows chain/cross-sign selection, name comparison and provider/private-key filtering before changing issuer policy.
+GIS-G2 proves real GIS GMP mTLS/application success:
+
+- the user selects the intended certificate with default `Once`;
+- generation 1 positive lease is stored;
+- four follow-on client-auth requests reuse it without more UI;
+- five certificate-host TLS 1.2 / `0xFF85` handshakes complete with state `0x00000000`, `client_cert_loaded=1`, and positive current verification status;
+- the user confirms the certificate-login/application flow succeeds.
+
+GIS-G3 proves generic callback registration is capability-only on non-mTLS GOST hosts:
+
+- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` register the callback;
+- neither host issues a client-certificate request;
+- their handshakes complete with `client_cert_loaded=0`;
+- only `portalgisgmp.cert.roskazna.ru` causes client-auth UI.
+
+Whole capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `E/GostTLS`.
+
+**F3 is formally closed.** Do not repeat GIS-G1/G2/G3 on unchanged source merely for confirmation.
+
+## NEXT — explicit `Session` baseline before picker-default change
+
+The current build still defaults to `Once`, but explicit `Session` can be selected manually now. Baseline its existing semantics before changing the default UI:
+
+### S1 — explicit Session first login
+
+- start a fresh process/profile;
+- enter Treasury personal cabinet;
+- manually choose `Session` in the remember dropdown;
+- select the intended certificate;
+- protected login must succeed.
+
+### S1-B — same-process independent login
+
+In the same browser process, initiate a new matching client-auth login that actually causes a fresh TLS client-auth handshake.
+
+Pass: no new picker; Firefox/session remember semantics supply the positive certificate for the matching request.
+
+### S1-C — process restart boundary
+
+Close r3dfox completely, restart with the same profile, and initiate the same login.
+
+Pass: a fresh picker appears because Session must not survive browser-process restart.
+
+This baseline proves semantics only. After it, the planned code/UX iteration may make `Session` the default while preserving explicit `Once` and its proven positive-only short fanout lease. The same iteration should render `Issued by` using a human-friendly issuer display analogous to `Issued to`.
+
+## GIS-G4 — cross-host decision isolation — OPEN
+
+At minimum prove that a Treasury `Once` choice is never silently applied to `portalgisgmp.cert.roskazna.ru`. When Session/Permanent semantics are exercised, keep host/port/OriginAttributes/acceptable-CA decision isolation intact.
 
 ## Remaining client-decision semantics
-
-Run after the immediate GIS branch is stable.
 
 ### T3 — explicit no-certificate / Cancel
 
@@ -150,7 +195,7 @@ Exercise navigation/tab/load teardown without a user decision. State must be `Ab
 
 ### T5 — explicit Session
 
-Compatible later logins in the same browser process should reuse the positive selected certificate without repeated picker; browser process restart must clear session-only behavior.
+The S1/S1-B/S1-C baseline covers the basic positive Session lifetime. Later matrix work should additionally check temporary provider failures and matching-policy boundaries do not overwrite or leak the positive Session decision.
 
 ### T6 — explicit Permanent
 
@@ -174,7 +219,7 @@ Hold provider/PIN/media UI beyond the ordinary picker-timeout scale. Record actu
 
 ### T10 — Russian UI presentation
 
-Verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, and serial remaining details-only. Do not publish actual certificate identity values.
+Verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, human-friendly `Issued by`, and serial remaining details-only. Do not publish actual certificate identity values.
 
 ## Candidate discovery / policy
 
@@ -226,11 +271,11 @@ Verify intended temporary/permanent override integration and exact server-identi
 
 ### T21 — final Treasury mTLS acceptance
 
-Final exact source/build must prove together final server trust, one correct default-`Once` UX interaction per logical attempt, safe compatible fanout, completed mTLS/private-key use, expected GOST suite, authenticated protected application traffic, retry recovery and no sensitive data publication.
+Final exact source/build must prove together final server trust, the intended final default remember behavior, explicit `Once` short-fanout behavior, safe compatible fanout, completed mTLS/private-key use, expected GOST suite, authenticated protected application traffic, retry recovery and no sensitive data publication.
 
 ## Separate non-blocking investigation
 
-T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`; quiescent poll counts `10,825`, `34`, `21`). Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1/F2 and does not block GIS-G1.
+T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`; quiescent poll counts `10,825`, `34`, `21`). Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1/F2/F3.
 
 ## Stop / escalation rules
 
