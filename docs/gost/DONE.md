@@ -65,7 +65,28 @@ T1R-B capture identity:
 - `T1R-B-current.zip` SHA-256 `c2d018b8637467b4c1368bfa66399dd042d73b88c39c6de7bf07368c7524ea65`;
 - inner log SHA-256 `c30c9f61e008d8bdb321570373c1c5cf6f3bc9eaa9e980564d463d03e307686e`.
 
-Therefore default `Once` has the intended attempt-local positive fanout semantics for the tested Treasury flow: compatible sockets inside the idle window reuse the positive choice, while an independent post-expiry attempt asks again. F3 generic GIS GMP mTLS, the broader negative/client-decision matrix, provider/media scenarios, and final server trust remain open.
+Therefore default `Once` has the intended attempt-local positive fanout semantics for the tested Treasury flow: compatible sockets inside the idle window reuse the positive choice, while an independent post-expiry attempt asks again.
+
+### Stage 2 F3 generic GOST mTLS host scope — COMPLETE
+
+Exact source/runtime browser:
+
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- main run `33039013849`, job `98408139479`;
+- artifact `9636591432`.
+
+Passing GIS GMP runtime capture:
+
+- `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`;
+- inner `gis-g1.moz_log` SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`.
+
+GIS-G1 proves the generic coordinated callback reaches the real `portalgisgmp.cert.roskazna.ru` `CertificateRequest`: current acceptable-CA count is `36`, candidate count is `1`, and one Firefox picker is produced.
+
+GIS-G2 proves real GIS GMP GOST mTLS/application success: the selected certificate creates one positive `Once` lease, four follow-on requests reuse it, and five certificate-host TLS 1.2 / `0xFF85` handshakes complete with `client_cert_loaded=1`, state `0x00000000`, and positive current verification status. The user confirms the certificate-login/application flow succeeds.
+
+GIS-G3 proves generic callback registration does not create spurious UI: `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` register the capability but issue zero client-certificate requests and complete with `client_cert_loaded=0`; all client-auth requests/picker activity belong only to the certificate endpoint.
+
+The old Treasury-host-specific empty-client-Certificate / `0x80090326` GIS failure is therefore closed. GIS-G4 cross-host decision isolation, the broader negative/client-decision matrix, provider/media scenarios, picker UX changes, and final fail-closed server trust remain open.
 
 ## Bundled government-system extensions
 
