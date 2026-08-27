@@ -62,6 +62,13 @@ Current F1/F2/F3 source:
 
 Artifact `9636591432` is the authoritative browser for current GOST runtime testing. The thunk artifact is independent Windows-compatibility evidence and is not GOST runtime proof.
 
+Exact local binary preflight for main artifact `9636591432`:
+
+- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- **`xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**.
+
+Because the GOST coordinator is linked into `xul.dll`, runtime regressions must verify the local `xul.dll` hash when binary identity is in doubt.
+
 ## Stage 2 coordinated runtime checkpoint
 
 ### F1 — close/shutdown client-auth lifecycle — CLOSED
@@ -94,17 +101,20 @@ The old failure on source `860de8e38deed326b7fcd1c547e928c5b48c72a9`, artifact `
 
 ### F2 — positive default-`Once` fanout — NEXT RUNTIME BLOCKER
 
-Old T1 on source `860de8e...`, artifact `9606431408`, proved:
+Old T1 on source `860de8e...`, artifact `9606431408`, proved real coordinated Treasury mTLS, concurrent single-flight, and three sequential picker waves in one logical login.
 
-- real coordinated Treasury mTLS succeeds;
-- concurrent single-flight works;
-- one logical login spans sequential compatible waves and previously required three visible pickers.
+Current source adds a positive-only 5-second idle `Once` lease. The first supplied T1R capture (`t1r_error.zip`, SHA-256 `e42416dd8199a85e3faec5dbcab84d09f425ee3a39dd9bcc67ccff8a4ea39236`; inner log `80bf7e4062636df669799bba740d6ab423208e958d758cdf02d26cd9f1b5eab7`) is **not valid F2 evidence** because its runtime marker fingerprint is incompatible with source `ef1a7...`.
 
-Current source adds a positive-only 5-second idle `Once` lease. Runtime closure requires:
+That capture lacks every mandatory current-source coordinator/lease marker (`decision=`, waiter lifecycle, `once lease stored/reused`, `reason=closing`) and after an unanswered second picker reproduces the old pre-F1 cascade (`selected=0` plus `0x80090326`/`0x0000054f`). Therefore its exact runtime binary is unresolved and F2 must not be passed or failed from it.
 
-- **T1R:** one complete Treasury login uses exactly one visible picker while compatible follow-on waves safely reuse the positive choice and all relevant GOST mTLS/application traffic succeeds;
-- **T1R-B:** after the lease is inactive, an independent login in the same browser process asks again;
-- decline, abort, zero candidates, provider/internal failure or server rejection never become a positive lease.
+Next F2 experiment:
+
+1. verify the local `r3dfox.exe` and especially `xul.dll` hashes against artifact `9636591432`;
+2. only if they match, rerun T1R unchanged;
+3. T1R pass still requires one visible picker for the logical login, positive reuse across compatible follow-on waves, successful real mTLS/application login;
+4. after T1R passes, run T1R-B and verify an independent login asks again after the lease becomes inactive.
+
+Decline, abort, zero candidates, provider/internal failure or server rejection must never become a positive lease.
 
 ### F3 — generic GOST mTLS host scope — AFTER F2
 
@@ -119,14 +129,13 @@ Current source registers the normal coordinated callback generically for already
 
 ## Immediate runtime order
 
-On main artifact `9636591432`:
+1. **Exact-binary preflight for T1R:** local `xul.dll` must hash to `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68` (and `r3dfox.exe` to `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`).
+2. **T1R rerun:** only after the hashes match artifact `9636591432`.
+3. **T1R-B:** after a successful bound T1R.
+4. **GIS-G1:** prove generic callback / issuer collection / candidate count on `portalgisgmp.cert.roskazna.ru`, then branch to GIS-G2 or issuer-chain diagnosis.
+5. Continue Cancel/Abort, Session/Permanent, provider/media, picker UI, discovery, negative matrix and final server-trust closure.
 
-1. **T1R — NEXT:** successful Treasury login with default `Once`; one logical attempt should require one picker;
-2. **T1R-B:** after a clear margin beyond the 5-second idle lease, an independent login must show a fresh picker;
-3. **GIS-G1:** prove generic callback / issuer collection / candidate count on `portalgisgmp.cert.roskazna.ru`, then branch to GIS-G2 or issuer-chain diagnosis;
-4. continue Cancel/Abort, Session/Permanent, provider/media, picker UI, discovery, negative matrix and final server-trust closure.
-
-Do not repeat old T1/T2 or T2R merely for confirmation on unchanged source.
+Do not repeat old T1/T2 or T2R merely for confirmation on unchanged source. Do not change F2 lease policy based on the unbound `t1r_error.zip` capture.
 
 ## Server trust — still mandatory
 
