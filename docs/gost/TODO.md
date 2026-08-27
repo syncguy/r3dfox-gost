@@ -4,55 +4,46 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-### 1. Validate generic GOST mTLS client-auth on GIS GMP
+F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, and F3 generic GOST mTLS host scope are formally closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
 
-F1 close/shutdown lifecycle and F2 positive default-`Once` fanout/scope are formally closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
+The passing GIS GMP capture is `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`; inner log SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`. GIS-G1/G2/G3 prove generic callback reachability, current CA count `36`, one valid candidate/picker, five successful certificate-host GOST mTLS handshakes, application success, and no spurious picker on the two non-mTLS GOST hosts.
 
-F2 closure evidence is T1R + T1R-B:
+Do not repeat T1R/T1R-B or GIS-G1/G2/G3 on unchanged source merely for confirmation.
 
-- T1R: one visible picker feeds one complete Treasury login through one positive 5-second idle lease; seven compatible follow-on sockets reuse the selection and all eight login-host mTLS handshakes succeed;
-- T1R-B: in the same process/context, generation 1 is last reused at `09:07:13.004 UTC`, nominally expires at `09:07:18.004`, and a real independent client-auth request at `09:09:44.169` creates fresh `decision=2` and a new picker before generation 2 is stored;
-- no sticky negative/failure state appears in either passing path.
+### 1. Baseline `Session` semantics and prepare the picker UX/default change
 
-Do not repeat T1R/T1R-B on unchanged source merely for confirmation.
+Before changing the default, the current artifact can prove explicit `Session` semantics by manually choosing `Session` in the Firefox picker:
 
-The next runtime blocker is **F3 / GIS-G1**. The F3 candidate is already implemented in source `ef1a7fdd...`: the normal Firefox/coordinated client-auth callback can be registered for non-Stage-1 GOST sockets rather than remaining Treasury-only. Backend selection is still controlled by the existing GOST allowlist/session policy.
+- **S1:** first Treasury login shows one picker; choose `Session`; protected login succeeds;
+- **S1-B:** an independent matching login in the same browser process should reuse the positive Session decision without a new picker;
+- **S1-C:** after closing and restarting the browser process, the Session decision must be gone and a fresh picker must appear.
 
-Old GIS GMP evidence on artifact `9606431408` proved:
+This tests semantics only; it does not prove `Session` is the UI default.
 
-- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` complete GOST TLS 1.2 / `0xFF85`;
-- certificate login reaches `portalgisgmp.cert.roskazna.ru`;
-- that host sends a real TLS `CertificateRequest`;
-- old capture contained 36 acceptable-CA DER DNs;
-- old browser sent an empty TLS client Certificate because the custom client-auth callback was not registered for that host;
-- server returned fatal `handshake_failure` (`0x28`) and MSSPI primary `0x80090326`.
+Planned code/UX change after the baseline:
 
-Run GIS-G1 on artifact `9636591432`:
+- make `Session` the default remember choice for the picker;
+- preserve explicit `Once` and the proven positive-only short fanout lease;
+- keep the current 5-second idle lease behavior for now, with later consideration of an `about:config` preference rather than hard-wiring future policy;
+- render `Issued by` using a human-friendly issuer display in the same spirit as the already-improved `Issued to`, rather than exposing the full raw DN in the primary details row;
+- run targeted exact-build regressions for default Session plus explicit Once after the change.
 
-- prove GOST layer attachment to `portalgisgmp.cert.roskazna.ru`;
-- prove generic client-cert callback registration for that real certificate host;
-- prove the server `CertificateRequest` reaches issuer collection;
-- record the current acceptable-CA count rather than assuming it is still 36;
-- record local candidate count.
+### 2. GIS-G4 — cross-host decision isolation
 
-If candidate count > 0, continue to real GIS-G2 mTLS/application login. If candidate count == 0, stop and diagnose the actual server CA list/local chain matching before changing issuer policy.
+The real GIS GMP host-scope defect is closed, but cross-host remember/decision isolation remains worth proving explicitly.
 
-Investigate zero candidates in this order:
+At minimum:
 
-- server acceptable-CA binary identities/count;
-- whether the intended local chain contains an advertised authority;
-- Windows chain path/cross-sign selection;
-- raw DER-name equality versus Windows certificate-name comparison;
-- provider/private-key binding filter.
+- a Treasury `Once` choice must never silently apply to `portalgisgmp.cert.roskazna.ru`;
+- host/port/OriginAttributes/acceptable-CA identity isolation must remain intact;
+- if `Session` or `Permanent` is tested on both hosts, each host must follow the intended Firefox remember semantics without credential leakage across origins.
 
-Do not publish client-certificate identifying DNs, serials, fingerprints, provider/container identifiers or private data.
+### 3. Continue the remaining Stage 2 runtime matrix
 
-### 2. Continue Stage 2 runtime matrix after the immediate GIS branch
-
-Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining groups:
+Follow `STAGE2_RUNTIME_TEST_PLAN.md` after the immediate Session/UX and GIS-G4 work. Remaining groups include:
 
 - explicit Cancel/no-certificate vs involuntary Abort;
-- explicit `Session` and `Permanent` semantics;
+- explicit `Session` and `Permanent` semantics beyond the initial S1 baseline;
 - missing-media/provider Cancel and recovery;
 - long provider-media wait using measured current-artifact timeout behavior;
 - Russian picker row/details rendering;
@@ -62,14 +53,14 @@ Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining
 - sensitive-log audit;
 - final exact-build Treasury mTLS regression.
 
-### 3. Attribute picker timeout and residual poll churn
+### 4. Attribute picker timeout and residual poll churn
 
 T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
 
 - picker-to-close intervals: `32.576 s`, `37.420 s`, `30.330 s`;
 - `GostPoll client-auth wait quiescent`: `10,825`, `34`, and `21` calls respectively.
 
-The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. This is not a blocker for GIS-G1, but before changing timeout policy or calling the wait path fully quiescent:
+The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. Before changing timeout policy or calling the wait path fully quiescent:
 
 - identify which Firefox/Necko/load timer actually tears down each attempt;
 - explain why the first cycle polls much more aggressively than later cycles;
