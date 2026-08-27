@@ -67,15 +67,15 @@ Exact local binary preflight for main artifact `9636591432`:
 
 The valid T1R/T1R-B, GIS GMP G1/G2/G3/G4, and explicit-Session S1/S1-B/S1-C evidence below is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
 
-Current picker UX/default build candidate:
+Current picker UX/default runtime-test candidate:
 
 - source `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`);
 - changes: GOST-scoped picker default `Session`, explicit `Once` + 5-second positive lease unchanged, `Issued by` rendered from `issuerCommonName` with `issuerName` fallback, and callback registration logs include `picker_default=session`;
 - short SSL compile run `33073577249`, job `98521835147`, **success** on exact `head_sha=afbdad307f63e594d3715169d6e34235280dddaf`;
-- main full build run `33073577269`, job `98521835354`, still in progress on the same SHA at the time of this update;
+- authoritative main full build run `33073577269`, job `98521835354`, **success** on the same SHA; release artifact `9652941006`, Win7 import-audit artifact `9652941552`;
 - independent thunk-rs full build run `33073577260`, job `98521835116`, **success** on the same SHA; browser artifact `9652182123`, diagnostics artifact `9652183604`.
 
-The short SSL gate proves compilation of the `security/manager/ssl` target for the new C++ source. The successful independent thunk run additionally proves full Firefox/xul build, package and current direct-import gate compatibility on the same source. Neither result by itself proves the JavaScript picker presentation, runtime default-Session behavior, real Windows 7 runtime compatibility, or GOST handshake success. Those require the completed main artifact and targeted runtime regression, with real Win7 execution remaining a separate compatibility gate.
+The main run passed the Rust build-std preflight, Mozilla toolkit Rust gate, `security/manager/ssl` compile gate, full release Firefox build, xul.dll Win7 import audit, package creation, artifact uploads, and the final known direct Win8+ import rejection gate. This makes release artifact `9652941006` the authoritative browser for the next picker/default runtime regressions. Build success still does not prove the JavaScript picker presentation, runtime default-Session behavior, Session/Once semantics, cross-host isolation, restart lifetime, or GOST handshake success; those must be tested on this exact artifact. Real Windows 7 execution remains a separate compatibility gate.
 
 A separate packaging-only localization experiment is now running from workflow commit `07c7c48419ca39952a57a53967c1bcabaa8384c1`: CryptoPro packaging run `33076347741`, job `98531418338`. That workflow requests Russian UI by default only inside its own working tree and builds a `ru + en-US` multi-locale portable package; it does not change the English-only main/thunk build workflows.
 
@@ -182,12 +182,12 @@ Therefore S1/S1-B/S1-C prove the intended browser-process lifetime: positive Ses
 
 ## Immediate runtime / implementation order
 
-1. **Picker UX/default build candidate — ACTIVE:** short SSL compile gate is green on source `afbdad...`; wait for main run `33073577269` to produce the authoritative new artifact, then run targeted exact-artifact regressions for default Session, same-process reuse, restart boundary, explicit Once, cross-host isolation, and the human-friendly `Issued by` presentation.
+1. **Picker UX/default runtime regression — ACTIVE:** authoritative main artifact `9652941006` from run `33073577269`, job `98521835354`, source `afbdad...` is ready. Run targeted exact-artifact regressions for default Session, same-process reuse, restart boundary, explicit Once, cross-host isolation, and the human-friendly `Issued by` presentation.
 2. Continue explicit Cancel/no-certificate vs Abort, true Persistent/Permanent semantics, provider/media, picker UI, discovery and negative matrix.
 3. Complete final server-trust closure.
 4. Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
-Do not treat the successful short compile or independent thunk full build as GOST runtime proof. Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or the explicit-Session baseline on the old unchanged artifact merely for confirmation.
+Do not treat build success as GOST runtime proof. Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or the explicit-Session baseline on the old unchanged artifact merely for confirmation; targeted regressions now belong on artifact `9652941006`.
 
 ## Server trust — still mandatory
 
@@ -215,16 +215,14 @@ These scenarios need revalidation after the current client-decision/UX work.
 
 ## Windows Vista/7 compatibility — independent track
 
-Current full-xul narrow YY/thunk-rs build/package/direct-import evidence for the Session-default source:
+Current clean full-xul narrow YY/thunk-rs build baseline:
 
 - source `afbdad307f63e594d3715169d6e34235280dddaf`;
-- run `33073577260`, job `98521835116`, success;
+- run `33073577260`, job `98521835116`;
 - browser artifact `9652182123`;
-- diagnostics artifact `9652183604`.
+- diagnostics `9652183604`.
 
-This supersedes source `ef1a7fdd...`, run `33039013822`, job `98408139313`, artifacts `9636047031` / `9636048172` as the newest full-xul build/package/direct-import evidence. It remains Windows-compatibility evidence and must not be interpreted as GOST runtime proof or real Win7 runtime proof.
-
-Still open: full-Firefox msvcr14x integration, final direct/delay-load PE audit, real Win7 runtime without the copied compatibility bundle, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
+This is full-scale build/package/direct-import evidence only. Still open: real Win7 runtime, delay-load parser/runtime-path closure, full-Firefox msvcr14x integration, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
 
 ## Bundled government-system extensions — independent track
 
