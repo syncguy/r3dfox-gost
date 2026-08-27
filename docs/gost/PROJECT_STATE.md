@@ -24,7 +24,8 @@ Current constraints:
 - coordinated Firefox client-auth picker is default;
 - `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
 - explicit local thumbprint selection remains diagnostic only;
-- default `Once` uses a positive-only fanout lease with a 5-second idle lifetime; each successful reuse refreshes the idle expiry.
+- current UI default remains `Once`; `Once` uses a positive-only fanout lease with a 5-second idle lifetime and each successful reuse refreshes the idle expiry;
+- explicit `Session` uses the positive in-memory remember path for the matching coordinated decision key and is process-scoped rather than tab-scoped; the planned UX iteration will make `Session` the picker default while retaining explicit `Once` and its lease.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -63,7 +64,7 @@ Exact local binary preflight for main artifact `9636591432`:
 - `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
 - `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
 
-The valid T1R/T1R-B and GIS GMP G1/G2/G3 evidence is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
+The valid T1R/T1R-B, GIS GMP G1/G2/G3, and explicit-Session evidence below is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
 
 ## Stage 2 coordinated runtime checkpoint
 
@@ -133,17 +134,42 @@ GIS-G3 proves generic registration does not cause spurious UI: `pay.gov.ru` and 
 
 Whole GIS capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `E/GostTLS`.
 
-Therefore the old empty-client-Certificate / `0x80090326` GIS host-scope failure is closed on the current artifact. GIS-G4 cross-host decision isolation remains a separate semantic regression test; final fail-closed server-trust closure remains mandatory.
+Therefore the old empty-client-Certificate / `0x80090326` GIS host-scope failure is closed on the current artifact. Final fail-closed server-trust closure remains mandatory.
+
+### Explicit `Session` baseline and GIS-G4 cross-host isolation — S1/S1-B PASS, GIS-G4 CLOSED
+
+Current explicit-Session capture:
+
+- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
+- inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`;
+- capture process: `Parent 6200`.
+
+Treasury S1/S1-B evidence:
+
+- first `lk-fzs.roskazna.ru` client-auth request at `11:36:28.521 UTC` creates decision `1` / one picker;
+- user selects the intended certificate with explicit `Session`; resolution at `11:36:33.382` records `remember=2`;
+- no Treasury `Once` lease is created for that choice;
+- ten later client-auth requests for the same Treasury decision key are satisfied from `scope=session` without another picker;
+- the eleven resulting `lk-fzs.roskazna.ru` handshakes all complete as TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
+- the user confirms the remembered Session choice remains effective while working across tabs and browser windows in the same running browser process.
+
+The log's Treasury client-auth requests all carry `browser_id=14`; therefore the raw log formally proves process-level remembered reuse for repeated matching handshakes, while the tab/window topology is additionally user-observed rather than separately encoded by distinct browser IDs in this capture.
+
+GIS-G4 is directly proven in the same process: after the Treasury Session decision exists, navigation to the different GOST mTLS endpoint `portalgisgmp.cert.roskazna.ru` produces a new client-auth request with `browser_id=17`, fresh decision `2`, and a fresh picker at `11:37:37.389 UTC`. The Treasury Session certificate is not silently applied cross-host. The user then selects `Once` for GIS GMP; generation `1` is stored and reused four times, and five GIS GMP certificate-host mTLS handshakes succeed.
+
+Whole capture safety result: zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks, or `E/GostTLS`.
+
+S1-C remains open: a full browser-process restart with the same profile must prove the Session choice is cleared and a fresh picker returns.
 
 ## Immediate runtime order
 
-1. Baseline explicit `Session` semantics on the current artifact if desired before the planned UX/default change: first login with manually selected `Session`, independent same-process login, then browser-restart boundary.
-2. Continue remaining client-decision semantics, including GIS-G4 cross-host isolation, explicit Cancel/no-certificate vs Abort, Session/Permanent, provider/media, picker UI, discovery and negative matrix.
-3. Implement the planned picker UX change separately: make `Session` the default while preserving explicit `Once` and its proven positive lease, and render `Issued by` in the same human-friendly style as `Issued to`; then run targeted regression on the new exact build.
+1. **S1-C — NEXT:** fully close r3dfox, restart with the same profile, and initiate the same Treasury client-auth flow. A fresh picker must appear; Session must not survive process restart.
+2. Implement the planned picker UX change separately: make `Session` the default while preserving explicit `Once` and its proven positive lease, and render `Issued by` in the same human-friendly style as `Issued to`; then run targeted regression on the new exact build.
+3. Continue explicit Cancel/no-certificate vs Abort, Permanent semantics, provider/media, picker UI, discovery and negative matrix.
 4. Complete final server-trust closure.
 5. Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
-Do not repeat T1R/T1R-B or GIS-G1/G2/G3 on this unchanged source merely for confirmation.
+Do not repeat T1R/T1R-B, GIS-G1/G2/G3, or GIS-G4 on this unchanged source merely for confirmation.
 
 ## Server trust — still mandatory
 
