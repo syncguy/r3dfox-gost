@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — TODO / Deferred Work
 
-This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; experiment evidence is in `TEST_LOG.md` and dated volumes.
+This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP multi-host mTLS branch is in `STAGE2_GIS_GMP.md`; experiment evidence is in `TEST_LOG.md` and dated volumes.
 
 ## GOST TLS runtime — immediate
 
@@ -34,9 +34,35 @@ Implement an attempt-local **positive-only `Once` fanout/lease**:
 
 After a fixing build, run T1R: successful Treasury login must complete real mTLS/application login with one visible picker for the logical attempt while all compatible live sockets receive the positive choice safely.
 
-### 3. Build gates for the next candidate
+### 3. Generalize GOST mTLS client-auth beyond the Treasury Stage-1 host
 
-Prefer separable code changes for the two lifecycle bugs, but one final candidate may contain both to avoid redundant full builds.
+The exploratory GIS GMP flow (`pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> certificate login at `portalgisgmp.cert.roskazna.ru`) exposed a deterministic source restriction in `860de8e...`.
+
+Current source still carries `kStage1MtlsHost = "lk-fzs.roskazna.ru"` and:
+
+- registers `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` only for that one host;
+- rejects the Firefox client-auth callback when the current host differs from that one host.
+
+Therefore the old artifact cannot reach issuer collection, candidate filtering or the picker on the GIS GMP certificate endpoint. The user's acceptable-CA hypothesis remains a second-stage question, not the current first failure.
+
+Implement F3:
+
+- make the Firefox/MSSPI client-auth callback available for every already-selected/allowlisted GOST socket that actually receives a client-certificate request;
+- remove the Treasury-only host rejection from the normal Firefox-UI/coordinated path;
+- do not broaden backend selection beyond the existing GOST allowlist/session policy;
+- do not automatically send a certificate; normal server `CertificateRequest` + Firefox selection/remember semantics still control client auth;
+- keep decision isolation by actual host, port, OriginAttributes and acceptable-CA identity;
+- keep the explicit `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` path narrow/diagnostic rather than silently making it a cross-site automatic selector;
+- preserve the proven legacy A/B core as cleanly as practical;
+- add host/callback/issuer-count/candidate-count lifecycle diagnostics.
+
+Detailed GIS GMP design, source diagnosis and test branching are in `STAGE2_GIS_GMP.md`.
+
+After F3 is built, run GIS-G1 only after the core coordinator regressions T2R/T1R. If candidate count is nonzero, continue to real GIS GMP mTLS. If candidate count is zero, stop and diagnose the actual server CA list / local chain matching before changing issuer policy.
+
+### 4. Build gates for the next candidate
+
+Prefer separable code changes for F1, F2 and F3, but one final candidate may contain all three to avoid redundant full builds.
 
 Required gates:
 
@@ -46,10 +72,11 @@ Required gates:
 
 The thunk-rs build remains a separate Windows-compatibility line and is not required as GOST runtime proof.
 
-### 4. Continue Stage 2 runtime matrix after T2R/T1R pass
+### 5. Continue Stage 2 runtime matrix after T2R/T1R pass
 
-Follow `STAGE2_RUNTIME_TEST_PLAN.md` in order. Remaining groups:
+Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining groups:
 
+- GIS GMP generic mTLS callback reachability, real acceptable-CA/candidate result and real GIS GMP mTLS login;
 - explicit Cancel/no-certificate vs involuntary Abort;
 - `Once`, explicit `Session`, explicit `Permanent`;
 - missing-media/provider Cancel and recovery;
