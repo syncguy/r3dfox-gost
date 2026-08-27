@@ -2,32 +2,36 @@
 
 Last updated: 2026-08-27
 
-Purpose: make the runtime campaign restart-safe. If a chat/session is lost, do **not** restart testing from the beginning. Read `AGENTS.md`, `PROJECT_STATE.md`, this file, and the active/relevant dated `TEST_LOG`. Resume at the first `NEXT` / `BLOCKED` item whose prerequisite fix/build exists.
+Purpose: make the runtime campaign restart-safe. If a chat/session is lost, do **not** restart testing from the beginning. Read `AGENTS.md`, `PROJECT_STATE.md`, this file, and the active/relevant `TEST_LOG*` evidence. Resume at the first `NEXT` item below.
 
-This document is the operational runtime-test sequence. `STAGE2_PLAN.md` remains the security/architecture contract; `TEST_LOG*` files remain the evidence record.
+`STAGE2_PLAN.md` remains the security/architecture contract. `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes remain the detailed evidence record.
 
-## Fixed test identity rules
+## Fixed runtime identity
 
 Every runtime conclusion must record:
 
 - exact source-under-test SHA;
-- exact Actions run ID / attempt / job ID;
-- exact browser artifact ID/name;
+- exact Actions run/attempt/job;
+- exact browser artifact;
 - runtime target;
-- sanitized capture filename + SHA-256 and inner log SHA-256;
+- sanitized capture filename plus outer/inner SHA-256;
 - user-visible result;
 - sanitized protocol/lifecycle result.
 
-When runtime marker evidence conflicts with the claimed artifact identity, **stop before judging the feature under test**. Hash the actual launched binaries. For the current main artifact `9636591432`:
+Current authoritative GOST runtime browser:
 
-- `r3dfox.exe` SHA-256: `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
-- **`xul.dll` SHA-256: `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**.
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- main run `33039013849`, attempt 1;
+- job `98408139479`;
+- artifact `9636591432` (`r3dfox-gost-win64-release`);
+- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
 
-The GOST coordinator is linked into `xul.dll`, so `xul.dll` is the decisive local binary preflight.
+The GOST coordinator is linked into `xul.dll`; when binary identity is uncertain, the local `xul.dll` hash is decisive.
 
-Never publish client-certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, private-key material, account data or raw personal-cabinet traffic.
+Never publish client-certificate fingerprints/thumbprints, serials, identifying subject/issuer DNs, provider/container IDs, PIN/password data, private-key material, account data, raw personal-cabinet traffic or unsanitized captures.
 
-For Windows `cmd.exe`, clear test variables with quoted syntax:
+Standard Treasury launch environment:
 
 ```bat
 set "R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru"
@@ -42,366 +46,196 @@ r3dfox.exe -no-remote ^
   https://fzs.roskazna.ru/
 ```
 
-No unquoted `set NAME =` forms: the space becomes part of the environment-variable name in `cmd.exe`.
+## Completed historical baseline tests — do not repeat
 
-## Completed old-baseline tests — do not repeat
+### T1 old baseline — DONE
 
-### T1 — coordinated successful Treasury login — DONE
+Source `860de8e38deed326b7fcd1c547e928c5b48c72a9`, run `32951903026` attempt 2, job `98130275465`, artifact `9606431408`.
 
-Build identity:
+Real coordinated Treasury mTLS works and concurrent single-flight works, but one logical login required three sequential certificate pickers. Detailed hashes/timeline are in the historical test log.
 
-- source `860de8e38deed326b7fcd1c547e928c5b48c72a9`;
-- main run `32951903026`, attempt 2;
-- job `98130275465`;
-- artifact `9606431408`.
+### T2 old baseline — DONE, defect reproduced
 
-Capture:
+Same old artifact. Unanswered picker teardown allowed `msspi_shutdown()` to create an orphan coordinated decision; later requests consumed `selected=0` and failed with `0x80090326` until browser restart.
 
-- `gost_main_test_connect.zip` SHA-256 `0756fe71a15ecd56a1576b026888b0a504fb941ab3958f1fda93653fc74c620b`;
-- inner log SHA-256 `f77e68a5a2c1673500ef8542f12b5db46f6b93d5160e8203fe189eb1913eed89`.
-
-Engineering result:
-
-- real coordinated GOST mTLS works;
-- 11 login-host TLS 1.2 / `0xFF85` handshakes complete with client certificate installed;
-- concurrent single-flight is proven;
-- defect: one logical login creates three sequential connection waves and asks three times with default `Once`.
-
-Action: do not rerun T1 on artifact `9606431408`; use T1R on the fixing artifact.
-
-### T2 — unanswered picker / timeout / retry — DONE, old defect reproduced
-
-Same old build identity as T1.
-
-Capture:
-
-- `gost_timeout_260827.zip` SHA-256 `92f19f308bcc57394ad8f40d285d2e4934a5ee7d1707568d5c2507d2458909d9`;
-- inner log SHA-256 `8dd16505df8095806d60eddcb1d92844b87c04e5caa253b1003a3010f640cda5`.
-
-Old engineering result:
-
-- picker closed after ~45.005 s;
-- close removed the original waiter, then `msspi_shutdown()` re-entered the client-cert callback;
-- re-entry created a fresh decision/waiter for a closing handle;
-- that waiter became orphaned and later terminal `Declined`;
-- later requests consumed `selected=0` and failed with `0x80090326` until browser restart.
-
-Action: do not repeat T2 on the old artifact. F1 is now closed by T2R below.
-
-## Current fixing candidate / build identity
-
-Current source-under-test:
-
-- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`);
-- short SSL compile run `33039013892`, job `98408139567`, success;
-- authoritative main full build run `33039013849`, attempt 1, job `98408139479`, success;
-- main runtime artifact `9636591432` (`r3dfox-gost-win64-release`);
-- separate thunk-rs run `33039013822`, job `98408139313`, success, browser artifact `9636047031`.
-
-The main artifact is the only artifact used for the GOST runtime conclusions below. The thunk-rs artifact belongs to the independent Windows compatibility line.
-
-Candidate source contains:
-
-- **F1:** close/shutdown closing-handle guard and defensive waiter cleanup;
-- **F2:** positive-only default-`Once` fanout lease with a 5-second idle lifetime;
-- **F3:** generic GOST mTLS client-cert callback registration/dispatch for already-selected GOST sockets rather than Treasury-only normal coordinated reachability.
+Do not rerun this old defect reproduction.
 
 ## T2R — PASS / F1 CLOSED
 
-Runtime capture:
+Current artifact `9636591432`.
+
+Capture:
 
 - `t2r_timeout.zip` SHA-256 `88053089499fee19edf7506d4fe257567dcc688740741313ff9430749e84bba7`;
 - inner `t2r.moz_log` SHA-256 `261ddf9a4008c212f1ee5b5ec2213ab0fb3ee6e6a244e586987ff04a8de8d5`.
 
-Three unanswered-picker cycles were exercised in one browser process. F5 after cycle 1 and `Try again` after cycle 2 each produced a fresh picker.
+Three unanswered-picker cycles prove:
 
-Exact picker-to-close intervals:
+- closing handles are rejected before coordinated decision create/join;
+- each waiter/decision is cleaned up;
+- stale UI callbacks are harmless;
+- retries show fresh pickers without browser restart;
+- no `selected=0`, `0x80090326`, `0x0000054f` or `MSSPI_X509_LOOKUP` recurrence.
 
-- cycle 1: `32.576 s`;
-- cycle 2: `37.420 s`;
-- cycle 3: `30.330 s`.
+F1 is formally closed. Do not repeat T2R on unchanged source.
 
-Exact lifecycle proof across all three cycles:
+## Invalid first T1R attempt — HISTORICAL TEST-IDENTITY ERROR
 
-- 3 decisions created, 3 decisions removed;
-- 3 active waiters removed pre-close, each reaching `waiters=0`;
-- 3 shutdown-time client-cert callbacks rejected with `reason=closing` before decision creation/join;
-- 3 abandoned picker callbacks later rejected as stale;
-- no shutdown-created replacement decision or orphan waiter;
-- `selected=0`: 0;
-- `0x80090326`: 0;
-- `0x0000054f`: 0;
-- `MSSPI_X509_LOOKUP`: 0.
+`t1r_error.zip` was later confirmed by the user to have been produced while accidentally running one of the older browser builds. It is not evidence for or against F2 and does not reopen F1.
 
-`GostPoll client-auth wait quiescent` counts were `10,825`, `34`, and `21` for the three cycles. The first cycle still has substantial poll churn while later cycles are near one call per second. Timeout/poll attribution remains separate non-blocking work; it does not reopen F1.
+Do not diagnose or change the current lease based on that capture.
 
-**Do not repeat T2R on this source merely for confirmation.** F1 is formally closed for the tested path.
+## T1R — PASS
 
-## T1R identity-mismatch checkpoint — INVALID TEST, DO NOT JUDGE F2
+Current artifact `9636591432`, with exact local binary hashes verified before launch.
 
-Supplied capture:
+Capture:
 
-- `t1r_error.zip` SHA-256 `e42416dd8199a85e3faec5dbcab84d09f425ee3a39dd9bcc67ccff8a4ea39236`;
-- inner `t1r.moz_log` SHA-256 `80bf7e4062636df669799bba740d6ab423208e958d758cdf02d26cd9f1b5eab7`.
+- `t1r-current.zip` SHA-256 `1c75f484607a6e3eb95439275e2698098a04551689619f95f93f13ca890b248e`;
+- inner `t1r-current.moz_log` SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`.
 
-The user followed the T1R UX procedure: selected a certificate once, immediately saw a second picker, left it unanswered, and received the Treasury personal-cabinet page with HTTP 500 after timeout.
+User-visible result:
 
-However, this capture is not valid evidence against F2 because the actual runtime binary is not the intended `ef1a7...` implementation:
+- one Firefox client-certificate picker on entry to the Treasury personal cabinet;
+- default `Once` retained;
+- intended certificate selected once;
+- personal cabinet loads successfully;
+- no second picker during the logical login; normal subsequent cabinet behavior.
 
-- first mTLS completes at `08:19:20.814 UTC`;
-- second picker appears at `08:19:21.275 UTC`, only `0.461 s` later;
-- nevertheless there are zero `client certificate once lease stored`, zero `once lease reused`, zero `client certificate leased`, zero current decision/waiter lifecycle markers, and zero `reason=closing` markers;
-- after the second picker timeout the log reproduces the old pre-F1 cascade: `selected=0` 37 times, `0x80090326` 74 times and `0x0000054f` 148 times.
+Runtime result:
 
-That marker fingerprint is incompatible with the already-proven current artifact. The exact old binary cannot be identified from the log alone. F1 stays closed, F2 stays unproven.
+- 1 coordinated decision / 1 picker;
+- 1 positive `Once` lease store (`idle_ms=5000`);
+- 7 lease reuses without UI;
+- reuse spans two follow-on waves: five requests around `08:43:59.635–08:43:59.669 UTC` and two at `08:44:02.577–08:44:02.588 UTC`;
+- 8 successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes, all with `client_cert_loaded=1`;
+- 0 `selected=0`;
+- 0 `0x80090326`;
+- 0 `0x0000054f`;
+- 0 `MSSPI_X509_LOOKUP`;
+- 0 `E/GostTLS`.
 
-### NEXT — exact binary preflight, then rerun T1R
+The original repeated-picker symptom for one logical login is closed. Because every lease reuse refreshes its five-second idle expiry, expiry is measured from the **last** matching reuse, not from the initial picker.
 
-From the directory that will actually be launched, run:
+## T1R-B — NEXT
 
-```bat
-certutil -hashfile r3dfox.exe SHA256
-certutil -hashfile xul.dll SHA256
-```
+Purpose: prove that default `Once` remains attempt-local and does not become Session/Permanent.
 
-Proceed only if the values exactly equal:
-
-- `r3dfox.exe`: `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
-- `xul.dll`: `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
-
-For diagnostics, the exact old baseline artifact `9606431408` instead contains:
-
-- `r3dfox.exe`: `7fd0e624b81ed5e973de37778e9a5959e8a101b4c1e7c6378ed14a224b2beb41`;
-- `xul.dll`: `7cb152dedd17ad96871c46bef796da250aeac517b35002f34360d2c81b03b393`.
-
-If the current hashes match, rerun T1R below unchanged. If they do not, replace/re-extract the browser directory before any further runtime conclusion.
-
-## Regression tests on the fixing artifact
-
-### T1R — one logical successful login should need one picker — NEXT AFTER HASH PREFLIGHT
-
-Purpose: prove F2 and re-prove real mTLS after F1/F2.
+Precondition: same browser process/profile as a successful T1R whenever practical.
 
 Procedure:
 
-1. start a fresh browser process using the standard Treasury environment from the hash-verified directory;
-2. enter the personal cabinet;
-3. at the first Firefox certificate picker leave the default `Once` behavior;
-4. select the intended certificate exactly once;
-5. do not make additional manual selections if another picker unexpectedly appears; preserve the log instead;
-6. observe whether the protected personal cabinet completes loading.
+1. let all T1R GOST/network activity become quiet;
+2. wait a clear margin beyond the 5-second idle lease, preferably about 10 seconds after the last matching GOST activity;
+3. initiate an **independent** Treasury personal-cabinet login that causes a fresh client-auth handshake;
+4. preserve a log for the attempt.
 
 Pass criteria:
 
-- exactly one visible picker for the logical login attempt;
-- compatible parallel and sequential waves reuse the same attempt-local positive `Once` decision safely;
-- current log contains the expected positive lease store/reuse diagnostics;
-- no queued/stale dialogs;
-- all relevant GOST mTLS handshakes succeed;
-- protected application flow reaches the personal cabinet;
-- no negative/abort/failure result becomes a positive lease.
+- a fresh Firefox certificate picker appears;
+- the previous `Once` choice is not silently reused as Session/Permanent;
+- a new positive choice, if selected, may create a new attempt-local lease normally;
+- no negative/failure result becomes a lease.
 
-If a second picker appears on the hash-verified current binary, capture the log and stop. That is valid F2 failure evidence and should be diagnosed before continuing.
+If no picker appears, first prove that a new client-auth handshake actually occurred; an already-open/reused authenticated transport cannot by itself distinguish an expired lease from connection reuse.
 
-### T1R-B — `Once` must not become Session — IMMEDIATELY AFTER T1R PASS
+If T1R-B passes, formally close F2, add it to `DONE.md`, and proceed to GIS-G1.
 
-After the successful T1R network activity is quiet, allow a clear margin beyond the current 5-second idle lease (for example about 8–10 seconds), then start an independent new login attempt in the same browser process.
+## GIS-G1 — AFTER T1R-B / F2 CLOSURE
 
-Pass criteria:
-
-- a fresh picker appears for the independent attempt;
-- previous `Once` selection is not treated as Session/Permanent.
-
-### GIS-G1 — generic GIS GMP mTLS reachability — AFTER T1R/T1R-B
-
-Use the GIS GMP sequence in `STAGE2_GIS_GMP.md`.
+Use `STAGE2_GIS_GMP.md`.
 
 Pass for F3 reachability:
 
-- certificate host gets the GOST layer;
-- generic client-cert callback is registered for the real certificate host;
-- real server `CertificateRequest` reaches our callback;
-- acceptable-CA collection records an explicit current count;
-- candidate enumeration records an explicit count;
-- host no longer sends an empty client Certificate merely because it differs from `lk-fzs.roskazna.ru`.
+- GOST layer attaches to the real GIS GMP certificate host;
+- generic client-cert callback is registered;
+- the real server `CertificateRequest` reaches issuer collection;
+- record the current acceptable-CA count;
+- record candidate count.
 
-If candidate count > 0, continue GIS-G2. If candidate count == 0, stop and diagnose issuer/chain/name matching before changing policy.
+If candidate count > 0, continue GIS-G2 real mTLS/application login. If candidate count == 0, stop and diagnose server CA identities, local chain matching, Windows chain/cross-sign selection, name comparison and provider/private-key filtering before changing issuer policy.
 
-## Client decision semantics
+## Remaining client-decision semantics
 
-Run after T1R/T1R-B and the immediate GIS-G1 branch as appropriate.
+Run after F2 and the immediate GIS branch are stable.
 
 ### T3 — explicit no-certificate / Cancel
 
-Procedure: open picker, explicitly decline/no-certificate using the supported UI action, then initiate a new login.
-
-Pass:
-
-- current attempt may fail/continue without client auth as appropriate;
-- no negative choice poisons later attempts;
-- next login shows a fresh picker;
-- distinguish explicit `Declined` from involuntary `Aborted` in logs/state.
+Current attempt may fail/continue as appropriate; later independent attempt must show a fresh picker. Distinguish explicit `Declined` from involuntary `Aborted`.
 
 ### T4 — involuntary Abort
 
-Exercise navigation/tab/load teardown without a user certificate decision.
-
-Pass:
-
-- state is `Aborted`, not reusable `Declined`;
-- later attempt shows a fresh picker;
-- stale callback cannot mutate current state.
+Exercise navigation/tab/load teardown without a user decision. State must be `Aborted`, not reusable `Declined`; later attempt must recover.
 
 ### T5 — explicit Session
 
-Choose certificate with `Session`.
-
-Pass:
-
-- compatible later logins in the same browser process reuse only the positive selected certificate as intended;
-- no repeated picker in-session for matching policy;
-- temporary provider failure does not overwrite the positive decision;
-- browser process restart clears session-only behavior.
+Compatible later logins in the same browser process should reuse the positive selected certificate without repeated picker; browser process restart must clear session-only behavior.
 
 ### T6 — explicit Permanent
 
-Choose certificate with `Permanent`.
-
-Pass:
-
-- positive decision persists according to Firefox permanent remember semantics for the same profile;
-- process restart does not unexpectedly lose it;
-- user/Firefox forget/change action removes it correctly;
-- no negative/provider failure overwrites it.
+Positive choice should persist according to Firefox permanent remember semantics and be removable by the intended user/Firefox forget/change action. Negative/provider failures must not overwrite it.
 
 ## Provider/private-key media
 
-Run after coordinator lifecycle/remember semantics are stable.
-
 ### T7 — missing key medium + provider Cancel
 
-Precondition: client certificate remains discoverable but referenced CryptoPro private-key medium/container is absent.
-
-Procedure:
-
-1. select the certificate;
-2. CryptoPro requests the key medium;
-3. Cancel provider UI;
-4. start a new login in the same browser.
-
-Pass:
-
-- only current TLS attempt fails with the provider/no-credentials class;
-- no negative Firefox/GOST certificate decision is created;
-- default `Once` asks again on the next independent attempt;
-- explicit Session/Permanent, when separately tested, retains the positive certificate decision.
+Certificate remains discoverable but CryptoPro private-key medium/container is unavailable. Cancel provider UI. Only the current attempt should fail; no negative certificate decision may poison later attempts.
 
 ### T8 — provider recovery without browser restart
 
-After T7, retry and make the key medium available when CryptoPro asks.
-
-Pass:
-
-- handshake resumes and completes;
-- mTLS proves actual private-key use;
-- cabinet/login succeeds without restarting r3dfox.
+Make the key medium available on retry. Handshake and protected login should succeed without restarting r3dfox.
 
 ### T9 — long provider wait
 
-Hold the CryptoPro media/PIN/provider UI beyond the ordinary picker-timeout scale. T2R observed `30.330–37.420 s`, but this is not a proven fixed timer; use a deliberate longer wait and record actual duration rather than treating any one value as policy.
-
-Observe:
-
-- whether synchronous provider UI causes global network starvation;
-- timeout corruption;
-- connection teardown;
-- behavior materially worse than Firefox's stock synchronous token/PIN precedent.
-
-Only promote async MSSPI/provider redesign to a blocker if this test proves a concrete regression. Do not move one live MSSPI handle between threads casually.
+Hold provider/PIN/media UI beyond the ordinary picker-timeout scale. Record actual duration and check for network starvation, timeout corruption or teardown materially worse than stock synchronous token/PIN behavior. Do not redesign MSSPI threading without a concrete regression.
 
 ## Picker presentation
 
 ### T10 — Russian UI presentation
 
-Verify in the real Russian UI:
-
-- compact row uses human owner display name;
-- localized expiration date;
-- `issuerCommonName` renders Cyrillic correctly;
-- `Issued to` shows the human-facing display name;
-- serial number remains details-only.
-
-Do not copy identifying certificate values into repository documentation; record only rendering correctness.
+Verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, and serial remaining details-only. Do not publish actual certificate identity values.
 
 ## Candidate discovery / policy
 
 ### T11 — dynamic `CurrentUser\MY`
 
-With browser still running, remove/restore or otherwise change an eligible certificate in a controlled way.
-
-Pass:
-
-- candidate discovery is re-evaluated on new attempts;
-- zero-candidate result is not sticky;
-- restored eligible certificate appears without browser restart.
+Candidate discovery must be re-evaluated on new attempts; zero-candidate results cannot be sticky; restored eligible certificate must reappear without browser restart.
 
 ### T12 — token/removable-media-only discovery
 
-Focused test:
-
-- certificate absent from `CurrentUser\MY`;
-- only provider/removable medium contains/exposes the identity.
-
-Outcome:
-
-- if current store view discovers it, no direct CSP/KSP enumeration is required for that environment;
-- if not, implement provider discovery and later rerun;
-- deduplicate identical certificates across sources;
-- candidate enumeration itself must not trigger interactive provider/PIN/media UI.
+If the certificate is absent from `CurrentUser\MY` and exposed only by provider/removable media, determine whether current store discovery finds it. If not, provider discovery becomes required. Candidate enumeration itself must not trigger interactive provider/PIN/media UI.
 
 ### T13 — issuer/validity/KU/EKU/private-key suitability
 
-Use safe available test identities where possible.
-
-Verify candidate policy for:
-
-- server acceptable-CA list;
-- expired/not-yet-valid;
-- unsuitable KU/EKU;
-- missing/unavailable private-key binding;
-- wrong certificate.
-
-No unsafe credential data goes into logs/docs.
+Verify acceptable-CA, validity, KU/EKU, private-key availability/binding and wrong-certificate filtering using safe test identities where possible.
 
 ## Negative matrix
 
 ### T14 — no acceptable certificate
 
-Pass: no sticky negative decision; later candidate restoration can recover.
+No sticky negative decision; later candidate restoration can recover.
 
 ### T15 — private-key/PIN failure
 
-Pass: failure is attempt/provider-local and does not poison future client-cert selection.
+Failure remains attempt/provider-local and does not poison future certificate selection.
 
 ### T16 — server rejects client identity
 
-Pass: server rejection is surfaced as the real TLS/auth failure and does not become remembered no-certificate state.
+Surface the real TLS/auth failure; do not convert it into remembered no-certificate state.
 
-## Server-trust closure
-
-This is mandatory before Stage 2 is complete.
+## Server-trust closure — mandatory
 
 ### T17 — valid Treasury server
 
-With final fail-closed verifier/override/cache implementation, valid Treasury hostname/chain succeeds.
+Final fail-closed verifier/override/cache implementation accepts valid Treasury hostname/chain.
 
 ### T18 — wrong hostname
 
-Must fail closed. No client private-key operation may occur before server trust.
+Must fail closed. No client private-key operation before server trust.
 
 ### T19 — invalid/untrusted chain
 
-Must fail closed. No positive session trust cache entry may be created.
+Must fail closed. No positive server-trust cache entry.
 
 ### T20 — Firefox certificate override
 
@@ -411,27 +245,28 @@ Verify intended temporary/permanent override integration and exact server-identi
 
 ### T21 — final Treasury mTLS acceptance
 
-Use the final candidate source/build and a sanitized capture.
+Final exact source/build must prove together:
 
-Must prove together:
-
-- server trust accepted by the final policy;
-- one correct Firefox client-certificate UX interaction per logical attempt under default `Once`;
-- concurrent/sequential compatible sockets safely receive the positive selection;
-- actual private-key use via completed mTLS;
+- final server trust succeeds;
+- one correct Firefox client-cert UX interaction per logical default-`Once` attempt;
+- compatible concurrent/sequential sockets safely receive the positive choice;
+- completed mTLS proves private-key use;
 - TLS 1.2 / expected GOST suite;
 - authenticated protected application traffic;
-- no sticky negative state after retries;
+- retry recovery without sticky negative state;
 - no sensitive data published.
 
-Record exact source SHA, main Actions run/attempt/job, artifact ID, capture hashes and sanitized conclusion.
+Record exact source SHA, run/attempt/job, artifact, capture hashes and sanitized conclusion.
+
+## Separate non-blocking investigation
+
+T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`; quiescent poll counts `10,825`, `34`, `21`). Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1 and does not block T1R-B.
 
 ## Stop / escalation rules
 
-- Do not ask the user to repeat an already-proven old-artifact test unless it is explicitly a regression test for a new source.
-- On failure, preserve the capture and stop the dependent branch of the matrix; do not continue generating noisy downstream failures.
+- Do not repeat already-proven old-artifact tests unless explicitly regression-testing a changed source.
+- On failure, preserve the capture and stop the dependent branch rather than generating downstream noise.
 - Build success never substitutes for runtime proof.
 - Main and thunk-rs artifacts are not interchangeable for GOST conclusions.
-- Do not mix Win7 and extension testing into the Stage 2 GOST runtime matrix.
-- If runtime markers conflict with the claimed build, verify actual `xul.dll` identity before drawing conclusions.
-- After every meaningful runtime experiment, append evidence to `TEST_LOG.md` and update `PROJECT_STATE.md` / this plan if the blocker or next step changes.
+- Keep Windows compatibility and bundled-extension testing separate from the GOST runtime matrix.
+- After every meaningful runtime experiment, append `TEST_LOG.md` and update `PROJECT_STATE.md` / `TODO.md` / this checkpoint when the blocker or next step changes.
