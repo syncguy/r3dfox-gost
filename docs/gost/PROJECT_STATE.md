@@ -73,13 +73,38 @@ Current F1/F2/F3 fixing candidate:
 - separate thunk-rs full-xul run `33039013822`, job `98408139313`, success;
 - thunk browser artifact `9636047031`, diagnostics `9636048172`.
 
-The main artifact `9636591432` is now the authoritative browser for the next GOST runtime regressions. The thunk artifact is independent Windows-compatibility evidence and must not be used as GOST runtime proof.
+The main artifact `9636591432` is now the authoritative browser for the current GOST runtime regressions. The thunk artifact is independent Windows-compatibility evidence and must not be used as GOST runtime proof.
 
 ## Stage 2 coordinated runtime checkpoint
 
-The old runtime evidence below remains authoritative for the defects found on source `860de8e...`, artifact `9606431408`. Those defect reproductions are complete and must not be repeated on the old artifact. Runtime validation now resumes on main artifact `9636591432`, source `ef1a7fdd...`.
+The old runtime evidence below remains authoritative for the defects found on source `860de8e...`, artifact `9606431408`. Those defect reproductions are complete and must not be repeated on the old artifact. Runtime validation now uses main artifact `9636591432`, source `ef1a7fdd...`.
 
-### Test T1 — successful coordinated Treasury login
+### T2R — user-visible timeout/retry recovery now passes; lifecycle log verification pending
+
+On the current fixing artifact `9636591432`, source `ef1a7fdd...`, the user ran a clean-profile T2R session with only `fzs.roskazna.ru,lk-fzs.roskazna.ru` allowlisted and the explicit thumbprint, legacy-mode and cipher overrides cleared.
+
+User-visible result in one browser process:
+
+1. first client-certificate picker was left unanswered for approximately 30 seconds -> timeout page;
+2. F5 immediately produced a fresh client-certificate picker;
+3. the second picker was again left unanswered for approximately 30 seconds -> timeout page;
+4. `Try again` immediately produced another fresh client-certificate picker;
+5. the third picker was again left unanswered for approximately 30 seconds -> timeout page.
+
+This is a clear **user-visible T2R pass**. The old sticky symptom — one timeout poisoning all later attempts so no picker could ever reappear without restarting r3dfox — is absent across two consecutive recovery actions.
+
+The generated `C:\Temp\r3dfox\t2r*` log has not yet been supplied. Therefore F1 is not yet formally closed at the internal lifecycle level. Before closure, inspect the exact capture for:
+
+- closing-handle guard firing before callback decision creation/join;
+- pre/post close waiter cleanup;
+- no shutdown-created replacement decision/orphan waiter;
+- no automatic stale `selected=0` reuse;
+- no `MSSPI_X509_LOOKUP` regression;
+- current `GostPoll` rate and exact unanswered-picker timing.
+
+The observed approximately 30-second lifetime differs from the old captured ~45.005-second lifetime. Do not attribute that difference until exact new timestamps are available.
+
+### Test T1 — successful coordinated Treasury login on the old baseline
 
 Evidence is preserved in `TEST_LOG_2026-08-26_2026-08-27.md`.
 
@@ -97,9 +122,9 @@ Confirmed behavior:
 - the old repeated `MSSPI_X509_LOOKUP` tight re-entry is absent;
 - default `Once` lifetime is too narrow: one logical login creates three sequential compatible connection waves, and a fresh picker appears for every wave because the completed decision is discarded and `Once` is intentionally not session-remembered.
 
-Therefore T1 is **not to be repeated on the old artifact**. It becomes T1R on the new fixing artifact after T2R.
+Therefore T1 is **not to be repeated on the old artifact**. It becomes T1R on the new fixing artifact after T2R lifecycle evidence is fully checked.
 
-### Test T2 — unanswered picker / timeout / retry
+### Test T2 — unanswered picker / timeout / retry on the old baseline
 
 Exact same old browser identity as T1.
 
@@ -132,7 +157,7 @@ This proves the old lifecycle blocker: **a client-auth callback must not be allo
 
 The previously assumed exact 30-second boundary is not valid for that coordinated artifact. The observed unanswered-picker close occurs at ~45 seconds. The source of that concrete timeout must be attributed before changing any timeout policy.
 
-T2 is **not to be repeated on the old artifact**. T2R is now the first runtime test on artifact `9636591432`.
+T2 is **not to be repeated on the old artifact**. Its user-visible regression is now passed on artifact `9636591432`; internal T2R lifecycle closure awaits the new log.
 
 ### GIS GMP multi-host mTLS runtime
 
@@ -170,13 +195,13 @@ The user's original CA-policy hypothesis remains narrowed but open. The server a
 
 Detailed F3 design and GIS-G1/G2/G3/G4 runtime branch are in `STAGE2_GIS_GMP.md`.
 
-## F1/F2/F3 fixing candidate — awaiting runtime validation
+## F1/F2/F3 fixing candidate — runtime validation in progress
 
-Source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` carries candidate implementations for all three previously open code blockers and passes the required compile/full-build gates. None is closed until runtime evidence passes its regression.
+Source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` carries candidate implementations for all three previously open code blockers and passes the required compile/full-build gates.
 
 ### F1 — close/shutdown re-entrant client-auth callback
 
-Candidate implementation now:
+Candidate implementation:
 
 1. marks the MSSPI handle closing before legacy close / `msspi_shutdown()`;
 2. rejects client-certificate callbacks for closing handles before coordinated decision creation/join or picker dispatch;
@@ -184,7 +209,9 @@ Candidate implementation now:
 4. emits decision/waiter/close lifecycle diagnostics;
 5. preserves stale-callback rejection.
 
-Runtime closure criterion: T2R must show teardown followed by a fresh picker on retry/new login without an orphan decision or sticky automatic `selected=0`.
+Current evidence: **T2R passes user-visible recovery across three consecutive timeout cycles in one browser process**, including fresh picker recovery after F5 and after `Try again`. The old sticky UX failure is therefore removed on the fixing artifact.
+
+Remaining F1 closure criterion: inspect the exact T2R log and prove the internal lifecycle invariants listed above. Until then F1 remains open only at log-level verification, not at user-visible recovery behavior.
 
 ### F2 — `Once` lifetime across sequential waves
 
@@ -210,7 +237,7 @@ Build prerequisites are complete on source `ef1a7fdd...`: SSL compile run `33039
 
 Immediate sequence on main artifact `9636591432`:
 
-1. **T2R** — unanswered picker timeout/teardown -> without browser restart retry/new login must open a fresh picker;
+1. **inspect the completed T2R capture** — bind its hashes/timestamps and verify the F1 internal close/shutdown invariants; if clean, formally close F1/T2R;
 2. **T1R** — successful Treasury login -> one logical login must need one picker while compatible concurrent/sequential sockets safely receive the positive `Once` choice;
 3. **T1R-B** — after the 5-second idle lease expires, an independent login must ask again;
 4. **GIS-G1** — prove the GIS GMP certificate endpoint reaches generic callback/issuer collection/candidate enumeration; if candidates exist, continue GIS-G2 real mTLS; if candidates are zero, stop and diagnose CA-chain/name matching;
