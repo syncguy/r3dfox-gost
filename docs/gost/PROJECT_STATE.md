@@ -265,9 +265,9 @@ Current packaged three-extension checkpoint:
 
 The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first website/content-language pref.
 
-Runtime discovery has now crossed the browser boundary for this exact packaged artifact: after installing artifact `9614275050`, the user supplied an `about:addons` screenshot showing all three bundled project extensions simultaneously present under **Enabled**. This proves installed-profile discovery/enabled state for the three-extension package. The evidence does not establish that the profile was freshly created, and the screenshot does not independently expose runtime version/ID values.
+Clean-profile discovery/enabled-state is now proven for this exact packaged artifact. The user launched artifact `9614275050` with a completely new dedicated profile at `C:\Temp\r3dfox\profile`, with all four GOST override variables cleared, targeting `https://esia.gosuslugi.ru/login`. In `about:addons`, all three bundled project extensions appeared simultaneously under **Enabled**. The visible uBlock Origin entry is expected because `r3dfox/policies.json` installs it with `installation_mode: normal_installed`, so it is not evidence of prior profile state.
 
-Still open on the extension track: clean-profile confirmation for this exact three-extension package, re-checking CryptoPro functionality on it, functional nativeMessaging tests for legacy IFCPlugin and Gosplugin with their required local components, update behavior, and generalizing/transferring the shared packaging gates.
+Still open on the extension track: re-checking CryptoPro functionality on artifact `9614275050`, functional nativeMessaging tests for legacy IFCPlugin and Gosplugin with their required local components, runtime language-preference verification if desired, update behavior, and generalizing/transferring the shared packaging gates.
 
 ## Separation of conclusions
 
