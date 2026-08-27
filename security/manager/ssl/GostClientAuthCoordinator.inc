@@ -518,7 +518,7 @@ void OpenGostCoordinatedClientAuthDialog(
       new GostCoordinatedClientAuthDialogCallback(decision));
   nsresult rv = dialog->ChooseCertificateWithDefaultRememberDuration(
       decision->mHost, certArray, browsingContext, decision->mCANames,
-      nsIClientAuthRememberService::Once, callback);
+      nsIClientAuthRememberService::Session, callback);
   if (NS_FAILED(rv)) {
     {
       mozilla::MutexAutoLock lock(decision->mMutex);
