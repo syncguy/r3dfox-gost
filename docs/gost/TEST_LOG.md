@@ -2,7 +2,7 @@
 
 This is the current append-oriented engineering log.
 
-The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-26_2026-08-27.md`](./TEST_LOG_2026-08-26_2026-08-27.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For forward work, see [`TODO.md`](./TODO.md). The restart-safe Stage 2 runtime sequence is [`STAGE2_RUNTIME_TEST_PLAN.md`](./STAGE2_RUNTIME_TEST_PLAN.md); the GIS GMP multi-host mTLS branch is [`STAGE2_GIS_GMP.md`](./STAGE2_GIS_GMP.md).
+The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-26_2026-08-27.md`](./TEST_LOG_2026-08-26_2026-08-27.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For forward work, see [`TODO.md`](./TODO.md`). The restart-safe Stage 2 runtime sequence is [`STAGE2_RUNTIME_TEST_PLAN.md`](./STAGE2_RUNTIME_TEST_PLAN.md); the GIS GMP multi-host mTLS branch is [`STAGE2_GIS_GMP.md`](./STAGE2_GIS_GMP.md).
 
 For each completed experiment, record the exact date, branch and source-under-test SHA, GitHub Actions run/job when applicable, sanitized observation, conclusion, and whether the finding is current, superseded, or still open. Do not publish client-certificate identifiers, private credential metadata, user data, or unsanitized runtime captures; follow `/AGENTS.md`.
 
@@ -268,9 +268,9 @@ Status: current runtime proof of F3; generic multi-host GOST mTLS client-auth re
 
 ---
 
-## 2026-08-27 — Three-extension packaged browser discovers all bundled extensions at runtime
+## 2026-08-27 — Three-extension packaged browser clean-profile discovery is proven
 
-**Track:** bundled government-system extensions / browser runtime discovery  
+**Track:** bundled government-system extensions / clean-profile browser runtime discovery  
 **Branch:** `agent/gost-tls-poc`  
 **Code-under-test:** `b3d097de20b7a5711f161199a727bcfe9468bcc8`  
 **Actions run:** `32976571122`  
@@ -281,7 +281,28 @@ Status: current runtime proof of F3; generic multi-host GOST mTLS client-auth re
 
 ### Purpose
 
-Cross the browser-runtime boundary for the exact package previously proven to contain CryptoPro, legacy Gosuslugi/IFCPlugin, and Gosplugin. Determine whether Firefox actually discovers and enables all three bundled extensions after the built package is installed.
+Cross the browser-runtime boundary for the exact package previously proven to contain CryptoPro, legacy Gosuslugi/IFCPlugin, and Gosplugin, and prove automatic discovery/enabled state in a completely new Firefox profile.
+
+### Exact runtime setup
+
+The user explicitly confirmed that `C:\Temp\r3dfox\profile` was a completely clean newly-created profile for this test. Before launch, all GOST override variables were cleared:
+
+```bat
+set "R3DFOX_GOST_HOSTS="
+set "R3DFOX_GOST_CLIENT_CERT_THUMBPRINT="
+set "R3DFOX_GOST_CLIENT_AUTH_MODE="
+set "R3DFOX_GOST_CIPHERS="
+```
+
+The browser was launched with:
+
+```bat
+r3dfox.exe -no-remote ^
+  -profile C:\Temp\r3dfox\profile ^
+  --MOZ_LOG=timestamp,sync,GostTLS:5 ^
+  --MOZ_LOG_FILE=C:\Temp\r3dfox\gost ^
+  https://esia.gosuslugi.ru/login
+```
 
 The user supplied a screenshot of `about:addons`. The raw screenshot is not committed; only the sanitized UI observation is recorded.
 
@@ -293,20 +314,19 @@ The Add-ons Manager `Extensions` page shows all three project extensions simulta
 - `Госплагин`;
 - `Расширение для плагина Госуслуг.`
 
-An unrelated `uBlock Origin` entry is also visible. The user did not state that this was a newly-created Firefox profile, and the screenshot itself does not establish profile provenance. Therefore this result is intentionally recorded as installed-profile discovery rather than clean-profile discovery.
+`uBlock Origin` is also visible, but this is expected on a clean profile: `r3dfox/policies.json` contains an `ExtensionSettings` entry for `uBlock0@raymondhill.net` with `installation_mode: normal_installed`, so policy installs it independently of profile history. Its presence is not evidence of a pre-existing or dirty profile.
 
-The screenshot also does not display extension IDs or versions, so those values remain tied to the independently inspected packaged artifact rather than being claimed as separately observed runtime metadata.
+The screenshot does not display extension IDs or versions, so those values remain tied to the independently inspected packaged artifact rather than being claimed as separately observed runtime metadata.
 
 ### Conclusion
 
-1. **The exact three-extension packaged browser has crossed the runtime discovery boundary.** Firefox presents all three bundled project extensions simultaneously as enabled in the installed browser.
-2. **This is stronger than package inspection but narrower than the planned clean-profile gate.** The package entries are not merely present on disk; Firefox has discovered them in a real profile.
-3. **Clean-profile discovery for this exact three-extension artifact remains open.** A fresh-profile run must be explicitly identified as such before that specific gate is closed.
-4. **Functionality remains separate.** This screenshot does not prove CryptoPro signature operations, legacy `ru.rtlabs.ifcplugin` nativeMessaging communication, Gosplugin native-component communication, update behavior, or language preference behavior.
-5. The earlier CryptoPro-only clean-profile functionality proof for artifact `9569387758` remains valid but is not silently transferred to artifact `9614275050`.
+1. **Clean-profile discovery/enabled state is proven for the exact three-extension artifact `9614275050`.** Firefox automatically presents all three bundled project extensions as enabled in a completely new profile without manual XPI installation.
+2. The prior interpretation that visible uBlock might indicate a non-clean profile was incorrect; project policy explains it deterministically.
+3. **Functionality remains separate.** This proof does not establish CryptoPro signature operations on this exact artifact, legacy `ru.rtlabs.ifcplugin` nativeMessaging communication, Gosplugin native-component communication, extension update behavior, or runtime language-preference behavior.
+4. The earlier CryptoPro-only clean-profile functionality proof for artifact `9569387758` remains valid; CryptoPro functionality still needs re-checking on the new three-extension artifact if exact-artifact functional closure is desired.
 
 ### Next extension experiment
 
-Use artifact `9614275050` for the remaining runtime matrix: explicitly confirm clean-profile discovery/enabled state, re-check CryptoPro functionality, and exercise legacy IFCPlugin and Gosplugin with their required local/native components. Keep those conclusions separate from GOST TLS runtime and Windows compatibility.
+Use artifact `9614275050` for the remaining runtime matrix: re-check CryptoPro functionality, exercise legacy IFCPlugin and Gosplugin with their required local/native components, and verify the Russian-first content-language behavior if desired. Keep those conclusions separate from GOST TLS runtime and Windows compatibility.
 
-Status: current; installed-profile discovery/enabled state for all three extensions is proven, clean-profile and functional runtime gates remain open.
+Status: current; three-extension clean-profile discovery/enabled-state milestone closed, functional runtime gates remain open.
