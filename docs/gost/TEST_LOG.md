@@ -436,3 +436,34 @@ Together S1/S1-B/S1-C prove the intended lifetime: a positive Session choice is 
 The next planned code iteration is now the picker UX/default change: make `Session` the default remember duration, preserve explicit `Once` and its proven 5-second positive fanout lease, and render `Issued by` in a human-friendly form analogous to `Issued to`. True persistent `Permanent` semantics remain separate open work.
 
 Status: current; S1/S1-B/S1-C complete, explicit Session process lifetime closed.
+
+---
+
+## 2026-08-27 — Session-default picker source passes the short SSL compile gate
+
+**Track:** GOST TLS runtime / picker UX/default implementation gate  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577249`  
+**Job:** `98521835147`  
+**Workflow:** `GOST SSL compile check`  
+**Result:** `success`
+
+This source contains the intentionally narrow picker iteration:
+
+- GOST-scoped client-certificate picker initial remember duration is now `Session`;
+- explicit `Once` remains available and its positive 5-second idle lease implementation is unchanged;
+- `Issued by` now uses the human-facing `issuerCommonName` when present, with `issuerName` only as fallback;
+- GOST callback-registration diagnostics include `picker_default=session` so runtime logs identify the new behavior explicitly.
+
+GitHub Actions run `33073577249` completed successfully with exact `head_sha=afbdad307f63e594d3715169d6e34235280dddaf`. Job `98521835147` completed every step successfully, including `Compile security manager SSL target objects`.
+
+This is deliberately a **compile-only** conclusion. The short workflow does not validate the JavaScript picker presentation, full browser/package assembly, actual default-Session runtime semantics, or any GOST TLS handshake. Main run `33073577269` / job `98521835354` and independent thunk run `33073577260` / job `98521835116` were still in progress on the same SHA when this result was recorded.
+
+A separate packaging experiment was then started without changing the main/thunk workflows: workflow commit `07c7c48419ca39952a57a53967c1bcabaa8384c1` launches CryptoPro packaging run `33076347741`, job `98531418338`, which requests Russian UI only inside that packaging job and builds a `ru + en-US` multi-locale package. That run is not yet a completed experiment and has no PASS/FAIL conclusion here.
+
+### Conclusion
+
+**SHORT SSL COMPILE PASS for the Session-default picker source.**
+
+Status: current build candidate; short compile gate closed, full build/package and targeted runtime validation pending.
