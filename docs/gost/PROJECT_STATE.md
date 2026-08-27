@@ -24,7 +24,7 @@ Current constraints:
 - coordinated Firefox client-auth picker is default;
 - `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
 - explicit local thumbprint selection remains diagnostic only;
-- current coordinated candidate includes a positive-only default-`Once` fanout lease with a 5-second idle lifetime.
+- default `Once` uses a positive-only fanout lease with a 5-second idle lifetime; each successful reuse refreshes the idle expiry.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -32,16 +32,12 @@ Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
 ### Basic Treasury GOST HTTPS
 
-Main transport baseline:
-
 - source `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`;
 - main run `32710363486`, job `97380247020`, artifact `9518011746`.
 
-Real Treasury HTTP CONNECT, GOST TLS 1.2 / `0xFF85`, protected application traffic and browser rendering are proven.
+Real Treasury HTTP CONNECT, GOST TLS 1.2 / `0xFF85`, protected HTTP application traffic and browser rendering are proven.
 
 ### Stage 1 explicit-selector Treasury mTLS
-
-Known-good source:
 
 - source `f5d04896e17f91f58b6a137af823360f4718eb29`;
 - main run `32751967162`, job `97510763210`.
@@ -65,69 +61,50 @@ Artifact `9636591432` is the authoritative browser for current GOST runtime test
 Exact local binary preflight for main artifact `9636591432`:
 
 - `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
-- **`xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**.
+- `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
 
-The valid T1R capture below was run only after the user verified both hashes exactly.
+The valid T1R/T1R-B evidence is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
 
 ## Stage 2 coordinated runtime checkpoint
 
 ### F1 — close/shutdown client-auth lifecycle — CLOSED
 
-T2R on the current main artifact is a full runtime pass.
+T2R on artifact `9636591432` passed across three unanswered-picker timeout cycles:
 
-Capture identity:
+- capture `t2r_timeout.zip` SHA-256 `88053089499fee19edf7506d4fe257567dcc688740741313ff9430749e84bba7`;
+- inner log SHA-256 `261ddf9a4008c212f1ee5b5ec2213ab0fb3ee6e6a244e586987ff04a8de8d5`;
+- 3 decisions created and removed;
+- 3 pre-close waiter removals reaching zero waiters;
+- 3 shutdown-time callbacks rejected with `reason=closing`;
+- 3 abandoned UI callbacks rejected as stale;
+- no shutdown-created orphan decision;
+- zero `selected=0`, `0x80090326`, `0x0000054f`, or `MSSPI_X509_LOOKUP`.
 
-- `t2r_timeout.zip` SHA-256 `88053089499fee19edf7506d4fe257567dcc688740741313ff9430749e84bba7`;
-- inner `t2r.moz_log` SHA-256 `261ddf9a4008c212f1ee5b5ec2213ab0fb3ee6e6a244e586987ff04a8de8d5`.
+Measured picker-to-close intervals were `32.576`, `37.420`, and `30.330 s`. Poll counts were `10,825`, `34`, and `21`; timeout-source attribution and first-cycle poll churn remain separate non-blocking work and do not reopen F1.
 
-Three unanswered-picker timeout cycles were completed in one browser process. F5 after the first timeout and `Try again` after the second both produced a fresh picker.
+### F2 — positive default-`Once` fanout/scope — CLOSED
 
-Internal lifecycle proof across the three cycles:
+T1R and T1R-B on source `ef1a7...`, run `33039013849`, job `98408139479`, artifact `9636591432` prove both sides of the intended default-`Once` behavior.
 
-- exactly 3 coordinated decisions created and 3 removed;
-- exactly 3 active waiters removed pre-close, each reaching `waiters=0`;
-- exactly 3 shutdown-time client-cert callback re-entries rejected with `reason=closing` before decision creation/join;
-- exactly 3 abandoned UI callbacks later rejected as stale;
-- no shutdown-created replacement decision or orphan waiter;
-- no `selected=0` reuse;
-- no `0x80090326` / `0x0000054f` sticky failure sequence;
-- no `MSSPI_X509_LOOKUP` recurrence.
+T1R capture:
 
-Measured picker-to-close intervals were `32.576 s`, `37.420 s`, and `30.330 s`. The timeout is therefore not established as one fixed 30- or 45-second constant.
-
-`GostPoll client-auth wait quiescent` counts were `10,825`, `34`, and `21`. The first cycle still shows substantial poll churn (~332/s) while later cycles are near one call per second. Timeout-source attribution and this polling inconsistency remain separate non-blocking work; they do not reopen F1.
-
-The old failure on source `860de8e38deed326b7fcd1c547e928c5b48c72a9`, artifact `9606431408`, is retained only as historical evidence.
-
-### F2 — positive default-`Once` fanout — T1R PASS, T1R-B NEXT
-
-Old T1 on source `860de8e...`, artifact `9606431408`, proved real coordinated Treasury mTLS and concurrent single-flight but required three sequential picker waves in one logical login.
-
-The first attempted T1R capture was later confirmed by the user to have been run from an older browser build. It remains historical invalid-test evidence only and does not affect F1/F2 conclusions.
-
-Valid hash-bound T1R evidence:
-
-- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
-- run `33039013849`, job `98408139479`, artifact `9636591432`;
 - `t1r-current.zip` SHA-256 `1c75f484607a6e3eb95439275e2698098a04551689619f95f93f13ca890b248e`;
-- inner `t1r-current.moz_log` SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`.
+- inner log SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`.
 
-User-visible result: entering the Treasury personal cabinet shows exactly one Firefox client-certificate picker; selecting the intended certificate once with default `Once` completes the protected login and the cabinet then behaves normally.
+T1R proves one visible picker for one logical Treasury login, one positive lease store, seven lease reuses across sequential waves, and eight successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1`. The protected personal cabinet loads and behaves normally.
 
-Internal/runtime proof:
+T1R-B capture:
 
-- one coordinated decision and one dialog;
-- one positive `Once` lease store (`generation=1`, `idle_ms=5000`);
-- seven lease reuses with no further UI;
-- the seven reuses span two follow-on waves: five near-simultaneous requests around `08:43:59.635–08:43:59.669 UTC`, then two later requests at `08:44:02.577–08:44:02.588 UTC`;
-- eight total successful `lk-fzs.roskazna.ru` mTLS handshakes, all TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
-- zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `E/GostTLS`.
+- `T1R-B-current.zip` SHA-256 `c2d018b8637467b4c1368bfa66399dd042d73b88c39c6de7bf07368c7524ea65`;
+- inner `t1r-current.moz_log` SHA-256 `c30c9f61e008d8bdb321570373c1c5cf6f3bc9eaa9e980564d463d03e307686e`.
 
-This closes the original T1 repeated-picker symptom for one logical login: the 5-second positive lease successfully carries the selected certificate across the real sequential connection waves.
+T1R-B stays in the same process (`Parent 6204`) and same browser context (`browser_id=14`). Generation 1 is last reused at `09:07:13.004 UTC`, nominally expires at `09:07:18.004`, and a real independent client-auth request at `09:09:44.169` creates fresh `decision=2` plus a new picker rather than reusing generation 1. This is `151.165 s` after the final reuse and `146.165 s` after nominal expiry. A new positive choice stores generation 2 at `09:09:46.616` and the new attempt completes GOST mTLS.
 
-F2 is **not yet formally closed** because T1R-B must prove the scope boundary. The last lease reuse occurs at `08:44:02.588 UTC`; because each reuse refreshes the idle expiry, the lease should become inactive around `08:44:07.588 UTC` if no later compatible request occurs. The T1R log continues beyond that time but has no independent new client-auth request, so it cannot prove expiry behavior.
+Whole T1R-B capture: 2 decisions, 2 picker requests, 2 positive lease stores, 11 generation-1 reuses, 14 successful login-host mTLS handshakes, and zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks, or `E/GostTLS`.
 
-### F3 — generic GOST mTLS host scope — AFTER F2
+Therefore default `Once` now has the intended attempt-local positive fanout semantics: compatible waves within the idle lease reuse one user choice, while an independent post-expiry attempt asks again. F2 is formally closed for this tested artifact.
+
+### F3 — generic GOST mTLS host scope — NEXT RUNTIME BLOCKER
 
 Old GIS GMP runtime on artifact `9606431408` proved:
 
@@ -136,15 +113,17 @@ Old GIS GMP runtime on artifact `9606431408` proved:
 - the certificate endpoint sends a real TLS 1.2 `CertificateRequest` with a non-empty CA list (36 DER DNs in that old capture);
 - the old Treasury-only callback scope caused an empty client Certificate and server fatal `handshake_failure` / MSSPI `0x80090326`.
 
-Current source registers the normal coordinated callback generically for already-selected GOST sockets. GIS-G1 must prove the real certificate endpoint reaches callback registration, current acceptable-CA collection and candidate enumeration. If candidates are nonzero, continue real GIS-G2 mTLS. If zero, stop and diagnose chain/name/provider filtering before changing issuer policy.
+Current source registers the normal coordinated callback generically for already-selected GOST sockets. **GIS-G1 is now next.** It must prove the real certificate endpoint receives the GOST layer and generic callback, that the server `CertificateRequest` reaches issuer collection, and must record the current acceptable-CA and local candidate counts. Do not assume the old count of 36 is unchanged.
+
+If candidate count > 0, continue GIS-G2 real mTLS/application login. If candidate count == 0, stop and diagnose actual server CA identities/local chain/name/provider filtering before changing issuer policy.
 
 ## Immediate runtime order
 
-1. **T1R-B — NEXT:** in the same browser process after the successful T1R, allow a clear idle margin beyond the refreshed 5-second lease, then initiate an independent Treasury login that causes a fresh client-auth handshake. A new picker must appear; `Once` must not have become Session/Permanent.
-2. **GIS-G1:** prove generic callback / issuer collection / candidate count on `portalgisgmp.cert.roskazna.ru`, then branch to GIS-G2 or issuer-chain diagnosis.
-3. Continue Cancel/Abort, Session/Permanent, provider/media, picker UI, discovery, negative matrix and final server-trust closure.
+1. **GIS-G1 — NEXT:** validate generic callback / issuer collection / candidate count on `portalgisgmp.cert.roskazna.ru`; branch to GIS-G2 if candidates are nonzero or issuer-chain diagnosis if zero.
+2. Continue explicit Cancel/no-certificate vs Abort, explicit Session/Permanent, provider/media, picker UI, discovery, negative matrix and final server-trust closure.
+3. Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
-Do not repeat T1R on this unchanged source merely for confirmation. Do not reopen the invalid old-build T1R attempt.
+Do not repeat T1R/T1R-B on this unchanged source merely for confirmation.
 
 ## Server trust — still mandatory
 
@@ -168,7 +147,7 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 - provider Cancel can fail only the current attempt with `SEC_E_NO_CREDENTIALS`;
 - a later attempt can recover when the medium becomes available.
 
-These scenarios need revalidation after F2/client-auth semantics stabilize.
+These scenarios need revalidation after the immediate GIS branch.
 
 ## Windows Vista/7 compatibility — independent track
 
