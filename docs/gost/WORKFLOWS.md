@@ -41,7 +41,9 @@ Current linker strategy:
 - no broad complete-YY-`kernel32.lib` interposition before Rust/gkrust;
 - preserve Firefox's `/MD` CRT model.
 
-Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` completed the full build/package and removed `GetSystemTimePreciseAsFileTime` from xul's direct imports. Its final red status came only from incorrectly classifying Vista-supported `GetQueuedCompletionStatusEx` as Win8+. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes that one false-positive policy entry without changing linker behavior.
+Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` completed the full build/package and removed `GetSystemTimePreciseAsFileTime` from xul's direct imports. Its final red status came only from incorrectly classifying Vista-supported `GetQueuedCompletionStatusEx` as Win8+. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removed that false-positive policy entry without changing linker behavior.
+
+The later exact coordinated Stage 2 source `860de8e38deed326b7fcd1c547e928c5b48c72a9` received a clean full-scale revalidation in run `32951903069`, attempt 2, job `98205801026`. The SSL object gate, narrow-YY full Firefox build, package, xul import audit, artifact uploads and final known-direct-Win8+-import rejection gate all passed. Browser artifact: `9613443984`; diagnostics artifact: `9613444775`. This is current full-xul build/package/direct-import evidence for the thunk workflow, not proof of real Windows 7 runtime or GOST TLS runtime.
 
 The xul audit has a meaningful ordinary/direct import parser. Direct imports are the current process-loader hard gate.
 
@@ -88,7 +90,7 @@ Passing evidence:
 
 It verifies the ordinary and `__imp_` COFF weak aliases, uses only the selected precise-time alias members plus the common YY implementation object, keeps a representative Rust raw-dylib `LockResource` positive control, and requires precise-time to disappear from the final PE imports without allowing the complete YY `kernel32.lib` into the final link.
 
-Passing this smoke is representative-link proof, not by itself Firefox/xul-scale or Windows 7 runtime proof. Run `32695496647` supplied the later xul-scale proof.
+Passing this smoke is representative-link proof, not by itself Firefox/xul-scale or Windows 7 runtime proof. Run `32695496647` supplied the later xul-scale proof, and run `32951903069` attempt 2 supplied the current clean full-scale revalidation.
 
 ## Forward VC-LTL / YY-Thunks Rust smoke
 
@@ -253,18 +255,22 @@ Detailed design and current extension state are recorded in [`EXTENSIONS.md`](./
 
 ## Current full-scale thunk evidence
 
-The significant completed full-scale result is:
+The current clean full-scale result is:
 
 - workflow: `GOST TLS PoC build - thunk-rs experiment`;
-- Actions run ID: `32695496647`;
-- job ID: `97336702701`;
-- commit SHA: `ae3d52f42b8b6b509c1263418bead8bb9324dd00`;
-- release artifact: `9512347999`;
-- diagnostics artifact: `9512349511`.
+- Actions run ID: `32951903069`;
+- run attempt: `2`;
+- job ID: `98205801026`;
+- source-under-test SHA: `860de8e38deed326b7fcd1c547e928c5b48c72a9`;
+- browser artifact: `9613443984` (`r3dfox-gost-win64-thunk-experiment`);
+- diagnostics artifact: `9613444775` (`r3dfox-gost-win64-thunk-diagnostics`);
+- result: success.
 
-The build/package/linker strategy succeeded. `GetSystemTimePreciseAsFileTime` is no longer a direct xul import. The red final status was a direct-gate policy false positive on Vista-supported `GetQueuedCompletionStatusEx`.
+The exact run passed the narrow YY/thunk-rs setup, `security/manager/ssl` compile gate, full Firefox/xul build, package, direct-import audit, artifact uploads and the final known direct Win8+ import rejection gate. It supersedes the cancelled attempt-1 job `98124948880` as build evidence for this exact source SHA.
 
-The corrective workflow commit is `e2a9c3bcbbdfade62a15a144da9117e249cc6305`. Conclusions from its next full build must be associated with that run's actual head SHA; later documentation-only commits on the branch do not change which source/workflow revision an already-created run tested.
+Historical full-scale result `32695496647`, job `97336702701`, SHA `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, remains useful because it established the narrow strategy and exposed the `GetQueuedCompletionStatusEx` policy false positive. The current green run confirms the corrected direct-import gate at full Firefox/xul scale.
+
+This result does not prove the produced browser starts on real Windows 7, does not close the delay-load parser/runtime-path work, and does not prove GOST TLS runtime behavior. Those remain separate gates.
 
 ## Terminology rule
 

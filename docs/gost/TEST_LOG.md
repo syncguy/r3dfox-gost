@@ -61,7 +61,7 @@ Protected application-data traffic follows immediately. The user confirmed brows
 3. **`client_cert_loaded=1` is not by itself proof that the private key was available.** In the current wrapper it is set after `msspi_set_mycert()` accepts the certificate. Successful completion of the subsequent mTLS handshake is the proof that CryptoPro/SSPI actually obtained and used the private key.
 4. **Provider failure must not erase a positive user certificate choice.** If the user explicitly asked to remember a selected certificate, temporary `SEC_E_NO_CREDENTIALS`, missing media, cancelled provider UI, or similar private-key failures must remain attempt-local and must not be converted into a remembered no-certificate decision.
 5. **CryptoPro interactive private-key UI currently blocks Mozilla's Socket Thread.** Unlike the Firefox picker bug, which currently busy-polls while waiting asynchronously, the provider prompt is entered synchronously inside `msspi_connect()` and holds the socket-thread call for roughly 14 s in the cancelled attempt and 27 s in the successful recovery attempt. At the time of this runtime-only conclusion, Stage 2 treated that as a potential independent lifecycle blocker; the source audit below later narrows that interpretation by identifying a stock Firefox synchronous token-prompt analogue.
-6. Candidate discovery should not proactively trigger interactive CryptoPro provider UI merely to populate the list. If stronger key-usability filtering is added, it must use a non-interactive/silent probe or defer actual private-key acquisition until the user has selected a certificate.
+6. Candidate discovery should not proactively trigger interactive CryptoPro provider UI merely to populate the Firefox certificate list. If stronger key-usability filtering is added, it must use a non-interactive/silent probe or defer actual private-key acquisition until the user has selected a certificate.
 
 The final agreed GOST UX remains: the Firefox picker defaults to `Once`, scoped only to the GOST invocation. The global Firefox `security.client_auth_certificate_default_remember_setting` must remain unchanged. With that final default, a retry after the first provider cancellation will show the Firefox picker again unless the user explicitly chose `Session` or `Permanent`; this is intentional. If the user explicitly chose `Session`, retaining the positive selection across a temporary missing-container failure is also intentional.
 
@@ -199,7 +199,7 @@ The resulting release artifact is `9606431408`. The separate audit artifact is `
 
 Attempt-1 job `98124948716` from this same run had been cancelled during checkout. Because attempt 2 tests the same exact run head SHA and reaches the complete pipeline successfully, the earlier cancellation is superseded for build-validity conclusions and must not be treated as a source failure.
 
-The separate thunk-rs workflow run `32951903069`, job `98124948880`, remains a cancelled checkout-only result and is not converted into Windows-compatibility evidence by this main-workflow success.
+The separate thunk-rs workflow run `32951903069`, job `98124948880`, remained a cancelled checkout-only result at the time of this main-workflow entry; it was later superseded by the successful attempt-2 thunk result recorded below.
 
 ### Conclusion
 
@@ -357,3 +357,48 @@ This closes shared Mozilla staging and final portable-archive inclusion for the 
 The next extension experiment is clean-profile runtime validation of artifact `9614275050`: confirm all three extensions are discovered/enabled, re-check CryptoPro functionality, then test legacy IFCPlugin and Gosplugin with their installed native components. The still-CryptoPro-named full packaging workflow should later be generalized so its automated final gates assert all three XPI plus the packaged language pref in a single full build.
 
 Status: current; three-extension portable packaging milestone closed, runtime discovery/functionality pending.
+
+---
+
+## 2026-08-26 — Coordinated source passes the experimental thunk-rs full Firefox/xul build/package gate
+
+**Track:** Windows Vista/7 compatibility / full Firefox/xul narrow YY-Thunks strategy  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `860de8e38deed326b7fcd1c547e928c5b48c72a9`  
+**Actions run:** `32951903069`  
+**Run attempt:** 2  
+**Job:** `98205801026`  
+**Workflow:** `GOST TLS PoC build - thunk-rs experiment`  
+**Browser artifact:** `9613443984` (`r3dfox-gost-win64-thunk-experiment`)  
+**Diagnostics artifact:** `9613444775` (`r3dfox-gost-win64-thunk-diagnostics`)  
+**Result:** success
+
+### Purpose
+
+Obtain a clean current full-scale build/package/direct-import result for the experimental Windows Vista/7 linker path at the same exact coordinated Stage 2 source already validated by the main GOST build. Attempt 1 of this workflow had been cancelled during checkout and therefore supplied no compatibility evidence.
+
+### Actions observation
+
+Run `32951903069` attempt 2 is bound to exact source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9` and completed with overall `conclusion=success`. Job `98205801026` passed the complete intended path, including:
+
+- `GATE - Reconfirm thunk-rs Win7 behavior and provision VC-LTL` — success;
+- `GATE - Build narrow YY ProcessPrng + precise-time provider` — success;
+- `GATE - Compile security manager SSL target objects` — success;
+- `Build release r3dfox with narrow YY-Thunks linker path` — success;
+- `Package thunk experiment` — success;
+- `Upload thunk experiment package` — success;
+- `Audit thunked xul.dll Win7 imports` — success;
+- `Upload thunk diagnostics` — success;
+- `GATE - Reject known direct Win8+ imports after artifacts are uploaded` — success.
+
+The produced browser artifact is `9613443984`; the diagnostics artifact is `9613444775`. The artifact metadata ties both to the same exact source SHA.
+
+Attempt-1 job `98124948880` from the same run was cancelled during checkout. The successful attempt-2 job supersedes that cancellation as build evidence for this source and workflow.
+
+### Conclusion
+
+The retained narrow YY-Thunks/thunk-rs linker strategy is now **cleanly full-Firefox/xul build/package/direct-import validated** at coordinated Stage 2 source SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9`.
+
+This result does not prove that artifact `9613443984` starts or operates correctly on real Windows 7, does not prove the delay-load import side because that parser remains separately qualified, and does not prove any GOST TLS runtime or handshake behavior. GOST runtime validation should continue first on the authoritative main artifact `9606431408`; the thunk artifact remains a separate Windows-compatibility runtime candidate.
+
+Status: current full-xul Windows-compatibility build evidence; real target-OS and GOST-on-Win7 runtime validation remain open.

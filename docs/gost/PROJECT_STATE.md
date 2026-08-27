@@ -67,7 +67,7 @@ The current coordinated client-auth implementation is bound to exact source SHA:
 
 This source is now validated both by the short SSL compile gate and by the authoritative main full-browser build/package line. In run `32951903026` attempt 2, the full release build, xul import audit, package step, release upload, audit upload and final known-Win8+-import gate all completed successfully. This proves full Firefox build/package viability for the coordinated Stage 2 source; it does not prove any GOST runtime, picker-lifecycle or handshake property.
 
-The earlier job `98124948716` from attempt 1 of the same run was cancelled during checkout and is superseded as build evidence by successful attempt-2 job `98130275465` at the same exact source SHA. The thunk-rs run `32951903069`, job `98124948880`, remains cancelled during checkout and provides no full-build evidence for that separate Windows-compatibility line.
+The earlier job `98124948716` from attempt 1 of the same run was cancelled during checkout and is superseded as build evidence by successful attempt-2 job `98130275465` at the same exact source SHA. The separate thunk-rs workflow for the same exact source also now has a successful attempt 2: run `32951903069`, job `98205801026`, browser artifact `9613443984`, diagnostics artifact `9613444775`. That result belongs to the independent Windows Vista/7 compatibility line and is not GOST runtime evidence.
 
 ### Last runtime-proven Firefox-facing baseline
 
@@ -189,9 +189,11 @@ Retained strategy:
 Important evidence:
 
 - broad YY negative proof: run `32623108290`, job `97162633898`, SHA `a73f18e823c083c970eea649ce305da648640e2f`, duplicate `LockResource`;
-- full xul narrow-strategy build/package: run `32695496647`, job `97336702701`, SHA `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, artifact `9512347999`;
-- the same exact portable package successfully starts on real Windows 7;
+- original full xul narrow-strategy build/package: run `32695496647`, job `97336702701`, SHA `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, artifact `9512347999`; the same exact portable package successfully starts on real Windows 7;
+- current clean full-xul revalidation: run `32951903069`, attempt 2, job `98205801026`, SHA `860de8e38deed326b7fcd1c547e928c5b48c72a9`, browser artifact `9613443984`, diagnostics artifact `9613444775`; full build/package/direct-import gate success;
 - representative modern Rust + narrow YY + pinned msvcr14x coexistence: run `32713958570`, job `97391163925`, SHA `1abf867307ca56b97b7f2fb41e5e58e86ee08463`.
+
+The current green thunk run confirms that the narrow YY/thunk-rs strategy still scales through a full Firefox/xul build/package at the coordinated Stage 2 source and passes the workflow's direct known-Win8+-import gate. It does not prove this newer artifact starts on real Windows 7, does not repair/prove the delay-load parser, and does not prove GOST TLS on Windows 7.
 
 Next Win7 work is full-Firefox msvcr14x integration, final PE audit, target-OS execution without the current compatibility bundle, and delay-load/runtime-path coverage. GOST TLS on Windows 7 must be tested separately and tied to its own exact build/log.
 
@@ -227,6 +229,7 @@ Runtime state remains narrower than packaging state. CryptoPro clean-profile dis
 
 - Build success does not prove GOST handshake success.
 - The successful short SSL compile gate and main full build at source `860de8e...` prove compilation plus full Firefox build/package viability of the coordinated Stage 2 changes; they do not prove runtime picker behavior or a GOST handshake.
+- The successful thunk-rs full build at the same source proves the current Windows-compatibility build/package/direct-import strategy at full-xul scale; it does not prove real Windows 7 runtime or GOST TLS behavior on Windows 7.
 - GOST transport success does not prove server trust or mTLS security closure.
 - Positive `verify ok=1/status=0` proves the repaired acquisition/positive path for the tested runtime server, not the final fail-closed policy.
 - `msspi_set_mycert()` / `client_cert_loaded=1` proves the client certificate was installed into MSSPI, not that the private key was available; completed client-auth TLS proves actual key use.

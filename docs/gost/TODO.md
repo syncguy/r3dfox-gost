@@ -44,7 +44,7 @@ The first coordinated Stage 2 implementation is full-browser build/package valid
 
 This source defaults to coordinated client auth and retains `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` for same-binary A/B comparison with the previously working per-socket picker. It contains the first single-flight/waiter broker, GOST-scoped `Once` default, positive-only custom remembering, coordinated stale-callback guards, Necko client-auth requested/selected forwarding, a quiescent-wait poll path and the agreed picker presentation changes.
 
-Attempt 1 of main run `32951903026`, job `98124948716`, was cancelled during checkout and is superseded as build evidence by successful attempt-2 job `98130275465` at the same exact source SHA. The thunk-rs run `32951903069`, job `98124948880`, remains cancelled during checkout and provides no evidence for that separate Windows-compatibility line. The main full-build gate no longer blocks Stage 2 runtime validation.
+Attempt 1 of main run `32951903026`, job `98124948716`, was cancelled during checkout and is superseded as build evidence by successful attempt-2 job `98130275465` at the same exact source SHA. The separate thunk-rs workflow for the same source is also now full-build validated: run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics artifact `9613444775`, success. That result belongs to the Windows Vista/7 compatibility track and does not change which artifact should be used first for GOST runtime validation. The main full-build gate no longer blocks Stage 2 runtime validation.
 
 The last runtime-proven Firefox-facing baseline remains source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, main build run `32844083378`, job `97789764275`, artifact `9567881847`. Release artifact `9606431408` is the exact coordinated-source browser artifact for the next runtime matrix.
 
@@ -108,6 +108,8 @@ This preserves the current provider split and makes GOST discovery transparent f
 ## Windows Vista/7 compatibility — next/deferred
 
 Keep this track separate from GOST TLS runtime conclusions.
+
+Current full-xul evidence is now green for the retained narrow YY/thunk-rs path at source `860de8e38deed326b7fcd1c547e928c5b48c72a9`: run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics artifact `9613444775`. This closes the need to obtain a clean current full-build/package/direct-import result for that path, but it does not close the remaining compatibility work below.
 
 1. Integrate the already-proven representative `msvcr14x + modern Rust/libstd + narrow YY-Thunks` combination into one full Firefox/xul build while preserving `/MD`.
 2. Audit the resulting Firefox PE set for direct `api-ms-win-*`, `ext-ms-*`, `VCRUNTIME140*.dll`, and known Win8+ hard imports.
