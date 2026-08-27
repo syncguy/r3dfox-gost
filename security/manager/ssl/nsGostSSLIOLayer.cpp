@@ -49,7 +49,7 @@ nsresult ConfigureGenericGostClientAuth(PRFileDesc* aSocket,
   if (aHost && strcmp(aHost, kStage1MtlsHost) == 0) {
     MOZ_LOG(gGostTLSLog, mozilla::LogLevel::Info,
             ("client certificate callback registered host=%s scope=stage1 "
-             "mode=%s",
+             "mode=%s picker_default=session",
              aHost,
              UseCoordinatedGostClientAuth() ? "coordinated" : "legacy"));
     return NS_OK;
@@ -61,7 +61,7 @@ nsresult ConfigureGenericGostClientAuth(PRFileDesc* aSocket,
   MOZ_LOG(gGostTLSLog,
           configured ? mozilla::LogLevel::Info : mozilla::LogLevel::Error,
           ("client certificate callback registered host=%s scope=generic "
-           "mode=%s ok=%d error=0x%08x state=0x%08x",
+           "mode=%s picker_default=session ok=%d error=0x%08x state=0x%08x",
            aHost ? aHost : "(null)",
            UseCoordinatedGostClientAuth() ? "coordinated" : "legacy",
            configured, nativeError, msspi_state(secret->msspi)));
