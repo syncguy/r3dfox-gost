@@ -146,9 +146,9 @@ Formal passing evidence:
 
 The exact `r3dfox-v153.0.3.win64.portable.7z` from that artifact was independently inspected and contains the three expected signed XPI baselines under `distribution/extensions`: CryptoPro `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, and Gosplugin `1.3.43.0`, each with the expected repository SHA-256 and manifest identity. The same portable archive's `omni.ja` contains `defaults/pref/r3dfox-bundle.js` with Russian first in `intl.accept_languages` (`ru, en-US, en`).
 
-This closes shared Mozilla staging plus final portable-package inclusion for the three-extension bundle. It does not prove clean-profile discovery or native-component functionality of the two Gosuslugi extensions, does not change the browser UI locale, and does not close extension update behavior or transfer/generalization of the packaging gates into the main browser workflows; those remain in `TODO.md`.
+This closes shared Mozilla staging plus final portable-package inclusion for the three-extension bundle. It does not prove native-component functionality of the two Gosuslugi extensions, does not change the browser UI locale, and does not close extension update behavior or transfer/generalization of the packaging gates into the main browser workflows; those remain in `TODO.md`.
 
-### Three-extension installed-profile discovery/enabled state — COMPLETE
+### Three-extension clean-profile discovery/enabled state — COMPLETE
 
 Runtime evidence uses the exact packaged browser from the preceding milestone:
 
@@ -156,6 +156,8 @@ Runtime evidence uses the exact packaged browser from the preceding milestone:
 - full packaging run `32976571122`, job `98202641607`;
 - packaged-browser artifact `9614275050`.
 
-On 2026-08-27 the user installed that build and supplied an `about:addons` screenshot confirming that the three bundled project extensions are simultaneously present under **Enabled**: CryptoPro Extension for CAdES Browser Plug-in, Gosplugin, and the legacy Gosuslugi plugin extension. The screenshot itself is not committed; only the sanitized observation is recorded.
+On 2026-08-27 the user launched this build with a completely new dedicated profile at `C:\Temp\r3dfox\profile`, explicitly clearing `R3DFOX_GOST_HOSTS`, `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`, `R3DFOX_GOST_CLIENT_AUTH_MODE`, and `R3DFOX_GOST_CIPHERS`, and opened `https://esia.gosuslugi.ru/login`. In that fresh profile, `about:addons` showed all three bundled project extensions simultaneously under **Enabled**: CryptoPro Extension for CAdES Browser Plug-in, Gosplugin, and the legacy Gosuslugi plugin extension.
 
-This closes runtime discovery/enabled-state for the tested installed profile. It does **not** establish that the profile was freshly created, does not independently expose runtime ID/version values, and does not prove CryptoPro functionality, either Gosuslugi nativeMessaging path, extension update behavior, or Russian UI/content-language behavior. Those remain separate runtime gates.
+The visible uBlock Origin entry is expected on a fresh profile because `r3dfox/policies.json` installs `uBlock0@raymondhill.net` with `installation_mode: normal_installed`; it is not evidence of prior profile state.
+
+This closes clean-profile discovery/enabled-state for the exact three-extension artifact. It does not independently expose runtime ID/version values and does not prove CryptoPro functionality on this exact package, either Gosuslugi nativeMessaging path, extension update behavior, or runtime language-preference behavior. Those remain separate runtime gates.
