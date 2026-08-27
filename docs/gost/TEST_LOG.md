@@ -191,3 +191,67 @@ The last reuse is at `08:44:02.588 UTC`. Because every successful reuse refreshe
 F2 is not yet formally closed because its negative scope boundary still requires **T1R-B**: after the 5-second idle lease has become inactive, an independent login in the same browser process must show a fresh picker. A positive `Once` choice must not silently become Session/Permanent.
 
 Status: current; T1R complete, T1R-B is next.
+
+---
+
+## 2026-08-27 — T1R-B passes: expired default-`Once` lease asks again in the same browser process
+
+**Track:** GOST TLS runtime / Stage 2 positive default-`Once` scope boundary  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`)  
+**Actions run:** `33039013849`  
+**Job:** `98408139479`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9636591432` (`r3dfox-gost-win64-release`)  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru`  
+**Runtime capture:** user-provided `T1R-B-current.zip`, SHA-256 `c2d018b8637467b4c1368bfa66399dd042d73b88c39c6de7bf07368c7524ea65`; inner `t1r-current.moz_log`, SHA-256 `c30c9f61e008d8bdb321570373c1c5cf6f3bc9eaa9e980564d463d03e307686e`
+
+The capture is from the hash-bound current artifact already verified for T1R. Both logical logins occur in the same browser process (`Parent 6204`) and the same Firefox browser context (`browser_id=14`).
+
+### First login / active `Once` lease
+
+- coordinated decision `1` and the first picker are created at `09:07:05.459 UTC`;
+- positive `Once` selection stores lease generation `1` at `09:07:07.998 UTC` with `idle_ms=5000`;
+- generation `1` is reused without UI 11 times while the first logical login creates its compatible follow-on connections;
+- the last generation-1 reuse is `09:07:13.004 UTC`;
+- therefore, absent another compatible request, its nominal idle expiry is `09:07:18.004 UTC`.
+
+The first logical login completes 12 `lk-fzs.roskazna.ru` GOST mTLS handshakes, all TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`.
+
+### Independent post-expiry login
+
+A later independent client-auth request occurs in the same process/context at `09:09:44.169 UTC`:
+
+- this is **151.165 s after the final generation-1 reuse**;
+- it is **146.165 s after the nominal 5-second idle expiry**;
+- the coordinator creates a fresh `decision=2`;
+- Firefox requests a fresh client-certificate dialog for decision 2;
+- there is no automatic reuse of generation 1 for this new request;
+- after the user makes a new positive `Once` choice, the coordinator stores **generation `2`** at `09:09:46.616 UTC`;
+- the new attempt then completes two additional TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1`.
+
+This is decisive proof that default `Once` did not become Session/Permanent. A real new client-auth handshake occurred after the old lease was inactive, and Firefox asked the user again before any new positive lease existed.
+
+### Whole-capture safety result
+
+- coordinated decisions: `2`;
+- picker requests: `2`;
+- positive `Once` lease stores: `2` (generations 1 and 2);
+- generation-1 lease reuses: `11`;
+- successful `lk-fzs.roskazna.ru` mTLS handshakes: `14`;
+- `selected=0`: `0`;
+- `0x80090326`: `0`;
+- `0x0000054f`: `0`;
+- `MSSPI_X509_LOOKUP`: `0`;
+- stale client-auth callbacks: `0`;
+- `E/GostTLS`: `0`.
+
+### Conclusion
+
+**T1R-B PASS. F2 is formally CLOSED for the tested current artifact.**
+
+Together, T1R and T1R-B prove the intended default-`Once` semantics on the real Treasury flow: one positive choice fans out across compatible concurrent/sequential connection waves of one logical login, while a later independent client-auth attempt after the idle lease expires receives a new picker and a new lease generation rather than silently inheriting Session/Permanent behavior.
+
+The next runtime blocker is **F3 / GIS-G1** on `portalgisgmp.cert.roskazna.ru` using the same authoritative artifact `9636591432`.
+
+Status: current; F2 positive `Once` fanout/scope blocker closed.
