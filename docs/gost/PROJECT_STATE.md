@@ -23,7 +23,8 @@ Current GOST constraints:
 - default GOST cipher policy `C100:C101:C102:FF85:0081`;
 - coordinated Firefox client-auth picker is default;
 - `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains the same-binary diagnostic fallback;
-- the explicit local thumbprint selector remains diagnostic only.
+- the explicit local thumbprint selector remains diagnostic only;
+- current fixing candidate adds a positive-only `Once` fanout lease with a 5-second idle lifetime; its behavior is runtime-unproven until T1R/T1R-B.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -50,9 +51,9 @@ Known-good Stage 1 source:
 
 A local diagnostic client-certificate selector completes real Treasury mTLS and authenticated application workflows. The concrete client-certificate identifier remains private and must never be committed.
 
-## Stage 2 coordinated implementation — build identity
+## Stage 2 coordinated implementation — build identities
 
-Exact coordinated source under current runtime testing:
+Previous coordinated runtime baseline:
 
 - source `860de8e38deed326b7fcd1c547e928c5b48c72a9`;
 - short SSL compile run `32951902976`, job `98124948374`, success;
@@ -60,11 +61,23 @@ Exact coordinated source under current runtime testing:
 - main release artifact `9606431408` (`r3dfox-gost-win64-release`);
 - Win7 import-audit artifact `9606431864`.
 
-The separate Windows-compatibility full-xul experiment at the same source also succeeded: run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics `9613444775`. That is Windows-compatibility evidence only and is not GOST runtime proof.
+The separate Windows-compatibility full-xul experiment at that source also succeeded: run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics `9613444775`. That is Windows-compatibility evidence only and is not GOST runtime proof.
+
+Current F1/F2/F3 fixing candidate:
+
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`);
+- short SSL compile run `33039013892`, job `98408139567`, success;
+- authoritative main full build run `33039013849`, job `98408139479`, success;
+- main release artifact `9636591432` (`r3dfox-gost-win64-release`);
+- Win7 import-audit artifact `9636591757`;
+- separate thunk-rs full-xul run `33039013822`, job `98408139313`, success;
+- thunk browser artifact `9636047031`, diagnostics `9636048172`.
+
+The main artifact `9636591432` is now the authoritative browser for the next GOST runtime regressions. The thunk artifact is independent Windows-compatibility evidence and must not be used as GOST runtime proof.
 
 ## Stage 2 coordinated runtime checkpoint
 
-The authoritative runtime browser for the current picker work is main artifact `9606431408` from run `32951903026`, attempt 2, job `98130275465`, source `860de8e...`.
+The old runtime evidence below remains authoritative for the defects found on source `860de8e...`, artifact `9606431408`. Those defect reproductions are complete and must not be repeated on the old artifact. Runtime validation now resumes on main artifact `9636591432`, source `ef1a7fdd...`.
 
 ### Test T1 — successful coordinated Treasury login
 
@@ -84,11 +97,11 @@ Confirmed behavior:
 - the old repeated `MSSPI_X509_LOOKUP` tight re-entry is absent;
 - default `Once` lifetime is too narrow: one logical login creates three sequential compatible connection waves, and a fresh picker appears for every wave because the completed decision is discarded and `Once` is intentionally not session-remembered.
 
-Therefore T1 is **not to be repeated on the old artifact**. It becomes a regression test only after the positive `Once` fanout/lease fix.
+Therefore T1 is **not to be repeated on the old artifact**. It becomes T1R on the new fixing artifact after T2R.
 
 ### Test T2 — unanswered picker / timeout / retry
 
-Exact same browser identity as T1.
+Exact same old browser identity as T1.
 
 Runtime capture:
 
@@ -115,15 +128,15 @@ Sanitized runtime result:
 - subsequent real connections find that surviving decision and immediately consume `selected=0` instead of opening a new picker;
 - ten later attempts show `dialog completed ... selected=0`; each receives primary `0x80090326`, followed by secondary `0x0000054f` diagnostics.
 
-This proves the current immediate lifecycle blocker: **a client-auth callback must not be allowed to create/join a coordinated decision after the owning MSSPI/socket has entered close/shutdown**. The sticky retry failure is an orphan coordinated-decision bug, not the custom positive/negative remember cache.
+This proves the old lifecycle blocker: **a client-auth callback must not be allowed to create/join a coordinated decision after the owning MSSPI/socket has entered close/shutdown**. The sticky retry failure is an orphan coordinated-decision bug, not the custom positive/negative remember cache.
 
-The previously assumed exact 30-second boundary is not valid for this coordinated artifact. The observed unanswered-picker close occurs at ~45 seconds. The source of that concrete timeout must be attributed before changing any timeout policy.
+The previously assumed exact 30-second boundary is not valid for that coordinated artifact. The observed unanswered-picker close occurs at ~45 seconds. The source of that concrete timeout must be attributed before changing any timeout policy.
 
-T2 is **not to be repeated on the old artifact**. It becomes the first regression test after the shutdown/re-entrancy fix.
+T2 is **not to be repeated on the old artifact**. T2R is now the first runtime test on artifact `9636591432`.
 
 ### GIS GMP multi-host mTLS runtime
 
-The same exact main artifact was exercised with:
+The old main artifact was exercised with:
 
 `pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> `portalgisgmp.cert.roskazna.ru`.
 
@@ -141,78 +154,67 @@ Confirmed behavior:
 - the certificate host sends a real TLS 1.2 `CertificateRequest`;
 - the captured `CertificateRequest` body is `12,184` bytes and its `certificate_authorities` vector is `12,143` bytes containing **36 DER X.509 Distinguished Names**;
 - the CA list is therefore not empty;
-- current browser responds on all three certificate-host attempts with TLS `Certificate` message `0B 00 00 03 00 00 00`, i.e. an empty client `certificate_list`;
+- old browser responds on all three certificate-host attempts with TLS `Certificate` message `0B 00 00 03 00 00 00`, i.e. an empty client `certificate_list`;
 - server then returns fatal alert `handshake_failure` (`0x28`), and MSSPI reports primary `0x80090326`; later calls against the failed handle emit secondary `0x0000054f` diagnostics;
 - there is no `client certificate`, `issuer-list`, `set_cert_cb`, completed handshake or final verification marker for the certificate host.
 
-Exact source explains this runtime precisely:
+Exact old source explains this runtime precisely:
 
 - `kStage1MtlsHost` is hard-coded to `lk-fzs.roskazna.ru`;
 - `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` is registered only for that one host;
 - the callback itself rejects any other host before issuer collection, candidate enumeration, coordinator state or Firefox UI.
 
-Therefore the current GIS GMP blocker is now **runtime-confirmed**, not merely source-proven: the server asks for a certificate, but Treasury-only callback registration prevents our Firefox client-auth path from running, so MSSPI sends an empty client certificate and the server rejects the handshake.
+Therefore the old GIS GMP blocker is runtime-confirmed: the server asks for a certificate, but Treasury-only callback registration prevents our Firefox client-auth path from running, so MSSPI sends an empty client certificate and the server rejects the handshake.
 
-The user's original CA-policy hypothesis is narrowed but still open. The server advertises 36 CA DNs, but artifact `9606431408` never runs `CollectGostCANames()` / `CollectGostClientCertCandidates()` for this host. Whether the intended local certificate matches one of those authorities under the current chain/DER policy cannot be concluded until F3 enables callback reachability and GIS-G1 records a real candidate count.
+The user's original CA-policy hypothesis remains narrowed but open. The server advertised 36 CA DNs, but artifact `9606431408` never ran `CollectGostCANames()` / `CollectGostClientCertCandidates()` for this host. The current candidate adds generic callback reachability, so GIS-G1 on artifact `9636591432` must now record the real candidate count before any issuer-matching change.
 
 Detailed F3 design and GIS-G1/G2/G3/G4 runtime branch are in `STAGE2_GIS_GMP.md`.
 
-## Immediate implementation blockers
+## F1/F2/F3 fixing candidate — awaiting runtime validation
 
-Keep the three bugs separate in design and evidence even if they are carried by one later build.
+Source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` carries candidate implementations for all three previously open code blockers and passes the required compile/full-build gates. None is closed until runtime evidence passes its regression.
 
-### Blocker A — close/shutdown re-entrant client-auth callback
+### F1 — close/shutdown re-entrant client-auth callback
 
-Required design:
+Candidate implementation now:
 
-1. mark the MSSPI/socket as closing before calling legacy close / `msspi_shutdown()`;
-2. reject any client-certificate callback for a closing handle before it can find/create/join a coordinated decision or open a picker;
-3. preserve the MSSPI handle identity across legacy close and perform defensive coordinator waiter removal after legacy close returns;
-4. add lifecycle diagnostics for decision create/remove, waiter add/remove, close state, and callback ignored because closing;
-5. preserve stale-callback rejection;
-6. never convert involuntary timeout/teardown into a reusable negative decision.
+1. marks the MSSPI handle closing before legacy close / `msspi_shutdown()`;
+2. rejects client-certificate callbacks for closing handles before coordinated decision creation/join or picker dispatch;
+3. preserves handle identity and performs waiter cleanup around close;
+4. emits decision/waiter/close lifecycle diagnostics;
+5. preserves stale-callback rejection.
 
-### Blocker B — `Once` lifetime across sequential waves
+Runtime closure criterion: T2R must show teardown followed by a fresh picker on retry/new login without an orphan decision or sticky automatic `selected=0`.
 
-Concurrent single-flight is already proven. The remaining UX requirement is an **attempt-local positive fanout/lease**:
+### F2 — `Once` lifetime across sequential waves
 
-- one explicit positive `Once` selection may serve compatible follow-on connection waves belonging to the same logical login/navigation attempt;
-- it must not silently become `Session` or `Permanent`;
-- a later independent login must be able to ask again;
-- only a positive `Selected` certificate may enter this lease;
-- `Declined`, `Aborted`, `NoUsableCertificate`, internal failure, provider failure and server rejection must never enter it.
+Concurrent single-flight remains previously proven. Candidate source adds a positive-only `Once` lease with a 5-second idle lifetime, scoped by coordinated decision identity and browser context.
 
-Exact lease expiry/generation ownership must be designed against Firefox/Necko lifecycle rather than by an unbounded arbitrary cache.
+Runtime closure criteria:
 
-### Blocker C — Stage-1 Treasury-only mTLS host scope
+- T1R: one logical Treasury login needs one visible picker while compatible follow-on waves reuse the positive selection safely;
+- T1R-B: after the lease is no longer active, an independent login asks again;
+- no decline, abort, zero-candidate result, internal failure, provider failure or server rejection may become a positive lease.
 
-Current GOST transport is already allowlist-driven for multiple hosts, but client-auth registration/dispatch is not. It remains hard-coded to `lk-fzs.roskazna.ru`. GIS GMP runtime proves the consequence: a real `CertificateRequest` on another allowlisted GOST host receives an empty client certificate and fails with server `handshake_failure`.
+### F3 — generic GOST mTLS host scope
 
-Required design:
+Candidate source adds generic client-certificate callback registration for non-Stage-1 GOST sockets and removes the normal Firefox/coordinated host rejection while keeping backend selection allowlist-driven and the explicit Stage-1 diagnostic path separately identifiable.
 
-- every already-selected/allowlisted GOST MSSPI socket must be capable of using the Firefox client-auth callback if the server requests a client certificate;
-- remove the Treasury-only rejection from the normal Firefox/coordinated path;
-- do not broaden ordinary NSS/GOST backend selection;
-- do not automatically send a certificate merely because callback capability exists;
-- preserve host/port/OriginAttributes/CA-list decision isolation;
-- keep the explicit thumbprint selector narrow/diagnostic rather than silently applying one local credential across sites;
-- preserve the legacy A/B implementation as cleanly as practical.
-
-After this fix, GIS GMP itself determines whether a second issuer-policy fix is necessary. The old server advertised 36 CA DNs, but do not alter CA matching until the post-F3 callback/candidate evidence exists.
+Runtime closure criterion: GIS-G1 must prove the real GIS GMP certificate endpoint reaches callback registration, acceptable-CA collection and candidate enumeration. If candidate count is zero, stop and diagnose issuer/chain/name matching instead of changing policy speculatively.
 
 ## Runtime test execution order
 
 The authoritative detailed Treasury matrix is `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is `STAGE2_GIS_GMP.md`. Recovery rule: do not restart the test campaign from old-artifact T1/T2 or repeat the now-complete old GIS GMP failure.
 
-Immediate sequence:
+Build prerequisites are complete on source `ef1a7fdd...`: SSL compile run `33039013892` succeeded, authoritative main run `33039013849` succeeded, and the separate thunk-rs run `33039013822` also succeeded.
 
-1. implement Blocker A, Blocker B and Blocker C as separable changes with explicit diagnostics;
-2. run the short SSL compile gate;
-3. after the final candidate source is stable, run the authoritative main full-browser build; do not use the thunk artifact as GOST runtime proof;
-4. first runtime regression: T2R timeout -> retry must open a fresh picker;
-5. second runtime regression: T1R successful Treasury login -> one logical login must need one picker while compatible concurrent/sequential sockets safely receive the selected certificate;
-6. third branch: GIS-G1 -> prove the GIS GMP certificate endpoint reaches callback/issuer collection/candidate enumeration; if candidates exist, continue GIS-G2 real mTLS; if candidates are zero, stop and diagnose CA-chain/name matching;
-7. only then continue Cancel/abort, remember semantics, provider/media, UI, discovery, negative matrix, server-trust closure and final regression.
+Immediate sequence on main artifact `9636591432`:
+
+1. **T2R** — unanswered picker timeout/teardown -> without browser restart retry/new login must open a fresh picker;
+2. **T1R** — successful Treasury login -> one logical login must need one picker while compatible concurrent/sequential sockets safely receive the positive `Once` choice;
+3. **T1R-B** — after the 5-second idle lease expires, an independent login must ask again;
+4. **GIS-G1** — prove the GIS GMP certificate endpoint reaches generic callback/issuer collection/candidate enumeration; if candidates exist, continue GIS-G2 real mTLS; if candidates are zero, stop and diagnose CA-chain/name matching;
+5. only after these regressions pass, continue Cancel/abort, remember semantics, provider/media, UI, discovery, negative matrix, server-trust closure and final regression.
 
 ## Server trust — still mandatory
 
@@ -246,7 +248,8 @@ Independent from GOST runtime.
 Current evidence:
 
 - original real-Win7 startup package: source `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, run `32695496647`, job `97336702701`, artifact `9512347999`;
-- current full-xul narrow YY/thunk-rs revalidation: source `860de8e...`, run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics `9613444775`;
+- previous full-xul narrow YY/thunk-rs revalidation: source `860de8e...`, run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics `9613444775`;
+- current full-xul narrow YY/thunk-rs revalidation: source `ef1a7fdd...`, run `33039013822`, job `98408139313`, browser artifact `9636047031`, diagnostics `9636048172`;
 - representative modern Rust + narrow YY + pinned msvcr14x coexistence: source `1abf867307ca56b97b7f2fb41e5e58e86ee08463`, run `32713958570`, job `97391163925`.
 
 Still open: full-Firefox msvcr14x integration, final direct/delay-load PE audit, real Win7 runtime without the copied compatibility bundle, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
