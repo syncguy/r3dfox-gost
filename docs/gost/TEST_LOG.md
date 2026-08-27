@@ -300,7 +300,7 @@ The three intended XPI baselines are:
 
 The current Gosplugin baseline was obtained through a short one-time AMO bootstrap before the shared integration commit. Preserve both runs because the first red result is a workflow-harness defect rather than an XPI defect:
 
-- run `32974033522`, job `98194284032`, source SHA `339eb661782ab8b4cb5bcd1a02d930c37a862835`: step `Download and inspect signed AMO XPI` succeeded and validated ID `gosuslugi@plugin`, version `1.3.43.0`, size `1272459`, SHA-256 `f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc`, `nativeMessaging`, Mozilla signature structure and COSE. The workflow failed only afterward because `GOSPLUGIN_ID`, written to `GITHUB_ENV`, was incorrectly consumed in the same PowerShell step before GitHub Actions exposed it to the environment; the file was therefore copied as `r3dfox\extensions\.xpi`, and the subsequent commit step could not find `r3dfox\extensions\gosuslugi@plugin.xpi`. This is a harness environment-boundary failure, not an extension validation failure;
+- run `32974033522`, job `98194284032`, source SHA `339eb661782ab8b4cb5bcd1a02d930c37a862835`: step `Download and inspect signed AMO XPI` succeeded and validated ID `gosuslugi@plugin`, version `1.3.43.0`, size `1272459`, SHA-256 `f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc`, `nativeMessaging`, Mozilla signature structure and COSE. The workflow failed only afterward because `GOSPLUGIN_ID`, written to `GITHUB_ENV`, was incorrectly consumed in the same PowerShell step before GitHub Actions exposed it to the environment; the file was therefore copied as `r3dfox\\extensions\\.xpi`, and the subsequent commit step could not find `r3dfox\\extensions\\gosuslugi@plugin.xpi`. This is a harness environment-boundary failure, not an extension validation failure;
 - corrected run `32974162330`, job `98194711292`, source SHA `9984e41623d675684eb1ad78a35b7830d1e024c0`: completed successfully. The validated signed XPI was vendored by bot commit `b98d04e204e6bd95d4cd532e1640642e7828b277`.
 
 ### Source-level integration observation
@@ -402,3 +402,59 @@ The retained narrow YY-Thunks/thunk-rs linker strategy is now **cleanly full-Fir
 This result does not prove that artifact `9613443984` starts or operates correctly on real Windows 7, does not prove the delay-load import side because that parser remains separately qualified, and does not prove any GOST TLS runtime or handshake behavior. GOST runtime validation should continue first on the authoritative main artifact `9606431408`; the thunk artifact remains a separate Windows-compatibility runtime candidate.
 
 Status: current full-xul Windows-compatibility build evidence; real target-OS and GOST-on-Win7 runtime validation remain open.
+
+---
+
+## 2026-08-27 — Coordinated `Once` mode completes Treasury mTLS but prompts again across sequential connection waves
+
+**Track:** GOST TLS runtime / Stage 2 coordinated Firefox client-auth lifecycle  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `860de8e38deed326b7fcd1c547e928c5b48c72a9`  
+**Actions run:** `32951903026`  
+**Run attempt:** 2  
+**Job:** `98130275465`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9606431408` (`r3dfox-gost-win64-release`)  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru` through the configured HTTP proxy  
+**Runtime capture:** user-provided `gost_main_test_connect.zip`, SHA-256 `0756fe71a15ecd56a1576b026888b0a504fb941ab3958f1fda93653fc74c620b`; inner `gost.moz_log`, SHA-256 `f77e68a5a2c1673500ef8542f12b5db46f6b93d5160e8203fe189eb1913eed89`
+
+### Purpose
+
+Run the first real Treasury login with the full-build-validated coordinated client-auth source, the explicit client-certificate thumbprint path disabled, default coordinated mode, and the new GOST-scoped `Once` picker default. Determine whether one visible picker safely serves Treasury's parallel client-auth requests and whether real mTLS/application login still succeeds.
+
+The raw runtime capture is not committed. Only sanitized timing/state/count evidence is recorded. No selected client-certificate identity or private-key/provider identifier is published.
+
+### Sanitized observation
+
+The log confirms `mode=coordinated`; no `legacy` path was active. Candidate enumeration returned two eligible certificates for `lk-fzs.roskazna.ru`. The user selected the same intended certificate each time and reported that the personal cabinet was already visibly loading by the second picker.
+
+Three separate coordinated decision waves occurred:
+
+1. At `01:54:34.341 UTC`, one client-auth request created a new decision and opened the first picker. The user selected a certificate at `01:54:37.404`; that connection completed GOST TLS 1.2 / `0xFF85` mTLS with `client_cert_loaded=1` at `01:54:37.934`.
+2. At `01:54:38.955 UTC`, a new decision opened the second picker. Four additional compatible sockets logged `joined existing decision`, so this wave contained five waiters but still only one visible picker. After selection, five `dialog completed ... selected=1 mode=coordinated` events were consumed by the five live waiters, and all five MSSPI handshakes completed successfully between `01:54:40.764` and `01:54:40.897`.
+3. At `01:54:42.165 UTC`, another new decision opened the third picker. Again four additional sockets joined the same decision, giving five waiters and one visible picker for the wave. After selection, all five waiters consumed the positive decision and all five MSSPI handshakes completed successfully between `01:54:43.707` and `01:54:43.921`.
+
+Across the three waves, the coordinator therefore serviced `1 + 5 + 5 = 11` successful `lk-fzs.roskazna.ru` mTLS handshakes. All eleven report TLS `0x0303`, cipher `0xFF85`, and `client_cert_loaded=1`. The capture contains no `E/GostTLS` entries and no `0x800903xx` failure status.
+
+This is a partial success for single-flight coordination. The earlier one-picker-per-socket failure is gone inside a concurrent burst: the second and third waves each collapsed five compatible sockets into one user dialog. However, the user still saw three sequential dialogs during one logical Treasury login.
+
+The source/lifecycle reason is now confirmed. A positive `Once` selection is deliberately not written to the custom remembered-selection cache. Each waiter removes itself after consuming the selected DER, and when the final waiter leaves, the coordinated decision object is removed. A later compatible TLS connection therefore finds neither an active decision nor a remembered positive selection and creates a new picker. This is consistent with Firefox's `nsClientAuthRememberService`: `Duration::Once` is not stored by the remember service. The current GOST broker therefore implements `Once` at the lifetime of one active concurrent decision wave, not at the lifetime of one logical browser login/navigation interaction.
+
+### Picker-wait polling observation
+
+The old tight `MSSPI_X509_LOOKUP` re-entry is absent from this capture: there are zero `MSSPI_X509_LOOKUP` markers while coordinated selection is pending. The new path emits `GostPoll client-auth wait quiescent` instead.
+
+It is not fully event-quiescent under multiple waiters, however. The capture contains 534 such poll calls in total. In the second five-waiter wave there are 242 calls over approximately `1.495 s`, about `162` calls/s combined or about `32` calls/s per waiter. In the third five-waiter wave there are 290 calls over approximately `1.242 s`, about `233` calls/s combined or about `47` calls/s per waiter. This is far below the earlier tight-spin behavior measured in thousands of iterations per second, but it is still periodic poll churn and should not be described as a completely event-driven sleep.
+
+### Conclusions
+
+1. **Real coordinated-mode Treasury mTLS is now runtime-proven on exact artifact `9606431408`.** The current coordinated source can select a real CryptoPro-bound certificate and complete eleven successful GOST TLS 1.2 / `0xFF85` client-authenticated handshakes during the tested login flow.
+2. **Concurrent single-flight is working inside each active decision wave.** Five simultaneous compatible sockets in both later waves shared one visible picker and one positive decision rather than opening five dialogs.
+3. **The current `Once` lifetime is too narrow for the real Treasury login UX.** Treasury creates sequential waves of new HTTP/1.1 TLS connections roughly one second after the prior wave completes. Because `Once` is neither remembered nor retained after the final waiter consumes the decision, each later wave opens a fresh picker. The resulting three prompts are not stale queued duplicates; they are three newly-created decisions.
+4. **Do not solve this by changing the default to `Session`.** The agreed GOST default remains `Once`. The needed behavior is an attempt-local positive fanout/lease that lets one explicit `Once` choice serve the compatible connection waves belonging to one logical login/navigation interaction, without becoming a browser-session remembered choice and without ever caching a decline/abort/failure.
+5. **The old tight picker busy-spin is substantially mitigated but not completely eliminated.** `MSSPI_X509_LOOKUP` re-entry is gone, but `GostPoll` is still called tens of times per second per waiter during the multi-socket waits. The unanswered-picker test is still required to measure long-duration behavior, log growth and the 30-second Necko timeout interaction.
+6. No conclusion about fail-closed server verification, provider waits longer than 30 seconds, `Declined` versus `Aborted`, `Session`/`Permanent`, or direct token-only discovery is changed by this capture.
+
+The immediate design blocker is now the scope/lifetime of a positive GOST `Once` decision across sequential compatible connection waves. The current exact artifact should still be used for the planned unanswered-picker >40 s experiment before rebuilding, because that supplies orthogonal timeout/polling evidence for the same implementation.
+
+Status: current coordinated runtime evidence; real mTLS and concurrent-wave fanout proven, one-picker-per-logical-login UX still open.
