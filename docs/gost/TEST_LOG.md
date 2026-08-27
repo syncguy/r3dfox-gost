@@ -132,7 +132,7 @@ Status: resolved test-identity error; superseded by the valid T1R below.
 The user verified the actual launched binaries before the run:
 
 - `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`;
-- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a5a577da26fc1265481187`.
+- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`.
 
 These exactly match authoritative artifact `9636591432`, so this capture is bound to the intended fixing source.
 
