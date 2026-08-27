@@ -87,9 +87,9 @@ Proven:
 
 F3 is formally closed. Do not repeat GIS-G1/G2/G3 on unchanged source merely for confirmation.
 
-## S1/S1-B — PASS / explicit Session process baseline
+## S1/S1-B/S1-C — PASS / explicit Session process lifetime CLOSED
 
-Capture:
+In-process capture:
 
 - `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
 - inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`;
@@ -103,11 +103,21 @@ Treasury result:
 - eleven Treasury TLS 1.2 / `0xFF85` mTLS handshakes complete with `client_cert_loaded=1`;
 - user confirms the active Session remains usable across tabs and browser windows in the same running browser process.
 
-The logged Treasury client-auth requests all carry `browser_id=14`; therefore the log itself proves process-level remembered reuse, while the tab/window topology is user-observed rather than separately represented by distinct browser IDs.
+The logged Treasury requests all carry `browser_id=14`; the raw log therefore proves process-level matching remembered reuse, while the tab/window topology is user-observed rather than separately represented by distinct browser IDs.
+
+Restart-boundary capture:
+
+- `session-current2.zip` SHA-256 `e32b71ca51d151e553ab82c321fd8f829270e09b6a8390f7fb3ea828af3a29e7`;
+- inner `session-current.moz_log` SHA-256 `5b156cf0765c9aad3ceffeac6d1a845cea381f219ea168d59b318201b9f419b5`;
+- restarted process `Parent 5112`.
+
+The first Treasury client-auth in the restarted process at `12:05:43.453 UTC` receives no old Session remembered hit, creates fresh `decision=1`, candidate count `1`, and a fresh Firefox picker. After a new explicit Session choice at `12:05:47.363` (`remember=2`), five later matching requests consume `scope=session`, and six Treasury mTLS handshakes succeed. No `Once` lease or sticky failure marker appears.
+
+**S1/S1-B/S1-C PASS.** Positive Session state is reusable throughout the running browser process and cleared by complete browser-process restart.
 
 ## GIS-G4 — PASS / cross-host decision isolation CLOSED
 
-The same `session-current.zip` capture proves stronger cross-host isolation using a live Treasury `Session` decision:
+The `session-current.zip` capture proves stronger cross-host isolation using a live Treasury `Session` decision:
 
 - Treasury Session is already active;
 - later `portalgisgmp.cert.roskazna.ru` client-auth arrives with `browser_id=17`;
@@ -119,23 +129,22 @@ Whole capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOO
 
 Do not repeat GIS-G4 on unchanged source merely for confirmation.
 
-## NEXT — S1-C Session process-restart boundary
+## NEXT — picker UX/default iteration
 
-Fully close r3dfox, restart with the same profile, and initiate the same Treasury client-auth flow.
-
-Pass: a fresh picker appears. The explicit Session choice must not survive browser-process restart.
-
-This is the remaining baseline check before changing the picker default from `Once` to `Session`.
-
-## Planned picker UX/default iteration
-
-After S1-C:
+The behavioral baseline is now complete. Implement on a new exact source/build:
 
 - make `Session` the default remember duration;
 - retain explicit `Once` and its proven positive 5-second idle fanout lease;
 - keep 5 seconds hard-coded for the current iteration, with later consideration of an `about:config` preference;
-- render `Issued by` as a human-friendly issuer display analogous to `Issued to`;
-- targeted exact-build regression: default Session first login, same-process matching reuse, restart boundary, and explicit Once regression.
+- render `Issued by` as a human-friendly issuer display analogous to `Issued to`.
+
+Targeted regression on the new artifact:
+
+1. default Session first login: one picker, successful mTLS/application login;
+2. same-process matching reuse across later connections/windows/tabs: no second picker;
+3. full browser-process restart: fresh picker;
+4. explicit Once: preserve the already-proven short positive fanout and post-expiry re-prompt behavior;
+5. different GOST mTLS host: no cross-host remembered-decision leakage.
 
 Current source treats all non-`Once` positive choices through the same process-local remember store. Therefore true persistent `Permanent` behavior is not yet established and remains a separate implementation/test item.
 
@@ -151,7 +160,7 @@ Exercise navigation/tab/load teardown without a user decision. State must be `Ab
 
 ### T5 — explicit Session
 
-S1/S1-B prove basic positive in-process Session reuse. S1-C still must prove process restart clears it. Later matrix work should additionally prove temporary provider failures and matching-policy boundaries do not overwrite or leak the positive Session decision.
+S1/S1-B/S1-C prove the basic positive process lifetime. Later matrix work should additionally prove temporary provider failures and matching-policy boundaries do not overwrite or leak the positive Session decision.
 
 ### T6 — explicit Permanent
 
