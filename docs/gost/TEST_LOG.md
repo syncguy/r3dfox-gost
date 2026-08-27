@@ -2,7 +2,7 @@
 
 This is the current append-oriented engineering log.
 
-The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-26_2026-08-27.md`](./TEST_LOG_2026-08-26_2026-08-27.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For forward work, see [`TODO.md`](./TODO.md). The restart-safe Stage 2 runtime sequence is [`STAGE2_RUNTIME_TEST_PLAN.md`](./STAGE2_RUNTIME_TEST_PLAN.md).
+The immediately preceding active volume is preserved unchanged in [`TEST_LOG_2026-08-26_2026-08-27.md`](./TEST_LOG_2026-08-26_2026-08-27.md). Earlier historical evidence remains in the other dated `TEST_LOG_*.md` volumes. For current technical synthesis, see [`PROJECT_STATE.md`](./PROJECT_STATE.md). For forward work, see [`TODO.md`](./TODO.md). The restart-safe Stage 2 runtime sequence is [`STAGE2_RUNTIME_TEST_PLAN.md`](./STAGE2_RUNTIME_TEST_PLAN.md); the GIS GMP multi-host mTLS branch is [`STAGE2_GIS_GMP.md`](./STAGE2_GIS_GMP.md).
 
 For each completed experiment, record the exact date, branch and source-under-test SHA, GitHub Actions run/job when applicable, sanitized observation, conclusion, and whether the finding is current, superseded, or still open. Do not publish client-certificate identifiers, private credential metadata, user data, or unsanitized runtime captures; follow `/AGENTS.md`.
 
@@ -111,3 +111,82 @@ The separate successful-login defect from the preceding T1 experiment (three seq
 Full restart-safe ordering is recorded in `STAGE2_RUNTIME_TEST_PLAN.md`.
 
 Status: current blocker; shutdown-created orphan decision must be fixed before further client-auth runtime matrix work.
+
+---
+
+## 2026-08-27 — GIS GMP certificate login exposes Treasury-only client-auth host scope
+
+**Track:** GOST TLS runtime / Stage 2 multi-host client-auth coverage  
+**Branch:** `agent/gost-tls-poc`  
+**Code audited:** `860de8e38deed326b7fcd1c547e928c5b48c72a9`  
+**Surrounding runtime browser:** main run `32951903026`, attempt 2, job `98130275465`, artifact `9606431408`  
+**Runtime target:** `pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> `portalgisgmp.cert.roskazna.ru`  
+**Runtime capture:** not supplied with this exploratory observation; no exact runtime error/timing/issuer-list claim is made
+
+### User-visible exploratory observation
+
+The browser was launched with all three GIS GMP hosts explicitly in `R3DFOX_GOST_HOSTS`, with the explicit thumbprint selector, legacy mode selector and cipher override cleared.
+
+The user reports:
+
+1. `pay.gov.ru` is successfully handled through GOST TLS;
+2. the flow reaches `portalgisgmp.login.roskazna.ru`, also through GOST TLS, and displays the password-login page;
+3. the page contains an alternative login-by-certificate action expected to use `portalgisgmp.cert.roskazna.ru` as a GOST mTLS endpoint;
+4. activating that path produces neither the expected visible transition nor a Firefox client-certificate picker.
+
+The initial hypothesis was that GIS GMP may advertise an acceptable-CA list different from the Treasury personal-cabinet endpoint.
+
+### Exact-source audit
+
+The current source has a deterministic earlier restriction which prevents the acceptable-CA hypothesis from being exercised.
+
+`nsGostSSLIOLayerLegacy.inc` still defines:
+
+`kStage1MtlsHost = "lk-fzs.roskazna.ru"`.
+
+Socket setup registers:
+
+`msspi_set_cert_cb(secret->msspi, SelectStage1ClientCertificate)`
+
+only when `aHost` equals that one Stage-1 host. Therefore a GOST MSSPI socket for `portalgisgmp.cert.roskazna.ru` does not have our Firefox client-certificate callback registered.
+
+In addition, the current `SelectStage1ClientCertificate()` wrapper obtains the actual host and explicitly rejects any host other than `lk-fzs.roskazna.ru` before issuer logging, coordinated decision handling, candidate enumeration or dialog dispatch.
+
+Thus the current browser cannot reach the Firefox client-auth picker on the GIS GMP certificate endpoint regardless of which acceptable certificate authorities the server sends.
+
+### Existing generic issuer/candidate path
+
+After the host restriction is removed, the existing code is already mostly host-neutral:
+
+- `CollectGostCANames()` obtains the MSSPI `CertificateRequest` CA distinguished names;
+- `CollectGostClientCertCandidates()` enumerates `CurrentUser\MY`;
+- certificates without `CERT_KEY_PROV_INFO_PROP_ID` are excluded;
+- Windows certificate chains are built;
+- every chain element Subject/Issuer is compared with the server CA names;
+- an empty CA list currently permits candidates rather than filtering them all out.
+
+The current `GostCertNameEquals()` implementation uses equal DER length plus raw `memcmp`. This is a possible second compatibility boundary for differently encoded/cross-signed PKI paths, but there is no GIS GMP runtime evidence yet that it is the failing layer. Do not change it speculatively.
+
+### Conclusions
+
+1. **The immediate GIS GMP failure is explained by a Stage-1 Treasury-only client-auth host gate.** GOST transport is already multi-host via the allowlist, but GOST client-auth callback registration/dispatch is not.
+2. **The acceptable-CA hypothesis remains open, not disproven.** It becomes testable only after generic callback reachability exists for `portalgisgmp.cert.roskazna.ru`.
+3. **Do not ask the user to repeat the same GIS GMP test on artifact `9606431408`.** Source audit already proves this build cannot open the generic Firefox picker on that host.
+4. **Add F3 to the next fixing candidate:** generic GOST mTLS client-auth capability for every already-selected/allowlisted GOST socket that actually receives a client-cert request, while keeping backend selection and credential remember policy scoped normally.
+5. **Keep the explicit thumbprint selector narrow/diagnostic.** Generalizing the Firefox UI path must not silently turn one locally configured Treasury thumbprint into a cross-site automatic credential choice.
+6. The coordinated decision key already includes host/port/OriginAttributes/acceptable-CA identity, so multi-host client-auth must preserve that isolation and never reuse a Treasury decision at GIS GMP.
+
+### Next experiment
+
+F3 is included with F1/F2 in the next candidate build, but remains separately attributable.
+
+After short SSL compile and authoritative main full build:
+
+1. first run T2R and T1R to prove coordinator lifecycle regressions;
+2. run GIS-G1: `pay.gov.ru` -> login host -> certificate endpoint and prove callback registration, issuer collection and candidate enumeration;
+3. if candidate count is nonzero, continue to GIS-G2 real GOST mTLS/application login;
+4. if candidate count is zero, stop and analyze the actual server CA list against the local chain, including cross-signed path selection and raw-DER-name comparison, before changing issuer policy.
+
+Full GIS GMP recovery/test plan is preserved in `STAGE2_GIS_GMP.md`.
+
+Status: current source-proven multi-host client-auth blocker; runtime CA-list behavior pending a fixing build.
