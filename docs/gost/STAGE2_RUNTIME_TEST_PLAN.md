@@ -104,76 +104,66 @@ Engineering result:
 
 Action: **do not rerun T2 on artifact `9606431408`**. T2 becomes T2R only after the close/shutdown re-entrancy fix.
 
-Important correction: do not assume the coordinated picker timeout is exactly 30 seconds. The tested artifact closes at about 45 seconds. Attribute the concrete timer before changing timeout policy.
+Important correction: do not assume the coordinated picker timeout is exactly 30 seconds. The tested old artifact closes at about 45 seconds. Attribute concrete timer behavior from the exact artifact being tested before changing timeout policy.
 
-## Current implementation work before more user testing
+## Current fixing candidate / build identity
 
-### F1 — close/shutdown re-entrancy fix — BLOCKED ON CODE
+Current source-under-test:
 
-Required behavior:
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`);
+- short SSL compile run `33039013892`, job `98408139567`, success;
+- authoritative main full build run `33039013849`, attempt 1, job `98408139479`, success;
+- main runtime artifact `9636591432` (`r3dfox-gost-win64-release`);
+- separate thunk-rs run `33039013822`, job `98408139313`, success, browser artifact `9636047031`.
 
-- mark handle/socket closing before `msspi_shutdown()`;
-- client-cert callback for closing handle returns without decision lookup/create/join and without UI;
-- defensive waiter cleanup after legacy close;
-- no orphan decision after close;
-- stale callback remains harmless;
-- add concise lifecycle logs sufficient to prove this sequence.
+The main artifact is the only artifact used for the GOST runtime conclusions below. The thunk-rs artifact belongs to the independent Windows compatibility line.
 
-### F2 — positive `Once` fanout/lease — BLOCKED ON CODE
+Candidate source contains:
 
-Required behavior:
+- **F1:** close/shutdown closing-handle guard and defensive waiter cleanup;
+- **F2:** positive-only default-`Once` fanout lease with a 5-second idle lifetime;
+- **F3:** generic GOST mTLS client-cert callback registration/dispatch for already-selected GOST sockets rather than Treasury-only normal coordinated reachability.
 
-- concurrent single-flight already remains;
-- one positive `Once` decision also covers compatible follow-on waves of the same logical login/navigation;
-- next independent login asks again;
-- no negative/abort/failure state enters the lease;
-- explicit `Session` / `Permanent` remain separate user-selected policies.
+Build gates are complete. Runtime validation is in progress.
 
-F1 and F2 should be implemented as separable changes/commits. They may be present in one final full-build candidate to avoid wasting full-build time, provided logs/tests can still attribute each behavior independently.
+## T2R checkpoint — USER-VISIBLE PASS, LOG REVIEW PENDING
 
-### B1 — short compile gate — NEXT AFTER F1/F2
+T2R was executed on the exact main artifact above using a newly created clean profile and the standard Treasury environment.
 
-Run `GOST SSL compile check` against the exact final candidate source. Do not proceed if SSL target compilation fails.
+Observed in one browser process:
 
-### B2 — authoritative main full build — NEXT AFTER B1
+1. first picker left unanswered for approximately 30 seconds -> `The connection has timed out`;
+2. F5 -> a fresh client-certificate picker appears;
+3. second picker left unanswered for approximately 30 seconds -> timeout;
+4. `Try again` -> another fresh client-certificate picker appears;
+5. third picker left unanswered for approximately 30 seconds -> timeout.
 
-Run `GOST TLS PoC build` and record exact run/attempt/job/artifact. Runtime testing uses the main artifact. The thunk-rs workflow is a separate Win7 line and is not a substitute for this gate.
+This passes the user-visible F1 recovery criterion twice consecutively after two separate teardown cycles. The old sticky behavior where no later picker appeared without browser restart is gone at the UX level.
 
-## Regression tests on the next fixing artifact
+The exact `C:\Temp\r3dfox\t2r*` runtime capture has not yet been supplied. Therefore do **not** mark F1/T2R formally complete yet.
 
-### T2R — timeout teardown must recover — FIRST RUNTIME TEST
+### NEXT — inspect the existing T2R capture
 
-Purpose: prove F1 before spending time on the broader matrix.
+Do not rerun T2R merely to recreate the same UX result. Preserve and inspect the existing log from this exact session.
 
-Procedure:
+Required log-level pass criteria:
 
-1. fresh browser process using the standard environment above;
-2. enter Treasury login until the certificate picker opens;
-3. do not choose a certificate;
-4. wait until the picker/load is torn down by the observed timeout mechanism; do not assume an exact duration, but record it;
-5. record the timeout page/result;
-6. without restarting the browser, use F5 or `Try again`;
-7. if needed, return to the main Treasury page and enter the personal cabinet again.
+- closing MSSPI handle is marked before legacy `msspi_shutdown()`;
+- any re-entrant client-cert callback for that closing handle is ignored before decision lookup/create/join;
+- pre/post close waiter cleanup leaves no orphan waiter/decision;
+- abandoned dialog callback is stale/harmless;
+- later real requests create/join fresh decisions rather than consuming stale automatic `selected=0`;
+- no old `MSSPI_X509_LOOKUP` tight re-entry returns;
+- measure current `GostPoll client-auth wait quiescent` rate;
+- record exact picker-to-close timings for all observed cycles.
 
-Pass criteria:
+The user's approximate ~30-second observation differs from the old exact ~45.005-second capture. Treat the new exact timestamps as authoritative for this artifact; do not infer a timer change before the log is read.
 
-- no client-cert decision is created from a closing MSSPI handle;
-- no orphan waiter/decision survives teardown;
-- any callback from the abandoned dialog is stale/aborted and cannot create negative reusable state;
-- next real attempt opens a **fresh picker**;
-- no automatic `selected=0` reuse;
-- no sticky `0x80090326` sequence caused by the abandoned decision.
+If the log-level criteria pass, formally close F1/T2R and proceed directly to T1R. If they fail despite the good UX result, preserve the discrepancy and fix the internal lifecycle before broadening the matrix.
 
-Also measure:
+## Regression tests on the fixing artifact
 
-- actual unanswered-picker lifetime;
-- total/rate of `GostPoll client-auth wait quiescent`;
-- any `MSSPI_X509_LOOKUP` recurrence;
-- whether timeout accounting needs a further stock-compatible integration fix.
-
-If T2R fails, stop and fix lifecycle before asking for unrelated tests.
-
-### T1R — one logical successful login should need one picker — SECOND RUNTIME TEST
+### T1R — one logical successful login should need one picker — NEXT AFTER T2R LOG CLOSURE
 
 Purpose: prove F2 and re-prove real mTLS after F1/F2.
 
@@ -199,14 +189,27 @@ If a second picker appears during the same login, capture the log and stop; do n
 
 ### T1R-B — `Once` must not become Session
 
-After a successful T1R, start an **independent** new login attempt according to the implemented lease-generation boundary.
+After a successful T1R, start an **independent** new login attempt after the implemented positive lease is no longer active. Current candidate uses a 5-second idle lease, so allow a clear idle margin and document the actual sequence.
 
 Pass criteria:
 
 - a fresh picker appears for the independent attempt;
 - previous `Once` selection is not treated as Session/Permanent.
 
-The exact independent-attempt trigger (navigation generation, completed-login boundary, or other explicit lifecycle token) must match the implemented design and be documented with the fixing source.
+### GIS-G1 — generic GIS GMP mTLS reachability — AFTER T1R/T1R-B
+
+Use the GIS GMP sequence in `STAGE2_GIS_GMP.md`.
+
+Pass for F3 reachability:
+
+- certificate host gets the GOST layer;
+- generic client-cert callback is registered for the real certificate host;
+- real server `CertificateRequest` reaches our callback;
+- acceptable-CA collection records an explicit current count;
+- candidate enumeration records an explicit count;
+- host no longer sends an empty client Certificate merely because it differs from `lk-fzs.roskazna.ru`.
+
+If candidate count > 0, continue GIS-G2. If candidate count == 0, stop and diagnose issuer/chain/name matching before changing policy.
 
 ## Client decision semantics
 
@@ -289,7 +292,7 @@ Pass:
 
 ### T9 — long provider wait
 
-Hold the CryptoPro media/PIN/provider UI beyond the ordinary picker timeout scale (use at least the currently observed ~45 s scale; record actual duration rather than assuming a hard boundary), then complete or cancel as planned.
+Hold the CryptoPro media/PIN/provider UI beyond the ordinary picker timeout scale. Use the exact timing established by the current artifact's T2R capture rather than assuming the old ~45-second value; record actual duration. Then complete or cancel as planned.
 
 Observe:
 
