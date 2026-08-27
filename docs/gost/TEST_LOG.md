@@ -492,3 +492,29 @@ It does **not** prove GOST TLS runtime behavior, the new picker default at runti
 **THUNK-RS FULL BUILD PASS for source `afbdad307f63e594d3715169d6e34235280dddaf`.**
 
 Status: current Windows-compatibility full-build evidence; runtime validation remains open.
+
+---
+
+## 2026-08-27 — Session-default source passes the authoritative main full Firefox build
+
+**Track:** GOST TLS runtime / picker UX/default full-build candidate  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577269`  
+**Job:** `98521835354`  
+**Workflow:** `GOST TLS PoC build`  
+**Result:** `success`  
+**Release artifact:** `9652941006` (`r3dfox-gost-win64-release`)  
+**Win7 import-audit artifact:** `9652941552` (`r3dfox-gost-win64-win7-import-audit`)
+
+The exact main workflow run completed successfully on `head_sha=afbdad307f63e594d3715169d6e34235280dddaf`. The job passed the Win7 Rust build-std preflight, Mozilla toolkit Rust gate, `security/manager/ssl` object compile gate, full release Firefox build, xul.dll Win7 import audit, package creation, both artifact uploads, and the final known-Win8+ import rejection gate.
+
+This is the authoritative full-browser build/package artifact for the Session-default picker source. It supersedes the earlier compile-only state for deciding what binary should be used in the next GOST runtime tests.
+
+The build result alone does **not** prove the JavaScript picker presentation, runtime default-Session behavior, Session/Once semantics on this exact binary, cross-host isolation, restart lifetime, or a successful GOST TLS handshake. Those remain targeted runtime regressions on release artifact `9652941006`.
+
+### Conclusion
+
+**MAIN FULL BUILD PASS for source `afbdad307f63e594d3715169d6e34235280dddaf`.**
+
+Status: current authoritative runtime-test candidate; targeted exact-artifact runtime validation is next.
