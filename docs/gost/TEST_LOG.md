@@ -388,3 +388,51 @@ The process-local Session remember path supplies later matching Treasury client-
 This capture does not close **S1-C** because it contains only one browser process. The remaining Session baseline test is a complete r3dfox process restart using the same profile; the next matching Treasury client-auth flow must show a fresh picker.
 
 Status: current; S1/S1-B pass, GIS-G4 closed, S1-C next.
+
+---
+
+## 2026-08-27 — S1-C passes: explicit Session is cleared by browser-process restart
+
+**Track:** GOST TLS runtime / explicit Session process lifetime  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`)  
+**Actions run:** `33039013849`  
+**Job:** `98408139479`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9636591432` (`r3dfox-gost-win64-release`)  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru`  
+**Runtime capture:** user-provided `session-current2.zip`, SHA-256 `e32b71ca51d151e553ab82c321fd8f829270e09b6a8390f7fb3ea828af3a29e7`; inner `session-current.moz_log`, SHA-256 `5b156cf0765c9aad3ceffeac6d1a845cea381f219ea168d59b318201b9f419b5`
+
+This is the requested restart-boundary follow-up to the prior `session-current.zip` baseline. The earlier Session test ran as `Parent 6200`; this capture is a new browser process, `Parent 5112`, and spans `12:05:29.014–12:05:53.567 UTC`.
+
+### Restart boundary
+
+The first new `lk-fzs.roskazna.ru` client-auth request occurs at `12:05:43.453 UTC`, with `ca_count=34` and `browser_id=2`.
+
+- no old `scope=session` remembered hit occurs before this request is resolved;
+- coordinator creates fresh `decision=1`;
+- candidate enumeration returns `1` eligible certificate;
+- Firefox requests a fresh client-certificate picker at the same timestamp.
+
+Therefore the Session decision established in the previous browser process did not survive process termination/restart.
+
+### New-process Session behavior
+
+The user again selects the intended certificate with explicit `Session`:
+
+- decision `1` resolves positively at `12:05:47.363 UTC` with `remember=2`;
+- no `Once` lease is created;
+- five subsequent matching client-auth requests at `12:05:48.290–12:05:48.322 UTC` are served from `scope=session` without more UI;
+- six `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes complete with state `0x00000000`, `client_cert_loaded=1`, and positive current verification status.
+
+Whole-capture safety counts: one decision, one picker, five Session remembered hits, zero `Once` lease events, zero `selected=0`, zero `0x80090326`, zero `0x0000054f`, zero `MSSPI_X509_LOOKUP`, and zero `E/GostTLS`.
+
+### Conclusion
+
+**S1-C PASS. The explicit Session baseline is complete.**
+
+Together S1/S1-B/S1-C prove the intended lifetime: a positive Session choice is reusable across matching handshakes throughout the running browser process, user-visible behavior spans tabs/windows, it remains isolated from a different GOST mTLS host, and it is cleared when the browser process exits. A new process receives a fresh picker and may establish a new Session independently.
+
+The next planned code iteration is now the picker UX/default change: make `Session` the default remember duration, preserve explicit `Once` and its proven 5-second positive fanout lease, and render `Issued by` in a human-friendly form analogous to `Issued to`. True persistent `Permanent` semantics remain separate open work.
+
+Status: current; S1/S1-B/S1-C complete, explicit Session process lifetime closed.
