@@ -256,10 +256,22 @@ The portable archive contains:
 
 The same portable archive contains `omni.ja`, and inside it `defaults/pref/r3dfox-bundle.js` contains the exact Russian-first `intl.accept_languages` preference. Therefore the shared three-extension Mozilla staging and final portable-package inclusion are formally proven for this exact run/SHA.
 
+### Runtime discovery — PROVEN FOR THE TESTED INSTALLED PROFILE
+
+The exact packaged artifact `9614275050` has now crossed the browser-runtime discovery boundary. On 2026-08-27 the user installed that build and supplied an `about:addons` screenshot showing these three project extensions simultaneously under **Enabled**:
+
+- `CryptoPro Extension for CAdES Browser Plug-in`;
+- `Госплагин`;
+- `Расширение для плагина Госуслуг.`
+
+The raw screenshot is not committed. It also shows another extension and does not establish whether the profile itself was freshly created; therefore this result is intentionally narrower than the planned clean-profile gate. The screenshot does not display extension IDs or versions, so exact ID/version identity continues to come from the independently inspected package rather than from the runtime UI capture.
+
+This proves that the three XPI files are not merely present in the portable archive: Firefox discovers and enables all three in a real installed profile.
+
 ### Remaining runtime/workflow boundary
 
-The new shared package has **not yet** been runtime-proven in a clean profile. The next runtime artifact is `9614275050`; verify all three extensions are discovered/enabled and then test the two Gosuslugi extensions with their required native components. The earlier CryptoPro clean-profile proof remains authoritative only for artifact `9569387758` until CryptoPro is rechecked in the new three-extension build.
+Clean-profile discovery for this exact three-extension artifact remains open until a fresh-profile condition is explicitly established. The remaining functional matrix is also unchanged: re-check CryptoPro functionality on artifact `9614275050`, then test legacy IFCPlugin with its installed `ru.rtlabs.ifcplugin` native host and Gosplugin with its required local/native component. Extension update behavior and the Russian-first content-language preference remain separate runtime questions.
 
 The full-build workflow still carries its historical CryptoPro-specific name and automated final assertions. Generalize it later into one shared bundled-extension regression workflow that checks all three XPI plus the packaged language pref. Do not create three separate full Firefox builds.
 
-Transfer into `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` also remains open. A successful extension package does not establish GOST TLS behavior or Windows Vista/7 compatibility.
+Transfer into `.github/workflows/gost-poc-build.yml` and `.github/workflows/gost-poc-build-thunk.yml` also remains open. A successful extension package or discovery result does not establish GOST TLS behavior or Windows Vista/7 compatibility.
