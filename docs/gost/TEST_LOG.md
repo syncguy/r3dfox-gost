@@ -132,7 +132,7 @@ Status: resolved test-identity error; superseded by the valid T1R below.
 The user verified the actual launched binaries before the run:
 
 - `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`;
-- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`.
+- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a5a577da26fc1265481187`.
 
 These exactly match authoritative artifact `9636591432`, so this capture is bound to the intended fixing source.
 
@@ -255,3 +255,66 @@ Together, T1R and T1R-B prove the intended default-`Once` semantics on the real 
 The next runtime blocker is **F3 / GIS-G1** on `portalgisgmp.cert.roskazna.ru` using the same authoritative artifact `9636591432`.
 
 Status: current; F2 positive `Once` fanout/scope blocker closed.
+
+---
+
+## 2026-08-27 — GIS-G1/G2/G3 pass: generic coordinated client auth completes real GIS GMP GOST mTLS
+
+**Track:** GOST TLS runtime / Stage 2 generic multi-host client authentication  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`)  
+**Actions run:** `33039013849`  
+**Job:** `98408139479`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9636591432` (`r3dfox-gost-win64-release`)  
+**Runtime targets:** `pay.gov.ru`, `portalgisgmp.login.roskazna.ru`, `portalgisgmp.cert.roskazna.ru`  
+**Runtime capture:** user-provided `gis-g1-g2-g3.zip`, SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`; inner `gis-g1.moz_log`, SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`
+
+The capture spans `09:50:54.079–09:51:45.484 UTC` (`51.405 s`) in one browser process. The raw log is not committed because it contains detailed acceptable-CA DNs and certificate diagnostics; only sanitized counts/timings/protocol facts are recorded.
+
+### GIS-G1 — generic decision point is reached
+
+The generic coordinated client-certificate callback is registered successfully on all three allowlisted GOST hosts. On the real certificate endpoint:
+
+- callback registration for `portalgisgmp.cert.roskazna.ru` succeeds at `09:51:17.694 UTC`;
+- the real server client-certificate request reaches the callback at `09:51:17.959 UTC`;
+- current acceptable-CA count is **36**;
+- local candidate enumeration returns **1** policy-eligible candidate;
+- coordinator creates `decision=1`, adds one waiter and requests exactly one Firefox picker.
+
+Thus the old host-scope defect is reversed: the GIS GMP certificate host no longer bypasses the coordinator and no longer sends an empty client Certificate merely because it is not the Treasury Stage-1 hostname.
+
+### GIS-G2 — real GIS GMP GOST mTLS succeeds
+
+The user selected the intended certificate with default `Once`. At `09:51:20.626 UTC` the coordinator resolves `decision=1` positively (`remember=0`) and stores positive lease generation `1`, `idle_ms=5000`.
+
+The certificate endpoint then completes **5 successful GOST mTLS handshakes**:
+
+- first handshake: `09:51:21.421 UTC`;
+- follow-on handshakes: `09:51:22.185`, `09:51:22.200` (two sockets), and `09:51:23.619 UTC`;
+- all five negotiate TLS `0x0303` / TLS 1.2, cipher `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
+- all five reach `verify ok=1 status=0x00000000` under the currently implemented verification path;
+- four follow-on client-auth requests reuse the same positive `Once` lease without another picker.
+
+The user confirmed the certificate-login/application flow succeeds. Completed mTLS, rather than `client_cert_loaded=1` alone, proves real private-key use.
+
+### GIS-G3 — no spurious picker on non-mTLS GOST hosts
+
+Generic callback registration changes capability but does not force client authentication:
+
+- `pay.gov.ru`: callback registered once; one successful TLS 1.2 / `0xFF85` handshake with `client_cert_loaded=0`; **zero** client-certificate requests;
+- `portalgisgmp.login.roskazna.ru`: callback registered four times; four successful TLS 1.2 / `0xFF85` handshakes with `client_cert_loaded=0`; **zero** client-certificate requests;
+- all five client-certificate requests in the capture belong only to `portalgisgmp.cert.roskazna.ru`;
+- only one picker is shown for the entire GIS login flow.
+
+Whole-capture negative/safety counts: `selected=0` = `0`, `0x80090326` = `0`, `0x0000054f` = `0`, `MSSPI_X509_LOOKUP` = `0`, `E/GostTLS` = `0`.
+
+### Conclusion
+
+**GIS-G1 PASS. GIS-G2 PASS. GIS-G3 PASS. F3 generic GOST mTLS host-scope blocker is formally CLOSED for the tested current artifact.**
+
+The real GIS GMP certificate endpoint now reaches generic Firefox-coordinated client authentication, produces a valid candidate/picker, completes five real GOST mTLS handshakes, and proceeds successfully at application level. Non-mTLS GOST hosts do not show spurious certificate UI.
+
+GIS-G4 cross-host decision isolation remains a separate semantic regression test; final fail-closed server-trust closure also remains open.
+
+Status: current; F3 generic host-scope blocker closed.
