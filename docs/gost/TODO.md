@@ -4,94 +4,104 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-### 1. Fix coordinated client-auth close/shutdown lifecycle
+### 1. Formally close F1 from the existing T2R capture
 
-Current blocker is proven by T2 on main artifact `9606431408`, source `860de8e38deed326b7fcd1c547e928c5b48c72a9`, run `32951903026` attempt 2, job `98130275465`.
+Current fixing candidate:
 
-Implement:
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- authoritative main run `33039013849`, job `98408139479`;
+- main runtime artifact `9636591432`.
 
-- mark the MSSPI/socket as closing before legacy close / `msspi_shutdown()`;
-- refuse any client-cert callback for a closing handle before it can create/join a coordinated decision or open a dialog;
-- defensively remove any waiter by preserved handle identity after legacy close returns;
-- add concise decision/waiter/close lifecycle diagnostics;
-- keep stale-callback protection;
-- ensure timeout/load/socket teardown can never leave a reusable `Declined`/negative coordinated decision.
+T2R already passes its user-visible recovery behavior on a clean profile in one browser process:
 
-Do not retest the broken old artifact. After a fixing build, first run T2R from `STAGE2_RUNTIME_TEST_PLAN.md`: unanswered picker -> timeout/teardown -> F5/Try again/new login must produce a fresh picker.
+- unanswered picker -> timeout;
+- F5 -> fresh picker;
+- second unanswered picker -> timeout;
+- `Try again` -> fresh picker;
+- third unanswered picker -> timeout.
 
-### 2. Fix positive `Once` scope across one logical login
+This removes the old externally visible sticky failure from source `860de8e...`, where one timeout poisoned all later attempts until browser restart.
 
-T1 proves concurrent single-flight already works, but one Treasury login spans sequential connection waves and currently asks three times.
+Before formally closing F1, inspect the already-generated `C:\Temp\r3dfox\t2r*` capture and record hashes/timestamps. Verify:
 
-Implement an attempt-local **positive-only `Once` fanout/lease**:
+- handle is marked closing before legacy `msspi_shutdown()`;
+- any re-entrant client-cert callback for a closing handle is ignored before decision lookup/create/join;
+- pre/post close waiter cleanup leaves no orphan waiter/decision;
+- stale abandoned-dialog callback is harmless;
+- later attempts do not consume a stale automatic `selected=0`;
+- no `MSSPI_X509_LOOKUP` tight re-entry returns;
+- current `GostPoll client-auth wait quiescent` rate;
+- exact unanswered-picker lifetime on the fixing artifact.
 
-- one explicit `Once` selection may satisfy compatible follow-on waves of the same logical login/navigation attempt;
-- next independent login asks again;
-- do not change global Firefox remember defaults;
-- do not convert `Once` to `Session`;
-- never lease a decline, abort, zero-candidate result, internal failure, provider failure or server rejection;
-- use lifecycle/generation ownership rather than an unbounded arbitrary cache.
+The user observed approximately 30 seconds on all three cycles, versus the old exact ~45.005-second capture. Do not attribute the timing difference before reading the new log.
 
-After a fixing build, run T1R: successful Treasury login must complete real mTLS/application login with one visible picker for the logical attempt while all compatible live sockets receive the positive choice safely.
+If the capture passes, remove F1 from open work and add the concise closure to `DONE.md`.
 
-### 3. Generalize GOST mTLS client-auth beyond the Treasury Stage-1 host
+### 2. Validate positive `Once` scope across one logical login
 
-GIS GMP runtime on the same main artifact `9606431408`, source `860de8e...`, run `32951903026` attempt 2, job `98130275465`, now confirms the earlier source diagnosis.
+The F2 candidate is already implemented in source `ef1a7fdd...` as a positive-only `Once` fanout lease with a 5-second idle lifetime. Build gates are complete; runtime proof is still required.
 
-Capture `gost_pay.gov.ru.zip` (SHA-256 `2e9630e5d8048482ebc6a3d3ac0576db6af2c6b4e108c3c1de6ea4e30d99596b`; inner log SHA-256 `f32fd8bf7067dd487e79121faf467f1038906d91ed958df87c572aff991bc5ed`) proves:
+Run T1R after F1 log-level closure:
 
-- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` complete GOST TLS 1.2 / `0xFF85` successfully;
-- certificate login really reaches `portalgisgmp.cert.roskazna.ru` at the network layer;
-- that host sends a real TLS `CertificateRequest` with a non-empty acceptable-CA list containing 36 DER Distinguished Names in the captured handshake;
-- current browser answers with an empty TLS client `Certificate` message on all three observed cert-host attempts;
-- server returns fatal `handshake_failure` (`0x28`) and MSSPI reports primary `0x80090326`;
-- no custom client-cert callback/issuer/candidate marker appears for that host.
+- one fresh browser process;
+- enter Treasury personal cabinet;
+- leave default `Once`;
+- select the intended certificate once;
+- one logical login must complete with one visible picker;
+- compatible parallel/sequential connection waves must reuse only that positive choice safely;
+- all relevant mTLS handshakes and protected application login must succeed.
 
-Exact source still carries `kStage1MtlsHost = "lk-fzs.roskazna.ru"` and:
+If a second picker appears during the same logical login, stop and preserve the capture rather than manually working through repeated prompts.
 
-- registers `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` only for that one host;
-- rejects the Firefox client-auth callback when the current host differs from that one host.
+Then run T1R-B:
 
-Therefore F3 is now **runtime-confirmed**: the real GIS GMP server asks for client auth, but our Treasury-only callback scope prevents issuer collection, candidate filtering and the picker from running.
+- let the candidate's 5-second idle lease become inactive with a clear margin;
+- start an independent login in the same browser process;
+- a fresh picker must appear;
+- `Once` must not have become Session/Permanent.
 
-Implement F3:
+Never lease a decline, abort, zero-candidate result, internal failure, provider failure or server rejection.
 
-- make the Firefox/MSSPI client-auth callback available for every already-selected/allowlisted GOST socket that actually receives a client-certificate request;
-- remove the Treasury-only host rejection from the normal Firefox-UI/coordinated path;
-- do not broaden backend selection beyond the existing GOST allowlist/session policy;
-- do not automatically send a certificate; normal server `CertificateRequest` + Firefox selection/remember semantics still control client auth;
-- keep decision isolation by actual host, port, OriginAttributes and acceptable-CA identity;
-- keep the explicit `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT` path narrow/diagnostic rather than silently making it a cross-site automatic selector;
-- preserve the proven legacy A/B core as cleanly as practical;
-- add host/callback/issuer-count/candidate-count lifecycle diagnostics.
+### 3. Validate generic GOST mTLS client-auth on GIS GMP
 
-The user's CA-policy hypothesis is now narrower: the old server list is known to be non-empty (36 DNs), but the old artifact never invokes our own candidate filter on this host. Do not change issuer matching until post-F3 GIS-G1 produces an actual candidate count.
+The F3 candidate is already implemented in source `ef1a7fdd...`: the normal Firefox/coordinated client-auth callback can be registered for non-Stage-1 GOST sockets rather than remaining Treasury-only. Backend selection is still controlled by the existing GOST allowlist/session policy.
 
-Detailed GIS GMP design, runtime evidence and test branching are in `STAGE2_GIS_GMP.md`.
+Old GIS GMP evidence on artifact `9606431408` proved:
 
-After F3 is built, run GIS-G1 only after the core coordinator regressions T2R/T1R. If candidate count is nonzero, continue to real GIS GMP mTLS. If candidate count is zero, stop and diagnose the actual server CA list / local chain matching before changing issuer policy.
+- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` complete GOST TLS 1.2 / `0xFF85`;
+- certificate login reaches `portalgisgmp.cert.roskazna.ru`;
+- that host sends a real TLS `CertificateRequest`;
+- old capture contained 36 acceptable-CA DER DNs;
+- old browser sent an empty TLS client Certificate because the custom client-auth callback was not registered for that host;
+- server returned fatal `handshake_failure` (`0x28`) and MSSPI primary `0x80090326`.
 
-### 4. Build gates for the next candidate
+After T1R/T1R-B, run GIS-G1 on artifact `9636591432`:
 
-Prefer separable code changes for F1, F2 and F3, but one final candidate may contain all three to avoid redundant full builds.
+- prove generic callback registration for `portalgisgmp.cert.roskazna.ru`;
+- prove the real `CertificateRequest` reaches issuer collection;
+- record the then-current acceptable-CA count rather than assuming it is still 36;
+- record candidate count.
 
-Required gates:
+If candidate count > 0, continue to real GIS-G2 mTLS/application login. If candidate count == 0, stop and diagnose the actual server CA list/local chain matching before changing issuer policy.
 
-1. short `GOST SSL compile check`;
-2. authoritative main `GOST TLS PoC build`;
-3. bind runtime evidence to the exact new source SHA/run/job/artifact.
+Investigate zero candidates in this order:
 
-The thunk-rs build remains a separate Windows-compatibility line and is not required as GOST runtime proof.
+- server acceptable-CA binary identities/count;
+- whether the intended local chain contains an advertised authority;
+- Windows chain path/cross-sign selection;
+- raw DER-name equality versus Windows certificate-name comparison;
+- provider/private-key binding filter.
 
-### 5. Continue Stage 2 runtime matrix after T2R/T1R pass
+Do not publish client-certificate identifying DNs, serials, fingerprints, provider/container identifiers or private data.
+
+### 4. Continue Stage 2 runtime matrix after T2R/T1R/GIS-G1 closure
 
 Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining groups:
 
-- GIS GMP generic mTLS callback reachability, real acceptable-CA/candidate result and real GIS GMP mTLS login;
 - explicit Cancel/no-certificate vs involuntary Abort;
 - `Once`, explicit `Session`, explicit `Permanent`;
 - missing-media/provider Cancel and recovery;
-- long provider-media wait crossing the observed picker-timeout scale;
+- long provider-media wait using the current artifact's measured timeout scale;
 - Russian picker row/details rendering;
 - dynamic `CurrentUser\MY` discovery and token-only/removable-media discovery;
 - no acceptable cert / unsuitable cert / wrong cert / unavailable key / PIN-private-key failure / server rejection;
