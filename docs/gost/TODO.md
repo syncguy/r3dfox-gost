@@ -4,13 +4,20 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-### 1. Validate positive `Once` scope across one logical login
+### 1. Bind the T1R runtime binary, then validate positive `Once` scope
 
 F1 close/shutdown lifecycle is formally closed by T2R on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`. Do not repeat T2R unless a later source changes that lifecycle.
 
-The F2 candidate is already implemented in source `ef1a7fdd...` as a positive-only `Once` fanout lease with a 5-second idle lifetime. Build gates are complete; runtime proof is still required.
+The F2 candidate is implemented in source `ef1a7fdd...` as a positive-only `Once` fanout lease with a 5-second idle lifetime. Build gates are complete, but the first supplied T1R capture cannot be used to pass or fail F2 because its runtime log does not contain the mandatory `ef1a7...` decision/lease/closing markers and instead reproduces the pre-F1 `selected=0` / `0x80090326` cascade.
 
-Run T1R:
+Before the next T1R:
+
+- verify the launched directory is from main artifact `9636591432`;
+- require local `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- require local **`xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**;
+- `xul.dll` is the decisive check because the GOST coordinator is linked there.
+
+Then rerun T1R unchanged:
 
 - one fresh browser process;
 - enter Treasury personal cabinet;
@@ -20,11 +27,11 @@ Run T1R:
 - compatible parallel/sequential connection waves must reuse only that positive choice safely;
 - all relevant mTLS handshakes and protected application login must succeed.
 
-If a second picker appears during the same logical login, stop and preserve the capture rather than manually working through repeated prompts.
+If a second picker appears on a hash-bound current binary, stop and preserve the capture; that would be valid F2 failure evidence. Do not change the 5-second lease based on the unbound `t1r_error.zip` capture.
 
-Then run T1R-B:
+After a T1R pass, run T1R-B:
 
-- let the candidate's 5-second idle lease become inactive with a clear margin;
+- let the 5-second idle lease become inactive with a clear margin;
 - start an independent login in the same browser process;
 - a fresh picker must appear;
 - `Once` must not have become Session/Permanent.
