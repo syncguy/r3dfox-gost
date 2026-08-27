@@ -36,14 +36,23 @@ After a fixing build, run T1R: successful Treasury login must complete real mTLS
 
 ### 3. Generalize GOST mTLS client-auth beyond the Treasury Stage-1 host
 
-The exploratory GIS GMP flow (`pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> certificate login at `portalgisgmp.cert.roskazna.ru`) exposed a deterministic source restriction in `860de8e...`.
+GIS GMP runtime on the same main artifact `9606431408`, source `860de8e...`, run `32951903026` attempt 2, job `98130275465`, now confirms the earlier source diagnosis.
 
-Current source still carries `kStage1MtlsHost = "lk-fzs.roskazna.ru"` and:
+Capture `gost_pay.gov.ru.zip` (SHA-256 `2e9630e5d8048482ebc6a3d3ac0576db6af2c6b4e108c3c1de6ea4e30d99596b`; inner log SHA-256 `f32fd8bf7067dd487e79121faf467f1038906d91ed958df87c572aff991bc5ed`) proves:
+
+- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` complete GOST TLS 1.2 / `0xFF85` successfully;
+- certificate login really reaches `portalgisgmp.cert.roskazna.ru` at the network layer;
+- that host sends a real TLS `CertificateRequest` with a non-empty acceptable-CA list containing 36 DER Distinguished Names in the captured handshake;
+- current browser answers with an empty TLS client `Certificate` message on all three observed cert-host attempts;
+- server returns fatal `handshake_failure` (`0x28`) and MSSPI reports primary `0x80090326`;
+- no custom client-cert callback/issuer/candidate marker appears for that host.
+
+Exact source still carries `kStage1MtlsHost = "lk-fzs.roskazna.ru"` and:
 
 - registers `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` only for that one host;
 - rejects the Firefox client-auth callback when the current host differs from that one host.
 
-Therefore the old artifact cannot reach issuer collection, candidate filtering or the picker on the GIS GMP certificate endpoint. The user's acceptable-CA hypothesis remains a second-stage question, not the current first failure.
+Therefore F3 is now **runtime-confirmed**: the real GIS GMP server asks for client auth, but our Treasury-only callback scope prevents issuer collection, candidate filtering and the picker from running.
 
 Implement F3:
 
@@ -56,7 +65,9 @@ Implement F3:
 - preserve the proven legacy A/B core as cleanly as practical;
 - add host/callback/issuer-count/candidate-count lifecycle diagnostics.
 
-Detailed GIS GMP design, source diagnosis and test branching are in `STAGE2_GIS_GMP.md`.
+The user's CA-policy hypothesis is now narrower: the old server list is known to be non-empty (36 DNs), but the old artifact never invokes our own candidate filter on this host. Do not change issuer matching until post-F3 GIS-G1 produces an actual candidate count.
+
+Detailed GIS GMP design, runtime evidence and test branching are in `STAGE2_GIS_GMP.md`.
 
 After F3 is built, run GIS-G1 only after the core coordinator regressions T2R/T1R. If candidate count is nonzero, continue to real GIS GMP mTLS. If candidate count is zero, stop and diagnose the actual server CA list / local chain matching before changing issuer policy.
 
