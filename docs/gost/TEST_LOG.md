@@ -265,3 +265,48 @@ Keep the planned order unchanged:
 GIS-G1 must now specifically prove that the same real server `CertificateRequest` reaches our callback, that the 36-entry CA list (or the server's then-current list) is collected through MSSPI, and that candidate enumeration produces an explicit count. If the count is zero, only then investigate chain-path / raw-DER-name matching and provider-binding filters.
 
 Status: current runtime proof of F3; generic multi-host GOST mTLS client-auth remains blocked on code.
+
+---
+
+## 2026-08-27 — Three-extension packaged browser discovers all bundled extensions at runtime
+
+**Track:** bundled government-system extensions / browser runtime discovery  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `b3d097de20b7a5711f161199a727bcfe9468bcc8`  
+**Actions run:** `32976571122`  
+**Job:** `98202641607`  
+**Workflow:** `CryptoPro Mozilla packaging smoke` (historical/transitional name)  
+**Runtime artifact:** `9614275050` (`r3dfox-cryptopro-mozilla-packaging`)  
+**Packaging evidence artifact:** `9614275551`
+
+### Purpose
+
+Cross the browser-runtime boundary for the exact package previously proven to contain CryptoPro, legacy Gosuslugi/IFCPlugin, and Gosplugin. Determine whether Firefox actually discovers and enables all three bundled extensions after the built package is installed.
+
+The user supplied a screenshot of `about:addons`. The raw screenshot is not committed; only the sanitized UI observation is recorded.
+
+### User-visible observation
+
+The Add-ons Manager `Extensions` page shows all three project extensions simultaneously in the **Enabled** section:
+
+- `CryptoPro Extension for CAdES Browser Plug-in`;
+- `Госплагин`;
+- `Расширение для плагина Госуслуг.`
+
+An unrelated `uBlock Origin` entry is also visible. The user did not state that this was a newly-created Firefox profile, and the screenshot itself does not establish profile provenance. Therefore this result is intentionally recorded as installed-profile discovery rather than clean-profile discovery.
+
+The screenshot also does not display extension IDs or versions, so those values remain tied to the independently inspected packaged artifact rather than being claimed as separately observed runtime metadata.
+
+### Conclusion
+
+1. **The exact three-extension packaged browser has crossed the runtime discovery boundary.** Firefox presents all three bundled project extensions simultaneously as enabled in the installed browser.
+2. **This is stronger than package inspection but narrower than the planned clean-profile gate.** The package entries are not merely present on disk; Firefox has discovered them in a real profile.
+3. **Clean-profile discovery for this exact three-extension artifact remains open.** A fresh-profile run must be explicitly identified as such before that specific gate is closed.
+4. **Functionality remains separate.** This screenshot does not prove CryptoPro signature operations, legacy `ru.rtlabs.ifcplugin` nativeMessaging communication, Gosplugin native-component communication, update behavior, or language preference behavior.
+5. The earlier CryptoPro-only clean-profile functionality proof for artifact `9569387758` remains valid but is not silently transferred to artifact `9614275050`.
+
+### Next extension experiment
+
+Use artifact `9614275050` for the remaining runtime matrix: explicitly confirm clean-profile discovery/enabled state, re-check CryptoPro functionality, and exercise legacy IFCPlugin and Gosplugin with their required local/native components. Keep those conclusions separate from GOST TLS runtime and Windows compatibility.
+
+Status: current; installed-profile discovery/enabled state for all three extensions is proven, clean-profile and functional runtime gates remain open.
