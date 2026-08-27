@@ -155,7 +155,7 @@ async function setDetails() {
   document.l10n.setAttributes(
     document.getElementById("clientAuthCertDetailsIssuedBy"),
     "client-auth-cert-details-issued-by",
-    { issuedBy: cert.issuerName }
+    { issuedBy: cert.issuerCommonName || cert.issuerName }
   );
   document.l10n.setAttributes(
     document.getElementById("clientAuthCertDetailsStoredOn"),
