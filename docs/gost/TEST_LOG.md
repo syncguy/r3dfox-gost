@@ -61,7 +61,7 @@ Protected application-data traffic follows immediately. The user confirmed brows
 3. **`client_cert_loaded=1` is not by itself proof that the private key was available.** In the current wrapper it is set after `msspi_set_mycert()` accepts the certificate. Successful completion of the subsequent mTLS handshake is the proof that CryptoPro/SSPI actually obtained and used the private key.
 4. **Provider failure must not erase a positive user certificate choice.** If the user explicitly asked to remember a selected certificate, temporary `SEC_E_NO_CREDENTIALS`, missing media, cancelled provider UI, or similar private-key failures must remain attempt-local and must not be converted into a remembered no-certificate decision.
 5. **CryptoPro interactive private-key UI currently blocks Mozilla's Socket Thread.** Unlike the Firefox picker bug, which currently busy-polls while waiting asynchronously, the provider prompt is entered synchronously inside `msspi_connect()` and holds the socket-thread call for roughly 14 s in the cancelled attempt and 27 s in the successful recovery attempt. At the time of this runtime-only conclusion, Stage 2 treated that as a potential independent lifecycle blocker; the source audit below later narrows that interpretation by identifying a stock Firefox synchronous token-prompt analogue.
-6. Candidate discovery should not proactively trigger interactive CryptoPro provider UI merely to populate the Firefox certificate list. If stronger key-usability filtering is added, it must use a non-interactive/silent probe or defer actual private-key acquisition until the user has selected a certificate.
+6. Candidate discovery should not proactively trigger interactive CryptoPro provider UI merely to populate the list. If stronger key-usability filtering is added, it must use a non-interactive/silent probe or defer actual private-key acquisition until the user has selected a certificate.
 
 The final agreed GOST UX remains: the Firefox picker defaults to `Once`, scoped only to the GOST invocation. The global Firefox `security.client_auth_certificate_default_remember_setting` must remain unchanged. With that final default, a retry after the first provider cancellation will show the Firefox picker again unless the user explicitly chose `Session` or `Permanent`; this is intentional. If the user explicitly chose `Session`, retaining the positive selection across a temporary missing-container failure is also intentional.
 
@@ -140,7 +140,7 @@ The compile-validated source contains the first implementation of:
 - stale-callback/lifetime checks for coordinated decisions;
 - `ClientAuthCertificateRequested()` / `ClientAuthCertificateSelected()` forwarding through `GostSocketControl` toward the existing Necko client-auth lifecycle;
 - a coordinated picker-wait poll path intended to become quiescent instead of repeatedly re-entering `MSSPI_X509_LOOKUP`;
-- the agreed human-facing certificate row/detail formatting changes.
+- the agreed human-facing certificate picker row/detail formatting changes.
 
 ### Scope of the conclusion
 
@@ -268,3 +268,85 @@ The legacy Gosuslugi/IFCPlugin Firefox XPI baseline is now **vendored and short-
 This result does **not** yet prove Mozilla `FINAL_TARGET_FILES` staging, final portable-archive packaging, clean-profile Firefox discovery, or functional communication with an installed `ru.rtlabs.ifcplugin` native host. Those remain separate extension-track integration/runtime gates.
 
 Status: current baseline evidence; next step is real Mozilla packaging integration through the shared bundled-extension full-build workflow.
+
+---
+
+## 2026-08-26 — Three-extension government bundle passes real Firefox build/package and portable inspection
+
+**Track:** bundled government-system extensions / shared Mozilla packaging  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `b3d097de20b7a5711f161199a727bcfe9468bcc8`  
+**Companion short run:** `32976571124`  
+**Companion short job:** `98202642893`  
+**Companion evidence artifact:** `9609725660` (`bundled-extensions-smoke`)  
+**Full Actions run:** `32976571122`  
+**Full job:** `98202641607`  
+**Workflow:** `CryptoPro Mozilla packaging smoke` (historical/transitional name)  
+**Packaged-browser artifact:** `9614275050` (`r3dfox-cryptopro-mozilla-packaging`)  
+**Packaging evidence artifact:** `9614275551` (`cryptopro-mozilla-packaging-evidence`)  
+**Result:** success
+
+### Purpose
+
+Move from individual extension baselines to one real Firefox package containing the complete intended browser-side government-extension set while preserving the already-learned two-stage Mozilla packaging boundary. The same source also makes Russian the first website/content language preference for the produced browser bundle.
+
+The three intended XPI baselines are:
+
+- CryptoPro CAdES `ru.cryptopro.nmcades@cryptopro.ru`, version `1.2.14`;
+- legacy Gosuslugi/IFCPlugin `pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru`, version `1.2.8`;
+- Gosplugin `gosuslugi@plugin`, version `1.3.43.0`.
+
+### Source-level integration observation
+
+At source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`, all three XPI paths are declared in `r3dfox/moz.build` under `FINAL_TARGET_FILES.distribution.extensions`, and all three are explicitly listed in `browser/installer/package-manifest.in`. This intentionally applies the lesson from the earlier CryptoPro failure: reaching `dist/bin` is not enough; installer/package staging is a separate boundary.
+
+The same source stages `r3dfox/r3dfox-bundle.js` as a packaged default-pref file containing:
+
+```js
+pref("intl.accept_languages", "ru, en-US, en");
+```
+
+This preference controls website/content language negotiation order. It does not itself change the Firefox UI locale or install a Russian UI language pack.
+
+Companion low-cost workflow `Bundled extensions smoke`, run `32976571124`, job `98202642893`, source SHA `b3d097de...`, completed successfully. It validated all three committed XPI baselines and registry hashes/versions, required the expected source/package manifest entries, and required the Russian-first language pref declaration. Evidence artifact: `9609725660`.
+
+### Full Firefox build/package observation
+
+Full workflow run `32976571122`, job `98202641607`, is bound to exact source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8` and completed with `conclusion=success`.
+
+The job passed the full build/package path, including:
+
+- `Build release r3dfox` — success;
+- the historical CryptoPro `dist/bin` exact-XPI gate — success;
+- `Package release r3dfox` — success;
+- the historical CryptoPro final-portable exact-XPI gate — success;
+- packaged-browser upload — success;
+- packaging-evidence upload — success.
+
+The run produced packaged-browser artifact `9614275050` and packaging evidence artifact `9614275551`.
+
+Because the workflow still has CryptoPro-specific automated final gate names and assertions, the exact uploaded browser artifact was independently inspected after the run rather than treating CryptoPro's green gate as proof for the other two extensions.
+
+### Exact portable-archive inspection
+
+The `r3dfox-v153.0.3.win64.portable.7z` contained in artifact `9614275050` has SHA-256:
+
+`8cdc8ee6ca304787a549bb6879db1f47510bde4d7b9fdc65a56a994bbefed66a`
+
+Direct archive inspection confirms these exact entries:
+
+- `distribution/extensions/gosuslugi@plugin.xpi` — size `1272459`, SHA-256 `f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc`, manifest ID `gosuslugi@plugin`, version `1.3.43.0`, Manifest V3;
+- `distribution/extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi` — size `20232`, SHA-256 `72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80`, manifest ID `pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru`, version `1.2.8`, Manifest V2;
+- `distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` — size `76880`, SHA-256 `3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7`, manifest ID `ru.cryptopro.nmcades@cryptopro.ru`, version `1.2.14`, Manifest V2.
+
+The same portable archive contains `omni.ja`. Inside that archive, `defaults/pref/r3dfox-bundle.js` contains the exact `pref("intl.accept_languages", "ru, en-US, en");` line. Therefore the Russian-first content-language preference also crossed the real package boundary; its source declaration is not merely a staging-only change.
+
+### Conclusion
+
+The complete three-extension browser bundle is now **real-Firefox build/package proven** at exact source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`. All three expected signed XPI baselines are present in the exact portable `.7z` with their expected hashes and manifest identities, and the Russian-first website/content language pref is present in the packaged preference payload.
+
+This closes shared Mozilla staging and final portable-archive inclusion for the three-extension set. It does **not** prove clean-profile discovery or native-component functionality of the two Gosuslugi extensions. Those extensions depend on external native components, and packaging success must not be interpreted as nativeMessaging runtime success. The new three-extension artifact also does not prove GOST TLS runtime behavior or Windows Vista/7 compatibility.
+
+The next extension experiment is clean-profile runtime validation of artifact `9614275050`: confirm all three extensions are discovered/enabled, re-check CryptoPro functionality, then test legacy IFCPlugin and Gosplugin with their installed native components. The still-CryptoPro-named full packaging workflow should later be generalized so its automated final gates assert all three XPI plus the packaged language pref in a single full build.
+
+Status: current; three-extension portable packaging milestone closed, runtime discovery/functionality pending.

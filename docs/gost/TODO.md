@@ -118,34 +118,62 @@ Keep this track separate from GOST TLS runtime conclusions.
 
 ## Bundled government-system extensions — next
 
-Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). The standalone updater/fallback contract, real Mozilla portable-packaging proof, and clean-profile discovery/basic functional runtime proof are closed and recorded in `DONE.md`.
+Detailed design and evidence are tracked in [`EXTENSIONS.md`](./EXTENSIONS.md). Shared real Mozilla staging and final portable-package inclusion of the three-extension bundle are now closed at source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`, short run `32976571124` / job `98202642893`, and full packaging run `32976571122` / job `98202641607`; see `DONE.md` and `TEST_LOG.md`.
 
-### 1. Transfer only proven extension integration into the two main browser workflows
+### 1. Runtime-prove the complete three-extension bundle
 
-The dedicated Mozilla packaging proof is green at run `32847887872`, job `97801745453`, source SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
+Use packaged-browser artifact `9614275050` from run `32976571122`, source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`, with a clean profile.
 
-Add only the already-proven updater preparation and final package-verification gates to:
+Required runtime proof:
+
+- confirm Firefox automatically discovers and enables CryptoPro `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, and Gosplugin `1.3.43.0` without manual XPI installation;
+- confirm the bundled language preference presents Russian first in the website/content language list (`intl.accept_languages = "ru, en-US, en"`); this preference does not itself switch the Firefox UI locale;
+- re-check normal CryptoPro signature functionality on this exact three-extension artifact;
+- with the legacy system component installed, prove the legacy extension communicates with native host `ru.rtlabs.ifcplugin` on a service that still requires it;
+- with the Gosplugin local/native component installed, prove the new Gosplugin works on a supported Gosuslugi flow;
+- record failures of missing native components as runtime dependency evidence, not as packaging failures.
+
+### 2. Generalize the dedicated packaging workflow from CryptoPro-only gates to the shared bundle
+
+The successful full run still uses `.github/workflows/cryptopro-mozilla-packaging-smoke.yml` and its historical CryptoPro-specific job/gate names. The exact artifact proves all three XPI are present, but the YAML's automated final-archive assertions still explicitly verify only CryptoPro.
+
+Refactor the dedicated workflow to a shared bundled-extension packaging regression only after preserving run `32976571122` as the authoritative transition proof. The generalized workflow should:
+
+- validate the registry entries for all bundled extensions;
+- verify every expected XPI in real `dist/bin/distribution/extensions`;
+- verify every expected XPI by exact hash/manifest ID/version in the final portable archive;
+- verify the Russian-first pref is present in the packaged preference payload;
+- retain one full `mach build` + `mach package` rather than multiplying full builds per extension.
+
+### 3. Transfer only proven bundle preparation/final-package gates into the two main browser workflows
+
+Add the stable shared extension preparation and final package-verification gates to:
 
 - `.github/workflows/gost-poc-build.yml`;
 - `.github/workflows/gost-poc-build-thunk.yml`.
 
-Do not mix unrelated GOST runtime or Windows compatibility changes into that transfer.
+Keep GOST runtime and Windows compatibility conclusions separate even when the workflows carry the same bundled extensions.
 
-### 2. Prove a real CryptoPro extension version-to-version update
+### 4. Prove real extension update transitions
 
-Clean-profile discovery/install and basic functional use are already proven with packaged-browser artifact `9569387758` from run `32847887872` / source SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`.
-
-The exact source defaults are already compatible with automatic updating: `extensions.update.enabled = true`, `extensions.update.autoUpdateDefault = true`, the per-extension UI is `Default`, and the XPI declares CryptoPro's official `ffupdates.json` update manifest. No current `r3dfox/policies.json` rule disables CryptoPro extension updates.
-
-The remaining runtime proof is the actual update transition:
+CryptoPro:
 
 - start from an older valid signed CryptoPro Firefox XPI if one can be obtained safely, or wait until CryptoPro publishes a version newer than `1.2.14`;
-- use an otherwise clean profile with the extension update choice left at `Default`;
-- confirm Firefox discovers the vendor update without manual XPI installation;
-- confirm the extension advances to the newer signed version automatically;
-- re-run the normal CryptoPro signature-verification functionality after the update.
+- leave the per-extension update choice at `Default`;
+- confirm Firefox discovers and applies the vendor update automatically;
+- re-run normal CryptoPro signature-verification functionality after the update.
 
-Do not change the current installation architecture merely to manufacture an update proof. If an explicit enterprise policy is later desired, test it separately before replacing the standard Firefox update path.
+Gosplugin:
+
+- determine and runtime-prove the normal AMO update path from an older valid signed Gosplugin build to a newer one without replacing the packaging architecture merely to manufacture the proof;
+- current `1.3.43.0` XPI has no manifest `update_url`, so rely on observed Firefox/AMO behavior rather than assuming update semantics from the manifest alone.
+
+Legacy Gosuslugi/IFCPlugin `1.2.8`:
+
+- treat the committed signed `1.2.8` XPI as the baseline unless the vendor publishes a newer Firefox package or an explicit update mechanism;
+- its manifest has no `update_url`, and the currently known vendor endpoint is not a reliable hosted-runner dependency.
+
+Do not introduce enterprise-policy installation or forced-update semantics merely to make update tests easier; treat any such policy change as a separate behavioral decision and test it independently.
 
 ## Upstream r3dfox base tracking — deferred
 

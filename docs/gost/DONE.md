@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed.
 
@@ -132,3 +132,18 @@ The user tested that exact portable artifact with a new profile and confirmed:
 This closes clean-profile discovery/install and basic functional-use questions for the tested artifact. A real version-to-version automatic extension update remains separately open in `TODO.md`; the current source configuration indicates that automatic updates are enabled by default, but that update transition has not yet been observed in runtime evidence.
 
 Transfer of the proven packaging gates into the two main browser workflows also remains separate open work in `TODO.md`.
+
+### Three-extension government bundle real portable packaging — COMPLETE
+
+Formal passing evidence:
+
+- source SHA: `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
+- companion short validation: run `32976571124`, job `98202642893`, evidence artifact `9609725660`;
+- full Firefox packaging run: `32976571122`, job `98202641607`;
+- packaged-browser artifact: `9614275050` (`r3dfox-cryptopro-mozilla-packaging`);
+- packaging evidence artifact: `9614275551` (`cryptopro-mozilla-packaging-evidence`);
+- result: success.
+
+The exact `r3dfox-v153.0.3.win64.portable.7z` from that artifact was independently inspected and contains the three expected signed XPI baselines under `distribution/extensions`: CryptoPro `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, and Gosplugin `1.3.43.0`, each with the expected repository SHA-256 and manifest identity. The same portable archive's `omni.ja` contains `defaults/pref/r3dfox-bundle.js` with Russian first in `intl.accept_languages` (`ru, en-US, en`).
+
+This closes shared Mozilla staging plus final portable-package inclusion for the three-extension bundle. It does not prove clean-profile discovery or native-component functionality of the two Gosuslugi extensions, does not change the browser UI locale, and does not close extension update behavior or transfer/generalization of the packaging gates into the main browser workflows; those remain in `TODO.md`.

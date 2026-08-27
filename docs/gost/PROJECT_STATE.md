@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 This file is the authoritative current technical synthesis for the project. Detailed experiment evidence belongs in the current [`TEST_LOG.md`](./TEST_LOG.md) and immutable dated `TEST_LOG_*.md` volumes; closed milestones are summarized in [`DONE.md`](./DONE.md); forward work is in [`TODO.md`](./TODO.md); the detailed Stage 2 contract is in [`STAGE2_PLAN.md`](./STAGE2_PLAN.md).
 
@@ -197,18 +197,31 @@ Next Win7 work is full-Firefox msvcr14x integration, final PE audit, target-OS e
 
 ## Bundled government-system extensions track
 
-This is a third independent track.
+This is a third independent track. The current shared bundle contains three signed Firefox extensions:
 
-CryptoPro CAdES Firefox extension state:
+- CryptoPro CAdES: ID `ru.cryptopro.nmcades@cryptopro.ru`, version `1.2.14`, committed SHA-256 `3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7`;
+- legacy Gosuslugi/IFCPlugin: ID `pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru`, version `1.2.8`, committed SHA-256 `72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80`, native host reference `ru.rtlabs.ifcplugin`;
+- Gosplugin: ID `gosuslugi@plugin`, version `1.3.43.0`, committed SHA-256 `f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc`.
 
-- extension ID `ru.cryptopro.nmcades@cryptopro.ru`;
-- committed fallback v1.2.14;
-- updater `build/update-cryptopro-extension.py`;
-- standalone updater/fallback/staging proof: run `32815118778`, job `97701728235`, SHA `2ad7025ca300613d39a227b9e7582a341260d648`;
-- real Mozilla build/package proof: run `32847887872`, job `97801745453`, SHA `17b8d9762b489ed8fc9c3a8e1595802065dd7188`, packaged artifact `9569387758`;
-- clean-profile runtime discovery and basic CryptoPro signature functionality are confirmed for that exact artifact.
+Current shared packaging checkpoint:
 
-Remaining extension work: transfer only the proven updater/final-package gates into the two main browser workflows, and later prove a real vendor version-to-version automatic update. Do not mix this work with GOST TLS runtime conclusions or Windows compatibility.
+- source SHA `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
+- short `Bundled extensions smoke`: run `32976571124`, job `98202642893`, success, evidence artifact `9609725660`;
+- full `CryptoPro Mozilla packaging smoke` transition run: `32976571122`, job `98202641607`, success;
+- packaged-browser artifact `9614275050` (`r3dfox-cryptopro-mozilla-packaging`);
+- packaging evidence artifact `9614275551` (`cryptopro-mozilla-packaging-evidence`).
+
+The exact `r3dfox-v153.0.3.win64.portable.7z` from artifact `9614275050` has SHA-256 `8cdc8ee6ca304787a549bb6879db1f47510bde4d7b9fdc65a56a994bbefed66a`. Independent inspection confirms that this portable archive contains all three expected XPI paths under `distribution/extensions`, and each file matches the expected SHA-256, manifest ID and version above. Therefore shared Mozilla `FINAL_TARGET_FILES` staging plus the separate `browser/installer/package-manifest.in` package boundary are both proven for the three-extension bundle.
+
+The same portable archive's `omni.ja` contains `defaults/pref/r3dfox-bundle.js` with:
+
+```js
+pref("intl.accept_languages", "ru, en-US, en");
+```
+
+This makes Russian the first website/content language preference. It does not change the Firefox UI locale or bundle a Russian UI language pack.
+
+Runtime state remains narrower than packaging state. CryptoPro clean-profile discovery and basic signature functionality were proven earlier on artifact `9569387758`, but the new three-extension artifact `9614275050` has not yet been clean-profile/runtime-tested. The immediate extension experiment is to start that exact package with a clean profile, confirm all three extensions are discovered/enabled, re-check CryptoPro functionality, and test both Gosuslugi extensions with their required external native components. After that, generalize the still-CryptoPro-named full packaging workflow so its automated final gates explicitly assert all three XPI and the packaged language pref, then transfer only the proven shared gates into the two main browser workflows. Real version-to-version update behavior remains separately open.
 
 ## Separation of conclusions
 
