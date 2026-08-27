@@ -263,7 +263,11 @@ Current packaged three-extension checkpoint:
 - packaged-browser artifact `9614275050`;
 - evidence artifact `9614275551`.
 
-The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first website/content-language pref. Runtime discovery/functionality of this exact three-extension package remains open.
+The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first website/content-language pref.
+
+Runtime discovery has now crossed the browser boundary for this exact packaged artifact: after installing artifact `9614275050`, the user supplied an `about:addons` screenshot showing all three bundled project extensions simultaneously present under **Enabled**. This proves installed-profile discovery/enabled state for the three-extension package. The evidence does not establish that the profile was freshly created, and the screenshot does not independently expose runtime version/ID values.
+
+Still open on the extension track: clean-profile confirmation for this exact three-extension package, re-checking CryptoPro functionality on it, functional nativeMessaging tests for legacy IFCPlugin and Gosplugin with their required local components, update behavior, and generalizing/transferring the shared packaging gates.
 
 ## Separation of conclusions
 
