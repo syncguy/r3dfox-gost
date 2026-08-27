@@ -330,3 +330,70 @@ The screenshot does not display extension IDs or versions, so those values remai
 Use artifact `9614275050` for the remaining runtime matrix: re-check CryptoPro functionality, exercise legacy IFCPlugin and Gosplugin with their required local/native components, and verify the Russian-first content-language behavior if desired. Keep those conclusions separate from GOST TLS runtime and Windows compatibility.
 
 Status: current; three-extension clean-profile discovery/enabled-state milestone closed, functional runtime gates remain open.
+
+---
+
+## 2026-08-27 — F1/F2/F3 fixing candidate passes SSL, main full-build and thunk-rs full-build gates
+
+**Tracks:** GOST TLS runtime build gate + independent Windows Vista/7 compatibility revalidation  
+**Branch:** `agent/gost-tls-poc`  
+**Source-under-test:** `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`)
+
+### Candidate source content
+
+The source-under-test carries the three separately attributable Stage 2 candidate changes that were required by the preceding runtime evidence:
+
+- **F1 lifecycle:** MSSPI handles are marked closing before legacy shutdown, client-certificate callbacks detect and ignore a closing handle before coordinated decision creation/join, waiter cleanup is performed around close, and decision/waiter/close lifecycle diagnostics were added;
+- **F2 positive `Once` fanout:** a positive-only `Once` lease was added, keyed by the coordinated decision identity plus browser context, with a 5-second idle lifetime; declines/aborts are not stored as a positive lease;
+- **F3 generic mTLS reachability:** non-Stage-1 GOST sockets can register the MSSPI client-certificate callback and the normal Firefox/coordinated callback no longer rejects a host merely because it differs from `lk-fzs.roskazna.ru`; the existing explicit Stage-1 diagnostic behavior remains separately identifiable.
+
+These are source-level candidate implementations. They are **not** runtime proof that F1, F2 or F3 is fixed.
+
+### Short SSL compile gate
+
+- workflow: `GOST SSL compile check`;
+- run `33039013892`;
+- job `98408139567` (`Windows x64 / security-manager-ssl only`);
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- result: **success**.
+
+The security-manager SSL target objects compiled successfully on the exact candidate source.
+
+### Authoritative main GOST full build
+
+- workflow: `GOST TLS PoC build`;
+- run `33039013849`;
+- job `98408139479` (`Windows x64 / r3dfox GOST release`);
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- result: **success**;
+- release artifact `9636591432` (`r3dfox-gost-win64-release`), Actions digest `sha256:e18c8d2bc43ffa00318f7f3b82e585312cb251cd7ad5d1542f99df634846673f`;
+- Win7 import-audit artifact `9636591757`, Actions digest `sha256:028eaa1cdb2283cd58e0208523d1ecb2f9dfdc789681639e552533cfb372e328`.
+
+The workflow passed its SpiderMonkey/style, Rust Win7 build-std preflight, toolkit Rust target, SSL-object compile, full release build, packaging, direct Win8+ import rejection and artifact-upload gates.
+
+Artifact `9636591432` is the **authoritative browser for the next GOST runtime tests**. Build success alone does not prove a GOST handshake or any F1/F2/F3 runtime behavior.
+
+### Independent thunk-rs full-xul build
+
+- workflow: `GOST TLS PoC build - thunk-rs experiment`;
+- run `33039013822`;
+- job `98408139313` (`Windows x64 / r3dfox GOST / thunk-rs Win7`);
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- result: **success**;
+- browser artifact `9636047031` (`r3dfox-gost-win64-thunk-experiment`), Actions digest `sha256:4033c48ed3494cfc1ebeb3016e14ce5d1aebc67a4bb33e129dd47e8d37a783ed`;
+- diagnostics artifact `9636048172`, Actions digest `sha256:3d89f3e81a29a4619e6c819d7860547be4b0f49156d596eef98f2e7fc3526c5f`.
+
+This is current Windows-compatibility build/package/direct-import evidence for the same source. It is **not** GOST runtime proof and is not the browser to use for the first Stage 2 runtime regressions.
+
+### Conclusion / next experiment
+
+The planned compile/full-build prerequisites for the fixing candidate are complete. The project moves from **blocked on candidate build** to **blocked on runtime validation**.
+
+Runtime order on main artifact `9636591432`:
+
+1. **T2R first:** unanswered Treasury picker -> timeout/teardown -> without browser restart retry/new login must open a fresh picker and must not reuse an orphan `selected=0` decision;
+2. **T1R second:** successful Treasury login with default `Once` should require one visible picker for the logical login while compatible follow-on connection waves reuse the positive lease safely;
+3. **T1R-B:** after the positive lease is no longer active, an independent login must show a fresh picker, proving `Once` did not become Session/Permanent;
+4. **GIS-G1 third branch:** exercise `pay.gov.ru` -> login host -> certificate host and prove generic callback registration, acceptable-CA collection and candidate enumeration on the real GIS GMP `CertificateRequest` before changing issuer matching.
+
+Status: build gates complete; F1/F2/F3 remain runtime-unproven until T2R/T1R/T1R-B/GIS-G1 evidence is captured.
