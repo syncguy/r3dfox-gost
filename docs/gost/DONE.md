@@ -86,7 +86,20 @@ GIS-G2 proves real GIS GMP GOST mTLS/application success: the selected certifica
 
 GIS-G3 proves generic callback registration does not create spurious UI: `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` register the capability but issue zero client-certificate requests and complete with `client_cert_loaded=0`; all client-auth requests/picker activity belong only to the certificate endpoint.
 
-The old Treasury-host-specific empty-client-Certificate / `0x80090326` GIS failure is therefore closed. GIS-G4 cross-host decision isolation, the broader negative/client-decision matrix, provider/media scenarios, picker UX changes, and final fail-closed server trust remain open.
+The old Treasury-host-specific empty-client-Certificate / `0x80090326` GIS failure is therefore closed.
+
+### GIS-G4 cross-host remembered-decision isolation — COMPLETE
+
+Exact source/runtime browser is the same `ef1a7...` / run `33039013849` / job `98408139479` / artifact `9636591432`.
+
+Capture:
+
+- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
+- inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`.
+
+A positive Treasury `Session` decision is established first and reused for later matching `lk-fzs.roskazna.ru` handshakes. In the same running browser process, navigation to `portalgisgmp.cert.roskazna.ru` creates a fresh client-auth request with a different browser context (`browser_id=17`), a fresh coordinated decision, and a fresh Firefox picker. The Treasury Session certificate is not silently applied to the GIS GMP host. After an explicit GIS `Once` choice, GIS mTLS succeeds normally.
+
+This closes the planned cross-host isolation regression. Basic positive Session lifetime is proven in-process; the separate browser-restart boundary S1-C remains open before Session semantics are considered fully baseline-complete.
 
 ## Bundled government-system extensions
 
