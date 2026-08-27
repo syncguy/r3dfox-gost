@@ -97,3 +97,77 @@ The close/shutdown re-entrancy blocker is fixed at runtime: a closing MSSPI hand
 Next runtime test is **T1R** on the same main artifact `9636591432`: perform a successful Treasury login with default `Once` and verify that the positive 5-second fanout lease collapses the logical login to one visible picker while all relevant GOST mTLS handshakes succeed. Then run T1R-B to prove that an independent login asks again after the lease is inactive.
 
 Status: current; F1 lifecycle blocker closed, F2 runtime validation is next.
+
+---
+
+## 2026-08-27 — Supplied T1R capture is invalid for F2 because the runtime binary is not the current fixing source
+
+**Track:** GOST TLS runtime / Stage 2 positive `Once` fanout  
+**Branch:** `agent/gost-tls-poc`  
+**Intended browser:** source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`  
+**Actual browser identity:** unresolved; the runtime log is incompatible with the intended source and therefore cannot be bound to that build  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru`  
+**Runtime capture:** user-provided `t1r_error.zip`, SHA-256 `e42416dd8199a85e3faec5dbcab84d09f425ee3a39dd9bcc67ccff8a4ea39236`; inner `t1r.moz_log`, SHA-256 `80bf7e4062636df669799bba740d6ab423208e958d758cdf02d26cd9f1b5eab7`
+
+The raw capture is not committed. Only sanitized protocol/lifecycle facts are recorded.
+
+### User-visible procedure
+
+The user attempted the planned T1R flow: entered the Treasury personal cabinet, selected the intended certificate in the first picker with default `Once`, then immediately received a second picker. The second picker was deliberately left unanswered; after timeout the personal-cabinet page displayed an HTTP 500 error. A separate exploratory run in which the user accepted three successive picker dialogs eventually reached the personal cabinet, but that run was outside the planned T1R procedure and has no capture bound here.
+
+### Sanitized timeline from the supplied capture
+
+- first picker requested: `08:19:18.129 UTC`;
+- first picker resolved positively: `08:19:20.393 UTC`;
+- first real Treasury mTLS handshake completed with `client_cert_loaded=1`: `08:19:20.814 UTC`;
+- five follow-on sockets register the client-cert callback beginning at `08:19:21.126 UTC`;
+- second picker requested: `08:19:21.275 UTC`, only **0.461 s** after the completed first mTLS handshake;
+- the second decision collapses four additional concurrent sockets through the old `joined existing decision` path;
+- first close associated with the unanswered second picker begins at `08:20:00.590 UTC`, about **39.315 s** after that picker opened.
+
+If this had actually been the current `ef1a7...` binary, the 5-second positive lease would at minimum have executed its store/reuse instrumentation during this 0.461-second follow-on wave. It did not.
+
+### Binary/source fingerprint mismatch
+
+The current fixing source contains mandatory diagnostics for the code paths exercised by this test, including decision IDs/waiter lifecycle and positive-`Once` lease storage/reuse. In the supplied log the following current-source markers all occur **zero** times:
+
+- `client auth waiter added`;
+- `client auth decision resolved`;
+- `client certificate once lease stored`;
+- `client certificate once lease reused`;
+- `client certificate leased`;
+- `client auth handle closing` / `reason=closing`;
+- any `decision=` lifecycle marker.
+
+After the second picker times out, the capture instead reproduces the pre-F1 failure fingerprint:
+
+- `selected=0`: `37` occurrences;
+- `0x80090326`: `74` occurrences;
+- `0x0000054f`: `148` occurrences;
+- no `MSSPI_X509_LOOKUP` recurrence.
+
+This cannot be reconciled with the already-proven T2R behavior of artifact `9636591432`, where shutdown-time callbacks are rejected with `reason=closing` and the entire three-cycle capture contains zero `selected=0`, `0x80090326`, and `0x0000054f`.
+
+The log shape is consistent with a pre-`ef1a7...` coordinated binary, including the known source `860de8e...` baseline, but the exact old artifact cannot be asserted from the log alone. Per project evidence rules, F2 must not be judged from an unbound runtime binary.
+
+### Exact artifact hashes for the T1R preflight
+
+The authoritative artifact `9636591432` was downloaded and independently inspected:
+
+- Actions artifact ZIP SHA-256: `e18c8d2bc43ffa00318f7f3b82e585312cb251cd7ad5d1542f99df634846673f`;
+- packaged `r3dfox-v153.0.3.win64.zip` SHA-256: `ac9a36b541b24df2c782deef7b60014994162d036db8a1c049fd2b1936d9d757`;
+- `r3dfox/r3dfox.exe` SHA-256: `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- **`r3dfox/xul.dll` SHA-256: `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**.
+
+The GOST coordinator implementation is in `xul.dll`; therefore the `xul.dll` hash is the decisive local preflight. For comparison, exact old baseline artifact `9606431408` contains:
+
+- `r3dfox.exe` SHA-256 `7fd0e624b81ed5e973de37778e9a5959e8a101b4c1e7c6378ed14a224b2beb41`;
+- `xul.dll` SHA-256 `7cb152dedd17ad96871c46bef796da250aeac517b35002f34360d2c81b03b393`.
+
+### Conclusion / next experiment
+
+**This capture does not fail F2. It is an invalid T1R because the actual runtime binary is not the intended `ef1a7...` fixing build.** F1 remains closed; do not reopen it from this unbound capture.
+
+Before repeating T1R, hash the local `r3dfox.exe` and especially `xul.dll` from the directory being launched. Proceed only when they exactly match artifact `9636591432` above. Then rerun the original T1R procedure unchanged and preserve the new log. Only that bound capture may pass or fail the 5-second positive-`Once` lease.
+
+Status: current; F2 remains runtime-unproven, next step is exact-binary preflight followed by T1R rerun.
