@@ -28,34 +28,90 @@ r3dfox.exe -no-remote ^
   https://pay.gov.ru/
 ```
 
-No new runtime capture was supplied with this observation. Therefore the exact TLS error/timing/issuer-list contents for the GIS GMP attempt are **not** claimed here. The deterministic source restriction below is independently established from the exact source-under-test.
+Runtime capture later supplied for this exact described session:
 
-## User-visible exploratory observation
+- `gost_pay.gov.ru.zip`, SHA-256 `2e9630e5d8048482ebc6a3d3ac0576db6af2c6b4e108c3c1de6ea4e30d99596b`;
+- inner `gost.moz_log`, SHA-256 `f32fd8bf7067dd487e79121faf467f1038906d91ed958df87c572aff991bc5ed`;
+- capture span: `2026-08-27 03:28:19.547 UTC` through `03:28:55.898 UTC` (`36.351 s`);
+- `51,925` log lines.
 
-1. `pay.gov.ru` is successfully entered through the GOST transport.
-2. The browser reaches `portalgisgmp.login.roskazna.ru`, also through GOST TLS, and displays the password-login page.
-3. The page offers an alternative login-by-certificate action which is expected to use `portalgisgmp.cert.roskazna.ru` as the GOST mTLS endpoint.
-4. Activating certificate login does not produce the expected visible transition and no Firefox client-certificate picker appears.
+The raw capture is not committed. Only sanitized protocol/lifecycle facts and non-sensitive artifact hashes are recorded.
 
-The initial hypothesis was that GIS GMP may advertise a different acceptable-CA list. That remains a valid **second-stage** hypothesis, but the current source has an earlier guaranteed blocker which prevents this hypothesis from being exercised.
+## Runtime-proven GIS GMP path on the old coordinated artifact
 
-## Source-proven blocker — client auth is still Treasury-host-specific
+The capture upgrades the initial source-only diagnosis to runtime proof.
+
+### `pay.gov.ru`
+
+- matches the explicit GOST allowlist;
+- MSSPI GOST layer attaches;
+- `verify ok=1 status=0x00000000`;
+- one TLS 1.2 / `0xFF85` handshake completes;
+- `client_cert_loaded=0`.
+
+### `portalgisgmp.login.roskazna.ru`
+
+- matches the explicit GOST allowlist;
+- five GOST TLS handshakes complete in the capture;
+- all five are TLS 1.2 / `0xFF85`;
+- all five reach `verify ok=1 status=0x00000000`;
+- `client_cert_loaded=0`.
+
+This independently confirms the user-visible result that the public GIS GMP site and its password-login page work through the GOST transport.
+
+### `portalgisgmp.cert.roskazna.ru`
+
+The certificate-login action **does reach the certificate endpoint at the network layer**. The capture contains three distinct allowlist matches and GOST-layer attachments for the host, beginning at:
+
+- `03:28:45.657 UTC`;
+- `03:28:50.793 UTC`;
+- `03:28:52.295 UTC`.
+
+All three handshakes fail before completion. There is no `MSSPI handshake complete` or final verification marker for this host.
+
+The first handshake can be reconstructed from the sanitized TLS record structure:
+
+- server sends TLS 1.2 `CertificateRequest` (handshake type `13`);
+- `CertificateRequest` body length is `12,184` bytes;
+- its `certificate_authorities` vector is `12,143` bytes;
+- it contains **36 DER Distinguished Names**, all decodable as X.509 `Name` values;
+- the client then sends TLS `Certificate` message prefix `0B 00 00 03 00 00 00`, i.e. a zero-length `certificate_list`;
+- the same empty client-certificate message occurs on all three certificate-host attempts;
+- the server returns TLS fatal alert level `2`, description `0x28` (`handshake_failure`);
+- MSSPI reports primary `0x80090326` on each attempt; later calls against the already-failed handles emit the known secondary `0x0000054f` diagnostics.
+
+No `client certificate ...`, `issuer-list ...`, or `AddToSocket set_cert_cb ...` marker for `portalgisgmp.cert.roskazna.ru` appears in the capture.
+
+Therefore the user-visible lack of transition is downstream of the mTLS failure: the browser **does** connect to the cert host, but sends no client certificate and the server rejects the handshake.
+
+## Runtime-confirmed blocker — client auth is still Treasury-host-specific
 
 The current source retains `kStage1MtlsHost = "lk-fzs.roskazna.ru"` from the Stage 1 proof.
 
 There are two independent host gates:
 
-1. In socket setup, `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` is registered only when `aHost` equals `kStage1MtlsHost`. Therefore a normal GOST socket for `portalgisgmp.cert.roskazna.ru` has no Firefox/MSSPI client-certificate callback registered at all.
+1. In socket setup, `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` is registered only when `aHost` equals `kStage1MtlsHost`. Therefore a normal GOST socket for `portalgisgmp.cert.roskazna.ru` has no Firefox/MSSPI client-certificate callback registered.
 2. The wrapper callback itself obtains the current host and rejects any host other than `lk-fzs.roskazna.ru` before issuer logging, coordinated decision lookup/creation, candidate enumeration or picker dispatch.
 
-Consequently, on source `860de8e...`, GIS GMP cannot reach the current Firefox client-auth UI path regardless of which certificate authorities its server advertises. The absence of a picker is therefore explained at source level before CA filtering.
+The supplied capture exactly matches this source behavior: the real GIS GMP server sends `CertificateRequest`, but the browser never enters our client-auth callback/coordinator and emits an empty TLS client Certificate instead.
 
 This is a separate blocker from:
 
 - F1: close/shutdown re-entrancy and orphan decision;
 - F2: positive `Once` lifetime across sequential Treasury connection waves.
 
-Call this new blocker **F3 — generic GOST mTLS host scope**.
+Call this blocker **F3 — generic GOST mTLS host scope**.
+
+## What the real GIS GMP CA list does and does not prove
+
+The earlier hypothesis that GIS GMP may advertise a different trusted-CA set remains relevant, but it is now narrowed:
+
+- the server definitely advertises a non-empty CA list;
+- the observed list contains 36 DER DNs;
+- current artifact `9606431408` never runs our `CollectGostCANames()` / candidate filtering on this host;
+- therefore this capture cannot yet tell whether the user's intended certificate chain matches one of those 36 authorities under our current policy.
+
+Do **not** modify issuer matching merely because the list is different or large. First make F3 reach the existing candidate machinery and obtain the actual candidate count.
 
 ## Existing CA/candidate machinery that becomes relevant after F3
 
@@ -67,12 +123,12 @@ Once the callback is allowed to run for `portalgisgmp.cert.roskazna.ru`, the exi
 4. `GostClientCertMatchesCANames()` builds a Windows certificate chain and checks every chain element's Subject and Issuer against the server CA names.
 5. An empty server CA list currently means the certificate is not rejected by CA-name policy.
 
-The current name matcher is deliberately simple: `GostCertNameEquals()` requires equal DER length and byte-for-byte equality (`memcmp`). This may be sufficient when the server advertises the exact encoded DN present in the local chain, but it is a possible second compatibility boundary for other PKIs/cross-signed chains. Do not change it speculatively before obtaining GIS GMP evidence after F3.
+The current name matcher is deliberately simple: `GostCertNameEquals()` requires equal DER length and byte-for-byte equality (`memcmp`). This may be sufficient when the server advertises the exact encoded DN present in the local chain, but it is a possible second compatibility boundary for other PKIs/cross-signed chains.
 
-If GIS GMP later reaches the callback but reports zero candidates, investigate in this order:
+If GIS GMP reaches the callback after F3 but reports zero candidates, investigate in this order:
 
 - server acceptable-CA count and exact binary identities;
-- whether the user's intended certificate chain actually contains one of those authorities;
+- whether the intended local certificate chain actually contains one of those authorities;
 - whether Windows chain building selected a different cross-signed path;
 - whether raw DER-name equality rejects names that Windows considers identical (`CertCompareCertificateName` is a candidate comparison primitive);
 - whether the expected certificate was excluded earlier by provider/private-key binding requirements.
@@ -113,7 +169,7 @@ The core coordinator regressions remain first:
 2. **T1R** — one successful logical Treasury login under default `Once` should need one picker while compatible concurrent/sequential sockets receive the positive decision safely.
 3. Then run the GIS GMP branch below.
 
-Do not repeat old-artifact T1/T2 merely to recreate history.
+Do not repeat old-artifact T1/T2 or the old GIS GMP capture merely to recreate history.
 
 ## GIS-G1 — reach the GIS GMP mTLS decision point
 
@@ -130,10 +186,12 @@ Pass for F3 reachability:
 
 - GOST layer attaches to the certificate endpoint;
 - MSSPI client-cert callback is registered for `portalgisgmp.cert.roskazna.ru`;
-- server client-auth request reaches our callback;
-- acceptable-CA collection executes;
-- candidate enumeration executes;
-- the attempt no longer fails merely because the host differs from `lk-fzs.roskazna.ru`.
+- the real server `CertificateRequest` reaches our callback;
+- acceptable-CA collection executes and records an explicit count;
+- candidate enumeration executes and records an explicit count;
+- the attempt no longer emits an empty TLS Certificate merely because the host differs from `lk-fzs.roskazna.ru`.
+
+The old capture established a 36-DN CA list. GIS-G1 must treat the new server response as authoritative and record the then-current count rather than assuming it is permanently 36.
 
 ### GIS-G1A — candidates > 0
 
@@ -191,9 +249,9 @@ At minimum prove that a Treasury `Once` choice is never silently applied to `por
 
 ## Stop / recovery rules
 
-- The old artifact already proves the host-scope blocker from source; do not ask the user to repeat GIS GMP on `9606431408` just to confirm the same missing callback.
-- No runtime capture was supplied for the exploratory GIS GMP observation, so do not invent exact error codes or issuer-list contents for that attempt.
-- After F3, the first new GIS GMP capture is the authoritative evidence for the real server CA list and candidate result.
+- The old artifact/runtime capture now completely proves the host-scope failure mechanism; do not ask the user to repeat GIS GMP on `9606431408`.
+- The supplied old-artifact capture proves a real non-empty `CertificateRequest` with 36 CA DNs and an empty client Certificate; it does **not** prove whether the user's intended certificate would pass our own candidate filter after F3.
+- After F3, the first new GIS GMP capture is authoritative for the current server CA list and candidate result.
 - If GIS-G1 returns zero candidates, solve that branch before GIS-G2; do not misclassify zero candidates as a coordinator or timeout failure.
 - Keep GIS GMP work inside the GOST runtime track. It is independent of Win7 compatibility and bundled-extension testing.
 - Append each meaningful GIS GMP runtime result to `TEST_LOG.md` with exact source/run/job/artifact/capture hashes and update `PROJECT_STATE.md` / `TODO.md` when the blocker changes.
