@@ -24,9 +24,9 @@ Current constraints:
 - coordinated Firefox client-auth picker is default;
 - `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
 - explicit local thumbprint selection remains diagnostic only;
-- current UI default remains `Once`; `Once` uses a positive-only fanout lease with a 5-second idle lifetime and each successful reuse refreshes the idle expiry;
-- explicit `Session` uses the positive in-memory remember path for the matching coordinated decision key, is shared across matching handshakes in the running browser process rather than scoped to one tab/window, stays isolated from a different GOST mTLS host, and is cleared by browser-process restart;
-- the planned UX iteration will make `Session` the picker default while retaining explicit `Once` and its proven lease.
+- current source makes `Session` the GOST picker default; positive Session state uses the existing in-memory remember path for the matching coordinated decision key, is shared across matching handshakes in the running browser process rather than scoped to one tab/window, stays isolated from a different GOST mTLS host, and is cleared by browser-process restart;
+- explicit `Once` remains available and keeps the already-proven positive-only fanout lease with a 5-second idle lifetime; each successful reuse refreshes the idle expiry;
+- the picker details field `Issued by` now uses the human-facing issuer common name when available, with full issuer DN only as fallback.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -48,7 +48,7 @@ A locally designated client certificate can be loaded by MSSPI/CryptoPro and com
 
 ## Current Stage 2 coordinated browser identity
 
-Current F1/F2/F3 source:
+Runtime-proven F1/F2/F3 baseline:
 
 - source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`);
 - short SSL compile run `33039013892`, job `98408139567`, success;
@@ -58,7 +58,7 @@ Current F1/F2/F3 source:
 - independent thunk-rs full-xul run `33039013822`, job `98408139313`, success;
 - thunk browser artifact `9636047031`, diagnostics `9636048172`.
 
-Artifact `9636591432` is the authoritative browser for current GOST runtime testing. The thunk artifact is independent Windows-compatibility evidence and is not GOST runtime proof.
+Artifact `9636591432` remains the authoritative browser for the completed F1/F2/F3, GIS GMP and explicit-Session runtime evidence below. The thunk artifact is independent Windows-compatibility evidence and is not GOST runtime proof.
 
 Exact local binary preflight for main artifact `9636591432`:
 
@@ -66,6 +66,18 @@ Exact local binary preflight for main artifact `9636591432`:
 - `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
 
 The valid T1R/T1R-B, GIS GMP G1/G2/G3/G4, and explicit-Session S1/S1-B/S1-C evidence below is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
+
+Current picker UX/default build candidate:
+
+- source `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`);
+- changes: GOST-scoped picker default `Session`, explicit `Once` + 5-second positive lease unchanged, `Issued by` rendered from `issuerCommonName` with `issuerName` fallback, and callback registration logs include `picker_default=session`;
+- short SSL compile run `33073577249`, job `98521835147`, **success** on exact `head_sha=afbdad307f63e594d3715169d6e34235280dddaf`;
+- main full build run `33073577269`, job `98521835354`, still in progress on the same SHA at the time of this update;
+- independent thunk-rs full build run `33073577260`, job `98521835116`, still in progress on the same SHA at the time of this update.
+
+The short SSL gate proves compilation of the `security/manager/ssl` target for the new C++ source. It does not by itself prove the JavaScript picker presentation, full browser packaging, runtime default-Session behavior, or GOST handshake success. Those require the completed full artifact and targeted runtime regression.
+
+A separate packaging-only localization experiment is now running from workflow commit `07c7c48419ca39952a57a53967c1bcabaa8384c1`: CryptoPro packaging run `33076347741`, job `98531418338`. That workflow requests Russian UI by default only inside its own working tree and builds a `ru + en-US` multi-locale portable package; it does not change the English-only main/thunk build workflows.
 
 ## Stage 2 coordinated runtime checkpoint
 
@@ -84,9 +96,9 @@ T2R on artifact `9636591432` passed across three unanswered-picker timeout cycle
 
 Measured picker-to-close intervals were `32.576`, `37.420`, and `30.330 s`. Poll counts were `10,825`, `34`, and `21`; timeout-source attribution and first-cycle poll churn remain separate non-blocking work and do not reopen F1.
 
-### F2 — positive default-`Once` fanout/scope — CLOSED
+### F2 — positive default-`Once` fanout/scope — CLOSED on the runtime-proven baseline
 
-T1R and T1R-B on source `ef1a7...`, run `33039013849`, job `98408139479`, artifact `9636591432` prove both sides of the intended default-`Once` behavior.
+T1R and T1R-B on source `ef1a7...`, run `33039013849`, job `98408139479`, artifact `9636591432` prove both sides of the tested default-`Once` behavior. The current source changes only the initial UI choice to Session; explicit `Once` still uses this same lease mechanism and must receive a targeted regression on the new artifact.
 
 T1R capture:
 
@@ -104,7 +116,7 @@ T1R-B stays in the same process (`Parent 6204`) and same browser context (`brows
 
 Whole T1R-B capture: 2 decisions, 2 picker requests, 2 positive lease stores, 11 generation-1 reuses, 14 successful login-host mTLS handshakes, and zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks, or `E/GostTLS`.
 
-Therefore default `Once` now has the intended attempt-local positive fanout semantics: compatible waves within the idle lease reuse one user choice, while an independent post-expiry attempt asks again. F2 is formally closed for this tested artifact.
+Therefore the explicit `Once` mechanism has the intended attempt-local positive fanout semantics on the runtime-proven baseline: compatible waves within the idle lease reuse one user choice, while an independent post-expiry attempt asks again. F2's mechanism remains closed; the new artifact still needs a focused regression to prove no implementation regression from the UI-default change.
 
 ### F3 — generic GOST mTLS host scope — CLOSED
 
@@ -170,12 +182,12 @@ Therefore S1/S1-B/S1-C prove the intended browser-process lifetime: positive Ses
 
 ## Immediate runtime / implementation order
 
-1. **Picker UX/default iteration — NEXT:** make `Session` the default remember duration, preserve explicit `Once` and its proven positive 5-second lease, and render `Issued by` in the same human-friendly style as `Issued to`. Build and run targeted regressions on the exact new artifact.
+1. **Picker UX/default build candidate — ACTIVE:** short SSL compile gate is green on source `afbdad...`; wait for main run `33073577269` to produce the authoritative new artifact, then run targeted exact-artifact regressions for default Session, same-process reuse, restart boundary, explicit Once, cross-host isolation, and the human-friendly `Issued by` presentation.
 2. Continue explicit Cancel/no-certificate vs Abort, true Persistent/Permanent semantics, provider/media, picker UI, discovery and negative matrix.
 3. Complete final server-trust closure.
 4. Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
-Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or the explicit-Session baseline on this unchanged source merely for confirmation.
+Do not treat the successful short compile as runtime or full-packaging proof. Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or the explicit-Session baseline on the old unchanged artifact merely for confirmation.
 
 ## Server trust — still mandatory
 
@@ -203,12 +215,14 @@ These scenarios need revalidation after the current client-decision/UX work.
 
 ## Windows Vista/7 compatibility — independent track
 
-Current full-xul narrow YY/thunk-rs revalidation:
+Runtime-proven full-xul narrow YY/thunk-rs revalidation baseline:
 
 - source `ef1a7fdd...`;
 - run `33039013822`, job `98408139313`;
 - browser artifact `9636047031`;
 - diagnostics `9636048172`.
+
+A new independent thunk build for source `afbdad...` is currently run `33073577260`, job `98521835116`; it remains Windows-compatibility evidence and must not be interpreted as GOST runtime proof.
 
 Still open: full-Firefox msvcr14x integration, final direct/delay-load PE audit, real Win7 runtime without the copied compatibility bundle, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
 
@@ -223,7 +237,9 @@ Current three-extension package checkpoint:
 
 The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled-state is proven for all three project extensions.
 
-Still open: CryptoPro functionality on this exact three-extension artifact, native-component tests for IFCPlugin and Gosplugin, runtime language-preference verification if desired, update behavior, and transfer/generalization of packaging gates.
+Current packaging experiment `33076347741` / job `98531418338`, source/workflow commit `07c7c48419ca39952a57a53967c1bcabaa8384c1`, adds a packaging-only Russian-default Firefox UI with `en-US` retained in the same multi-locale package. This experiment is in progress and has no success conclusion yet.
+
+Still open: successful completion/runtime verification of this ru+en-US packaging experiment, CryptoPro functionality on the exact packaged artifact, native-component tests for IFCPlugin and Gosplugin, update behavior, and transfer/generalization of packaging gates.
 
 ## Separation of conclusions
 
