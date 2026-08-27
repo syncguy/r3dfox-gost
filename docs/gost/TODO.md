@@ -4,39 +4,34 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-### 1. Bind the T1R runtime binary, then validate positive `Once` scope
+### 1. Complete F2 scope validation with T1R-B
 
-F1 close/shutdown lifecycle is formally closed by T2R on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`. Do not repeat T2R unless a later source changes that lifecycle.
+F1 close/shutdown lifecycle is formally closed by T2R on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
 
-The F2 candidate is implemented in source `ef1a7fdd...` as a positive-only `Once` fanout lease with a 5-second idle lifetime. Build gates are complete, but the first supplied T1R capture cannot be used to pass or fail F2 because its runtime log does not contain the mandatory `ef1a7...` decision/lease/closing markers and instead reproduces the pre-F1 `selected=0` / `0x80090326` cascade.
+The valid, hash-bound T1R on the same artifact now passes:
 
-Before the next T1R:
+- local `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- local `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`;
+- capture `t1r-current.zip` SHA-256 `1c75f484607a6e3eb95439275e2698098a04551689619f95f93f13ca890b248e`;
+- inner log SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`;
+- one visible certificate picker for the complete Treasury login;
+- one positive `Once` lease store plus seven lease reuses across two follow-on connection waves;
+- eight successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1`;
+- protected personal-cabinet login succeeds and subsequent use is normal;
+- no `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP` or GOST errors.
 
-- verify the launched directory is from main artifact `9636591432`;
-- require local `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
-- require local **`xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**;
-- `xul.dll` is the decisive check because the GOST coordinator is linked there.
+Do not repeat T1R on unchanged source merely for confirmation. The earlier `t1r_error.zip` was later confirmed by the user to have been run from an older browser build and is historical invalid-test evidence only.
 
-Then rerun T1R unchanged:
+The remaining F2 gate is **T1R-B**:
 
-- one fresh browser process;
-- enter Treasury personal cabinet;
-- leave default `Once`;
-- select the intended certificate once;
-- one logical login must complete with one visible picker;
-- compatible parallel/sequential connection waves must reuse only that positive choice safely;
-- all relevant mTLS handshakes and protected application login must succeed.
+- keep the same browser process/profile;
+- after the successful T1R activity is quiet, allow a clear margin beyond the positive lease's 5-second idle lifetime;
+- remember that each reuse refreshes expiry; the last T1R reuse was at `08:44:02.588 UTC`, so expiry is measured from the last reuse, not from the original picker;
+- initiate an independent Treasury login that causes a new client-auth handshake;
+- a fresh Firefox certificate picker must appear;
+- the prior default `Once` selection must not behave as Session/Permanent.
 
-If a second picker appears on a hash-bound current binary, stop and preserve the capture; that would be valid F2 failure evidence. Do not change the 5-second lease based on the unbound `t1r_error.zip` capture.
-
-After a T1R pass, run T1R-B:
-
-- let the 5-second idle lease become inactive with a clear margin;
-- start an independent login in the same browser process;
-- a fresh picker must appear;
-- `Once` must not have become Session/Permanent.
-
-Never lease a decline, abort, zero-candidate result, internal failure, provider failure or server rejection.
+If T1R-B passes, F2 can be formally closed and moved to `DONE.md`. Never lease a decline, abort, zero-candidate result, internal failure, provider failure or server rejection.
 
 ### 2. Validate generic GOST mTLS client-auth on GIS GMP
 
@@ -51,7 +46,7 @@ Old GIS GMP evidence on artifact `9606431408` proved:
 - old browser sent an empty TLS client Certificate because the custom client-auth callback was not registered for that host;
 - server returned fatal `handshake_failure` (`0x28`) and MSSPI primary `0x80090326`.
 
-After T1R/T1R-B, run GIS-G1 on artifact `9636591432`:
+After T1R-B, run GIS-G1 on artifact `9636591432`:
 
 - prove generic callback registration for `portalgisgmp.cert.roskazna.ru`;
 - prove the real `CertificateRequest` reaches issuer collection;
@@ -70,7 +65,7 @@ Investigate zero candidates in this order:
 
 Do not publish client-certificate identifying DNs, serials, fingerprints, provider/container identifiers or private data.
 
-### 3. Continue Stage 2 runtime matrix after T1R/T1R-B/GIS-G1 closure
+### 3. Continue Stage 2 runtime matrix after T1R-B/GIS-G1 closure
 
 Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining groups:
 
@@ -92,7 +87,7 @@ T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
 - picker-to-close intervals: `32.576 s`, `37.420 s`, `30.330 s`;
 - `GostPoll client-auth wait quiescent`: `10,825`, `34`, and `21` calls respectively.
 
-The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. This is **not** a blocker for T1R because decision cleanup is correct, but before changing timeout policy or calling the wait path fully quiescent:
+The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. This is not a blocker for T1R-B because decision cleanup is correct, but before changing timeout policy or calling the wait path fully quiescent:
 
 - identify which Firefox/Necko/load timer actually tears down each attempt;
 - explain why the first cycle polls much more aggressively than later cycles;
