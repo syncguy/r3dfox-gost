@@ -198,7 +198,7 @@ Current signed AMO baseline:
 - permission: `nativeMessaging`;
 - manifest `update_url`: absent.
 
-The initial bootstrap run `32974033522`, job `98194284032`, source SHA `339eb661...` successfully downloaded and validated the exact AMO XPI but failed later on a workflow variable/name handoff. That was a harness failure after XPI validation. The corrected bootstrap run `32974162330`, job `98194711292`, source SHA `9984e41623d675684eb1ad78a35b7830d1e024c0`, completed successfully and produced bot commit `b98d04e204e6bd95d4cd532e1640642e7828b277`, which vendors the validated XPI.
+The initial bootstrap run `32974033522`, job `98194284032`, source SHA `339eb661782ab8b4cb5bcd1a02d930c37a862835` successfully downloaded and validated the exact AMO XPI but failed later on a workflow variable/name handoff. That was a harness failure after XPI validation. The corrected bootstrap run `32974162330`, job `98194711292`, source SHA `9984e41623d675684eb1ad78a35b7830d1e024c0`, completed successfully and produced bot commit `b98d04e204e6bd95d4cd532e1640642e7828b277`, which vendors the validated XPI.
 
 As with the legacy extension, functional runtime requires its separate local/native Gosplugin component. Bundling the XPI proves browser-side availability only.
 
