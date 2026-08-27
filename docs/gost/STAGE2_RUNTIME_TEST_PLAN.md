@@ -21,21 +21,6 @@ The GOST coordinator is linked into `xul.dll`; when binary identity is uncertain
 
 Every runtime conclusion must record exact source SHA, run/attempt/job, browser artifact, sanitized capture hashes, user-visible result and sanitized protocol/lifecycle result. Never publish client-certificate identifiers, credential/provider/container data, PIN/passwords, private-key material, account data or unsanitized captures.
 
-Standard Treasury launch environment remains:
-
-```bat
-set "R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru"
-set "R3DFOX_GOST_CLIENT_CERT_THUMBPRINT="
-set "R3DFOX_GOST_CLIENT_AUTH_MODE="
-set "R3DFOX_GOST_CIPHERS="
-
-r3dfox.exe -no-remote ^
-  -profile C:\Temp\r3dfox\profile ^
-  --MOZ_LOG=timestamp,sync,GostTLS:5 ^
-  --MOZ_LOG_FILE=C:\Temp\r3dfox\gost ^
-  https://fzs.roskazna.ru/
-```
-
 ## Completed historical baseline tests — do not repeat
 
 ### T1 old baseline — DONE
@@ -74,16 +59,7 @@ Capture:
 - `t1r-current.zip` SHA-256 `1c75f484607a6e3eb95439275e2698098a04551689619f95f93f13ca890b248e`;
 - inner `t1r-current.moz_log` SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`.
 
-Pass result:
-
-- one Firefox client-certificate picker for one complete Treasury login;
-- one positive default-`Once` lease store;
-- seven lease reuses across sequential follow-on waves without additional UI;
-- eight successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1`;
-- protected personal cabinet loads and behaves normally;
-- zero sticky negative/failure markers.
-
-This closes the original repeated-picker symptom within one logical login.
+Pass result: one picker, one positive `Once` lease store, seven lease reuses across sequential waves, eight successful Treasury mTLS handshakes, protected application success, zero sticky failure markers.
 
 ## T1R-B — PASS / F2 CLOSED
 
@@ -92,96 +68,76 @@ Capture:
 - `T1R-B-current.zip` SHA-256 `c2d018b8637467b4c1368bfa66399dd042d73b88c39c6de7bf07368c7524ea65`;
 - inner `t1r-current.moz_log` SHA-256 `c30c9f61e008d8bdb321570373c1c5cf6f3bc9eaa9e980564d463d03e307686e`.
 
-Same browser process (`Parent 6204`) and same browser context (`browser_id=14`) contain two independent logical client-auth attempts.
-
-First attempt:
-
-- decision 1 / picker at `09:07:05.459 UTC`;
-- generation 1 stored at `09:07:07.998`;
-- generation 1 reused 11 times;
-- final reuse `09:07:13.004`;
-- nominal idle expiry `09:07:18.004`.
-
-Independent post-expiry attempt:
-
-- real client-auth request at `09:09:44.169 UTC`, 151.165 s after final generation-1 reuse and 146.165 s after nominal expiry;
-- fresh `decision=2` created;
-- fresh Firefox certificate picker requested;
-- no automatic generation-1 reuse occurs for the new request;
-- new positive choice stores generation 2 at `09:09:46.616`;
-- new attempt completes TLS 1.2 / `0xFF85` mTLS with `client_cert_loaded=1`.
-
-Whole capture: 2 decisions, 2 picker requests, 2 lease stores, 11 generation-1 reuses, 14 successful login-host mTLS handshakes, zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks or `E/GostTLS`.
-
-**F2 is formally closed.** Default `Once` is positive attempt-local fanout, not Session/Permanent: compatible waves reuse within the idle lease; an independent post-expiry request asks again.
-
-Do not repeat T1R/T1R-B on unchanged source merely for confirmation.
+Same-process post-expiry login creates a fresh decision/picker rather than reusing the expired generation. F2 is formally closed. Do not repeat T1R/T1R-B on unchanged source merely for confirmation.
 
 ## GIS-G1/G2/G3 — PASS / F3 CLOSED
-
-Current artifact `9636591432`.
 
 Capture:
 
 - `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`;
 - inner `gis-g1.moz_log` SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`.
 
-GIS-G1 proves the current generic callback reaches the real `portalgisgmp.cert.roskazna.ru` client-auth decision point:
+Proven:
 
-- generic callback registration succeeds;
-- the server client-certificate request reaches the callback;
-- current acceptable-CA count is `36`;
-- candidate count is `1`;
-- one decision/waiter and one Firefox picker are created.
+- generic callback reaches the real `portalgisgmp.cert.roskazna.ru` client-auth request;
+- current acceptable-CA count `36`, candidate count `1`;
+- one picker leads to real GIS GMP TLS 1.2 / `0xFF85` mTLS/application success;
+- four compatible follow-on requests reuse the positive `Once` lease;
+- non-mTLS GOST hosts do not show spurious picker UI.
 
-GIS-G2 proves real GIS GMP mTLS/application success:
+F3 is formally closed. Do not repeat GIS-G1/G2/G3 on unchanged source merely for confirmation.
 
-- the user selects the intended certificate with default `Once`;
-- generation 1 positive lease is stored;
-- four follow-on client-auth requests reuse it without more UI;
-- five certificate-host TLS 1.2 / `0xFF85` handshakes complete with state `0x00000000`, `client_cert_loaded=1`, and positive current verification status;
-- the user confirms the certificate-login/application flow succeeds.
+## S1/S1-B — PASS / explicit Session process baseline
 
-GIS-G3 proves generic callback registration is capability-only on non-mTLS GOST hosts:
+Capture:
 
-- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` register the callback;
-- neither host issues a client-certificate request;
-- their handshakes complete with `client_cert_loaded=0`;
-- only `portalgisgmp.cert.roskazna.ru` causes client-auth UI.
+- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
+- inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`;
+- browser process `Parent 6200`.
 
-Whole capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `E/GostTLS`.
+Treasury result:
 
-**F3 is formally closed.** Do not repeat GIS-G1/G2/G3 on unchanged source merely for confirmation.
+- decision `1` / first picker at `11:36:28.521 UTC`;
+- explicit `Session` resolves at `11:36:33.382`, `remember=2`;
+- ten later matching client-auth requests consume `scope=session` without a second Treasury picker;
+- eleven Treasury TLS 1.2 / `0xFF85` mTLS handshakes complete with `client_cert_loaded=1`;
+- user confirms the active Session remains usable across tabs and browser windows in the same running browser process.
 
-## NEXT — explicit `Session` baseline before picker-default change
+The logged Treasury client-auth requests all carry `browser_id=14`; therefore the log itself proves process-level remembered reuse, while the tab/window topology is user-observed rather than separately represented by distinct browser IDs.
 
-The current build still defaults to `Once`, but explicit `Session` can be selected manually now. Baseline its existing semantics before changing the default UI:
+## GIS-G4 — PASS / cross-host decision isolation CLOSED
 
-### S1 — explicit Session first login
+The same `session-current.zip` capture proves stronger cross-host isolation using a live Treasury `Session` decision:
 
-- start a fresh process/profile;
-- enter Treasury personal cabinet;
-- manually choose `Session` in the remember dropdown;
-- select the intended certificate;
-- protected login must succeed.
+- Treasury Session is already active;
+- later `portalgisgmp.cert.roskazna.ru` client-auth arrives with `browser_id=17`;
+- fresh decision `2` and a fresh picker are created at `11:37:37.389 UTC`;
+- Treasury Session is not silently applied to the different GOST mTLS host;
+- after the user selects GIS `Once`, one lease plus four reuses feed five successful GIS mTLS handshakes.
 
-### S1-B — same-process independent login
+Whole capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks, or `E/GostTLS`.
 
-In the same browser process, initiate a new matching client-auth login that actually causes a fresh TLS client-auth handshake.
+Do not repeat GIS-G4 on unchanged source merely for confirmation.
 
-Pass: no new picker; Firefox/session remember semantics supply the positive certificate for the matching request.
+## NEXT — S1-C Session process-restart boundary
 
-### S1-C — process restart boundary
+Fully close r3dfox, restart with the same profile, and initiate the same Treasury client-auth flow.
 
-Close r3dfox completely, restart with the same profile, and initiate the same login.
+Pass: a fresh picker appears. The explicit Session choice must not survive browser-process restart.
 
-Pass: a fresh picker appears because Session must not survive browser-process restart.
+This is the remaining baseline check before changing the picker default from `Once` to `Session`.
 
-This baseline proves semantics only. After it, the planned code/UX iteration may make `Session` the default while preserving explicit `Once` and its proven positive-only short fanout lease. The same iteration should render `Issued by` using a human-friendly issuer display analogous to `Issued to`.
+## Planned picker UX/default iteration
 
-## GIS-G4 — cross-host decision isolation — OPEN
+After S1-C:
 
-At minimum prove that a Treasury `Once` choice is never silently applied to `portalgisgmp.cert.roskazna.ru`. When Session/Permanent semantics are exercised, keep host/port/OriginAttributes/acceptable-CA decision isolation intact.
+- make `Session` the default remember duration;
+- retain explicit `Once` and its proven positive 5-second idle fanout lease;
+- keep 5 seconds hard-coded for the current iteration, with later consideration of an `about:config` preference;
+- render `Issued by` as a human-friendly issuer display analogous to `Issued to`;
+- targeted exact-build regression: default Session first login, same-process matching reuse, restart boundary, and explicit Once regression.
+
+Current source treats all non-`Once` positive choices through the same process-local remember store. Therefore true persistent `Permanent` behavior is not yet established and remains a separate implementation/test item.
 
 ## Remaining client-decision semantics
 
@@ -195,11 +151,11 @@ Exercise navigation/tab/load teardown without a user decision. State must be `Ab
 
 ### T5 — explicit Session
 
-The S1/S1-B/S1-C baseline covers the basic positive Session lifetime. Later matrix work should additionally check temporary provider failures and matching-policy boundaries do not overwrite or leak the positive Session decision.
+S1/S1-B prove basic positive in-process Session reuse. S1-C still must prove process restart clears it. Later matrix work should additionally prove temporary provider failures and matching-policy boundaries do not overwrite or leak the positive Session decision.
 
 ### T6 — explicit Permanent
 
-Positive choice should persist according to Firefox permanent remember semantics and be removable by the intended user/Firefox forget/change action. Negative/provider failures must not overwrite it.
+Implement/verify actual persistent semantics distinct from the current process-local non-Once store. Positive choice should persist according to Firefox permanent remember semantics and be removable by the intended forget/change action. Negative/provider failures must not overwrite it.
 
 ## Provider/private-key media
 
