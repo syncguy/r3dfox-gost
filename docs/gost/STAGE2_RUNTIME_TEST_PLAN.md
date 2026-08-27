@@ -37,7 +37,7 @@ r3dfox.exe -no-remote ^
 
 No unquoted `set NAME =` forms: the space becomes part of the environment-variable name in `cmd.exe`.
 
-## Completed tests — do not repeat on the old artifact
+## Completed old-baseline tests — do not repeat
 
 ### T1 — coordinated successful Treasury login — DONE
 
@@ -53,58 +53,33 @@ Capture:
 - `gost_main_test_connect.zip` SHA-256 `0756fe71a15ecd56a1576b026888b0a504fb941ab3958f1fda93653fc74c620b`;
 - inner log SHA-256 `f77e68a5a2c1673500ef8542f12b5db46f6b93d5160e8203fe189eb1913eed89`.
 
-User action/result:
-
-- transition from `fzs.roskazna.ru` to the personal cabinet;
-- default picker option `Once`;
-- same intended certificate selected on all three visible prompts;
-- personal cabinet visibly loaded.
-
 Engineering result:
 
 - real coordinated GOST mTLS works;
 - 11 login-host TLS 1.2 / `0xFF85` handshakes complete with client certificate installed;
-- two five-socket bursts each share one active decision/picker: concurrent single-flight is proven;
-- no old `MSSPI_X509_LOOKUP` tight re-entry;
-- defect: one logical login creates three sequential connection waves, and `Once` is discarded between waves, causing three sequential pickers.
+- concurrent single-flight is proven;
+- defect: one logical login creates three sequential connection waves and asks three times with default `Once`.
 
-Action: **do not rerun T1 on artifact `9606431408`**. T1 becomes T1R only after the positive `Once` fanout/lease fix.
+Action: do not rerun T1 on artifact `9606431408`; use T1R on the fixing artifact.
 
-### T2 — unanswered picker / timeout / retry — DONE, defect reproduced
+### T2 — unanswered picker / timeout / retry — DONE, old defect reproduced
 
-Same build identity as T1.
+Same old build identity as T1.
 
 Capture:
 
 - `gost_timeout_260827.zip` SHA-256 `92f19f308bcc57394ad8f40d285d2e4934a5ee7d1707568d5c2507d2458909d9`;
 - inner log SHA-256 `8dd16505df8095806d60eddcb1d92844b87c04e5caa253b1003a3010f640cda5`.
 
-User action/result:
+Old engineering result:
 
-1. open login picker and make no choice;
-2. picker eventually closes;
-3. browser displays `The connection has timed out`;
-4. F5 -> no picker;
-5. `Try again` -> no picker;
-6. return to main page and enter personal cabinet again -> still no picker.
+- picker closed after ~45.005 s;
+- close removed the original waiter, then `msspi_shutdown()` re-entered the client-cert callback;
+- re-entry created a fresh decision/waiter for a closing handle;
+- that waiter became orphaned and later terminal `Declined`;
+- later requests consumed `selected=0` and failed with `0x80090326` until browser restart.
 
-Engineering result:
-
-- picker request `02:56:22.161 UTC`;
-- close begins `02:57:07.166 UTC`, ~45.005 s later;
-- 13,107 nominally quiescent `GostPoll` calls (~291/s average) during the wait;
-- zero `MSSPI_X509_LOOKUP` markers;
-- close path removes the old waiter, then `msspi_shutdown()` re-enters the client-cert callback on the closing MSSPI handle;
-- re-entrant callback creates a fresh decision/picker/waiter after the old decision has been removed;
-- original callback is later correctly ignored as stale;
-- shutdown-created waiter becomes orphaned;
-- the orphan decision later becomes `Declined`;
-- subsequent connections consume `selected=0` without opening a picker;
-- ten later attempts receive primary `0x80090326` plus secondary `0x0000054f` diagnostics.
-
-Action: **do not rerun T2 on artifact `9606431408`**. T2 becomes T2R only after the close/shutdown re-entrancy fix.
-
-Important correction: do not assume the coordinated picker timeout is exactly 30 seconds. The tested old artifact closes at about 45 seconds. Attribute concrete timer behavior from the exact artifact being tested before changing timeout policy.
+Action: do not repeat T2 on the old artifact. F1 is now closed by T2R below.
 
 ## Current fixing candidate / build identity
 
@@ -124,72 +99,66 @@ Candidate source contains:
 - **F2:** positive-only default-`Once` fanout lease with a 5-second idle lifetime;
 - **F3:** generic GOST mTLS client-cert callback registration/dispatch for already-selected GOST sockets rather than Treasury-only normal coordinated reachability.
 
-Build gates are complete. Runtime validation is in progress.
+## T2R — PASS / F1 CLOSED
 
-## T2R checkpoint — USER-VISIBLE PASS, LOG REVIEW PENDING
+Runtime capture:
 
-T2R was executed on the exact main artifact above using a newly created clean profile and the standard Treasury environment.
+- `t2r_timeout.zip` SHA-256 `88053089499fee19edf7506d4fe257567dcc688740741313ff9430749e84bba7`;
+- inner `t2r.moz_log` SHA-256 `261ddf9a4008c212f1ee5b5ec2213ab0fb3ee6e6a244e586987ff04a8de8d5`.
 
-Observed in one browser process:
+Three unanswered-picker cycles were exercised in one browser process. F5 after cycle 1 and `Try again` after cycle 2 each produced a fresh picker.
 
-1. first picker left unanswered for approximately 30 seconds -> `The connection has timed out`;
-2. F5 -> a fresh client-certificate picker appears;
-3. second picker left unanswered for approximately 30 seconds -> timeout;
-4. `Try again` -> another fresh client-certificate picker appears;
-5. third picker left unanswered for approximately 30 seconds -> timeout.
+Exact picker-to-close intervals:
 
-This passes the user-visible F1 recovery criterion twice consecutively after two separate teardown cycles. The old sticky behavior where no later picker appeared without browser restart is gone at the UX level.
+- cycle 1: `32.576 s`;
+- cycle 2: `37.420 s`;
+- cycle 3: `30.330 s`.
 
-The exact `C:\Temp\r3dfox\t2r*` runtime capture has not yet been supplied. Therefore do **not** mark F1/T2R formally complete yet.
+Exact lifecycle proof across all three cycles:
 
-### NEXT — inspect the existing T2R capture
+- 3 decisions created, 3 decisions removed;
+- 3 active waiters removed pre-close, each reaching `waiters=0`;
+- 3 shutdown-time client-cert callbacks rejected with `reason=closing` before decision creation/join;
+- 3 abandoned picker callbacks later rejected as stale;
+- no shutdown-created replacement decision or orphan waiter;
+- `selected=0`: 0;
+- `0x80090326`: 0;
+- `0x0000054f`: 0;
+- `MSSPI_X509_LOOKUP`: 0.
 
-Do not rerun T2R merely to recreate the same UX result. Preserve and inspect the existing log from this exact session.
+`GostPoll client-auth wait quiescent` counts were `10,825`, `34`, and `21` for the three cycles. The first cycle still has substantial poll churn while later cycles are near one call per second. Timeout/poll attribution remains separate non-blocking work; it does not reopen F1.
 
-Required log-level pass criteria:
-
-- closing MSSPI handle is marked before legacy `msspi_shutdown()`;
-- any re-entrant client-cert callback for that closing handle is ignored before decision lookup/create/join;
-- pre/post close waiter cleanup leaves no orphan waiter/decision;
-- abandoned dialog callback is stale/harmless;
-- later real requests create/join fresh decisions rather than consuming stale automatic `selected=0`;
-- no old `MSSPI_X509_LOOKUP` tight re-entry returns;
-- measure current `GostPoll client-auth wait quiescent` rate;
-- record exact picker-to-close timings for all observed cycles.
-
-The user's approximate ~30-second observation differs from the old exact ~45.005-second capture. Treat the new exact timestamps as authoritative for this artifact; do not infer a timer change before the log is read.
-
-If the log-level criteria pass, formally close F1/T2R and proceed directly to T1R. If they fail despite the good UX result, preserve the discrepancy and fix the internal lifecycle before broadening the matrix.
+**Do not repeat T2R on this source merely for confirmation.** F1 is formally closed for the tested path.
 
 ## Regression tests on the fixing artifact
 
-### T1R — one logical successful login should need one picker — NEXT AFTER T2R LOG CLOSURE
+### T1R — one logical successful login should need one picker — NEXT
 
 Purpose: prove F2 and re-prove real mTLS after F1/F2.
 
 Procedure:
 
-1. fresh browser process;
-2. enter personal cabinet;
-3. at the first picker leave default `Once`;
-4. select the intended certificate once;
-5. do not make additional manual selections unless a second picker unexpectedly appears;
-6. observe complete cabinet load.
+1. start a fresh browser process using the standard Treasury environment;
+2. enter the personal cabinet;
+3. at the first Firefox certificate picker leave the default `Once` behavior;
+4. select the intended certificate exactly once;
+5. do not make additional manual selections if another picker unexpectedly appears; preserve the log instead;
+6. observe whether the protected personal cabinet completes loading.
 
 Pass criteria:
 
-- one visible picker for the logical login attempt;
+- exactly one visible picker for the logical login attempt;
 - compatible parallel and sequential waves reuse the same attempt-local positive `Once` decision safely;
 - no queued/stale dialogs;
-- all relevant mTLS handshakes succeed;
+- all relevant GOST mTLS handshakes succeed;
 - protected application flow reaches the personal cabinet;
-- after the logical attempt ends, the `Once` lease does not become browser-session remembered state.
+- no negative/abort/failure result becomes a positive lease.
 
-If a second picker appears during the same login, capture the log and stop; do not manually work through many prompts unless specifically needed for diagnosis.
+If a second picker appears during the same login, capture the log and stop; do not manually work through repeated prompts unless specifically needed for diagnosis.
 
-### T1R-B — `Once` must not become Session
+### T1R-B — `Once` must not become Session — IMMEDIATELY AFTER T1R PASS
 
-After a successful T1R, start an **independent** new login attempt after the implemented positive lease is no longer active. Current candidate uses a 5-second idle lease, so allow a clear idle margin and document the actual sequence.
+After the successful T1R network activity is quiet, allow a clear margin beyond the current 5-second idle lease (for example about 8–10 seconds), then start an independent new login attempt in the same browser process.
 
 Pass criteria:
 
@@ -213,7 +182,7 @@ If candidate count > 0, continue GIS-G2. If candidate count == 0, stop and diagn
 
 ## Client decision semantics
 
-Run only after T2R and T1R pass.
+Run after T1R/T1R-B and the immediate GIS-G1 branch as appropriate.
 
 ### T3 — explicit no-certificate / Cancel
 
@@ -292,7 +261,7 @@ Pass:
 
 ### T9 — long provider wait
 
-Hold the CryptoPro media/PIN/provider UI beyond the ordinary picker timeout scale. Use the exact timing established by the current artifact's T2R capture rather than assuming the old ~45-second value; record actual duration. Then complete or cancel as planned.
+Hold the CryptoPro media/PIN/provider UI beyond the ordinary picker-timeout scale. T2R observed `30.330–37.420 s`, but this is not a proven fixed timer; use a deliberate longer wait and record actual duration rather than treating any one value as policy.
 
 Observe:
 

@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-27
 
-This file is the authoritative current technical synthesis. Detailed runtime/build evidence lives in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes. Forward work is in `TODO.md`. The detailed Stage 2 contract is in `STAGE2_PLAN.md`; the exact user-facing runtime test sequence and recovery checkpoint is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP multi-host mTLS branch is in `STAGE2_GIS_GMP.md`.
+This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`.
 
 ## Repository / branch policy
 
@@ -14,17 +14,17 @@ This file is the authoritative current technical synthesis. Detailed runtime/bui
 
 ## Architecture
 
-Ordinary HTTPS remains on Firefox NSS. Allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after Necko has performed normal proxy resolution / HTTP CONNECT / proxy authentication.
+Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication.
 
-Current GOST constraints:
+Current constraints:
 
-- allowlist via `R3DFOX_GOST_HOSTS`;
+- allowlist: `R3DFOX_GOST_HOSTS`;
 - TLS 1.2 / HTTP/1.1 PoC path;
-- default GOST cipher policy `C100:C101:C102:FF85:0081`;
+- default GOST ciphers: `C100:C101:C102:FF85:0081`;
 - coordinated Firefox client-auth picker is default;
-- `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains the same-binary diagnostic fallback;
-- the explicit local thumbprint selector remains diagnostic only;
-- current fixing candidate adds a positive-only `Once` fanout lease with a 5-second idle lifetime; its behavior is runtime-unproven until T1R/T1R-B.
+- `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
+- explicit local thumbprint selection remains diagnostic only;
+- current coordinated candidate includes a positive-only default-`Once` fanout lease with a 5-second idle lifetime.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -32,220 +32,105 @@ Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
 ### Basic Treasury GOST HTTPS
 
-Main end-to-end transport baseline:
+Main transport baseline:
 
 - source `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`;
-- main run `32710363486`, job `97380247020`, artifact `9518011746`;
-- alternative build run `32710363484`, job `97388836234`, artifact `9519011295`.
+- main run `32710363486`, job `97380247020`, artifact `9518011746`.
 
 Real Treasury HTTP CONNECT, GOST TLS 1.2 / `0xFF85`, protected application traffic and browser rendering are proven.
 
 ### Stage 1 explicit-selector Treasury mTLS
 
-Known-good Stage 1 source:
+Known-good source:
 
 - source `f5d04896e17f91f58b6a137af823360f4718eb29`;
-- main run `32751967162`, job `97510763210`;
-- SSL compile run `32751967187`, job `97510762872`;
-- alternative full build run `32751967189`, job `97510762742`.
+- main run `32751967162`, job `97510763210`.
 
-A local diagnostic client-certificate selector completes real Treasury mTLS and authenticated application workflows. The concrete client-certificate identifier remains private and must never be committed.
+A locally designated client certificate can be loaded by MSSPI/CryptoPro and completes real Treasury GOST TLS 1.2 / `0xFF85` mutual TLS plus authenticated application traffic. The concrete certificate identifier remains private.
 
-## Stage 2 coordinated implementation — build identities
+## Current Stage 2 coordinated browser identity
 
-Previous coordinated runtime baseline:
-
-- source `860de8e38deed326b7fcd1c547e928c5b48c72a9`;
-- short SSL compile run `32951902976`, job `98124948374`, success;
-- authoritative main full build run `32951903026`, attempt 2, job `98130275465`, success;
-- main release artifact `9606431408` (`r3dfox-gost-win64-release`);
-- Win7 import-audit artifact `9606431864`.
-
-The separate Windows-compatibility full-xul experiment at that source also succeeded: run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics `9613444775`. That is Windows-compatibility evidence only and is not GOST runtime proof.
-
-Current F1/F2/F3 fixing candidate:
+Current F1/F2/F3 source:
 
 - source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`);
 - short SSL compile run `33039013892`, job `98408139567`, success;
 - authoritative main full build run `33039013849`, job `98408139479`, success;
 - main release artifact `9636591432` (`r3dfox-gost-win64-release`);
 - Win7 import-audit artifact `9636591757`;
-- separate thunk-rs full-xul run `33039013822`, job `98408139313`, success;
+- independent thunk-rs full-xul run `33039013822`, job `98408139313`, success;
 - thunk browser artifact `9636047031`, diagnostics `9636048172`.
 
-The main artifact `9636591432` is now the authoritative browser for the current GOST runtime regressions. The thunk artifact is independent Windows-compatibility evidence and must not be used as GOST runtime proof.
+Artifact `9636591432` is the authoritative browser for current GOST runtime testing. The thunk artifact is independent Windows-compatibility evidence and is not GOST runtime proof.
 
 ## Stage 2 coordinated runtime checkpoint
 
-The old runtime evidence below remains authoritative for the defects found on source `860de8e...`, artifact `9606431408`. Those defect reproductions are complete and must not be repeated on the old artifact. Runtime validation now uses main artifact `9636591432`, source `ef1a7fdd...`.
+### F1 — close/shutdown client-auth lifecycle — CLOSED
 
-### T2R — user-visible timeout/retry recovery now passes; lifecycle log verification pending
+T2R on the current main artifact is a full runtime pass.
 
-On the current fixing artifact `9636591432`, source `ef1a7fdd...`, the user ran a clean-profile T2R session with only `fzs.roskazna.ru,lk-fzs.roskazna.ru` allowlisted and the explicit thumbprint, legacy-mode and cipher overrides cleared.
+Capture identity:
 
-User-visible result in one browser process:
+- `t2r_timeout.zip` SHA-256 `88053089499fee19edf7506d4fe257567dcc688740741313ff9430749e84bba7`;
+- inner `t2r.moz_log` SHA-256 `261ddf9a4008c212f1ee5b5ec2213ab0fb3ee6e6a244e586987ff04a8de8d5`.
 
-1. first client-certificate picker was left unanswered for approximately 30 seconds -> timeout page;
-2. F5 immediately produced a fresh client-certificate picker;
-3. the second picker was again left unanswered for approximately 30 seconds -> timeout page;
-4. `Try again` immediately produced another fresh client-certificate picker;
-5. the third picker was again left unanswered for approximately 30 seconds -> timeout page.
+Three unanswered-picker timeout cycles were completed in one browser process. F5 after the first timeout and `Try again` after the second both produced a fresh picker.
 
-This is a clear **user-visible T2R pass**. The old sticky symptom — one timeout poisoning all later attempts so no picker could ever reappear without restarting r3dfox — is absent across two consecutive recovery actions.
+Internal lifecycle proof across the three cycles:
 
-The generated `C:\Temp\r3dfox\t2r*` log has not yet been supplied. Therefore F1 is not yet formally closed at the internal lifecycle level. Before closure, inspect the exact capture for:
+- exactly 3 coordinated decisions created and 3 removed;
+- exactly 3 active waiters removed pre-close, each reaching `waiters=0`;
+- exactly 3 shutdown-time client-cert callback re-entries rejected with `reason=closing` before decision creation/join;
+- exactly 3 abandoned UI callbacks later rejected as stale;
+- no shutdown-created replacement decision or orphan waiter;
+- no `selected=0` reuse;
+- no `0x80090326` / `0x0000054f` sticky failure sequence;
+- no `MSSPI_X509_LOOKUP` recurrence.
 
-- closing-handle guard firing before callback decision creation/join;
-- pre/post close waiter cleanup;
-- no shutdown-created replacement decision/orphan waiter;
-- no automatic stale `selected=0` reuse;
-- no `MSSPI_X509_LOOKUP` regression;
-- current `GostPoll` rate and exact unanswered-picker timing.
+Measured picker-to-close intervals were `32.576 s`, `37.420 s`, and `30.330 s`. The timeout is therefore not established as one fixed 30- or 45-second constant.
 
-The observed approximately 30-second lifetime differs from the old captured ~45.005-second lifetime. Do not attribute that difference until exact new timestamps are available.
+`GostPoll client-auth wait quiescent` counts were `10,825`, `34`, and `21`. The first cycle still shows substantial poll churn (~332/s) while later cycles are near one call per second. Timeout-source attribution and this polling inconsistency remain separate non-blocking work; they do not reopen F1.
 
-### Test T1 — successful coordinated Treasury login on the old baseline
+The old failure on source `860de8e38deed326b7fcd1c547e928c5b48c72a9`, artifact `9606431408`, is retained only as historical evidence: shutdown could create an orphan decision that poisoned later retries with `selected=0` and `0x80090326` until browser restart.
 
-Evidence is preserved in `TEST_LOG_2026-08-26_2026-08-27.md`.
+### F2 — positive default-`Once` fanout — NEXT RUNTIME BLOCKER
 
-Runtime capture:
+Old T1 on source `860de8e...`, artifact `9606431408`, proved:
 
-- `gost_main_test_connect.zip` SHA-256 `0756fe71a15ecd56a1576b026888b0a504fb941ab3958f1fda93653fc74c620b`;
-- inner `gost.moz_log` SHA-256 `f77e68a5a2c1673500ef8542f12b5db46f6b93d5160e8203fe189eb1913eed89`.
+- real coordinated Treasury mTLS succeeds;
+- concurrent single-flight works;
+- one logical login spans sequential compatible waves and previously required three visible pickers.
 
-Confirmed behavior:
+Current source adds a positive-only 5-second idle `Once` lease. Runtime closure requires:
 
-- coordinated mode is active;
-- real Treasury mTLS succeeds;
-- 11 `lk-fzs.roskazna.ru` handshakes complete as TLS 1.2 / `0xFF85` with `client_cert_loaded=1`;
-- concurrent single-flight works inside a decision wave: the second and third waves each collapse five compatible sockets into one visible picker;
-- the old repeated `MSSPI_X509_LOOKUP` tight re-entry is absent;
-- default `Once` lifetime is too narrow: one logical login creates three sequential compatible connection waves, and a fresh picker appears for every wave because the completed decision is discarded and `Once` is intentionally not session-remembered.
+- **T1R:** one complete Treasury login uses exactly one visible picker while compatible follow-on waves safely reuse the positive choice and all relevant GOST mTLS/application traffic succeeds;
+- **T1R-B:** after the lease is inactive, an independent login in the same browser process asks again;
+- decline, abort, zero candidates, provider/internal failure or server rejection never become a positive lease.
 
-Therefore T1 is **not to be repeated on the old artifact**. It becomes T1R on the new fixing artifact after T2R lifecycle evidence is fully checked.
+### F3 — generic GOST mTLS host scope — AFTER F2
 
-### Test T2 — unanswered picker / timeout / retry on the old baseline
+Old GIS GMP runtime on artifact `9606431408` proved:
 
-Exact same old browser identity as T1.
+- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` complete GOST TLS 1.2 / `0xFF85`;
+- certificate login reaches `portalgisgmp.cert.roskazna.ru`;
+- the certificate endpoint sends a real TLS 1.2 `CertificateRequest` with a non-empty CA list (36 DER DNs in that old capture);
+- the old Treasury-only callback scope caused an empty client Certificate and server fatal `handshake_failure` / MSSPI `0x80090326`.
 
-Runtime capture:
+Current source registers the normal coordinated callback generically for already-selected GOST sockets. GIS-G1 must prove the real certificate endpoint reaches callback registration, current acceptable-CA collection and candidate enumeration. If candidates are nonzero, continue real GIS-G2 mTLS. If zero, stop and diagnose chain/name/provider filtering before changing issuer policy.
 
-- `gost_timeout_260827.zip` SHA-256 `92f19f308bcc57394ad8f40d285d2e4934a5ee7d1707568d5c2507d2458909d9`;
-- inner `gost.moz_log` SHA-256 `8dd16505df8095806d60eddcb1d92844b87c04e5caa253b1003a3010f640cda5`.
+## Immediate runtime order
 
-User-visible result:
+On main artifact `9636591432`:
 
-- first Firefox client-certificate picker was left unanswered;
-- after about 45 seconds it disappeared and the browser showed `The connection has timed out`;
-- F5, `Try again`, returning to the Treasury main page, and a fresh attempt to enter the personal cabinet no longer showed a certificate picker.
+1. **T1R — NEXT:** successful Treasury login with default `Once`; one logical attempt should require one picker;
+2. **T1R-B:** after a clear margin beyond the 5-second idle lease, an independent login must show a fresh picker;
+3. **GIS-G1:** prove generic callback / issuer collection / candidate count on `portalgisgmp.cert.roskazna.ru`, then branch to GIS-G2 or issuer-chain diagnosis;
+4. continue Cancel/Abort, Session/Permanent, provider/media, picker UI, discovery, negative matrix and final server-trust closure.
 
-Sanitized runtime result:
-
-- first picker request: `02:56:22.161 UTC`;
-- timeout/close begins: `02:57:07.166 UTC`, about `45.005 s` later;
-- during that wait there are `13,107` `GostPoll client-auth wait quiescent` calls (~291/s average), zero `MSSPI_X509_LOOKUP` markers, and no repeated MSSPI certificate-selection handshake loop;
-- `GostClose()` removes the original waiter before entering legacy close;
-- inside `LegacyGostClose()` / `msspi_shutdown()` the same closing MSSPI handle re-enters the client-certificate callback at `02:57:07.182 UTC`;
-- because the old decision was already removed, that re-entrant callback creates a new coordinated decision and a second picker/waiter for a handle that is being destroyed;
-- the original dialog callback later arrives as stale and is correctly ignored at `02:57:07.480 UTC`;
-- the new shutdown-created decision is left with an orphan waiter;
-- when its dialog later resolves with no certificate, the orphan decision becomes terminal `Declined`;
-- subsequent real connections find that surviving decision and immediately consume `selected=0` instead of opening a new picker;
-- ten later attempts show `dialog completed ... selected=0`; each receives primary `0x80090326`, followed by secondary `0x0000054f` diagnostics.
-
-This proves the old lifecycle blocker: **a client-auth callback must not be allowed to create/join a coordinated decision after the owning MSSPI/socket has entered close/shutdown**. The sticky retry failure is an orphan coordinated-decision bug, not the custom positive/negative remember cache.
-
-The previously assumed exact 30-second boundary is not valid for that coordinated artifact. The observed unanswered-picker close occurs at ~45 seconds. The source of that concrete timeout must be attributed before changing any timeout policy.
-
-T2 is **not to be repeated on the old artifact**. Its user-visible regression is now passed on artifact `9636591432`; internal T2R lifecycle closure awaits the new log.
-
-### GIS GMP multi-host mTLS runtime
-
-The old main artifact was exercised with:
-
-`pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> `portalgisgmp.cert.roskazna.ru`.
-
-Runtime capture:
-
-- `gost_pay.gov.ru.zip` SHA-256 `2e9630e5d8048482ebc6a3d3ac0576db6af2c6b4e108c3c1de6ea4e30d99596b`;
-- inner `gost.moz_log` SHA-256 `f32fd8bf7067dd487e79121faf467f1038906d91ed958df87c572aff991bc5ed`;
-- capture span `03:28:19.547` through `03:28:55.898 UTC` (`36.351 s`), `51,925` lines.
-
-Confirmed behavior:
-
-- `pay.gov.ru` completes one positively verified TLS 1.2 / `0xFF85` GOST handshake;
-- `portalgisgmp.login.roskazna.ru` completes five positively verified TLS 1.2 / `0xFF85` GOST handshakes and displays the password-login UI;
-- choosing certificate login does make network connections to `portalgisgmp.cert.roskazna.ru`; three GOST-layer attachments are present in the capture;
-- the certificate host sends a real TLS 1.2 `CertificateRequest`;
-- the captured `CertificateRequest` body is `12,184` bytes and its `certificate_authorities` vector is `12,143` bytes containing **36 DER X.509 Distinguished Names**;
-- the CA list is therefore not empty;
-- old browser responds on all three certificate-host attempts with TLS `Certificate` message `0B 00 00 03 00 00 00`, i.e. an empty client `certificate_list`;
-- server then returns fatal alert `handshake_failure` (`0x28`), and MSSPI reports primary `0x80090326`; later calls against the failed handle emit secondary `0x0000054f` diagnostics;
-- there is no `client certificate`, `issuer-list`, `set_cert_cb`, completed handshake or final verification marker for the certificate host.
-
-Exact old source explains this runtime precisely:
-
-- `kStage1MtlsHost` is hard-coded to `lk-fzs.roskazna.ru`;
-- `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` is registered only for that one host;
-- the callback itself rejects any other host before issuer collection, candidate enumeration, coordinator state or Firefox UI.
-
-Therefore the old GIS GMP blocker is runtime-confirmed: the server asks for a certificate, but Treasury-only callback registration prevents our Firefox client-auth path from running, so MSSPI sends an empty client certificate and the server rejects the handshake.
-
-The user's original CA-policy hypothesis remains narrowed but open. The server advertised 36 CA DNs, but artifact `9606431408` never ran `CollectGostCANames()` / `CollectGostClientCertCandidates()` for this host. The current candidate adds generic callback reachability, so GIS-G1 on artifact `9636591432` must now record the real candidate count before any issuer-matching change.
-
-Detailed F3 design and GIS-G1/G2/G3/G4 runtime branch are in `STAGE2_GIS_GMP.md`.
-
-## F1/F2/F3 fixing candidate — runtime validation in progress
-
-Source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` carries candidate implementations for all three previously open code blockers and passes the required compile/full-build gates.
-
-### F1 — close/shutdown re-entrant client-auth callback
-
-Candidate implementation:
-
-1. marks the MSSPI handle closing before legacy close / `msspi_shutdown()`;
-2. rejects client-certificate callbacks for closing handles before coordinated decision creation/join or picker dispatch;
-3. preserves handle identity and performs waiter cleanup around close;
-4. emits decision/waiter/close lifecycle diagnostics;
-5. preserves stale-callback rejection.
-
-Current evidence: **T2R passes user-visible recovery across three consecutive timeout cycles in one browser process**, including fresh picker recovery after F5 and after `Try again`. The old sticky UX failure is therefore removed on the fixing artifact.
-
-Remaining F1 closure criterion: inspect the exact T2R log and prove the internal lifecycle invariants listed above. Until then F1 remains open only at log-level verification, not at user-visible recovery behavior.
-
-### F2 — `Once` lifetime across sequential waves
-
-Concurrent single-flight remains previously proven. Candidate source adds a positive-only `Once` lease with a 5-second idle lifetime, scoped by coordinated decision identity and browser context.
-
-Runtime closure criteria:
-
-- T1R: one logical Treasury login needs one visible picker while compatible follow-on waves reuse the positive selection safely;
-- T1R-B: after the lease is no longer active, an independent login asks again;
-- no decline, abort, zero-candidate result, internal failure, provider failure or server rejection may become a positive lease.
-
-### F3 — generic GOST mTLS host scope
-
-Candidate source adds generic client-certificate callback registration for non-Stage-1 GOST sockets and removes the normal Firefox/coordinated host rejection while keeping backend selection allowlist-driven and the explicit Stage-1 diagnostic path separately identifiable.
-
-Runtime closure criterion: GIS-G1 must prove the real GIS GMP certificate endpoint reaches callback registration, acceptable-CA collection and candidate enumeration. If candidate count is zero, stop and diagnose issuer/chain/name matching instead of changing policy speculatively.
-
-## Runtime test execution order
-
-The authoritative detailed Treasury matrix is `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is `STAGE2_GIS_GMP.md`. Recovery rule: do not restart the test campaign from old-artifact T1/T2 or repeat the now-complete old GIS GMP failure.
-
-Build prerequisites are complete on source `ef1a7fdd...`: SSL compile run `33039013892` succeeded, authoritative main run `33039013849` succeeded, and the separate thunk-rs run `33039013822` also succeeded.
-
-Immediate sequence on main artifact `9636591432`:
-
-1. **inspect the completed T2R capture** — bind its hashes/timestamps and verify the F1 internal close/shutdown invariants; if clean, formally close F1/T2R;
-2. **T1R** — successful Treasury login -> one logical login must need one picker while compatible concurrent/sequential sockets safely receive the positive `Once` choice;
-3. **T1R-B** — after the 5-second idle lease expires, an independent login must ask again;
-4. **GIS-G1** — prove the GIS GMP certificate endpoint reaches generic callback/issuer collection/candidate enumeration; if candidates exist, continue GIS-G2 real mTLS; if candidates are zero, stop and diagnose CA-chain/name matching;
-5. only after these regressions pass, continue Cancel/abort, remember semantics, provider/media, UI, discovery, negative matrix, server-trust closure and final regression.
+Do not repeat old T1/T2 or T2R merely for confirmation on unchanged source.
 
 ## Server trust — still mandatory
 
-Positive Treasury `verify ok=1 status=0x00000000` and peer certificate acquisition are proven on the earlier runtime baseline, but final server trust is not closed.
+Positive Treasury server verification and peer-certificate acquisition have been demonstrated on earlier runtime sources, but final trust integration is not closed.
 
 Required:
 
@@ -256,53 +141,45 @@ Required:
 - wrong-hostname and untrusted/invalid-chain negative cases;
 - no client private-key operation before server trust.
 
-## Earlier provider/media evidence
+## Provider/private-key media evidence
 
-Earlier exact source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, job `97789764275`, artifact `9567881847` proves:
+Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, job `97789764275`, artifact `9567881847` proves:
 
-- a certificate may remain in `CurrentUser\MY` while the CryptoPro private-key container is absent;
-- `CERT_KEY_PROV_INFO_PROP_ID` is binding metadata, not live-key availability;
+- a certificate may remain in `CurrentUser\MY` while its CryptoPro private-key medium/container is unavailable;
+- `CERT_KEY_PROV_INFO_PROP_ID` is binding metadata, not proof of live key availability;
 - provider Cancel can fail only the current attempt with `SEC_E_NO_CREDENTIALS`;
-- a later attempt can succeed after the key medium becomes available;
-- provider UI is synchronous inside the MSSPI/SSPI call and remains a stock-parity/performance question until a concrete regression is shown.
+- a later attempt can recover when the medium becomes available.
 
-These scenarios still need revalidation after the coordinator lifecycle fixes.
+These scenarios need revalidation after F2/client-auth semantics stabilize.
 
-## Windows Vista/7 compatibility track
+## Windows Vista/7 compatibility — independent track
 
-Independent from GOST runtime.
+Current full-xul narrow YY/thunk-rs revalidation:
 
-Current evidence:
-
-- original real-Win7 startup package: source `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, run `32695496647`, job `97336702701`, artifact `9512347999`;
-- previous full-xul narrow YY/thunk-rs revalidation: source `860de8e...`, run `32951903069`, attempt 2, job `98205801026`, browser artifact `9613443984`, diagnostics `9613444775`;
-- current full-xul narrow YY/thunk-rs revalidation: source `ef1a7fdd...`, run `33039013822`, job `98408139313`, browser artifact `9636047031`, diagnostics `9636048172`;
-- representative modern Rust + narrow YY + pinned msvcr14x coexistence: source `1abf867307ca56b97b7f2fb41e5e58e86ee08463`, run `32713958570`, job `97391163925`.
+- source `ef1a7fdd...`;
+- run `33039013822`, job `98408139313`;
+- browser artifact `9636047031`;
+- diagnostics `9636048172`.
 
 Still open: full-Firefox msvcr14x integration, final direct/delay-load PE audit, real Win7 runtime without the copied compatibility bundle, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
 
-## Bundled government-system extensions track
+## Bundled government-system extensions — independent track
 
-Independent from GOST runtime and Win7 compatibility.
-
-Current packaged three-extension checkpoint:
+Current three-extension package checkpoint:
 
 - source `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
-- short run `32976571124`, job `98202642893`;
 - full packaging run `32976571122`, job `98202641607`;
 - packaged-browser artifact `9614275050`;
 - evidence artifact `9614275551`.
 
-The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first website/content-language pref.
+The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled-state is proven for all three project extensions.
 
-Clean-profile discovery/enabled-state is now proven for this exact packaged artifact. The user launched artifact `9614275050` with a completely new dedicated profile at `C:\Temp\r3dfox\profile`, with all four GOST override variables cleared, targeting `https://esia.gosuslugi.ru/login`. In `about:addons`, all three bundled project extensions appeared simultaneously under **Enabled**. The visible uBlock Origin entry is expected because `r3dfox/policies.json` installs it with `installation_mode: normal_installed`, so it is not evidence of prior profile state.
-
-Still open on the extension track: re-checking CryptoPro functionality on artifact `9614275050`, functional nativeMessaging tests for legacy IFCPlugin and Gosplugin with their required local components, runtime language-preference verification if desired, update behavior, and generalizing/transferring the shared packaging gates.
+Still open: CryptoPro functionality on this exact three-extension artifact, native-component tests for IFCPlugin and Gosplugin, runtime language-preference verification if desired, update behavior, and transfer/generalization of packaging gates.
 
 ## Separation of conclusions
 
 - Build success != GOST handshake success.
-- Coordinated runtime success != final server trust closure.
+- Coordinated runtime success != final server-trust closure.
 - `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
 - GOST runtime != Windows compatibility.
 - Extension packaging != extension runtime, GOST runtime, or Win7 runtime.

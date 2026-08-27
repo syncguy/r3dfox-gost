@@ -4,44 +4,13 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-### 1. Formally close F1 from the existing T2R capture
+### 1. Validate positive `Once` scope across one logical login
 
-Current fixing candidate:
-
-- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
-- authoritative main run `33039013849`, job `98408139479`;
-- main runtime artifact `9636591432`.
-
-T2R already passes its user-visible recovery behavior on a clean profile in one browser process:
-
-- unanswered picker -> timeout;
-- F5 -> fresh picker;
-- second unanswered picker -> timeout;
-- `Try again` -> fresh picker;
-- third unanswered picker -> timeout.
-
-This removes the old externally visible sticky failure from source `860de8e...`, where one timeout poisoned all later attempts until browser restart.
-
-Before formally closing F1, inspect the already-generated `C:\Temp\r3dfox\t2r*` capture and record hashes/timestamps. Verify:
-
-- handle is marked closing before legacy `msspi_shutdown()`;
-- any re-entrant client-cert callback for a closing handle is ignored before decision lookup/create/join;
-- pre/post close waiter cleanup leaves no orphan waiter/decision;
-- stale abandoned-dialog callback is harmless;
-- later attempts do not consume a stale automatic `selected=0`;
-- no `MSSPI_X509_LOOKUP` tight re-entry returns;
-- current `GostPoll client-auth wait quiescent` rate;
-- exact unanswered-picker lifetime on the fixing artifact.
-
-The user observed approximately 30 seconds on all three cycles, versus the old exact ~45.005-second capture. Do not attribute the timing difference before reading the new log.
-
-If the capture passes, remove F1 from open work and add the concise closure to `DONE.md`.
-
-### 2. Validate positive `Once` scope across one logical login
+F1 close/shutdown lifecycle is formally closed by T2R on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`. Do not repeat T2R unless a later source changes that lifecycle.
 
 The F2 candidate is already implemented in source `ef1a7fdd...` as a positive-only `Once` fanout lease with a 5-second idle lifetime. Build gates are complete; runtime proof is still required.
 
-Run T1R after F1 log-level closure:
+Run T1R:
 
 - one fresh browser process;
 - enter Treasury personal cabinet;
@@ -62,7 +31,7 @@ Then run T1R-B:
 
 Never lease a decline, abort, zero-candidate result, internal failure, provider failure or server rejection.
 
-### 3. Validate generic GOST mTLS client-auth on GIS GMP
+### 2. Validate generic GOST mTLS client-auth on GIS GMP
 
 The F3 candidate is already implemented in source `ef1a7fdd...`: the normal Firefox/coordinated client-auth callback can be registered for non-Stage-1 GOST sockets rather than remaining Treasury-only. Backend selection is still controlled by the existing GOST allowlist/session policy.
 
@@ -94,20 +63,33 @@ Investigate zero candidates in this order:
 
 Do not publish client-certificate identifying DNs, serials, fingerprints, provider/container identifiers or private data.
 
-### 4. Continue Stage 2 runtime matrix after T2R/T1R/GIS-G1 closure
+### 3. Continue Stage 2 runtime matrix after T1R/T1R-B/GIS-G1 closure
 
 Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining groups:
 
 - explicit Cancel/no-certificate vs involuntary Abort;
 - `Once`, explicit `Session`, explicit `Permanent`;
 - missing-media/provider Cancel and recovery;
-- long provider-media wait using the current artifact's measured timeout scale;
+- long provider-media wait using measured current-artifact timeout behavior;
 - Russian picker row/details rendering;
 - dynamic `CurrentUser\MY` discovery and token-only/removable-media discovery;
 - no acceptable cert / unsuitable cert / wrong cert / unavailable key / PIN-private-key failure / server rejection;
 - issuer-aware validity/KU/EKU/private-key candidate policy;
 - sensitive-log audit;
 - final exact-build Treasury mTLS regression.
+
+### 4. Attribute picker timeout and residual poll churn
+
+T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
+
+- picker-to-close intervals: `32.576 s`, `37.420 s`, `30.330 s`;
+- `GostPoll client-auth wait quiescent`: `10,825`, `34`, and `21` calls respectively.
+
+The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. This is **not** a blocker for T1R because decision cleanup is correct, but before changing timeout policy or calling the wait path fully quiescent:
+
+- identify which Firefox/Necko/load timer actually tears down each attempt;
+- explain why the first cycle polls much more aggressively than later cycles;
+- preserve stock-compatible timeout semantics rather than introducing an arbitrary GOST-specific timeout.
 
 ## GOST TLS security — mandatory Stage 2 server-trust closure
 

@@ -69,6 +69,20 @@ Runtime diagnosis from the main-build artifact established that:
 
 The diagnosis is closed; implementing and proving fail-closed server verification remains open in `TODO.md`.
 
+### Stage 2 F1 close/shutdown client-auth lifecycle — COMPLETE
+
+Exact fixing source and runtime browser:
+
+- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
+- authoritative main run `33039013849`, job `98408139479`;
+- runtime artifact `9636591432` (`r3dfox-gost-win64-release`).
+
+T2R runtime evidence proves that unanswered-picker teardown no longer creates a replacement/orphan coordinated decision during `msspi_shutdown()`. Across three timeout cycles in one browser process, the active waiter/decision is removed before shutdown, the shutdown-time callback is rejected because the handle is closing, the abandoned UI callback is later rejected as stale, and F5 / `Try again` each produce a fresh picker without browser restart.
+
+The capture contains no automatic `selected=0`, no `0x80090326`, no `0x0000054f`, and no `MSSPI_X509_LOOKUP`. The old sticky post-timeout failure from source `860de8e...` is therefore closed for this tested path.
+
+This closure does not prove F2 positive-`Once` fanout, F3 generic GIS GMP mTLS reachability, final server trust, or the full remaining client-auth matrix; those remain open.
+
 ## Bundled government-system extensions
 
 ### CryptoPro standalone updater/fallback/package mechanism — COMPLETE
