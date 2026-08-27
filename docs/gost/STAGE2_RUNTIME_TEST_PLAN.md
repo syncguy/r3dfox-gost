@@ -18,6 +18,13 @@ Every runtime conclusion must record:
 - user-visible result;
 - sanitized protocol/lifecycle result.
 
+When runtime marker evidence conflicts with the claimed artifact identity, **stop before judging the feature under test**. Hash the actual launched binaries. For the current main artifact `9636591432`:
+
+- `r3dfox.exe` SHA-256: `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- **`xul.dll` SHA-256: `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`**.
+
+The GOST coordinator is linked into `xul.dll`, so `xul.dll` is the decisive local binary preflight.
+
 Never publish client-certificate fingerprint/thumbprint, serial, identifying subject/issuer DN, provider/container identifier, PIN/password, private-key material, account data or raw personal-cabinet traffic.
 
 For Windows `cmd.exe`, clear test variables with quoted syntax:
@@ -130,15 +137,54 @@ Exact lifecycle proof across all three cycles:
 
 **Do not repeat T2R on this source merely for confirmation.** F1 is formally closed for the tested path.
 
+## T1R identity-mismatch checkpoint — INVALID TEST, DO NOT JUDGE F2
+
+Supplied capture:
+
+- `t1r_error.zip` SHA-256 `e42416dd8199a85e3faec5dbcab84d09f425ee3a39dd9bcc67ccff8a4ea39236`;
+- inner `t1r.moz_log` SHA-256 `80bf7e4062636df669799bba740d6ab423208e958d758cdf02d26cd9f1b5eab7`.
+
+The user followed the T1R UX procedure: selected a certificate once, immediately saw a second picker, left it unanswered, and received the Treasury personal-cabinet page with HTTP 500 after timeout.
+
+However, this capture is not valid evidence against F2 because the actual runtime binary is not the intended `ef1a7...` implementation:
+
+- first mTLS completes at `08:19:20.814 UTC`;
+- second picker appears at `08:19:21.275 UTC`, only `0.461 s` later;
+- nevertheless there are zero `client certificate once lease stored`, zero `once lease reused`, zero `client certificate leased`, zero current decision/waiter lifecycle markers, and zero `reason=closing` markers;
+- after the second picker timeout the log reproduces the old pre-F1 cascade: `selected=0` 37 times, `0x80090326` 74 times and `0x0000054f` 148 times.
+
+That marker fingerprint is incompatible with the already-proven current artifact. The exact old binary cannot be identified from the log alone. F1 stays closed, F2 stays unproven.
+
+### NEXT — exact binary preflight, then rerun T1R
+
+From the directory that will actually be launched, run:
+
+```bat
+certutil -hashfile r3dfox.exe SHA256
+certutil -hashfile xul.dll SHA256
+```
+
+Proceed only if the values exactly equal:
+
+- `r3dfox.exe`: `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
+- `xul.dll`: `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
+
+For diagnostics, the exact old baseline artifact `9606431408` instead contains:
+
+- `r3dfox.exe`: `7fd0e624b81ed5e973de37778e9a5959e8a101b4c1e7c6378ed14a224b2beb41`;
+- `xul.dll`: `7cb152dedd17ad96871c46bef796da250aeac517b35002f34360d2c81b03b393`.
+
+If the current hashes match, rerun T1R below unchanged. If they do not, replace/re-extract the browser directory before any further runtime conclusion.
+
 ## Regression tests on the fixing artifact
 
-### T1R — one logical successful login should need one picker — NEXT
+### T1R — one logical successful login should need one picker — NEXT AFTER HASH PREFLIGHT
 
 Purpose: prove F2 and re-prove real mTLS after F1/F2.
 
 Procedure:
 
-1. start a fresh browser process using the standard Treasury environment;
+1. start a fresh browser process using the standard Treasury environment from the hash-verified directory;
 2. enter the personal cabinet;
 3. at the first Firefox certificate picker leave the default `Once` behavior;
 4. select the intended certificate exactly once;
@@ -149,12 +195,13 @@ Pass criteria:
 
 - exactly one visible picker for the logical login attempt;
 - compatible parallel and sequential waves reuse the same attempt-local positive `Once` decision safely;
+- current log contains the expected positive lease store/reuse diagnostics;
 - no queued/stale dialogs;
 - all relevant GOST mTLS handshakes succeed;
 - protected application flow reaches the personal cabinet;
 - no negative/abort/failure result becomes a positive lease.
 
-If a second picker appears during the same login, capture the log and stop; do not manually work through repeated prompts unless specifically needed for diagnosis.
+If a second picker appears on the hash-verified current binary, capture the log and stop. That is valid F2 failure evidence and should be diagnosed before continuing.
 
 ### T1R-B — `Once` must not become Session — IMMEDIATELY AFTER T1R PASS
 
@@ -386,4 +433,5 @@ Record exact source SHA, main Actions run/attempt/job, artifact ID, capture hash
 - Build success never substitutes for runtime proof.
 - Main and thunk-rs artifacts are not interchangeable for GOST conclusions.
 - Do not mix Win7 and extension testing into the Stage 2 GOST runtime matrix.
+- If runtime markers conflict with the claimed build, verify actual `xul.dll` identity before drawing conclusions.
 - After every meaningful runtime experiment, append evidence to `TEST_LOG.md` and update `PROJECT_STATE.md` / this plan if the blocker or next step changes.
