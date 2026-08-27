@@ -63,7 +63,7 @@ Exact local binary preflight for main artifact `9636591432`:
 - `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
 - `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
 
-The valid T1R/T1R-B evidence is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
+The valid T1R/T1R-B and GIS GMP G1/G2/G3 evidence is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
 
 ## Stage 2 coordinated runtime checkpoint
 
@@ -104,26 +104,46 @@ Whole T1R-B capture: 2 decisions, 2 picker requests, 2 positive lease stores, 11
 
 Therefore default `Once` now has the intended attempt-local positive fanout semantics: compatible waves within the idle lease reuse one user choice, while an independent post-expiry attempt asks again. F2 is formally closed for this tested artifact.
 
-### F3 — generic GOST mTLS host scope — NEXT RUNTIME BLOCKER
+### F3 — generic GOST mTLS host scope — CLOSED
 
-Old GIS GMP runtime on artifact `9606431408` proved:
+Current GIS GMP runtime on the same source/run/artifact closes the old Treasury-host-specific client-auth blocker.
 
-- `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` complete GOST TLS 1.2 / `0xFF85`;
-- certificate login reaches `portalgisgmp.cert.roskazna.ru`;
-- the certificate endpoint sends a real TLS 1.2 `CertificateRequest` with a non-empty CA list (36 DER DNs in that old capture);
-- the old Treasury-only callback scope caused an empty client Certificate and server fatal `handshake_failure` / MSSPI `0x80090326`.
+Capture:
 
-Current source registers the normal coordinated callback generically for already-selected GOST sockets. **GIS-G1 is now next.** It must prove the real certificate endpoint receives the GOST layer and generic callback, that the server `CertificateRequest` reaches issuer collection, and must record the current acceptable-CA and local candidate counts. Do not assume the old count of 36 is unchanged.
+- `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`;
+- inner `gis-g1.moz_log` SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`.
 
-If candidate count > 0, continue GIS-G2 real mTLS/application login. If candidate count == 0, stop and diagnose actual server CA identities/local chain/name/provider filtering before changing issuer policy.
+GIS-G1 proves on `portalgisgmp.cert.roskazna.ru`:
+
+- generic coordinated client-certificate callback registration succeeds;
+- the real server client-certificate request reaches the callback;
+- current acceptable-CA count is `36`;
+- candidate enumeration returns `1` policy-eligible certificate;
+- one coordinated decision/picker is created.
+
+GIS-G2 proves real application mTLS:
+
+- the user selects the intended certificate with default `Once`;
+- one positive lease is stored and four follow-on requests reuse it without further UI;
+- five certificate-host handshakes complete as TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
+- all five reach `verify ok=1 status=0x00000000` under the current verification path;
+- the user confirms the certificate-login/application flow succeeds.
+
+GIS-G3 proves generic registration does not cause spurious UI: `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` register the callback but issue zero client-certificate requests and complete their GOST handshakes with `client_cert_loaded=0`. The only client-auth requests and the only picker occur on the certificate endpoint.
+
+Whole GIS capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `E/GostTLS`.
+
+Therefore the old empty-client-Certificate / `0x80090326` GIS host-scope failure is closed on the current artifact. GIS-G4 cross-host decision isolation remains a separate semantic regression test; final fail-closed server-trust closure remains mandatory.
 
 ## Immediate runtime order
 
-1. **GIS-G1 — NEXT:** validate generic callback / issuer collection / candidate count on `portalgisgmp.cert.roskazna.ru`; branch to GIS-G2 if candidates are nonzero or issuer-chain diagnosis if zero.
-2. Continue explicit Cancel/no-certificate vs Abort, explicit Session/Permanent, provider/media, picker UI, discovery, negative matrix and final server-trust closure.
-3. Keep timeout-source/poll-churn attribution as separate non-blocking work.
+1. Baseline explicit `Session` semantics on the current artifact if desired before the planned UX/default change: first login with manually selected `Session`, independent same-process login, then browser-restart boundary.
+2. Continue remaining client-decision semantics, including GIS-G4 cross-host isolation, explicit Cancel/no-certificate vs Abort, Session/Permanent, provider/media, picker UI, discovery and negative matrix.
+3. Implement the planned picker UX change separately: make `Session` the default while preserving explicit `Once` and its proven positive lease, and render `Issued by` in the same human-friendly style as `Issued to`; then run targeted regression on the new exact build.
+4. Complete final server-trust closure.
+5. Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
-Do not repeat T1R/T1R-B on this unchanged source merely for confirmation.
+Do not repeat T1R/T1R-B or GIS-G1/G2/G3 on this unchanged source merely for confirmation.
 
 ## Server trust — still mandatory
 
@@ -147,7 +167,7 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 - provider Cancel can fail only the current attempt with `SEC_E_NO_CREDENTIALS`;
 - a later attempt can recover when the medium becomes available.
 
-These scenarios need revalidation after the immediate GIS branch.
+These scenarios need revalidation after the current client-decision/UX work.
 
 ## Windows Vista/7 compatibility — independent track
 
