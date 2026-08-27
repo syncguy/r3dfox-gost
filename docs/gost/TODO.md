@@ -4,38 +4,19 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-### 1. Complete F2 scope validation with T1R-B
+### 1. Validate generic GOST mTLS client-auth on GIS GMP
 
-F1 close/shutdown lifecycle is formally closed by T2R on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
+F1 close/shutdown lifecycle and F2 positive default-`Once` fanout/scope are formally closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
 
-The valid, hash-bound T1R on the same artifact now passes:
+F2 closure evidence is T1R + T1R-B:
 
-- local `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
-- local `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`;
-- capture `t1r-current.zip` SHA-256 `1c75f484607a6e3eb95439275e2698098a04551689619f95f93f13ca890b248e`;
-- inner log SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`;
-- one visible certificate picker for the complete Treasury login;
-- one positive `Once` lease store plus seven lease reuses across two follow-on connection waves;
-- eight successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1`;
-- protected personal-cabinet login succeeds and subsequent use is normal;
-- no `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP` or GOST errors.
+- T1R: one visible picker feeds one complete Treasury login through one positive 5-second idle lease; seven compatible follow-on sockets reuse the selection and all eight login-host mTLS handshakes succeed;
+- T1R-B: in the same process/context, generation 1 is last reused at `09:07:13.004 UTC`, nominally expires at `09:07:18.004`, and a real independent client-auth request at `09:09:44.169` creates fresh `decision=2` and a new picker before generation 2 is stored;
+- no sticky negative/failure state appears in either passing path.
 
-Do not repeat T1R on unchanged source merely for confirmation. The earlier `t1r_error.zip` was later confirmed by the user to have been run from an older browser build and is historical invalid-test evidence only.
+Do not repeat T1R/T1R-B on unchanged source merely for confirmation.
 
-The remaining F2 gate is **T1R-B**:
-
-- keep the same browser process/profile;
-- after the successful T1R activity is quiet, allow a clear margin beyond the positive lease's 5-second idle lifetime;
-- remember that each reuse refreshes expiry; the last T1R reuse was at `08:44:02.588 UTC`, so expiry is measured from the last reuse, not from the original picker;
-- initiate an independent Treasury login that causes a new client-auth handshake;
-- a fresh Firefox certificate picker must appear;
-- the prior default `Once` selection must not behave as Session/Permanent.
-
-If T1R-B passes, F2 can be formally closed and moved to `DONE.md`. Never lease a decline, abort, zero-candidate result, internal failure, provider failure or server rejection.
-
-### 2. Validate generic GOST mTLS client-auth on GIS GMP
-
-The F3 candidate is already implemented in source `ef1a7fdd...`: the normal Firefox/coordinated client-auth callback can be registered for non-Stage-1 GOST sockets rather than remaining Treasury-only. Backend selection is still controlled by the existing GOST allowlist/session policy.
+The next runtime blocker is **F3 / GIS-G1**. The F3 candidate is already implemented in source `ef1a7fdd...`: the normal Firefox/coordinated client-auth callback can be registered for non-Stage-1 GOST sockets rather than remaining Treasury-only. Backend selection is still controlled by the existing GOST allowlist/session policy.
 
 Old GIS GMP evidence on artifact `9606431408` proved:
 
@@ -46,12 +27,13 @@ Old GIS GMP evidence on artifact `9606431408` proved:
 - old browser sent an empty TLS client Certificate because the custom client-auth callback was not registered for that host;
 - server returned fatal `handshake_failure` (`0x28`) and MSSPI primary `0x80090326`.
 
-After T1R-B, run GIS-G1 on artifact `9636591432`:
+Run GIS-G1 on artifact `9636591432`:
 
-- prove generic callback registration for `portalgisgmp.cert.roskazna.ru`;
-- prove the real `CertificateRequest` reaches issuer collection;
-- record the then-current acceptable-CA count rather than assuming it is still 36;
-- record candidate count.
+- prove GOST layer attachment to `portalgisgmp.cert.roskazna.ru`;
+- prove generic client-cert callback registration for that real certificate host;
+- prove the server `CertificateRequest` reaches issuer collection;
+- record the current acceptable-CA count rather than assuming it is still 36;
+- record local candidate count.
 
 If candidate count > 0, continue to real GIS-G2 mTLS/application login. If candidate count == 0, stop and diagnose the actual server CA list/local chain matching before changing issuer policy.
 
@@ -65,12 +47,12 @@ Investigate zero candidates in this order:
 
 Do not publish client-certificate identifying DNs, serials, fingerprints, provider/container identifiers or private data.
 
-### 3. Continue Stage 2 runtime matrix after T1R-B/GIS-G1 closure
+### 2. Continue Stage 2 runtime matrix after the immediate GIS branch
 
 Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining groups:
 
 - explicit Cancel/no-certificate vs involuntary Abort;
-- `Once`, explicit `Session`, explicit `Permanent`;
+- explicit `Session` and `Permanent` semantics;
 - missing-media/provider Cancel and recovery;
 - long provider-media wait using measured current-artifact timeout behavior;
 - Russian picker row/details rendering;
@@ -80,14 +62,14 @@ Follow `STAGE2_RUNTIME_TEST_PLAN.md` and `STAGE2_GIS_GMP.md` in order. Remaining
 - sensitive-log audit;
 - final exact-build Treasury mTLS regression.
 
-### 4. Attribute picker timeout and residual poll churn
+### 3. Attribute picker timeout and residual poll churn
 
 T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
 
 - picker-to-close intervals: `32.576 s`, `37.420 s`, `30.330 s`;
 - `GostPoll client-auth wait quiescent`: `10,825`, `34`, and `21` calls respectively.
 
-The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. This is not a blocker for T1R-B because decision cleanup is correct, but before changing timeout policy or calling the wait path fully quiescent:
+The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. This is not a blocker for GIS-G1, but before changing timeout policy or calling the wait path fully quiescent:
 
 - identify which Firefox/Necko/load timer actually tears down each attempt;
 - explain why the first cycle polls much more aggressively than later cycles;
