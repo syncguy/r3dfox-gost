@@ -146,14 +146,14 @@ Open work:
 
 ## Bundled government-system extensions — independent
 
-Current packaged three-extension artifact `9614275050` is packaging-proven but not fully runtime-proven.
+Current packaged three-extension artifact `9614275050` is packaging-proven and clean-profile discovery/enabled-state is proven for all three bundled project extensions.
 
 Next:
 
-1. clean-profile discovery/enabled-state for all three bundled extensions;
-2. re-check CryptoPro basic functionality on this exact package;
-3. test legacy IFCPlugin with installed native host;
-4. test Gosplugin with its local/native component;
+1. re-check CryptoPro basic functionality on this exact package;
+2. test legacy IFCPlugin with installed native host;
+3. test Gosplugin with its local/native component;
+4. verify the Russian-first content-language preference in runtime if desired;
 5. generalize the historically CryptoPro-named packaging workflow to assert all three XPI + language pref;
 6. transfer only proven shared packaging gates into the two main browser workflows;
 7. later prove real version-to-version update behavior where a valid older/newer signed extension is available.
