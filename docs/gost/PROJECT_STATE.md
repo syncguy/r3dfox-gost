@@ -121,29 +121,39 @@ The previously assumed exact 30-second boundary is not valid for this coordinate
 
 T2 is **not to be repeated on the old artifact**. It becomes the first regression test after the shutdown/re-entrancy fix.
 
-### Exploratory GIS GMP multi-host mTLS observation
+### GIS GMP multi-host mTLS runtime
 
-The same Stage 2 campaign also exercised:
+The same exact main artifact was exercised with:
 
-`pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> certificate-login endpoint `portalgisgmp.cert.roskazna.ru`.
+`pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> `portalgisgmp.cert.roskazna.ru`.
 
-User-visible observation:
+Runtime capture:
 
-- `pay.gov.ru` enters the GOST path and reaches the GIS GMP login host;
-- `portalgisgmp.login.roskazna.ru` also works through GOST TLS and displays the password-login page;
-- choosing login by certificate does not produce the expected visible transition and no Firefox certificate picker appears.
+- `gost_pay.gov.ru.zip` SHA-256 `2e9630e5d8048482ebc6a3d3ac0576db6af2c6b4e108c3c1de6ea4e30d99596b`;
+- inner `gost.moz_log` SHA-256 `f32fd8bf7067dd487e79121faf467f1038906d91ed958df87c572aff991bc5ed`;
+- capture span `03:28:19.547` through `03:28:55.898 UTC` (`36.351 s`), `51,925` lines.
 
-No new runtime capture was supplied with this exploratory observation, so exact error/timing/issuer-list contents are not claimed yet.
+Confirmed behavior:
 
-Exact-source audit of `860de8e...` establishes an earlier deterministic blocker than issuer matching:
+- `pay.gov.ru` completes one positively verified TLS 1.2 / `0xFF85` GOST handshake;
+- `portalgisgmp.login.roskazna.ru` completes five positively verified TLS 1.2 / `0xFF85` GOST handshakes and displays the password-login UI;
+- choosing certificate login does make network connections to `portalgisgmp.cert.roskazna.ru`; three GOST-layer attachments are present in the capture;
+- the certificate host sends a real TLS 1.2 `CertificateRequest`;
+- the captured `CertificateRequest` body is `12,184` bytes and its `certificate_authorities` vector is `12,143` bytes containing **36 DER X.509 Distinguished Names**;
+- the CA list is therefore not empty;
+- current browser responds on all three certificate-host attempts with TLS `Certificate` message `0B 00 00 03 00 00 00`, i.e. an empty client `certificate_list`;
+- server then returns fatal alert `handshake_failure` (`0x28`), and MSSPI reports primary `0x80090326`; later calls against the failed handle emit secondary `0x0000054f` diagnostics;
+- there is no `client certificate`, `issuer-list`, `set_cert_cb`, completed handshake or final verification marker for the certificate host.
+
+Exact source explains this runtime precisely:
 
 - `kStage1MtlsHost` is hard-coded to `lk-fzs.roskazna.ru`;
-- socket setup registers `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` only for that host;
-- the callback itself rejects any different host before issuer logging, coordinated decision handling, candidate enumeration or UI.
+- `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` is registered only for that one host;
+- the callback itself rejects any other host before issuer collection, candidate enumeration, coordinator state or Firefox UI.
 
-Therefore `portalgisgmp.cert.roskazna.ru` cannot reach the current Firefox client-auth path on artifact `9606431408`, regardless of the server acceptable-CA list. The acceptable-CA hypothesis remains the next possible compatibility boundary only after this Treasury-only host gate is removed.
+Therefore the current GIS GMP blocker is now **runtime-confirmed**, not merely source-proven: the server asks for a certificate, but Treasury-only callback registration prevents our Firefox client-auth path from running, so MSSPI sends an empty client certificate and the server rejects the handshake.
 
-The existing candidate policy is otherwise generic: it collects server CA names, enumerates `CurrentUser\MY`, requires `CERT_KEY_PROV_INFO_PROP_ID`, builds a Windows chain and compares Subject/Issuer names of chain elements with the server CA list. The current comparison is equal-length raw DER `memcmp`; if GIS GMP later reaches the callback but has zero candidates, that raw comparison/cross-chain behavior becomes a focused diagnostic target rather than a speculative preemptive change.
+The user's original CA-policy hypothesis is narrowed but still open. The server advertises 36 CA DNs, but artifact `9606431408` never runs `CollectGostCANames()` / `CollectGostClientCertCandidates()` for this host. Whether the intended local certificate matches one of those authorities under the current chain/DER policy cannot be concluded until F3 enables callback reachability and GIS-G1 records a real candidate count.
 
 Detailed F3 design and GIS-G1/G2/G3/G4 runtime branch are in `STAGE2_GIS_GMP.md`.
 
@@ -176,7 +186,7 @@ Exact lease expiry/generation ownership must be designed against Firefox/Necko l
 
 ### Blocker C — Stage-1 Treasury-only mTLS host scope
 
-Current GOST transport is already allowlist-driven for multiple hosts, but client-auth registration/dispatch is not. It remains hard-coded to `lk-fzs.roskazna.ru`.
+Current GOST transport is already allowlist-driven for multiple hosts, but client-auth registration/dispatch is not. It remains hard-coded to `lk-fzs.roskazna.ru`. GIS GMP runtime proves the consequence: a real `CertificateRequest` on another allowlisted GOST host receives an empty client certificate and fails with server `handshake_failure`.
 
 Required design:
 
@@ -188,11 +198,11 @@ Required design:
 - keep the explicit thumbprint selector narrow/diagnostic rather than silently applying one local credential across sites;
 - preserve the legacy A/B implementation as cleanly as practical.
 
-After this fix, GIS GMP itself determines whether a second issuer-policy fix is necessary. Do not alter CA matching until the real GIS GMP callback/candidate evidence exists.
+After this fix, GIS GMP itself determines whether a second issuer-policy fix is necessary. The old server advertised 36 CA DNs, but do not alter CA matching until the post-F3 callback/candidate evidence exists.
 
 ## Runtime test execution order
 
-The authoritative detailed Treasury matrix is `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is `STAGE2_GIS_GMP.md`. Recovery rule: do not restart the test campaign from old-artifact T1/T2 or repeat the broken old GIS GMP attempt.
+The authoritative detailed Treasury matrix is `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is `STAGE2_GIS_GMP.md`. Recovery rule: do not restart the test campaign from old-artifact T1/T2 or repeat the now-complete old GIS GMP failure.
 
 Immediate sequence:
 
