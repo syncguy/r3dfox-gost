@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-27
 
-This file is the authoritative current technical synthesis. Detailed runtime/build evidence lives in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes. Forward work is in `TODO.md`. The detailed Stage 2 contract is in `STAGE2_PLAN.md`; the exact user-facing runtime test sequence and recovery checkpoint is in `STAGE2_RUNTIME_TEST_PLAN.md`.
+This file is the authoritative current technical synthesis. Detailed runtime/build evidence lives in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes. Forward work is in `TODO.md`. The detailed Stage 2 contract is in `STAGE2_PLAN.md`; the exact user-facing runtime test sequence and recovery checkpoint is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP multi-host mTLS branch is in `STAGE2_GIS_GMP.md`.
 
 ## Repository / branch policy
 
@@ -121,9 +121,35 @@ The previously assumed exact 30-second boundary is not valid for this coordinate
 
 T2 is **not to be repeated on the old artifact**. It becomes the first regression test after the shutdown/re-entrancy fix.
 
+### Exploratory GIS GMP multi-host mTLS observation
+
+The same Stage 2 campaign also exercised:
+
+`pay.gov.ru` -> `portalgisgmp.login.roskazna.ru` -> certificate-login endpoint `portalgisgmp.cert.roskazna.ru`.
+
+User-visible observation:
+
+- `pay.gov.ru` enters the GOST path and reaches the GIS GMP login host;
+- `portalgisgmp.login.roskazna.ru` also works through GOST TLS and displays the password-login page;
+- choosing login by certificate does not produce the expected visible transition and no Firefox certificate picker appears.
+
+No new runtime capture was supplied with this exploratory observation, so exact error/timing/issuer-list contents are not claimed yet.
+
+Exact-source audit of `860de8e...` establishes an earlier deterministic blocker than issuer matching:
+
+- `kStage1MtlsHost` is hard-coded to `lk-fzs.roskazna.ru`;
+- socket setup registers `msspi_set_cert_cb(..., SelectStage1ClientCertificate)` only for that host;
+- the callback itself rejects any different host before issuer logging, coordinated decision handling, candidate enumeration or UI.
+
+Therefore `portalgisgmp.cert.roskazna.ru` cannot reach the current Firefox client-auth path on artifact `9606431408`, regardless of the server acceptable-CA list. The acceptable-CA hypothesis remains the next possible compatibility boundary only after this Treasury-only host gate is removed.
+
+The existing candidate policy is otherwise generic: it collects server CA names, enumerates `CurrentUser\MY`, requires `CERT_KEY_PROV_INFO_PROP_ID`, builds a Windows chain and compares Subject/Issuer names of chain elements with the server CA list. The current comparison is equal-length raw DER `memcmp`; if GIS GMP later reaches the callback but has zero candidates, that raw comparison/cross-chain behavior becomes a focused diagnostic target rather than a speculative preemptive change.
+
+Detailed F3 design and GIS-G1/G2/G3/G4 runtime branch are in `STAGE2_GIS_GMP.md`.
+
 ## Immediate implementation blockers
 
-Keep the two bugs separate in design and evidence even if they are carried by one later build.
+Keep the three bugs separate in design and evidence even if they are carried by one later build.
 
 ### Blocker A — close/shutdown re-entrant client-auth callback
 
@@ -148,18 +174,35 @@ Concurrent single-flight is already proven. The remaining UX requirement is an *
 
 Exact lease expiry/generation ownership must be designed against Firefox/Necko lifecycle rather than by an unbounded arbitrary cache.
 
+### Blocker C — Stage-1 Treasury-only mTLS host scope
+
+Current GOST transport is already allowlist-driven for multiple hosts, but client-auth registration/dispatch is not. It remains hard-coded to `lk-fzs.roskazna.ru`.
+
+Required design:
+
+- every already-selected/allowlisted GOST MSSPI socket must be capable of using the Firefox client-auth callback if the server requests a client certificate;
+- remove the Treasury-only rejection from the normal Firefox/coordinated path;
+- do not broaden ordinary NSS/GOST backend selection;
+- do not automatically send a certificate merely because callback capability exists;
+- preserve host/port/OriginAttributes/CA-list decision isolation;
+- keep the explicit thumbprint selector narrow/diagnostic rather than silently applying one local credential across sites;
+- preserve the legacy A/B implementation as cleanly as practical.
+
+After this fix, GIS GMP itself determines whether a second issuer-policy fix is necessary. Do not alter CA matching until the real GIS GMP callback/candidate evidence exists.
+
 ## Runtime test execution order
 
-The authoritative detailed matrix is `STAGE2_RUNTIME_TEST_PLAN.md`. Recovery rule: do not restart the test campaign from T1/T2. Resume at the first item marked `NEXT` or `BLOCKED` in that file.
+The authoritative detailed Treasury matrix is `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is `STAGE2_GIS_GMP.md`. Recovery rule: do not restart the test campaign from old-artifact T1/T2 or repeat the broken old GIS GMP attempt.
 
 Immediate sequence:
 
-1. implement Blocker A and Blocker B in separable code changes with explicit diagnostics;
+1. implement Blocker A, Blocker B and Blocker C as separable changes with explicit diagnostics;
 2. run the short SSL compile gate;
 3. after the final candidate source is stable, run the authoritative main full-browser build; do not use the thunk artifact as GOST runtime proof;
 4. first runtime regression: T2R timeout -> retry must open a fresh picker;
 5. second runtime regression: T1R successful Treasury login -> one logical login must need one picker while compatible concurrent/sequential sockets safely receive the selected certificate;
-6. only then continue Cancel/abort, remember semantics, provider/media, UI, discovery, negative matrix, server-trust closure and final regression.
+6. third branch: GIS-G1 -> prove the GIS GMP certificate endpoint reaches callback/issuer collection/candidate enumeration; if candidates exist, continue GIS-G2 real mTLS; if candidates are zero, stop and diagnose CA-chain/name matching;
+7. only then continue Cancel/abort, remember semantics, provider/media, UI, discovery, negative matrix, server-trust closure and final regression.
 
 ## Server trust — still mandatory
 
