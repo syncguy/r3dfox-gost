@@ -4,46 +4,46 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, and F3 generic GOST mTLS host scope are formally closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
+F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, F3 generic GOST mTLS host scope, and GIS-G4 cross-host decision isolation are closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
 
-The passing GIS GMP capture is `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`; inner log SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`. GIS-G1/G2/G3 prove generic callback reachability, current CA count `36`, one valid candidate/picker, five successful certificate-host GOST mTLS handshakes, application success, and no spurious picker on the two non-mTLS GOST hosts.
+Do not repeat T1R/T1R-B or GIS-G1/G2/G3/G4 on unchanged source merely for confirmation.
 
-Do not repeat T1R/T1R-B or GIS-G1/G2/G3 on unchanged source merely for confirmation.
+### 1. Finish the explicit `Session` baseline with S1-C
 
-### 1. Baseline `Session` semantics and prepare the picker UX/default change
+Current explicit-Session capture:
 
-Before changing the default, the current artifact can prove explicit `Session` semantics by manually choosing `Session` in the Firefox picker:
+- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
+- inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`.
 
-- **S1:** first Treasury login shows one picker; choose `Session`; protected login succeeds;
-- **S1-B:** an independent matching login in the same browser process should reuse the positive Session decision without a new picker;
-- **S1-C:** after closing and restarting the browser process, the Session decision must be gone and a fresh picker must appear.
+S1/S1-B are runtime-proven on the current artifact:
 
-This tests semantics only; it does not prove `Session` is the UI default.
+- first Treasury picker is resolved with explicit `Session` (`remember=2`);
+- ten later matching `lk-fzs.roskazna.ru` client-auth requests consume the positive `scope=session` remembered choice with no second Treasury picker;
+- all eleven Treasury TLS 1.2 / `0xFF85` mTLS handshakes succeed with `client_cert_loaded=1`;
+- user-visible behavior remains authenticated across tabs/windows in the same running browser process.
 
-Planned code/UX change after the baseline:
+The raw Treasury requests in this capture all carry `browser_id=14`, so the log formally proves process-level remembered reuse; the tab/window topology is user-observed rather than represented by distinct browser IDs.
 
-- make `Session` the default remember choice for the picker;
+**S1-C remains:** fully close r3dfox, restart with the same profile, and initiate the same Treasury client-auth flow. A fresh picker must appear because Session must not survive process restart.
+
+### 2. Implement the planned picker UX/default change
+
+After S1-C:
+
+- make `Session` the default remember choice;
 - preserve explicit `Once` and the proven positive-only short fanout lease;
-- keep the current 5-second idle lease behavior for now, with later consideration of an `about:config` preference rather than hard-wiring future policy;
-- render `Issued by` using a human-friendly issuer display in the same spirit as the already-improved `Issued to`, rather than exposing the full raw DN in the primary details row;
-- run targeted exact-build regressions for default Session plus explicit Once after the change.
+- keep the current 5-second idle lease for now, with later consideration of an `about:config` preference;
+- render `Issued by` using a human-friendly issuer display in the same style as the already-improved `Issued to` rather than exposing the full raw DN in the primary details row;
+- run targeted exact-build regressions for default Session and explicit Once.
 
-### 2. GIS-G4 — cross-host decision isolation
-
-The real GIS GMP host-scope defect is closed, but cross-host remember/decision isolation remains worth proving explicitly.
-
-At minimum:
-
-- a Treasury `Once` choice must never silently apply to `portalgisgmp.cert.roskazna.ru`;
-- host/port/OriginAttributes/acceptable-CA identity isolation must remain intact;
-- if `Session` or `Permanent` is tested on both hosts, each host must follow the intended Firefox remember semantics without credential leakage across origins.
+The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain a separate implementation/test item; do not assume the current `Permanent` UI choice survives process restart until that is explicitly implemented and proven.
 
 ### 3. Continue the remaining Stage 2 runtime matrix
 
-Follow `STAGE2_RUNTIME_TEST_PLAN.md` after the immediate Session/UX and GIS-G4 work. Remaining groups include:
+Remaining groups include:
 
 - explicit Cancel/no-certificate vs involuntary Abort;
-- explicit `Session` and `Permanent` semantics beyond the initial S1 baseline;
+- full `Permanent` semantics;
 - missing-media/provider Cancel and recovery;
 - long provider-media wait using measured current-artifact timeout behavior;
 - Russian picker row/details rendering;
@@ -60,7 +60,7 @@ T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
 - picker-to-close intervals: `32.576 s`, `37.420 s`, `30.330 s`;
 - `GostPoll client-auth wait quiescent`: `10,825`, `34`, and `21` calls respectively.
 
-The first cycle still has substantial polling churn (~332/s), while later cycles are near one call per second. Before changing timeout policy or calling the wait path fully quiescent:
+Before changing timeout policy or calling the wait path fully quiescent:
 
 - identify which Firefox/Necko/load timer actually tears down each attempt;
 - explain why the first cycle polls much more aggressively than later cycles;
