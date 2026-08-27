@@ -257,7 +257,6 @@ The next runtime blocker is **F3 / GIS-G1** on `portalgisgmp.cert.roskazna.ru` u
 Status: current; F2 positive `Once` fanout/scope blocker closed.
 
 ---
-
 ## 2026-08-27 — GIS-G1/G2/G3 pass: generic coordinated client auth completes real GIS GMP GOST mTLS
 
 **Track:** GOST TLS runtime / Stage 2 generic multi-host client authentication  
@@ -467,3 +466,29 @@ A separate packaging experiment was then started without changing the main/thunk
 **SHORT SSL COMPILE PASS for the Session-default picker source.**
 
 Status: current build candidate; short compile gate closed, full build/package and targeted runtime validation pending.
+
+---
+
+## 2026-08-27 — Session-default source passes the independent thunk-rs full Firefox build
+
+**Track:** Windows Vista/7 compatibility / full Firefox-xul thunk-rs experiment  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577260`  
+**Job:** `98521835116`  
+**Workflow:** `GOST TLS PoC build - thunk-rs experiment`  
+**Result:** `success`  
+**Browser artifact:** `9652182123` (`r3dfox-gost-win64-thunk-experiment`)  
+**Diagnostics artifact:** `9652183604` (`r3dfox-gost-win64-thunk-diagnostics`)
+
+The exact run completed successfully on `head_sha=afbdad307f63e594d3715169d6e34235280dddaf`. The job passed the `security/manager/ssl` object compile gate, full release Firefox/xul build with the narrow YY-Thunks/thunk-rs path, package creation, xul.dll Win7 import audit, both artifact uploads, and the final gate rejecting known direct Win8+ imports.
+
+This establishes a clean full-scale Windows-compatibility build/package/import result for the Session-default source. It is independent corroboration that the current GOST C++ changes coexist with the thunk-rs/YY compatibility build line.
+
+It does **not** prove GOST TLS runtime behavior, the new picker default at runtime, real Windows 7 startup/runtime compatibility, or delay-load/runtime-path closure. Those remain separate gates.
+
+### Conclusion
+
+**THUNK-RS FULL BUILD PASS for source `afbdad307f63e594d3715169d6e34235280dddaf`.**
+
+Status: current Windows-compatibility full-build evidence; runtime validation remains open.
