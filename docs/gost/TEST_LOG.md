@@ -318,3 +318,73 @@ The real GIS GMP certificate endpoint now reaches generic Firefox-coordinated cl
 GIS-G4 cross-host decision isolation remains a separate semantic regression test; final fail-closed server-trust closure also remains open.
 
 Status: current; F3 generic host-scope blocker closed.
+
+---
+
+## 2026-08-27 — Explicit Session is reused in-process and stays isolated from another GOST mTLS host
+
+**Track:** GOST TLS runtime / explicit Session baseline + GIS-G4 cross-host isolation  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea` (`fix(gost): harden coordinated client auth lifecycle`)  
+**Actions run:** `33039013849`  
+**Job:** `98408139479`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9636591432` (`r3dfox-gost-win64-release`)  
+**Runtime capture:** user-provided `session-current.zip`, SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`; inner `session-current.moz_log`, SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`
+
+The raw capture is not committed. Only sanitized lifecycle/protocol counts are recorded.
+
+### S1 / S1-B — Treasury explicit Session
+
+The entire capture remains in one browser process (`Parent 6200`).
+
+- first `lk-fzs.roskazna.ru` client-auth request is at `11:36:28.521 UTC`, `ca_count=34`, `browser_id=14`;
+- coordinator creates `decision=1` and one Firefox picker;
+- the user selects the intended certificate with explicit `Session`;
+- decision resolves positively at `11:36:33.382 UTC` with `remember=2`;
+- no Treasury `Once` lease is stored for this choice;
+- ten later matching Treasury client-auth requests are served from `scope=session` with no additional Treasury picker;
+- all **11** `lk-fzs.roskazna.ru` handshakes complete as TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`.
+
+The user confirms that the Session remains usable while working across tabs and browser windows in the same running browser. The Treasury client-auth requests visible in this log all carry `browser_id=14`; therefore the raw log itself proves process-level matching remembered reuse, while the tab/window topology is additional user-observed UX evidence rather than a distinct-browser-ID handshake proof.
+
+### GIS-G4 — cross-host isolation
+
+With the Treasury Session choice still active in the same process, the user navigates to the independent GIS GMP GOST route.
+
+- `pay.gov.ru` completes one GOST handshake with `client_cert_loaded=0`;
+- `portalgisgmp.login.roskazna.ru` completes five GOST handshakes with `client_cert_loaded=0`;
+- `portalgisgmp.cert.roskazna.ru` issues a fresh client-auth request at `11:37:37.389 UTC`, `ca_count=36`, `browser_id=17`;
+- candidate count is `1`;
+- fresh `decision=2` and a fresh Firefox picker are created;
+- the active Treasury Session certificate is **not** silently applied to the different GOST mTLS host.
+
+The user then selects `Once` for GIS GMP:
+
+- positive lease generation `1` is stored at `11:37:49.897 UTC` (`remember=0`);
+- four compatible requests reuse it;
+- five GIS GMP certificate-host TLS 1.2 / `0xFF85` mTLS handshakes complete with `client_cert_loaded=1`.
+
+Whole-capture safety counts:
+
+- client-cert dialogs: `2` total, one Treasury and one GIS GMP;
+- Treasury Session remembered hits: `10`;
+- GIS `Once` lease stores: `1`;
+- GIS `Once` lease reuses: `4`;
+- successful mTLS handshakes: Treasury `11`, GIS certificate host `5`;
+- `selected=0`: `0`;
+- `0x80090326`: `0`;
+- `0x0000054f`: `0`;
+- `MSSPI_X509_LOOKUP`: `0`;
+- stale client-auth callbacks: `0`;
+- `E/GostTLS`: `0`.
+
+### Conclusion
+
+**S1 PASS. S1-B in-process positive Session reuse PASS. GIS-G4 PASS / CLOSED.**
+
+The process-local Session remember path supplies later matching Treasury client-auth handshakes without another picker, while a different GOST mTLS host receives an independent decision/picker and cannot inherit the Treasury credential decision.
+
+This capture does not close **S1-C** because it contains only one browser process. The remaining Session baseline test is a complete r3dfox process restart using the same profile; the next matching Treasury client-auth flow must show a fresh picker.
+
+Status: current; S1/S1-B pass, GIS-G4 closed, S1-C next.
