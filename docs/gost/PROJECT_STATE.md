@@ -25,7 +25,8 @@ Current constraints:
 - `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
 - explicit local thumbprint selection remains diagnostic only;
 - current UI default remains `Once`; `Once` uses a positive-only fanout lease with a 5-second idle lifetime and each successful reuse refreshes the idle expiry;
-- explicit `Session` uses the positive in-memory remember path for the matching coordinated decision key and is process-scoped rather than tab-scoped; the planned UX iteration will make `Session` the picker default while retaining explicit `Once` and its lease.
+- explicit `Session` uses the positive in-memory remember path for the matching coordinated decision key, is shared across matching handshakes in the running browser process rather than scoped to one tab/window, stays isolated from a different GOST mTLS host, and is cleared by browser-process restart;
+- the planned UX iteration will make `Session` the picker default while retaining explicit `Once` and its proven lease.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
@@ -64,7 +65,7 @@ Exact local binary preflight for main artifact `9636591432`:
 - `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
 - `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
 
-The valid T1R/T1R-B, GIS GMP G1/G2/G3, and explicit-Session evidence below is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
+The valid T1R/T1R-B, GIS GMP G1/G2/G3/G4, and explicit-Session S1/S1-B/S1-C evidence below is bound to this artifact. An earlier `t1r_error.zip` was later confirmed by the user to have been produced from an older browser build and is historical invalid-test evidence only.
 
 ## Stage 2 coordinated runtime checkpoint
 
@@ -136,9 +137,9 @@ Whole GIS capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509
 
 Therefore the old empty-client-Certificate / `0x80090326` GIS host-scope failure is closed on the current artifact. Final fail-closed server-trust closure remains mandatory.
 
-### Explicit `Session` baseline and GIS-G4 cross-host isolation — S1/S1-B PASS, GIS-G4 CLOSED
+### Explicit `Session` baseline and GIS-G4 cross-host isolation — COMPLETE
 
-Current explicit-Session capture:
+In-process Session / GIS-G4 capture:
 
 - `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
 - inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`;
@@ -153,23 +154,28 @@ Treasury S1/S1-B evidence:
 - the eleven resulting `lk-fzs.roskazna.ru` handshakes all complete as TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
 - the user confirms the remembered Session choice remains effective while working across tabs and browser windows in the same running browser process.
 
-The log's Treasury client-auth requests all carry `browser_id=14`; therefore the raw log formally proves process-level remembered reuse for repeated matching handshakes, while the tab/window topology is additionally user-observed rather than separately encoded by distinct browser IDs in this capture.
+The log's Treasury client-auth requests all carry `browser_id=14`; therefore the raw log formally proves process-level remembered reuse for repeated matching handshakes, while the tab/window topology is additionally user-observed rather than separately encoded by distinct browser IDs in that capture.
 
 GIS-G4 is directly proven in the same process: after the Treasury Session decision exists, navigation to the different GOST mTLS endpoint `portalgisgmp.cert.roskazna.ru` produces a new client-auth request with `browser_id=17`, fresh decision `2`, and a fresh picker at `11:37:37.389 UTC`. The Treasury Session certificate is not silently applied cross-host. The user then selects `Once` for GIS GMP; generation `1` is stored and reused four times, and five GIS GMP certificate-host mTLS handshakes succeed.
 
-Whole capture safety result: zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks, or `E/GostTLS`.
+S1-C restart-boundary capture:
 
-S1-C remains open: a full browser-process restart with the same profile must prove the Session choice is cleared and a fresh picker returns.
+- `session-current2.zip` SHA-256 `e32b71ca51d151e553ab82c321fd8f829270e09b6a8390f7fb3ea828af3a29e7`;
+- inner `session-current.moz_log` SHA-256 `5b156cf0765c9aad3ceffeac6d1a845cea381f219ea168d59b318201b9f419b5`;
+- new process `Parent 5112`, versus prior Session process `Parent 6200`.
 
-## Immediate runtime order
+In the new process, the first Treasury client-auth request at `12:05:43.453 UTC` has no old Session remembered hit, creates fresh decision `1`, enumerates one candidate and shows a fresh picker. After the user establishes a new explicit Session at `12:05:47.363` (`remember=2`), five later matching requests are served from `scope=session`; six Treasury mTLS handshakes complete successfully. No `Once` lease, sticky negative state, or GOST error appears.
 
-1. **S1-C — NEXT:** fully close r3dfox, restart with the same profile, and initiate the same Treasury client-auth flow. A fresh picker must appear; Session must not survive process restart.
-2. Implement the planned picker UX change separately: make `Session` the default while preserving explicit `Once` and its proven positive lease, and render `Issued by` in the same human-friendly style as `Issued to`; then run targeted regression on the new exact build.
-3. Continue explicit Cancel/no-certificate vs Abort, Permanent semantics, provider/media, picker UI, discovery and negative matrix.
-4. Complete final server-trust closure.
-5. Keep timeout-source/poll-churn attribution as separate non-blocking work.
+Therefore S1/S1-B/S1-C prove the intended browser-process lifetime: positive Session reuse is shared across matching handshakes and user-visible tabs/windows within one running browser, does not cross to an independent GOST mTLS host, and is cleared by full browser-process restart.
 
-Do not repeat T1R/T1R-B, GIS-G1/G2/G3, or GIS-G4 on this unchanged source merely for confirmation.
+## Immediate runtime / implementation order
+
+1. **Picker UX/default iteration — NEXT:** make `Session` the default remember duration, preserve explicit `Once` and its proven positive 5-second lease, and render `Issued by` in the same human-friendly style as `Issued to`. Build and run targeted regressions on the exact new artifact.
+2. Continue explicit Cancel/no-certificate vs Abort, true Persistent/Permanent semantics, provider/media, picker UI, discovery and negative matrix.
+3. Complete final server-trust closure.
+4. Keep timeout-source/poll-churn attribution as separate non-blocking work.
+
+Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or the explicit-Session baseline on this unchanged source merely for confirmation.
 
 ## Server trust — still mandatory
 
