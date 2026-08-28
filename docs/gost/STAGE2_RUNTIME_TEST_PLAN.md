@@ -78,6 +78,7 @@ Detailed capture identities and event-level evidence are in `TEST_LOG.md`, dated
 - **T4 CLOSED:** closing the tab that owns an unanswered picker removes the still-unresolved decision through phase-0 lifecycle cleanup, not Declined state; another tab in the same browser process receives a fresh picker and successfully recovers.
 - **T7/T8 CLOSED:** a certificate remaining in `CurrentUser\MY` is still picker-discoverable while its key medium is unavailable; provider refusal fails the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`, leaves the positive Session decision intact, and same-process recovery after the medium returns reuses `scope=session` and completes Treasury GOST mTLS/application traffic without another picker.
 - **T9 CHARACTERIZATION CLOSED:** a long provider/key-access wait is lifecycle-safe but synchronously occupies the shared Firefox Socket Thread. T9 measured `74.742 s` with responsive browser UI, zero Socket Thread `GostTLS` activity, queued network work starting immediately when provider Cancel returned, and later clean Session/mTLS recovery. The no-network-starvation expectation is therefore false on the current implementation; stock-behavior comparison/threading redesign remains a separate follow-up.
+- **T10 CLOSED:** detailed Russian picker presentation is usable: human-readable owner/issuer, correct Cyrillic and localized expiry, readable details, serial details-only, all `Once` / `Session` / `Permanent` choices visible, and `Session` visibly selected by default. A normal Session Treasury login still succeeds after the inspection. This does not imply real `Permanent` persistence.
 
 ## T5 probe — POST-LOGIN MEDIA REMOVAL DOES NOT EXERCISE T5
 
@@ -162,18 +163,20 @@ Required properties:
 
 After implementation, define a compact T6 runtime sequence proving initial Permanent selection, same-process reuse, full process restart persistence, explicit forget/change behavior, and regression safety for Session/Once.
 
-## NEXT RUNTIME — T10 Russian UI presentation
+## NEXT RUNTIME — T11/T12 discovery boundary
 
-T9 is now characterized on the current exact artifact. The next independent runtime test that does not require a new build is T10.
+T10 is closed on the current exact artifact. The next independent runtime test that does not require a new build is the combined T11/T12 discovery boundary.
 
 Procedure:
 
-1. mandatory preflight with a new clean `profile-T10` and dedicated log;
-2. open Treasury client-auth until the Firefox certificate picker appears;
-3. visually verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, human-friendly `Issued by`, and that serial remains details-only rather than polluting the main candidate row;
-4. verify `Session` remains visibly selected by default and `Once` / `Permanent` remain selectable;
-5. complete one normal Session Treasury login to confirm no functional regression after the presentation inspection;
-6. do not publish screenshots or raw certificate identity fields unless they are safely redacted; user confirmation of the visible presentation is sufficient when the raw values are sensitive.
+1. mandatory preflight with a new clean `profile-T11T12` and dedicated log;
+2. begin with the otherwise eligible client certificate absent from `CurrentUser\MY`, while preserving a safe, known way to restore it and its private-key binding; if feasible, leave the provider/removable-media identity available outside `MY` so T12 can be observed in the same campaign;
+3. trigger a fresh Treasury client-auth attempt and record whether candidate enumeration returns zero suitable candidates or discovers an identity outside `MY`; candidate enumeration itself must not trigger interactive provider/PIN/media UI;
+4. if the first attempt has no acceptable candidate, confirm that this result is not sticky; without restarting Firefox, restore the eligible certificate to `CurrentUser\MY`;
+5. trigger a new independent Treasury client-auth attempt in the same process. Candidate discovery must be re-evaluated, the restored certificate must reappear, and a fresh picker must be shown rather than reusing a negative/no-candidate state;
+6. choose the normal Session path and require successful Treasury login as the recovery smoke;
+7. separately record the T12 boundary: if an identity exposed only by provider/removable media and absent from `MY` is not discovered, document provider discovery as required future work. If it is discovered, verify enumeration did not itself force provider/PIN/media interaction;
+8. do not destructively modify the production certificate/key and do not publish certificate identity, provider/container identifiers, PINs, or raw screenshots/logs containing them.
 
 ## Remaining client-decision semantics
 
@@ -192,9 +195,9 @@ T9 establishes a concrete global Socket Thread starvation baseline during synchr
 
 ## Picker presentation / discovery / policy
 
-### T10 — Russian UI presentation
+### T10 — Russian UI presentation — CLOSED
 
-Verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, human-friendly `Issued by`, and serial remaining details-only. Do not publish actual certificate identity values.
+Detailed user-visible presentation is confirmed on the current Session-default artifact: human-readable owner and issuer, correct Cyrillic and localized expiry, readable details, serial confined to details, all three remember choices visible, and Session selected by default. A normal Session Treasury login still succeeds after inspection. This closes presentation only; true `Permanent` persistence remains T6.
 
 ### T11 — dynamic `CurrentUser\MY`
 
