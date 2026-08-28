@@ -414,7 +414,9 @@ jobs:
           $diag = Join-Path $env:SMOKE_DIR 'pe-headers'
           New-Item -ItemType Directory -Force $diag | Out-Null
           $target = [version]'5.1'
-          $exe = Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.exe' -File | Select-Object -Single
+          $exes = @(Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.exe' -File)
+          if ($exes.Count -ne 1) { throw "Expected exactly one runtime EXE; found $($exes.Count)" }
+          $exe = $exes[0]
           $final = Get-PEInfo $exe.FullName (Join-Path $diag 'final-exe.txt')
           if ($final -ne $target) { throw "Final PE subsystem is $final; XP x86 requires exactly 5.01" }
 
@@ -514,7 +516,9 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.exe' -File | Select-Object -Single
+          $exes = @(Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.exe' -File)
+          if ($exes.Count -ne 1) { throw "Expected exactly one runtime EXE; found $($exes.Count)" }
+          $exe = $exes[0]
           Push-Location $env:RUNTIME_BUNDLE
           try {
             & $exe.FullName 2>&1 | Tee-Object -FilePath (Join-Path $env:SMOKE_DIR 'run-windows-2022.txt')
