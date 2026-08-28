@@ -518,3 +518,70 @@ The build result alone does **not** prove the JavaScript picker presentation, ru
 **MAIN FULL BUILD PASS for source `afbdad307f63e594d3715169d6e34235280dddaf`.**
 
 Status: current authoritative runtime-test candidate; targeted exact-artifact runtime validation is next.
+
+---
+
+## 2026-08-28 — SD1-SD6 pass on the Session-default authoritative artifact
+
+**Track:** GOST TLS runtime / Session-default exact-artifact regression  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577269`  
+**Job:** `98521835354`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9652941006` (`r3dfox-gost-win64-release`)  
+**Binary preflight:** `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`; `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`
+
+The binary hashes were verified against the official GitHub Actions artifact before the runtime campaign. The baseline environment used the five documented GOST hosts and cleared `R3DFOX_GOST_CLIENT_CERT_THUMBPRINT`, `R3DFOX_GOST_CLIENT_AUTH_MODE`, and `R3DFOX_GOST_CIPHERS`. Independent sequences used clean test profiles; continuity tests intentionally retained the process/profile state required by their semantics. The raw captures are not committed.
+
+Capture identities:
+
+- `SD1.zip` SHA-256 `c0a1159c3e8d0869e54e2a07ddca1814dea24ff83677f2a201a8299b11f77f04`; inner `SDx.moz_log` SHA-256 `19dc6a8c1ed0902c59e156e746df431b81e3fd77259c9a61209d73f86c1bceca`;
+- `SD2.zip` SHA-256 `d399664ea66369ae3993d263ab625ede77030000f280ba59f5dca4d76f8d2656`; inner `SDx.moz_log` SHA-256 `ec64a13a38bd1dc8d96088d7f25c879a91e8798d1d23e1bf2caeeed0a772236e`;
+- `SD3.zip` SHA-256 `522de1961c9b1c906df1ab43117578e1a9816fa1bc8882898ab5a2ff3cbc69d9`; inner `SDx.moz_log` SHA-256 `52424d90bc039782f455d9ded1d2cb40eecf4938b964d7272bea7cbdc2b51bcc`;
+- `SD4.zip` SHA-256 `f9c47763a17e334a20ea941c0fb675bf012c1076c33fc69e382941611ceb9d1d`; inner `SDx.moz_log` SHA-256 `e20a570fcc0cd07420c06c2b4d9efb1f40348ccf078ba531ede7189c5840ec99`;
+- `SD5.zip` SHA-256 `9350a2a8b73011c5059f45a4d37835fbcb55c2473c1b80e05eb490b796d2d6d0`; inner `SDx.moz_log` SHA-256 `1fdfc5477186df585ccfd7db7d7bdbc6becb11e5c2bad64793553755293421ed`.
+
+### SD1 — default Session first Treasury flow — PASS
+
+`SD1` runs in `Parent 6736`. The first `lk-fzs.roskazna.ru` request creates exactly one decision/picker at `02:24:00.169 UTC`. The positive choice resolves at `02:24:09.081 UTC` with `remember=2`, proving the unchanged initial UI choice was Session rather than Once. No `Once` lease is stored. Eleven later matching client-auth requests consume `scope=session` without another picker. The capture contains 12 successful `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes with state `0x00000000`, `client_cert_loaded=1`, plus positive current verification status on each.
+
+### SD2 — same-process Session reuse — PASS
+
+`SD2` is a cumulative continuation of SD1: its inner log begins with the complete SD1 log byte-for-byte and continues in the same `Parent 6736`. The added tail creates **zero** new client-auth decisions and **zero** new picker requests. It adds six later `lk-fzs.roskazna.ru` client-auth requests under `browser_id=15`; all six are satisfied from `scope=session` and all six complete TLS 1.2 / `0xFF85` mTLS with `client_cert_loaded=1`. Whole SD2 capture: one original picker, 17 Session remembered hits and 18 successful Treasury mTLS handshakes.
+
+### SD3 — browser-process restart boundary — PASS
+
+The restart capture is a different process, `Parent 5056`, versus `Parent 6736` for SD1/SD2. Its first Treasury client-auth request creates fresh `decision=1` and a fresh picker at `02:34:00.689 UTC`; there is no inherited Session hit before the new decision. The new choice resolves with `remember=2` at `02:34:09.264 UTC`; 13 later requests then use `scope=session`, and 13 Treasury TLS 1.2 / `0xFF85` mTLS handshakes succeed. The profile-continuity procedure is external to MozLog; the process boundary and fresh coordinator state are directly encoded by the capture.
+
+### SD4 — explicit Once regression — PASS
+
+`SD4` remains in one process, `Parent 3144`, `browser_id=14`. Explicit Once is represented by `remember=0`. Three independent positive choices produce three distinct decisions/pickers and lease generations:
+
+- decision 1 resolves at `02:36:05.099 UTC`, stores generation 1, and generation 1 is reused 13 times through `02:36:08.020 UTC`;
+- decision 2 is not created until `02:37:53.525 UTC`, more than 105 seconds after the last generation-1 reuse and therefore far beyond its 5-second idle lifetime; it resolves at `02:38:00.108 UTC` and stores generation 2;
+- decision 3 is created at `02:38:11.282 UTC`, more than 11 seconds after generation 2 was stored, and resolves at `02:38:21.363 UTC`, storing generation 3.
+
+Thus explicit Once still provides short positive fanout while independent post-expiry attempts re-prompt and create new lease generations rather than silently becoming Session state. The capture contains 19 successful Treasury mTLS handshakes with client certificate loaded.
+
+### SD5 — cross-host Session isolation — PASS
+
+`SD5` runs in one process, `Parent 1056`. Treasury creates decision 1 on `browser_id=14`, resolves with `remember=2`, and later matching Treasury requests use `scope=session`; 14 Treasury mTLS handshakes succeed. While that Treasury Session is active, `portalgisgmp.cert.roskazna.ru` issues a client-auth request on `browser_id=15` and creates a distinct `decision=2` plus a fresh picker at `02:43:12.526 UTC`. The Treasury remembered decision is therefore not applied cross-host. After the independent GIS choice, five GIS certificate-host TLS 1.2 / `0xFF85` mTLS handshakes succeed. `pay.gov.ru` and `portalgisgmp.login.roskazna.ru` continue to complete without client certificates.
+
+### SD6 — picker presentation — PASS by user-visible confirmation
+
+The user visually confirms the picker presentation is correct: Session is selected as the default remember choice and the `Issued by` presentation is human-readable as intended. No real certificate identity values are recorded in repository documentation.
+
+### Whole-series safety result
+
+Each supplied SD1-SD5 capture contains zero occurrences of `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, and `MSSPI_X509_LOOKUP`. All recorded successful GOST handshakes use TLS 1.2 / `0xFF85` and state `0x00000000`. Positive `DriveHandshake verify ... ok=1 status=0x00000000` is observed under the **current** verification path; this does not close the separately mandatory fail-closed server-trust work.
+
+### Conclusion
+
+**SD1 PASS. SD2 PASS. SD3 PASS. SD4 PASS. SD5 PASS. SD6 PASS.**
+
+The Session-default picker iteration is runtime-validated on exact authoritative artifact `9652941006`: default Session selection works, matching Session decisions are reused within the process, process restart receives a fresh decision, explicit Once retains its positive 5-second fanout/post-expiry re-prompt semantics, remembered decisions remain host-isolated, and the intended picker presentation is confirmed visually.
+
+This closes the targeted Session-default regression campaign. It does not close true persistent `Permanent` semantics, negative Cancel/Abort/provider paths, candidate-policy work, or final fail-closed server verification.
+
+Status: current; Session-default exact-artifact regression closed.
