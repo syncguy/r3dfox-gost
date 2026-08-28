@@ -226,7 +226,7 @@ jobs:
           wcsrchr ENDP
           END
           '@ | Set-Content -Encoding ascii $stubAsm
-          & ml.exe /nologo /c /coff $stubAsm "/Fo$stubObj" 2>&1 | Tee-Object diagnostics\harness-stubs-assemble.log
+          & ml.exe /nologo /c /coff "/Fo$stubObj" $stubAsm 2>&1 | Tee-Object diagnostics\harness-stubs-assemble.log
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stubObj)) { throw 'Harness MASM stub compile failed' }
           $stubSymbols = (& dumpbin.exe /nologo /symbols $stubObj 2>&1 | Out-String)
           $stubSymbols | Set-Content -Encoding utf8 diagnostics\harness-stubs-symbols.txt
