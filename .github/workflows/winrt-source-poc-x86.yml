@@ -1,0 +1,196 @@
+name: WinRT source PoC x86
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - "widget/windows/**"
+      - "toolkit/system/windowsPackageManager/**"
+      - ".github/workflows/winrt-source-poc-x86.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  source-winrt-x86:
+    name: Firefox source WinRT isolation / x86
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-winrt-poc-x86
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+
+    steps:
+      - name: Checkout source PoC branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Record identity
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "source=$env:GITHUB_SHA"
+            "ref=$env:GITHUB_REF"
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: GATE - Verify intended source isolation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $widget = Get-Content widget\windows\moz.build -Raw
+          $pkg = Get-Content toolkit\system\windowsPackageManager\moz.build -Raw
+          if ($widget -notmatch 'OSKInputPaneManagerLegacy\.cpp') { throw 'Legacy OSK backend is not selected' }
+          if ($widget -match '"OSKInputPaneManager\.cpp"') { throw 'WinRT OSK backend is still selected' }
+          if ($widget -notmatch 'SOURCES\["WindowsUIUtils\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsUIUtils WinRT fallback flag missing' }
+          if ($pkg -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsPackageManager WinRT fallback flag missing' }
+          git diff --check HEAD~1..HEAD
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) { throw 'Expected stale mime_guess checksum was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe' -OutFile "$env:RUNNER_TEMP\MozillaBuildSetup.exe"
+          Start-Process -FilePath "$env:RUNNER_TEMP\MozillaBuildSetup.exe" -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Write x86 mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-winrt-poc-x86
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --disable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-updater
+          '@ | Set-Content '.mozconfig-winrt-poc-x86'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure x86 object directory
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 configure 2>&1 | Tee-Object diagnostics\configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C obj-winrt-poc-x86 recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C obj-winrt-poc-x86 recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile WinRT-related target objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C obj-winrt-poc-x86 'widget/windows/target-objects' 2>&1 | Tee-Object diagnostics\widget-target-objects.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C obj-winrt-poc-x86 'toolkit/system/windowsPackageManager/target-objects' 2>&1 | Tee-Object diagnostics\package-manager-target-objects.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Disabled legacy paths have no WinRT API references
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $apis = @(
+            'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal',
+            'WindowsCreateString','WindowsCreateStringReference','WindowsDeleteString',
+            'WindowsGetStringRawBuffer'
+          )
+          $objects = Get-ChildItem obj-winrt-poc-x86 -Recurse -File -Filter '*.obj' | Where-Object {
+            $_.Name -match 'WindowsUIUtils|OSKInputPaneManagerLegacy|nsWindowsPackageManager'
+          }
+          if (-not $objects) { throw 'Expected WinRT-related objects were not found' }
+          $report = [System.Collections.Generic.List[string]]::new()
+          foreach ($obj in $objects) {
+            $symbols = (& dumpbin.exe /nologo /symbols $obj.FullName 2>&1 | Out-String)
+            $report.Add("=== $($obj.FullName) ===")
+            foreach ($api in $apis) {
+              if ($symbols.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $report.Add("FOUND $api")
+                throw "$($obj.Name) still references $api"
+              }
+            }
+            $report.Add('PASS no target WinRT API symbols')
+          }
+          $report | Set-Content -Encoding utf8 diagnostics\disabled-path-symbol-gate.txt
+
+      - name: Inventory remaining WinRT references in widget objects
+        if: always()
+        shell: powershell
+        run: |
+          $apis = @(
+            'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal',
+            'WindowsCreateString','WindowsCreateStringReference','WindowsDeleteString',
+            'WindowsGetStringRawBuffer'
+          )
+          $hits = [System.Collections.Generic.List[string]]::new()
+          Get-ChildItem obj-winrt-poc-x86\widget\windows -Recurse -File -Filter '*.obj' -ErrorAction SilentlyContinue | ForEach-Object {
+            $symbols = (& dumpbin.exe /nologo /symbols $_.FullName 2>&1 | Out-String)
+            $found = @($apis | Where-Object { $symbols.IndexOf($_,[System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            if ($found.Count) { $hits.Add("$($_.Name)|$($found -join ',')") }
+          }
+          if (-not $hits.Count) { $hits.Add('NO_REMAINING_WINRT_REFERENCES_IN_WIDGET_OBJECTS') }
+          $hits | Set-Content -Encoding utf8 diagnostics\remaining-widget-winrt-references.txt
+          $hits | ForEach-Object { Write-Host $_ }
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winrt-source-poc-x86-diagnostics
+          path: diagnostics
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          "## WinRT source PoC x86" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- PackageManager and UISettings use existing non-WinRT fallback compilation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- InputPane uses a legacy no-op backend." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Remaining widget WinRT references are inventoried separately, especially toast notifications." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
