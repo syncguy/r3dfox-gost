@@ -33,6 +33,7 @@ Current constraints and behavior:
 - if that medium is unavailable before first key acquisition, provider refusal fails only the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`; the positive Firefox Session decision remains intact and can be reused after the medium returns;
 - on the current CryptoPro/SSPI environment, removing the private-key medium **after** successful Session mTLS does not necessarily invalidate the already-acquired provider/credential context: a later fresh Treasury socket can still perform a new client-auth TLS exchange using the remembered Session decision;
 - long synchronous CryptoPro/provider key access currently runs on the shared Firefox Socket Thread: T9 measured a `74.742 s` provider wait with a responsive browser UI but zero Socket Thread `GostTLS` activity; queued `pay.gov.ru`/GIS GMP network work started immediately when provider Cancel returned, so global network starvation during provider UI is a confirmed concurrency limitation while coordinator/Session state remains safe;
+- detailed T10 picker presentation is confirmed usable in Russian: human-readable owner and issuer, correct Cyrillic and localized expiry, readable details, serial details-only, all `Once` / `Session` / `Permanent` choices visible, and `Session` visibly selected by default;
 - `Issued by` uses the human-facing issuer common name when available, with the full issuer DN only as fallback;
 - current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics are not yet implemented/proven.
 
@@ -196,13 +197,21 @@ T9 therefore closes the long-wait measurement but reveals a concrete concurrency
 
 Whether this is materially worse than stock Firefox token/PIN/client-certificate behavior remains unproven; compare before redesigning MSSPI threading. If offloading is attempted, preserve NSPR/MSSPI state ownership, client-auth lifecycle/cancellation and proxy/CONNECT sequencing.
 
+### T10 detailed Russian picker presentation — COMPLETE
+
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+T10 closes the full user-visible picker presentation beyond the earlier SD6 smoke. Sanitized user confirmation establishes that the owner/name is human-readable, `Issued by` is human-readable, Cyrillic renders correctly, expiry presentation is normal/localized, `Session` is visibly selected by default, `Once` / `Session` / `Permanent` are all visible, details are readable, and certificate serial is confined to details rather than the main candidate row. After the inspection, choosing `Session` still allows successful Treasury login.
+
+No screenshot or raw certificate identity is retained because those fields may contain sensitive identity data. T10 therefore closes presentation/UX only; it does not add new protocol claims beyond the already-proven current-artifact Treasury mTLS baseline and does not imply real `Permanent` persistence.
+
 ## Immediate runtime / implementation order
 
 1. **T6 — real Permanent semantics — NEXT IMPLEMENTATION.** Implement and prove persistence distinct from the current process-local non-Once store, including restart persistence and intended forget/change behavior.
-2. **T10 — detailed Russian picker presentation — NEXT RUNTIME.** Complete the full row/details localization and presentation check on the current artifact.
+2. **T11/T12 — discovery boundary — NEXT RUNTIME.** Verify dynamic `CurrentUser\MY` re-enumeration and determine whether provider/removable-media-only identities are discoverable without browser restart or interactive provider UI during candidate enumeration.
 3. **T9 follow-up — provider-wait Socket Thread isolation.** Compare against stock Firefox synchronous token/PIN behavior, then decide whether a focused off-thread MSSPI/provider experiment is warranted. The current behavior is a known performance/concurrency limitation, not a coordinator corruption or handshake blocker.
 4. **T5 — Session failure-boundary regression — DEFERRED.** Resume only with a safe deterministic mechanism that actually invalidates an already-acquired provider/private-key credential in the live process; do not repeat post-login medium removal or invent an invasive synthetic invalidation merely to force the test.
-5. Continue dynamic discovery, candidate-policy and negative matrix.
+5. Continue candidate-policy and negative matrix.
 6. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
 
 Keep Firefox-picker timeout-source/poll-churn attribution separate from the now-characterized provider-wait Socket Thread blockage.
