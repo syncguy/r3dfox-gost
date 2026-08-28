@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -121,7 +121,21 @@ Restart-boundary evidence:
 - first Treasury client-auth in the restarted process creates a fresh decision and fresh picker rather than consuming old Session state;
 - after a new explicit Session choice, five later matching requests are again served from `scope=session`, and six Treasury mTLS handshakes succeed.
 
-Therefore the tested positive Session decision has the intended process lifetime: shared across matching handshakes/windows/tabs while the browser is running, isolated from another GOST mTLS host, and cleared when the browser process exits. The planned next UX change is only to make this already-proven `Session` behavior the picker default. True persistent `Permanent` semantics remain open separately.
+Therefore the tested positive Session decision has the intended process lifetime: shared across matching handshakes/windows/tabs while the browser is running, isolated from another GOST mTLS host, and cleared when the browser process exits. True persistent `Permanent` semantics remain open separately.
+
+### Stage 2 Session-default picker exact-artifact regression — COMPLETE
+
+Exact source/runtime browser:
+
+- source `afbdad307f63e594d3715169d6e34235280dddaf`;
+- main run `33073577269`, job `98521835354`;
+- artifact `9652941006`;
+- local `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
+- local `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
+
+SD1-SD6 close the targeted regression after making Session the picker default. Exact evidence in `TEST_LOG.md` proves default `remember=2` Session selection, same-process remembered reuse, a fresh decision after process restart, preserved explicit Once short-fanout/post-expiry re-prompt semantics, cross-host isolation from GIS GMP, and zero sticky/error markers in all supplied runtime captures. The user separately confirms the picker presentation is visually correct, including the default Session choice and human-readable `Issued by` field.
+
+This closes the Session-default UX/runtime iteration. It does not close `Permanent`, Cancel/Abort/provider negative paths, candidate policy, or final fail-closed server trust.
 
 ## Bundled government-system extensions
 
