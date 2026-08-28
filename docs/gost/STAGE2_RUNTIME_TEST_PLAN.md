@@ -1,6 +1,6 @@
 # Stage 2 GOST TLS — Runtime Test Plan and Recovery Checkpoint
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 Purpose: make the runtime campaign restart-safe. If a chat/session is lost, do **not** restart testing from the beginning. Read `AGENTS.md`, `PROJECT_STATE.md`, this file, and the active/relevant `TEST_LOG*` evidence. Resume at the first `NEXT` item below.
 
@@ -8,16 +8,15 @@ Purpose: make the runtime campaign restart-safe. If a chat/session is lost, do *
 
 ## Fixed runtime identity
 
-Current authoritative GOST runtime browser:
+Current authoritative GOST runtime-test browser:
 
-- source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`;
-- main run `33039013849`, attempt 1;
-- job `98408139479`;
-- artifact `9636591432` (`r3dfox-gost-win64-release`);
-- `r3dfox.exe` SHA-256 `ccd3ed44bc57345eb7821a949dd96a6b3c45c71b47f3a577da26fc1265481187`;
-- `xul.dll` SHA-256 `8cee03269e18dff2bc48d5c25bef34a6c62c520908d937e3b3e4a03031d0ab68`.
+- source `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`);
+- main run `33073577269`, attempt 1;
+- job `98521835354`;
+- artifact `9652941006` (`r3dfox-gost-win64-release`);
+- Win7 import-audit artifact `9652941552`.
 
-The GOST coordinator is linked into `xul.dll`; when binary identity is uncertain, the local `xul.dll` hash is decisive.
+The exact run is successful and is the authoritative full-browser build/package candidate for the Session-default regression. Before the first runtime conclusion on artifact `9652941006`, record local SHA-256 hashes for the launched `r3dfox.exe` and `xul.dll`; the GOST coordinator is linked into `xul.dll`, so its hash is decisive when binary identity is uncertain.
 
 Every runtime conclusion must record exact source SHA, run/attempt/job, browser artifact, sanitized capture hashes, user-visible result and sanitized protocol/lifecycle result. Never publish client-certificate identifiers, credential/provider/container data, PIN/passwords, private-key material, account data or unsanitized captures.
 
@@ -37,7 +36,7 @@ Do not rerun this old defect reproduction.
 
 ## T2R — PASS / F1 CLOSED
 
-Current artifact `9636591432`.
+Runtime-proven artifact `9636591432`, source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`.
 
 Capture:
 
@@ -52,7 +51,7 @@ Three unanswered-picker cycles prove closing handles are rejected before decisio
 
 ## T1R — PASS
 
-Current artifact `9636591432`, exact local binary hashes verified before launch.
+Runtime-proven artifact `9636591432`, exact local binary hashes verified before launch.
 
 Capture:
 
@@ -129,22 +128,20 @@ Whole capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOO
 
 Do not repeat GIS-G4 on unchanged source merely for confirmation.
 
-## NEXT — picker UX/default iteration
+## NEXT — Session-default exact-artifact regression
 
-The behavioral baseline is now complete. Implement on a new exact source/build:
+The picker UX/default change is implemented and the authoritative main build is green on source `afbdad307f63e594d3715169d6e34235280dddaf`, run `33073577269`, job `98521835354`, artifact `9652941006`.
 
-- make `Session` the default remember duration;
-- retain explicit `Once` and its proven positive 5-second idle fanout lease;
-- keep 5 seconds hard-coded for the current iteration, with later consideration of an `about:config` preference;
-- render `Issued by` as a human-friendly issuer display analogous to `Issued to`.
+Run this targeted sequence on that exact artifact:
 
-Targeted regression on the new artifact:
+1. **SD1 — default Session first login.** Verify the picker visibly opens with `Session` selected by default, choose the intended certificate without changing the remember mode, and require successful Treasury GOST mTLS/application login. The runtime log must include `picker_default=session` and positive Session resolution rather than a `Once` lease store.
+2. **SD2 — same-process Session reuse.** In the same running browser process, exercise later matching connections and user-visible tabs/windows. Require no second Treasury picker and require later matching client-auth requests to consume the Session-scoped remembered decision.
+3. **SD3 — restart boundary.** Fully terminate the browser process and launch the same exact artifact again. The first matching Treasury client-auth request must show a fresh picker; old Session state must not survive process restart.
+4. **SD4 — explicit Once regression.** Explicitly switch the picker to `Once`. Require the already-proven short positive fanout behavior for compatible follow-on connections, then after idle expiry require an independent attempt in the same process to show a fresh picker.
+5. **SD5 — cross-host isolation.** With an active Treasury Session decision, visit the different GIS GMP GOST mTLS endpoint. Require a fresh decision/picker there; the Treasury Session certificate must not be silently applied cross-host.
+6. **SD6 — picker presentation smoke.** Verify the initial remember control shows `Session` as default and the `Issued by` primary details row is human-readable rather than a raw full issuer DN when a common name is available. Do not record real certificate identity values in repository documentation.
 
-1. default Session first login: one picker, successful mTLS/application login;
-2. same-process matching reuse across later connections/windows/tabs: no second picker;
-3. full browser-process restart: fresh picker;
-4. explicit Once: preserve the already-proven short positive fanout and post-expiry re-prompt behavior;
-5. different GOST mTLS host: no cross-host remembered-decision leakage.
+SD1-SD5 are exact-build regressions of already-proven mechanisms after the UI/default source change, not reopening the closed historical F1/F2/F3/S1/GIS-G4 conclusions. SD6 validates the new presentation behavior that build success cannot prove.
 
 Current source treats all non-`Once` positive choices through the same process-local remember store. Therefore true persistent `Permanent` behavior is not yet established and remains a separate implementation/test item.
 
