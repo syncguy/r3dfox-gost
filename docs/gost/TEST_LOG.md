@@ -384,3 +384,75 @@ The successful login is recorded as a functional smoke confirming that the prese
 **NEXT runtime:** T11/T12 discovery boundary. **NEXT implementation:** T6 real `Permanent` semantics.
 
 Status: current; T10 presentation milestone closed on the current Session-default artifact.
+
+---
+
+## 2026-08-28 — Win7 later parent/browser crash: xul WinRT delay-load failure proven; YY-Thunks narrow-provider gap identified
+
+**Track:** Windows compatibility / Win7 x32 parent/browser runtime  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `982d6529a707c6feecad97c725feed8a3cd21c81` (`ci: add XP x32 full Firefox build workflow`)  
+**Actions run:** `33141004769`  
+**Job:** `98751650853` (`Windows x86 / r3dfox GOST / XP SP3 full build`)  
+**Workflow:** `GOST TLS PoC build XP x32`  
+**Runtime artifact:** `9676549576` (`r3dfox-gost-xp-x32-runtime`), artifact digest SHA-256 `f0287c7917d7d08756acf57ed8cd2eeed9b8d397ea8416fbf2f166308e89f4f5`  
+**Diagnostics artifact:** `9676550507` (`r3dfox-gost-xp-x32-diagnostics`), artifact digest SHA-256 `ecec3fe35df412c77c217ed5ed27f2a628d9bc3a931876a171cffa1b41c64862`  
+**ProcMon capture:** user-provided `Logfile_Fileop.zip`, SHA-256 `7a77464a3e2564f7e46ce1c3084f61c25ae3302497e6799c8604feb4ef6ed27b`; inner `Logfile.PML`, SHA-256 `86961864565d5d13997046a673aa0481675395747f037b722f5c7db230dccea9`
+
+The raw PML is not committed because it contains user filesystem paths. Only sanitized process/loader/debugger facts and non-sensitive capture hashes are recorded.
+
+### ProcMon and exact PE evidence
+
+This is the later whole-browser crash observed after the same binary was run with `MOZ_DISABLE_CONTENT_SANDBOX=1`. It is separate from the earlier sandboxed-content `RandomUint64OrDie` blocker.
+
+The parent/browser process remains alive long enough to browse ordinary pages, then near the end of the capture begins a loader search for `api-ms-win-core-winrt-l1-1-0.dll`. The search fails in the browser directory, `System32`, Windows directories and PATH locations; no successful load occurs.
+
+The exact diagnostics artifact independently identifies the owner. `xp-x32-import-audit/xul.dll-imports.txt` contains these `xul.dll` delay-load groups:
+
+- `api-ms-win-core-winrt-l1-1-0.dll`: `RoActivateInstance`, `RoGetActivationFactory`;
+- `api-ms-win-core-winrt-string-l1-1-0.dll`: `WindowsCompareStringOrdinal`, `WindowsCreateString`, `WindowsCreateStringReference`, `WindowsDeleteString`, `WindowsGetStringRawBuffer`.
+
+Therefore the missing WinRT dependency belongs to the `xul.dll` delay-import surface, not to `r3dfox.exe` or an unidentified third-party DLL.
+
+### First-chance WinDbg proof
+
+WinDbg was configured with `sxe c06d007e` and stopped on the first relevant exception:
+
+`Unknown exception - code c06d007e (first chance)` at `KERNELBASE!RaiseException+0x54`.
+
+`.exr -1` reports `ExceptionCode: c06d007e`, one parameter, and a pointer to the MSVC delay-loader information structure. Decoding that structure in the still-stopped process gives:
+
+- DLL: `api-ms-win-core-winrt-l1-1-0.dll`;
+- procedure: `RoGetActivationFactory`;
+- last error: `0x0000007e` (`ERROR_MOD_NOT_FOUND`).
+
+The stack immediately enters `xul.dll` delay-load frames after `KERNELBASE!RaiseException`. Because no xul PDB is available, nearest exported names printed by WinDbg are not reliable function identities and are not used as source attribution.
+
+This directly proves the runtime failure chain:
+
+`xul.dll` delay import -> `api-ms-win-core-winrt-l1-1-0.dll` unavailable on Win7 -> `RoGetActivationFactory` cannot be resolved -> `ERROR_MOD_NOT_FOUND (0x7e)` -> MSVC delay-load exception `0xc06d007e` -> unhandled parent/browser crash.
+
+`KERNELBASE.dll` is the exception-raising site, not the root dependency owner.
+
+A machine-code search found multiple `xul.dll` call sites targeting the delay slot for `RoGetActivationFactory`, but without xul symbols/map this does not safely identify the failing C++ caller. Several obvious exact-source WinRT users were checked and are already OS-gated (`WindowsUIUtils` on Win10+, `WindowsSMTCProvider` on Win8.1+, and the relevant `nsWindowsPackageManager` paths on Win10+), so none is claimed as the actual caller without further evidence.
+
+### YY-Thunks integration gap
+
+YY-Thunks 1.2.2 already implements pre-Win8 `RoGetActivationFactory`. If the real WinRT API is absent, its thunk clears the output factory and returns `CLASS_E_CLASSNOTAVAILABLE` instead of raising a loader exception. YY-Thunks also has the corresponding WinRT API-set module definitions and WinRT string thunk surface.
+
+The exact XP/x32 build does use YY-Thunks 1.2.2, but only through the project's deliberately narrow provider strategy. The workflow extracts selected alias/import members for `ProcessPrng`, `GetSystemTimePreciseAsFileTime`, FLS/fiber/stack-guarantee APIs plus the common `YY_Thunks_for_5.1.2600.0.obj`, and links `synchronization.lib`. It does **not** select a `RoGetActivationFactory` alias/import member. Consequently the common implementation being present is insufficient to redirect this xul delay import, and the runtime still enters the MSVC delay-loader.
+
+### Conclusion and next step
+
+The previously generic later Win7 crash is now localized to a concrete `xul.dll` WinRT delay-load blocker. The current evidence does not yet constitute a fix.
+
+Next implementation experiment:
+
+1. identify the exact YY-Thunks 1.2.2 archive/member names that expose `RoGetActivationFactory` to the linker;
+2. identify and include only the companion WinRT string alias/import members actually required by the adjacent xul delay-import group;
+3. add those members to the existing narrow YY provider rather than injecting broad YY libraries;
+4. rebuild the exact full x86 browser and validate on physical Win7.
+
+Do not ship a fake `api-ms-win-core-winrt-l1-1-0.dll`. Do not replace the narrow strategy with broad complete-YY `kernel32.lib` interposition. A successful compatibility rebuild/runtime does not prove GOST TLS behavior.
+
+Status: current; parent/browser Win7 later crash localized, narrow YY-Thunks implementation direction identified, fix and physical runtime validation open.
