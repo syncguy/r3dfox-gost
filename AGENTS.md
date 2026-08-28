@@ -94,6 +94,14 @@ Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any
 - Keep source-under-test identity separate from later documentation-only HEADs. A docs commit must never be cited as the binary/source SHA for an earlier build or runtime result.
 - When a run is still in progress, describe its state as provisional. Do not document a pending gate as passed or close the corresponding task before the exact run finishes.
 
+### Mandatory GOST runtime-test preflight
+- Every GOST TLS runtime test sequence must pass the exact binary/environment/profile preflight defined in `docs/gost/STAGE2_RUNTIME_TEST_PLAN.md` before its result is accepted as evidence.
+- Verify the launched `r3dfox.exe` and `xul.dll` SHA-256 values against the authoritative build artifact for the source under test. A mismatch invalidates the test until the correct binary is launched.
+- Use the documented baseline GOST environment with diagnostic selector/mode/cipher overrides cleared unless the named test explicitly requires an override. Record any intentional deviation with the test result.
+- Start each independent runtime test sequence from a new clean test-specific Firefox profile. Reuse a process/profile only when continuity is part of the test semantics, such as Session reuse, restart-boundary, Once-fanout, or cross-host isolation experiments.
+- Bind each runtime result to source SHA, Actions run/job, artifact ID, binary hashes, profile/test identity, environment state, and sanitized capture/log identity where applicable.
+- A runtime log produced without a successful preflight is invalid evidence and must not be used to pass/fail a named SD/T test or change the current technical conclusion.
+
 ### Keep project tracks separate
 There are three independent project tracks. Evidence from one track must not be used as proof for another unless a deliberately combined experiment tests both.
 
