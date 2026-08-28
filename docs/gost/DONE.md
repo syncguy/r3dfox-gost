@@ -133,9 +133,24 @@ Exact source/runtime browser:
 - local `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
 - local `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
 
-SD1-SD6 close the targeted regression after making Session the picker default. Exact evidence in `TEST_LOG.md` proves default `remember=2` Session selection, same-process remembered reuse, a fresh decision after process restart, preserved explicit Once short-fanout/post-expiry re-prompt semantics, cross-host isolation from GIS GMP, and zero sticky/error markers in all supplied runtime captures. The user separately confirms the picker presentation is visually correct, including the default Session choice and human-readable `Issued by` field.
+SD1-SD6 close the targeted regression after making Session the picker default. Exact evidence in the test logs proves default `remember=2` Session selection, same-process remembered reuse, a fresh decision after process restart, preserved explicit Once short-fanout/post-expiry re-prompt semantics, cross-host isolation from GIS GMP, and zero sticky/error markers in all supplied runtime captures. The user separately confirms the picker presentation is visually correct, including the default Session choice and human-readable `Issued by` field.
 
 This closes the Session-default UX/runtime iteration. It does not close `Permanent`, Cancel/Abort/provider negative paths, candidate policy, or final fail-closed server trust.
+
+### Stage 2 T3 explicit Cancel / no-certificate semantics — COMPLETE
+
+Exact source/runtime browser remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Passing capture:
+
+- `T3 — explicit Cancel.zip` SHA-256 `32c3e844e85c1997f57bc682d193c91c9fbcfa2c9b0dc91d939a9e82eeec293c`;
+- inner log SHA-256 `d6174d335074904da2e6bbbddfe2b22e582a805292c81e518c72be8a85bfa38b`.
+
+In one browser process, four deliberate Firefox picker Cancels resolve as `selected=0`, consume the waiter with `reason=declined-consume`, and remove the decision in phase `2`. None is stored as reusable negative state; every later attempt receives a fresh picker. An unanswered fifth picker is instead removed from pending phase `0` by teardown, with closing/stale callbacks safely rejected. `Try again` then creates a fresh positive decision (`selected=1 remember=2`) and the same process completes 12 Treasury TLS 1.2 / `0xFF85` mTLS handshakes plus successful personal-cabinet authorization.
+
+Deliberate Cancel naturally produces current-attempt `selected=0` and `0x80090326`/`0x0000054f` failure markers; these are not sticky-failure evidence. The decisive invariant is that later independent attempts receive fresh decisions and, after positive recovery, there are no unsolicited recurrence markers.
+
+T3 is closed. The timeout segment corroborates decline-vs-teardown separation but does not close T4's specified navigation/tab/load abort scenario.
 
 ## Bundled government-system extensions
 
