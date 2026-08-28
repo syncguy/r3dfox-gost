@@ -150,7 +150,22 @@ In one browser process, four deliberate Firefox picker Cancels resolve as `selec
 
 Deliberate Cancel naturally produces current-attempt `selected=0` and `0x80090326`/`0x0000054f` failure markers; these are not sticky-failure evidence. The decisive invariant is that later independent attempts receive fresh decisions and, after positive recovery, there are no unsolicited recurrence markers.
 
-T3 is closed. The timeout segment corroborates decline-vs-teardown separation but does not close T4's specified navigation/tab/load abort scenario.
+T3 is closed.
+
+### Stage 2 T4 involuntary tab/load Abort semantics — COMPLETE
+
+Exact source/runtime browser remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Passing capture:
+
+- `T4 involuntary Abort.zip` SHA-256 `bfa51cc1d45c35c8c94cae6a7eb8fc32c6490d30782cdb256a1aefb24078d2f1`;
+- inner log SHA-256 `f921c42d5e7b0299a40f79a5a707d5da93990018fb535edf529aef94a3d82f65`.
+
+In one browser process (`Parent 6184`), the first Treasury picker decision is created for `browser_id=14` and then the owning tab is closed only `4.059 s` later while the picker is unanswered. The waiter is removed by `close-pre`, the decision is removed unresolved in phase `0`, shutdown re-entry is rejected because the handle is closing, and the late picker callback is stale-safe. There is no resolution, `selected=0`, `declined-consume`, or phase `2` for the abandoned decision.
+
+A different tab in the same process (`browser_id=15`) then creates a fresh decision/picker. The positive default Session choice resolves `selected=1 remember=2`; eight later requests use `scope=session`, nine Treasury TLS 1.2 / `0xFF85` mTLS handshakes succeed, and the user confirms successful personal-cabinet authorization. The whole capture contains zero `E/GostTLS`, `0x80090326`, `0x0000054f`, and `MSSPI_X509_LOOKUP`.
+
+Together T3/T4 close the intended split: explicit picker Cancel is Declined/phase `2`; involuntary navigation/tab/load abandonment remains unresolved phase `0` and is removed by lifecycle teardown. Neither path poisons later recovery.
 
 ## Windows compatibility
 
