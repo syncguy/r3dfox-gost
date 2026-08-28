@@ -183,6 +183,7 @@ jobs:
           extern "C" int __cdecl _purecall() { return 0; }
           void __cdecl operator delete(void*) noexcept {}
           extern "C" int __cdecl atexit(void (__cdecl*)(void)) { return 0; }
+          extern "C" wchar_t* __cdecl wcsrchr(const wchar_t*, wchar_t) { return nullptr; }
           extern "C" __declspec(dllexport) HRESULT __stdcall winrt_probe() {
             static const wchar_t kClassName[] = L"r3dfox.gost.yy.winrt.probe";
             const UINT32 length = static_cast<UINT32>((sizeof(kClassName) / sizeof(kClassName[0])) - 1);
