@@ -4,18 +4,19 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, and the SD1-SD6 Session-default exact-artifact regression are closed.
+F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, the SD1-SD6 Session-default exact-artifact regression, and T3 explicit Cancel/no-certificate semantics are closed.
 
-Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat SD1-SD6 on unchanged source merely for confirmation.
+Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat closed tests on unchanged source merely for confirmation.
 
 ### 1. Continue client-decision semantics
 
 Immediate next tests:
 
-1. **T3 — explicit Cancel / no certificate.** A deliberate user decline must remain attempt-local and must not create sticky negative state; a later independent attempt must receive a fresh picker.
-2. **T4 — involuntary Abort.** Navigation/tab/load teardown without a user decision must be classified as `Aborted`, not reusable `Declined`; a later attempt must recover normally.
-3. **T5 — Session failure-boundary regression.** The positive Session lifetime is already proven; additionally verify temporary provider failures and matching-policy boundaries cannot overwrite or leak the positive Session decision.
-4. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including the intended forget/change behavior.
+1. **T4 — involuntary Abort.** Exercise navigation/tab/load teardown while a client-certificate picker is outstanding and without making a picker decision. The teardown must not become reusable `Declined`; a later independent attempt must receive a fresh picker and recover normally. T3 supplied a corroborating unanswered-timeout cleanup, but T4 remains open until the specified navigation/tab/load teardown is exercised.
+2. **T5 — Session failure-boundary regression.** The positive Session lifetime is already proven; additionally verify temporary provider failures and matching-policy boundaries cannot overwrite or leak the positive Session decision.
+3. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including the intended forget/change behavior.
+
+T3 established an important negative-test interpretation rule: deliberate picker Cancel naturally creates current-attempt `selected=0` and handshake failure markers (`0x80090326` / follow-on `0x0000054f`). Those markers are not sticky-state failures if later independent attempts receive fresh decisions and a subsequent positive recovery contains no unsolicited recurrence.
 
 The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain unproven; do not assume the current `Permanent` UI choice survives process restart.
 
@@ -34,15 +35,12 @@ Remaining groups include:
 
 ### 3. Attribute picker timeout and residual poll churn
 
-T2R proved lifecycle safety but also showed non-uniform timeout/poll behavior:
-
-- picker-to-close intervals: `32.576 s`, `37.420 s`, `30.330 s`;
-- `GostPoll client-auth wait quiescent`: `10,825`, `34`, and `21` calls respectively.
+T2R and the T3 timeout segment both show lifecycle-safe but non-fixed picker teardown timing. T2R measured `32.576 s`, `37.420 s`, `30.330 s`; T3 measured one additional unanswered-picker removal after `30.276 s`.
 
 Before changing timeout policy or calling the wait path fully quiescent:
 
 - identify which Firefox/Necko/load timer actually tears down each attempt;
-- explain why the first cycle polls much more aggressively than later cycles;
+- explain why the first historical cycle polls much more aggressively than later cycles;
 - preserve stock-compatible timeout semantics rather than introducing an arbitrary GOST-specific timeout.
 
 ## GOST TLS security — mandatory Stage 2 server-trust closure
