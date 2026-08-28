@@ -266,19 +266,23 @@ The exact build from run `33141004769` fails on physical XP before browser UI st
 
 The current XP blocker is therefore no longer an abstract import-audit concern: a startup-loaded module has a real hard dependency on `KERNEL32!CloseThreadpoolWork`, which XP cannot resolve. The exact importing PE module is still unknown and must be identified from the diagnostics/import tables before applying a narrow thunk/redirect. The error-dialog title is not sufficient evidence that `r3dfox.exe` itself owns the import.
 
-### Physical Windows 7 x32 — parent/browser startup proven; immediate tab crash localized to sandbox RNG
+### Physical Windows 7 x32 — sandbox RNG blocker localized; narrow pre-lockdown fix prepared
 
-The same full XP x32 build starts the parent/browser UI on physical Win7 x32. With normal content sandboxing enabled, `tab` processes die very early and user-visible tabs show `Gah. Your tab just crashed.`. Mozilla logging, ProcMon and WinDbg now localize this failure:
+The exact full XP x32 build from source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, starts the parent/browser UI on physical Win7 x32. With normal content sandboxing enabled, `tab` processes die very early and user-visible tabs show `Gah. Your tab just crashed.`. Mozilla logging, ProcMon and WinDbg localize the first blocker to the content RNG path:
 
-- `tab` processes repeatedly exit with NTSTATUS `0x80000003` (`STATUS_BREAKPOINT`), while socket/GPU/RDD/utility process classes can remain alive;
-- no Firefox minidump/crash directory or useful Windows Event Viewer fault is produced for the early tab death;
-- WinDbg catches the first-chance exception at `mozglue!mozilla::RandomUint64OrDie+0x4a`, specifically the `int 3` release-assert path;
-- exact source-under-test code calls `MOZ_RELEASE_ASSERT(GenerateRandomBytesFromOS(...))`; on Windows that helper calls `RtlGenRandom` / `SystemFunction036`;
-- the observed false return enters the assertion branch and deliberately terminates the content process.
+- affected `tab` processes repeatedly terminate while socket/GPU/RDD/utility process classes can remain alive, so this is not a generic inability to create Firefox child processes;
+- ProcMon observed early `STATUS_BREAKPOINT` exits, while a later WinDbg session caught the same deliberate Mozilla crash path as first/second-chance `0xC0000005` on a null write reached from `mozglue!mozilla::RandomUint64OrDie+0x55`; the exact exception instruction can differ, but both observations belong to the same release-assert termination path rather than an unrelated random access violation;
+- exact source-under-test `RandomUint64OrDie()` calls `MOZ_RELEASE_ASSERT(GenerateRandomBytesFromOS(...))`; on Windows `GenerateRandomBytesFromOS()` is exactly `RtlGenRandom` / `SystemFunction036`;
+- Win7 `ADVAPI32!SystemFunction036` was disassembled in the affected process: it performs one-time initialization through `ntdll!RtlRunOnceExecuteOnce` and dispatches the actual RNG call through a cached pointer to `cryptbase!SystemFunction036`;
+- the r3dfox/Firefox 153 `LowerContentSandbox()` path previously called `LowerToken()` without first initializing that RNG path.
 
-A same-binary A/B test with `MOZ_DISABLE_CONTENT_SANDBOX=1` removes the immediate tab-startup failure: the browser creates a clean profile, loads the policy-enabled uBlock extension and successfully opens multiple real web pages. Therefore the initial Win7 tab crash is causally **content-sandbox dependent** and is not a generic inability of this x86 Firefox build to execute content processes or load `xul.dll` on Win7.
+The same-binary A/B test with `MOZ_DISABLE_CONTENT_SANDBOX=1` removes the immediate tab-startup failure: the browser creates a clean profile, loads the policy-enabled uBlock extension and successfully opens multiple real web pages. Therefore the immediate Win7 failure is causally **content-sandbox dependent** and is not a global Win7 loader/import failure.
 
-The sandbox-off browser later crashes after some successful browsing. That later failure is a separate unresolved runtime blocker and must not be conflated with the now-localized `RandomUint64OrDie` startup failure. Disabling the content sandbox is diagnostic only and is not an acceptable shipping compatibility fix.
+The implementation direction is now concrete rather than speculative. Chromium's renderer sandbox path explicitly warms its randomness infrastructure immediately before `LowerToken()`. A maintained Win7 compatibility backport for modern Chromium uses `RtlGenRandom` for that warm-up so the legacy `advapi32 -> cryptbase` RNG state is initialized before sandbox lockdown. Commit `27bf83a679ec26b93bc72a0ec7635fb26f821782` applies the narrow equivalent in this fork: on pre-Win8 systems `LowerContentSandbox()` calls the existing Mozilla `GenerateRandomBytesFromOS()` before `LowerToken()`. The content sandbox remains enabled; modern Win8+ behavior is unchanged.
+
+This commit is a **candidate fix, not yet a runtime pass**. The next required evidence is a full x86 build from source containing `27bf83a...`, followed by physical Win7 x32 startup with the content sandbox enabled. The fix closes this blocker only if ordinary content tabs survive and real pages load without the immediate `RandomUint64OrDie` crash.
+
+The sandbox-off browser later crashes after some successful browsing. That later failure is a separate unresolved runtime blocker and must not be conflated with the immediate sandbox/RNG startup failure.
 
 ### Older Win7 full-xul build evidence
 
