@@ -4,7 +4,7 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, the SD1-SD6 Session-default exact-artifact regression, and T3 explicit Cancel/no-certificate semantics are closed.
+F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, the SD1-SD6 Session-default exact-artifact regression, T3 explicit Cancel/no-certificate semantics, and T4 involuntary tab/load Abort semantics are closed.
 
 Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat closed tests on unchanged source merely for confirmation.
 
@@ -12,11 +12,10 @@ Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e3
 
 Immediate next tests:
 
-1. **T4 — involuntary Abort.** Exercise navigation/tab/load teardown while a client-certificate picker is outstanding and without making a picker decision. The teardown must not become reusable `Declined`; a later independent attempt must receive a fresh picker and recover normally. T3 supplied a corroborating unanswered-timeout cleanup, but T4 remains open until the specified navigation/tab/load teardown is exercised.
-2. **T5 — Session failure-boundary regression.** The positive Session lifetime is already proven; additionally verify temporary provider failures and matching-policy boundaries cannot overwrite or leak the positive Session decision.
-3. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including the intended forget/change behavior.
+1. **T5 — Session failure-boundary regression.** Establish a positive Treasury Session decision, then induce one controlled private-key/provider failure on a later matching attempt without changing the certificate decision. The failure must remain attempt/provider-local and must not erase, broaden, or overwrite the remembered Session choice. After provider/key availability is restored in the same process/profile, a later matching request should reuse the existing Session decision and complete GOST mTLS without a fresh Firefox certificate picker. If the controlled failure is the already-planned missing-medium/provider-Cancel scenario, the same capture may also satisfy T7/T8 when their criteria are met.
+2. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including the intended forget/change behavior.
 
-T3 established an important negative-test interpretation rule: deliberate picker Cancel naturally creates current-attempt `selected=0` and handshake failure markers (`0x80090326` / follow-on `0x0000054f`). Those markers are not sticky-state failures if later independent attempts receive fresh decisions and a subsequent positive recovery contains no unsolicited recurrence.
+T3/T4 establish the negative-decision split on the current artifact: explicit picker Cancel is consumed as Declined/phase `2`, while an unanswered picker abandoned by tab/load teardown remains unresolved phase `0` and is removed by lifecycle cleanup. Neither path poisons later recovery.
 
 The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain unproven; do not assume the current `Permanent` UI choice survives process restart.
 
@@ -24,7 +23,7 @@ The current source routes every non-`Once` positive choice through the same in-m
 
 Remaining groups include:
 
-- missing-media/provider Cancel and recovery;
+- missing-media/provider Cancel and recovery where not already covered by T5;
 - long provider-media wait using measured current-artifact timeout behavior;
 - Russian picker row/details rendering beyond the completed SD6 smoke;
 - dynamic `CurrentUser\MY` discovery and token-only/removable-media discovery;
@@ -35,11 +34,11 @@ Remaining groups include:
 
 ### 3. Attribute picker timeout and residual poll churn
 
-T2R and the T3 timeout segment both show lifecycle-safe but non-fixed picker teardown timing. T2R measured `32.576 s`, `37.420 s`, `30.330 s`; T3 measured one additional unanswered-picker removal after `30.276 s`.
+T2R and the T3 timeout segment both show lifecycle-safe but non-fixed picker teardown timing. T2R measured `32.576 s`, `37.420 s`, `30.330 s`; T3 measured one additional unanswered-picker removal after `30.276 s`. T4 is deliberately different: closing the owning tab removed the pending decision after only `4.059 s`, confirming that its teardown was user/load driven rather than timeout driven.
 
 Before changing timeout policy or calling the wait path fully quiescent:
 
-- identify which Firefox/Necko/load timer actually tears down each attempt;
+- identify which Firefox/Necko/load timer actually tears down each timed-out attempt;
 - explain why the first historical cycle polls much more aggressively than later cycles;
 - preserve stock-compatible timeout semantics rather than introducing an arbitrary GOST-specific timeout.
 
