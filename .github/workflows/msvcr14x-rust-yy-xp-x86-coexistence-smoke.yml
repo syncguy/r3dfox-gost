@@ -81,11 +81,9 @@ jobs:
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
           New-Item -ItemType Directory -Force $selected | Out-Null
 
-          $runtimeMembers = @(& lib.exe /nologo /list $env:YY_RUNTIMEOBJECT_LIB 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          $runtimeMembers = @(& lib.exe /nologo /list $env:YY_RUNTIMEOBJECT_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $runtimeMembers.Count -eq 0) { throw 'Cannot enumerate YY runtimeobject.lib' }
-          $kernelMembers = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          $kernelMembers = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $kernelMembers.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
           $runtimeMembers | Set-Content -Encoding utf8 diagnostics\yy-runtimeobject-members.txt
 
@@ -238,7 +236,7 @@ jobs:
           $dll = Join-Path $env:WINRT_WORK 'baseline-delay.dll'
           $map = Join-Path $env:WINRT_WORK 'baseline-delay.map'
           $args = @(
-            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
+            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
             $env:WINRT_PROBE_OBJ,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
@@ -261,7 +259,7 @@ jobs:
           $dll = Join-Path $env:WINRT_WORK 'thunked-winrt.dll'
           $map = Join-Path $env:WINRT_WORK 'thunked-winrt.map'
           $args = @(
-            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
+            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
             $env:WINRT_PROBE_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
