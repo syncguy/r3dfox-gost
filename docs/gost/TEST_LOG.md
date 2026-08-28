@@ -264,3 +264,64 @@ The experiment alone does not establish whether this is materially worse than st
 **NEXT runtime:** T10 detailed Russian picker presentation. **NEXT implementation:** T6 real `Permanent` semantics.
 
 Status: current; T9 measured and closed as a characterization, global Socket Thread starvation remains an open performance/concurrency follow-up.
+
+---
+
+## 2026-08-28 — Full XP x32 Firefox build: physical XP loader blocker and Win7 sandbox/RNG content-process failure localized
+
+**Track:** Windows compatibility / full Firefox 153 x86 runtime  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `982d6529a707c6feecad97c725feed8a3cd21c81` (`ci: add XP x32 full Firefox build workflow`)  
+**Actions run:** `33141004769`  
+**Job:** `98751650853` (`Windows x86 / r3dfox GOST / XP SP3 full build`)  
+**Workflow:** `GOST TLS PoC build XP x32`  
+**Package artifact:** `9676548553` (`r3dfox-gost-xp-x32-package`), artifact digest SHA-256 `1010a84c571ad78ff7757ccdadd27f0cb6a15e1ef437673970f583e7173bb503`  
+**Physical-test runtime artifact:** `9676549576` (`r3dfox-gost-xp-x32-runtime`), artifact digest SHA-256 `f0287c7917d7d08756acf57ed8cd2eeed9b8d397ea8416fbf2f166308e89f4f5`  
+**Diagnostics artifact:** `9676550507` (`r3dfox-gost-xp-x32-diagnostics`), artifact digest SHA-256 `ecec3fe35df412c77c217ed5ed27f2a628d9bc3a931876a171cffa1b41c64862`
+
+The Actions run is red because the post-build XP PE/direct-import audit gate failed. The full Firefox x86 compilation, runtime staging, PE subsystem retargeting, packaging, physical-test runtime archive construction and all three artifact uploads completed successfully. This build result is not itself proof of XP runtime compatibility.
+
+### Physical Windows XP x32
+
+Launching the exact build on a physical Windows XP x32 machine fails before browser UI startup with the loader dialog:
+
+`The procedure entry point CloseThreadpoolWork could not be located in the dynamic link library KERNEL32.dll.`
+
+This converts the static import concern into a real physical loader blocker. The dialog title alone does not identify which startup-loaded PE module owns the hard import, so the exact importing module remains to be established before changing the compatibility layer.
+
+### Physical Windows 7 x32 with sandbox enabled
+
+The same build starts the browser parent/UI on physical Windows 7 x32, but tabs initially show `Gah. Your tab just crashed.`. `about:crashes` does not render as a usable internal page, the profile `minidumps` directory remains empty, no `crashes` directory is created, and Windows Event Viewer contains no corresponding Application/System fault record.
+
+Diagnostic capture identities:
+
+- initial `r3dfox-xp32-win7.log.moz_log.zip`: SHA-256 `fb72c03976471913de47cb173f5361eeb5c8c8e7848048c1377b0e48a24839fd`;
+- narrow `r3dfox-win7-child.log.moz_log.zip`: SHA-256 `403163d390df74a9fd578737efbfcf6d9ffb1233dc5a1db3385d43a684ab7776`;
+- ProcMon + narrow Mozilla log archive `r3dfox-win7-child.log.zip`: SHA-256 `0f298b1bfd413f51c58074797fd7da6f82693524ca53f5bf540276dbe5787d90`;
+- inner `Logfile.PML`: SHA-256 `5351fb46acfa00ecb62586603b04ff76f5c431e8b1f04afb3b245e7c72b0c4b6`;
+- inner `r3dfox-win7-child.log.moz_log`: SHA-256 `5ea9fd576997bfaf4949e3a37a9678db3d3ef4f0637f5925796b377f27cc2e96`.
+
+Mozilla process logging proves `tab` content processes are created and then die very early. ProcMon refines this: affected `tab` processes repeatedly exit with NTSTATUS `0x80000003` (`STATUS_BREAKPOINT`), while other child-process classes such as socket/GPU/RDD/utility can remain alive. Therefore the failure is not a generic inability to spawn any Firefox child process.
+
+WinDbg then captures the decisive first-chance exception in an affected content process:
+
+`mozglue!mozilla::RandomUint64OrDie+0x4a: int 3`
+
+The disassembly shows the boolean result of the random-byte helper tested immediately before the failure branch; on false it stores `gMozCrashReason` and executes `int 3`. The exact source-under-test implementation of `RandomUint64OrDie()` uses `MOZ_RELEASE_ASSERT(GenerateRandomBytesFromOS(...))`, and on Windows `GenerateRandomBytesFromOS()` calls `RtlGenRandom` / `SystemFunction036`. The observed `EAX/AL == 0` is consistent with the random-byte call returning failure and the release assertion deliberately terminating the process.
+
+### Sandbox-off A/B test
+
+With the same binary and physical Win7 x32 machine but `MOZ_DISABLE_CONTENT_SANDBOX=1`, the immediate content-process failure disappears. The browser creates a fresh profile, loads the policy-enabled uBlock extension, and successfully opens multiple ordinary web pages. The browser later crashes after some use; that later whole-browser failure is not yet diagnosed and must not be conflated with the now-localized immediate tab-startup failure.
+
+### Conclusion
+
+The first physical Win7 x32 tab-startup blocker is now causally localized to the **content-sandbox-dependent RNG startup path**: sandbox enabled -> deterministic `RandomUint64OrDie` / `STATUS_BREAKPOINT` tab death; content sandbox disabled -> profile/extension startup and real page browsing work. This is stronger than the earlier generic "content process crashes" observation and rules out a simple global Win7 loader/import failure for the immediate tab crash.
+
+The Windows compatibility line therefore has two separate current runtime blockers on this exact build:
+
+1. **XP x32:** loader startup is blocked by an unresolved hard dependency on `KERNEL32!CloseThreadpoolWork`; identify the exact importing module and redirect/remove that hard import.
+2. **Win7 x32:** normal sandboxed content startup fails because OS random-byte generation returns failure inside the sandboxed process and triggers `RandomUint64OrDie`; sandbox-off browsing proves the browser/content runtime can otherwise operate, but a later browser crash remains a separate open issue.
+
+No GOST TLS handshake/runtime conclusion is drawn from either old-Windows test.
+
+Status: current physical-runtime evidence; XP loader blocker open, Win7 immediate sandbox/RNG blocker localized, later Win7 crash open.
