@@ -127,7 +127,7 @@ jobs:
           "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "resolved_yy_lib=$($yyLib.FullName)" | Add-Content -Encoding utf8 diagnostics\identity.txt
 
-      - name: Build narrow YY XP ProcessPrng and precise-time provider
+      - name: Build narrow YY XP provider
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -147,6 +147,16 @@ jobs:
             @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
             @{ Key='precise-direct'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obj$' },
             @{ Key='precise-import'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obi$' },
+            @{ Key='flsalloc-direct'; Pattern='(?i)[\\/]_FlsAlloc@4\.obj$' },
+            @{ Key='flsalloc-import'; Pattern='(?i)[\\/]_FlsAlloc@4\.obi$' },
+            @{ Key='flsfree-direct'; Pattern='(?i)[\\/]_FlsFree@4\.obj$' },
+            @{ Key='flsfree-import'; Pattern='(?i)[\\/]_FlsFree@4\.obi$' },
+            @{ Key='flsset-direct'; Pattern='(?i)[\\/]_FlsSetValue@8\.obj$' },
+            @{ Key='flsset-import'; Pattern='(?i)[\\/]_FlsSetValue@8\.obi$' },
+            @{ Key='isfiber-direct'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obj$' },
+            @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
+            @{ Key='stackguarantee-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
+            @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
             @{ Key='implementation'; Pattern=$implementationPattern }
           )
           $objects = @()
@@ -171,12 +181,16 @@ jobs:
           }
           $memberMap | Set-Content -Encoding utf8 (Join-Path $work 'selected-members.txt')
 
-          $narrow = Join-Path $work 'yy-xp-processprng-precise.lib'
+          $narrow = Join-Path $work 'yy-xp-rust-provider.lib'
           & lib.exe /nologo "/out:$narrow" @objects
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) { throw 'Failed to build narrow YY XP x86 provider' }
           $symbols = (& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 (Join-Path $work 'narrow-provider-symbols.txt')
-          foreach ($required in @('YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+          foreach ($required in @(
+            'YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime',
+            'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
+          )) {
             if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
           }
           foreach ($broad in @('LockResource','__imp_LockResource')) {
@@ -238,6 +252,10 @@ jobs:
           #[link(name = "kernel32", kind = "raw-dylib")]
           unsafe extern "system" {
               fn GetSystemTimePreciseAsFileTime(file_time: *mut FileTime);
+          }
+
+          #[link(name = "kernel32", kind = "raw-dylib", import_name_type = "undecorated")]
+          unsafe extern "system" {
               fn LockResource(hmem: *mut c_void) -> *mut c_void;
           }
 
@@ -325,7 +343,11 @@ jobs:
           if (-not (Test-Path $exe) -or -not (Test-Path $map)) { throw 'Final executable or map missing' }
 
           $mapText = Get-Content $map -Raw
-          foreach ($required in @('YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+          foreach ($required in @(
+            'YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime',
+            'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
+          )) {
             if ($mapText.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Final link did not select $required" }
           }
           $logged = Get-Content $linkLog -Raw
@@ -434,6 +456,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
+          function Normalize-ImportName([string]$name) {
+            if ($name -match '^_([A-Za-z][A-Za-z0-9_]*)@[0-9]+$') { return $matches[1] }
+            return $name
+          }
+
           function Get-DirectImports([string]$binary, [string]$rawPath) {
             $raw = @(& dumpbin.exe /nologo /imports $binary 2>&1)
             if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed for $binary" }
@@ -447,7 +474,7 @@ jobs:
               if ($mode -ne 'direct') { continue }
               if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { [void]$dlls.Add($matches[1]); continue }
               $entry = $line.Trim()
-              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') { [void]$apis.Add($matches[1]) }
+              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') { [void]$apis.Add((Normalize-ImportName $matches[1])) }
             }
             return @{ Dlls=$dlls; Apis=$apis }
           }
@@ -474,10 +501,10 @@ jobs:
             'GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
             'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W',
             'GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
-            'LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime','ReleaseSRWLockExclusive',
-            'ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SleepConditionVariableCS',
-            'SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared',
-            'WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
+            'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SetThreadStackGuarantee',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive',
+            'TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
           )
 
           $diag = Join-Path $env:SMOKE_DIR 'imports'
@@ -563,6 +590,6 @@ jobs:
           "- Final PE and the actual msvcr14x runtime dependency closure are x86 and require no subsystem newer than XP x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- The XP test artifact bundles the probe with the selected compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- C++ helper remained MD_DynamicRelease." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Modern i686 Rust libstd ProcessPrng/synchronization surface linked through the XP-target YY provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Modern i686 Rust libstd ProcessPrng/synchronization/FLS surface linked through the XP-target YY provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- No direct API-set, VCRUNTIME140*.dll, selected post-XP DLL, or selected post-XP API imports survived in the final PE/runtime closure." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- The executable ran on the Windows 2022 CI runner as a sanity check only; real Windows XP SP3 x86 execution remains the decisive runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
