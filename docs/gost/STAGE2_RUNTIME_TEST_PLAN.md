@@ -74,59 +74,76 @@ Detailed capture identities and event-level evidence are in `TEST_LOG.md`, dated
 - **GIS-G1/G2/G3 / F3 CLOSED:** generic coordinated client auth reaches real GIS GMP mTLS; non-mTLS GOST hosts do not show spurious picker UI.
 - **S1/S1-B/S1-C + GIS-G4 CLOSED:** explicit Session is process-local, reusable for matching requests, isolated cross-host, and cleared by process restart.
 - **SD1-SD6 CLOSED:** exact artifact `9652941006` runtime-proves default Session, same-process reuse, restart boundary, explicit Once regression, cross-host isolation, and intended picker presentation.
-- **T3 CLOSED:** explicit Firefox picker Cancel is Declined/phase `2`, attempt-local, and does not poison later recovery. The same capture also corroborates timeout cleanup from unresolved phase `0`.
+- **T3 CLOSED:** explicit Firefox picker Cancel is Declined/phase `2`, attempt-local, and does not poison later recovery.
 - **T4 CLOSED:** closing the tab that owns an unanswered picker removes the still-unresolved decision through phase-0 lifecycle cleanup, not Declined state; another tab in the same browser process receives a fresh picker and successfully recovers.
 
-T4 capture identity:
+## T5 probe — POST-LOGIN MEDIA REMOVAL DOES NOT EXERCISE T5
 
-- `T4 involuntary Abort.zip` SHA-256 `bfa51cc1d45c35c8c94cae6a7eb8fc32c6490d30782cdb256a1aefb24078d2f1`;
-- inner `SDx.moz_log` SHA-256 `f921c42d5e7b0299a40f79a5a707d5da93990018fb535edf529aef94a3d82f65`.
+Capture:
 
-T4 decisive lifecycle facts: `decision=1` / `browser_id=14` is created at `03:43:37.496 UTC`; closing the owning tab removes it only `4.059 s` later via `close-pre`, `phase=0`, with closing/stale callbacks safely rejected and no `selected=0`/`declined-consume`. Same `Parent 6184`, new `browser_id=15`, fresh `decision=2` at `03:43:54.093`; positive `selected=1 remember=2` recovery then produces eight Session remembered hits and nine successful Treasury TLS 1.2 / `0xFF85` mTLS handshakes.
+- `T5 — Session failure-boundary regression.zip` SHA-256 `ede5279115bb6fb80ddae7f40df1c87918a226ffedf6f16979ea30220d218076`;
+- inner `SDx.moz_log` SHA-256 `c9d63066b298bb127ad01060dc3428bcc1171535bd348950d0a3c067040d79c4`.
 
-## NEXT — T5 Session failure-boundary regression
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-Goal: prove that an already-established positive Session decision cannot be erased, broadened, converted into a negative decision, or otherwise poisoned by a later attempt-local private-key/provider failure.
+The user established a positive Treasury Session and then made the key medium/container unavailable. Separate CryptoPro CAdES signing activity showed the missing-medium/provider behavior externally, but that path is outside `GostTLS` logging.
 
-Preferred concrete experiment uses the missing-key-medium/provider-Cancel scenario already proven on an older source, now repeated on exact artifact `9652941006` **after Session state has first been established**.
+The Treasury capture shows why this is not a valid T5 fault injection:
 
-Procedure on a new clean `profile-T5` after mandatory preflight:
+- one positive Session decision is created/resolved;
+- the initial Treasury burst completes through `04:12:30.946 UTC`;
+- at `04:15:42.644 UTC`, `191.698 s` later, a **fresh** `lk-fzs.roskazna.ru` socket is created;
+- at `04:15:42.864`, that new socket receives a fresh client-certificate request and consumes `selected=1 scope=session`;
+- the outgoing TLS flight is `redacted=client-auth`;
+- at `04:15:43.160`, the new connection completes TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
+- whole capture has 10 Treasury client-certificate requests, 9 Session remembered uses, 10 successful Treasury mTLS handshakes, and zero `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `SEC_E_NO_CREDENTIALS`.
 
-1. Launch the exact authoritative artifact with the baseline environment and a dedicated `T5` log path.
-2. Complete one normal Treasury login using the default Session choice. Keep the same browser process/profile alive.
-3. Confirm at least one later matching client-auth request is served from `scope=session`; this establishes that the positive Session decision is active before fault injection.
-4. Without changing the Firefox certificate decision, induce one controlled private-key/provider failure on a later matching Treasury attempt. Preferred method, when available in the current setup: make the private-key medium/container unavailable and/or cancel the provider key-access UI. **Do not use the Firefox certificate-picker Cancel**; that is T3.
-5. Allow the failing attempt to settle. Record the provider/handshake failure class, but do not treat an expected current-attempt provider failure as sticky-state evidence by itself.
-6. Restore the key medium/provider availability while keeping the same browser process/profile.
-7. Start a new independent matching Treasury attempt.
-8. Require the original Session decision to remain usable: ideally no fresh Firefox certificate picker appears, the coordinator records `scope=session`, and real TLS 1.2 / `0xFF85` Treasury mTLS plus protected application login succeeds.
+Interpretation: once CryptoPro/SSPI has already acquired a usable provider/private-key credential context, removing the medium does not necessarily invalidate that context. This is acceptable runtime behavior and is stronger than ordinary HTTP keep-alive: a later fresh socket performs a new client-auth TLS exchange successfully.
 
-Pass criteria:
+**T5 remains DEFERRED / OPEN.** Resume it only if a safe deterministic mechanism exists to invalidate an already-acquired provider/private-key credential inside the same browser process. Do not repeat post-login medium removal expecting a provider fault and do not invent an invasive synthetic invalidation merely to force T5.
 
-- positive Session state is demonstrably active before fault injection;
-- the controlled provider/key failure does not store Declined state, erase the Session decision, broaden it to another host/policy, or replace it with a different identity decision;
-- failure remains local to the failing provider/private-key attempt;
-- after provider/key availability returns, a later matching request in the same process/profile reuses the existing Session decision and completes real GOST mTLS;
-- no browser restart is required for recovery;
-- if the chosen fault is missing medium + provider Cancel and restoration/retry satisfies the older T7/T8 criteria, the same capture may close T5 plus T7/T8 together. Record the scopes explicitly rather than assuming combined closure.
+## NEXT — T7/T8 missing-medium/provider Cancel and same-process recovery
 
-If the current certificate/setup cannot produce a controlled provider/private-key failure safely, do not invent a synthetic failure mechanism merely to force T5. Preserve T5 as open and proceed only after a reproducible provider/key boundary is available.
+Goal: prove the current exact artifact handles a provider/key failure when the medium is unavailable **before the first GOST private-key acquisition**, and recovers after the medium returns without sticky certificate state or browser restart.
+
+Procedure on a new clean `profile-T7T8` after mandatory preflight:
+
+1. Ensure the intended private-key medium/container is unavailable **before launching the first Treasury client-auth attempt**. Do not first complete a successful GOST mTLS in this browser process, because that may preload/cache a usable CryptoPro/SSPI credential and invalidate the test method.
+2. Launch the exact authoritative artifact with the baseline environment and a dedicated `T7T8` log path.
+3. Navigate to the Treasury personal-cabinet login until Firefox client-certificate selection occurs. Select the intended certificate normally if it remains discoverable.
+4. Let CryptoPro/provider key access encounter the unavailable medium. If provider UI appears, exercise the planned provider Cancel path. Do **not** use Firefox picker Cancel; that is already T3.
+5. Allow the failing attempt to settle. Record the actual provider/handshake error class. The failure must remain attempt/provider-local and must not create reusable Declined certificate state or an orphan/sticky coordinator decision.
+6. Restore the key medium/container while keeping the **same browser process/profile** alive.
+7. Start a new independent Treasury client-auth attempt.
+8. Require recovery without browser restart: a usable certificate decision/picker must be available as appropriate, provider/key acquisition must succeed, and real TLS 1.2 / `0xFF85` Treasury mTLS plus protected application login must complete.
+
+T7 pass criteria:
+
+- the certificate may remain discoverable even though key use is unavailable;
+- actual key/provider access fails or is cancelled in the current attempt;
+- provider failure is not converted into reusable Firefox `Declined` state and does not poison later decisions;
+- capture identifies the actual current-artifact failure class rather than assuming the historical `SEC_E_NO_CREDENTIALS` value.
+
+T8 pass criteria:
+
+- after restoring the medium, a later independent attempt in the same browser process/profile can acquire/use the private key;
+- real Treasury TLS 1.2 / `0xFF85` mTLS completes with `client_cert_loaded=1`;
+- protected application login succeeds;
+- no browser restart is required.
+
+If the certificate disappears entirely when the medium is absent, record that discovery behavior instead of forcing provider UI; that result becomes evidence for T11/T12/T14 and the T7/T8 procedure should be adjusted accordingly.
 
 ## Remaining client-decision semantics
+
+### T5 — Session failure-boundary regression — DEFERRED
+
+Requires a reproducible way to fail an already-acquired provider/private-key credential inside one live browser process after positive Session state exists. Post-login medium removal is proven insufficient in the current environment.
 
 ### T6 — real Permanent semantics
 
 Implement/verify actual persistence distinct from the current process-local non-Once store. Positive choice should persist according to the intended Firefox permanent-remember behavior and be removable by the intended forget/change action. Negative/provider failures must not overwrite it.
 
 ## Provider/private-key media
-
-### T7 — missing key medium + provider Cancel
-
-Certificate remains discoverable but CryptoPro private-key medium/container is unavailable. Cancel provider UI. Only the current attempt should fail; no negative certificate decision may poison later attempts. May be closed together with T5 if T5 uses this exact fault after an active Session decision is established.
-
-### T8 — provider recovery without browser restart
-
-Make the key medium available on retry. Handshake and protected login should succeed without restarting r3dfox. May be closed together with T5 if the same capture proves Session-state preservation and provider recovery.
 
 ### T9 — long provider wait
 
