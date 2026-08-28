@@ -237,16 +237,59 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 
 ## Windows compatibility — independent track
 
-### Current Win7 full-xul evidence
+### Current full Firefox XP x32 experiment
 
-Current full-xul narrow YY/thunk-rs build evidence for the Session-default source:
+The first full Firefox 153 x86 compatibility build is now source-under-test `982d6529a707c6feecad97c725feed8a3cd21c81` (`ci: add XP x32 full Firefox build workflow`), Actions run `33141004769`, job `98751650853`, workflow `GOST TLS PoC build XP x32`.
+
+The run's overall conclusion is red because the final XP PE/direct-import audit gate failed, but the build itself crossed the important integration boundary:
+
+- full Firefox x86 compilation succeeded;
+- msvcr14x XP runtime staging succeeded;
+- `dist/bin` PE subsystem retargeting to XP x86 succeeded;
+- package creation succeeded;
+- the physical-test runtime archive was built from `dist/bin`;
+- all package/runtime/diagnostics artifacts uploaded successfully.
+
+Published artifacts:
+
+- package artifact `9676548553` (`r3dfox-gost-xp-x32-package`), digest SHA-256 `1010a84c571ad78ff7757ccdadd27f0cb6a15e1ef437673970f583e7173bb503`;
+- runtime artifact `9676549576` (`r3dfox-gost-xp-x32-runtime`), digest SHA-256 `f0287c7917d7d08756acf57ed8cd2eeed9b8d397ea8416fbf2f166308e89f4f5`;
+- diagnostics artifact `9676550507` (`r3dfox-gost-xp-x32-diagnostics`), digest SHA-256 `ecec3fe35df412c77c217ed5ed27f2a628d9bc3a931876a171cffa1b41c64862`.
+
+This proves a full Firefox/r3dfox XP x86 build/package exists. It does not prove XP startup or GOST TLS.
+
+### Physical Windows XP x32 — first loader blocker confirmed
+
+The exact build from run `33141004769` fails on physical XP before browser UI startup with:
+
+`The procedure entry point CloseThreadpoolWork could not be located in the dynamic link library KERNEL32.dll.`
+
+The current XP blocker is therefore no longer an abstract import-audit concern: a startup-loaded module has a real hard dependency on `KERNEL32!CloseThreadpoolWork`, which XP cannot resolve. The exact importing PE module is still unknown and must be identified from the diagnostics/import tables before applying a narrow thunk/redirect. The error-dialog title is not sufficient evidence that `r3dfox.exe` itself owns the import.
+
+### Physical Windows 7 x32 — parent/browser startup proven; immediate tab crash localized to sandbox RNG
+
+The same full XP x32 build starts the parent/browser UI on physical Win7 x32. With normal content sandboxing enabled, `tab` processes die very early and user-visible tabs show `Gah. Your tab just crashed.`. Mozilla logging, ProcMon and WinDbg now localize this failure:
+
+- `tab` processes repeatedly exit with NTSTATUS `0x80000003` (`STATUS_BREAKPOINT`), while socket/GPU/RDD/utility process classes can remain alive;
+- no Firefox minidump/crash directory or useful Windows Event Viewer fault is produced for the early tab death;
+- WinDbg catches the first-chance exception at `mozglue!mozilla::RandomUint64OrDie+0x4a`, specifically the `int 3` release-assert path;
+- exact source-under-test code calls `MOZ_RELEASE_ASSERT(GenerateRandomBytesFromOS(...))`; on Windows that helper calls `RtlGenRandom` / `SystemFunction036`;
+- the observed false return enters the assertion branch and deliberately terminates the content process.
+
+A same-binary A/B test with `MOZ_DISABLE_CONTENT_SANDBOX=1` removes the immediate tab-startup failure: the browser creates a clean profile, loads the policy-enabled uBlock extension and successfully opens multiple real web pages. Therefore the initial Win7 tab crash is causally **content-sandbox dependent** and is not a generic inability of this x86 Firefox build to execute content processes or load `xul.dll` on Win7.
+
+The sandbox-off browser later crashes after some successful browsing. That later failure is a separate unresolved runtime blocker and must not be conflated with the now-localized `RandomUint64OrDie` startup failure. Disabling the content sandbox is diagnostic only and is not an acceptable shipping compatibility fix.
+
+### Older Win7 full-xul build evidence
+
+The independent narrow YY/thunk-rs full-xul build for the Session-default source remains useful build/import evidence:
 
 - source `afbdad307f63e594d3715169d6e34235280dddaf`;
 - run `33073577260`, job `98521835116`;
 - browser artifact `9652182123`;
 - diagnostics `9652183604`.
 
-This is build/package/direct-import evidence only. Still open: real Win7 runtime, delay-load parser/runtime-path closure, full-Firefox msvcr14x integration, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
+Its role remains build/package/direct-import validation. The new physical run `33141004769` is the current concrete x86 old-Windows runtime evidence and does not by itself replace or prove the separate Win7 thunk workflow's exact artifact behavior.
 
 ### Windows XP SP3 x86 representative runtime — COMPLETE
 
@@ -262,7 +305,7 @@ The workflow proves the representative x86 candidate links with ordinary C++ `/M
 
 The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; every run returned `ExitCode=0` without loader/runtime errors or antivirus intervention. This closes representative XP x86 runtime viability for the tested workload.
 
-It does not prove Firefox 153/xul compatibility or GOST TLS on XP. The immediate Windows-compatibility next experiment remains a separate full 32-bit Firefox/xul integration line; its workflow/code state must be evaluated independently from GOST runtime conclusions.
+It does not prove Firefox 153/xul compatibility or GOST TLS on XP; the new full Firefox build has now moved that question to the concrete `CloseThreadpoolWork` loader blocker above.
 
 ## Bundled government-system extensions — independent track
 
