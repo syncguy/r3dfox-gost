@@ -85,7 +85,7 @@ Same `ef1a7...` artifact. Generic coordinated client auth reaches `portalgisgmp.
 
 Same `ef1a7...` artifact. Positive explicit Session state is reused for matching Treasury handshakes within the process, remains isolated from a different GOST mTLS host, and is cleared by browser-process restart.
 
-Detailed historical capture identities remain in `TEST_LOG.md` and `DONE.md`.
+Detailed historical capture identities remain in dated test-log volumes and `DONE.md`.
 
 ## Session-default exact-artifact regression — SD1-SD6 PASS / CLOSED
 
@@ -112,35 +112,51 @@ Every supplied SD1-SD5 capture has zero `E/GostTLS`, `selected=0`, `0x80090326`,
 
 Do not repeat SD1-SD6 on unchanged source merely for confirmation.
 
-## NEXT — T3 explicit Cancel / no certificate
+## T3 explicit Cancel / no certificate — PASS / CLOSED
 
-Goal: prove a deliberate user decline is attempt-local and does not poison a later independent client-auth attempt.
+Exact source/run/artifact: `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-Procedure on a new clean `profile-T3` after mandatory preflight:
+Capture:
 
-1. Launch the exact authoritative artifact with the baseline GOST environment and a dedicated `T3` log path.
+- `T3 — explicit Cancel.zip` SHA-256 `32c3e844e85c1997f57bc682d193c91c9fbcfa2c9b0dc91d939a9e82eeec293c`;
+- inner `SDx.moz_log` SHA-256 `d6174d335074904da2e6bbbddfe2b22e582a805292c81e518c72be8a85bfa38b`.
+
+One browser process (`Parent 1544`) contains six sequential Treasury client-auth decisions:
+
+1. decisions `1`-`4` are four deliberate picker Cancels. Each resolves `selected=0 remember=2`, consumes its waiter with `reason=declined-consume`, and is removed with phase `2`. No positive Session/Once state is stored, and every next attempt receives a fresh picker;
+2. decision `5` is left unanswered. It is removed after `30.276 s` from pending phase `0` by `close-pre`; shutdown re-entry is rejected with `reason=closing` and the later UI callback is stale-safe;
+3. `Try again` creates fresh decision `6`; the positive default Session choice resolves `selected=1 remember=2`, followed by 11 `scope=session` remembered hits and 12 successful Treasury TLS 1.2 / `0xFF85` mTLS handshakes with successful personal-cabinet authorization.
+
+Negative-test interpretation rule established by T3: explicit no-certificate Cancel naturally produces current-attempt `selected=0` plus `0x80090326` and follow-on `0x0000054f` handshake failures. These are expected per-attempt markers, not sticky-failure evidence, when later attempts get fresh decisions and a later positive recovery has no unsolicited recurrence. After decision `6` resolves positively, this capture has zero further `E/GostTLS` and zero further `selected=0`.
+
+T3 is closed. The decision-5 timeout is useful corroboration that teardown does not become Declined, but it does **not** replace T4's specified navigation/tab/load teardown.
+
+## NEXT — T4 involuntary Abort
+
+Goal: prove that navigation/tab/load teardown while the picker is outstanding is classified as involuntary lifecycle abandonment rather than an explicit reusable decline, and that recovery works in the same browser process.
+
+Procedure on a new clean `profile-T4` after mandatory preflight:
+
+1. Launch the exact authoritative artifact with the baseline GOST environment and a dedicated `T4` log path.
 2. Navigate into the Treasury flow until the Firefox client-certificate picker appears.
-3. Explicitly choose the picker action that declines/cancels client-certificate selection. Do not kill the process and do not simulate provider/media failure in T3.
-4. Allow the current attempt to fail/continue naturally and preserve the resulting log state.
-5. In the **same running browser process/profile**, start a new independent Treasury client-auth attempt after the first attempt has settled.
-6. Require a **fresh picker** on that later attempt. A deliberate decline must not become a reusable sticky negative decision.
-7. For the recovery half, select the intended certificate normally with the default Session choice and require successful Treasury GOST mTLS/application flow without restarting r3dfox.
+3. **Do not click Cancel and do not select a certificate.** While the picker is still unanswered, terminate the underlying load intentionally by one concrete non-picker action: navigate the affected tab away, close the affected tab, or otherwise cancel that load. Record which action was used.
+4. Allow teardown to settle while keeping the browser process alive when possible.
+5. In the same running browser process/profile, start a new independent Treasury client-auth attempt.
+6. Require a fresh picker. The abandoned prior decision must not be reused as an explicit negative decision.
+7. Select the intended certificate normally with the default Session choice and require successful Treasury GOST mTLS/application flow without restarting r3dfox.
 
 Pass criteria:
 
-- first user action is represented as explicit `Declined`/no-certificate semantics rather than involuntary `Aborted`;
-- no positive Session or `Once` lease is stored from the declined decision;
-- after the first attempt settles, a later independent request creates/receives a fresh decision/picker;
-- recovery can complete real TLS 1.2 / `0xFF85` Treasury mTLS in the same browser process after a positive selection;
-- no stale/orphan decision, sticky automatic `selected=0`, or unrelated GOST error poisons the recovery attempt.
+- the abandoned picker decision is **not** consumed via `reason=declined-consume` / phase `2`;
+- teardown removes the waiter/decision through lifecycle cleanup while it is still unresolved/pending, or through the implementation's explicit Abort representation if one is added;
+- shutdown/closing/stale callbacks cannot create an orphan replacement decision;
+- the later independent attempt creates/receives a fresh decision/picker;
+- positive recovery completes real TLS 1.2 / `0xFF85` Treasury mTLS in the same browser process;
+- current-attempt teardown/errors are evaluated by scope: they fail T4 only if they leak into or poison the later recovery attempt.
 
-If the first decline does not map cleanly to the expected explicit-decline state, stop and preserve the capture before proceeding to T4; do not reinterpret navigation teardown as a T3 pass.
+Do not use picker Cancel for T4; that path is already T3 and is proven Declined. An unanswered network timeout alone also does not close T4 because T2R/T3 already cover timeout teardown; T4 specifically exercises user/navigation/load abandonment.
 
 ## Remaining client-decision semantics
-
-### T4 — involuntary Abort
-
-Exercise navigation/tab/load teardown without a user decision. State must be `Aborted`, not reusable `Declined`; a later attempt must receive a fresh picker and recover.
 
 ### T5 — Session failure-boundary regression
 
@@ -222,7 +238,7 @@ Final exact source/build must prove together final server trust, intended defaul
 
 ## Separate non-blocking investigation
 
-T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`; quiescent poll counts `10,825`, `34`, `21`). Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1/F2/F3 or SD1-SD6.
+T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`); T3 adds another unanswered-picker teardown at `30.276 s`. Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1/F2/F3, SD1-SD6, or T3.
 
 ## Stop / escalation rules
 
