@@ -23,9 +23,6 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout active branch
-        uses: actions/checkout@v4
-
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -296,18 +293,13 @@ jobs:
           & $exe
           if ($LASTEXITCODE -ne 0) { throw "Thunked WinRT probe failed on hosted runner: $LASTEXITCODE" }
           & dumpbin.exe /nologo /headers $exe 2>&1 | Set-Content -Encoding utf8 diagnostics\thunked-winrt-headers.txt
-          "THUNKED_WINRT_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Upload WinRT closing diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: yy-winrt-delay-smoke-diagnostics
-          path: |
-            diagnostics
-            ${{ env.WINRT_WORK }}\selected\**\symbols.txt
-            ${{ env.WINRT_WORK }}\baseline-delay.map
-            ${{ env.WINRT_WORK }}\thunked-winrt.map
+          path: diagnostics
           if-no-files-found: warn
           retention-days: 14
 
