@@ -152,7 +152,9 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 
 These scenarios still require revalidation after the current client-decision/UX work.
 
-## Windows Vista/7 compatibility — independent track
+## Windows compatibility — independent track
+
+### Current Win7 full-xul evidence
 
 Current full-xul narrow YY/thunk-rs build evidence for the Session-default source:
 
@@ -162,6 +164,22 @@ Current full-xul narrow YY/thunk-rs build evidence for the Session-default sourc
 - diagnostics `9652183604`.
 
 This is build/package/direct-import evidence only. Still open: real Win7 runtime, delay-load parser/runtime-path closure, full-Firefox msvcr14x integration, broader Win7 runtime, and a separate exact GOST-on-Win7 milestone.
+
+### Windows XP SP3 x86 representative runtime — COMPLETE
+
+The isolated XP x86 coexistence line has a real physical-machine runtime PASS:
+
+- experiment branch `agent/msvcr14x-win7-smoke`;
+- source-under-test `d78137a931145af877dc458b01e494ad0467723d`;
+- run `33138244191`, job `98743029100`, success;
+- runtime artifact `9673057839` (`msvcr14x-rust-yy-xp-x86-runtime`), artifact SHA-256 `3b9e1c2643cafee89061c3ce260b0b075c60a772d8cbcedb96cb90161a3c4970`;
+- diagnostics artifact `9673058689`, artifact SHA-256 `6775abf4048e12bddcafe3f842be8b23af9c0669190772d0dee04c8e56aac323`.
+
+The workflow proves the representative x86 candidate links with ordinary C++ `/MD`, modern `i686-pc-windows-msvc` Rust/libstd, pinned msvcr14x and a narrow YY-Thunks 1.2.2 provider; final PE/runtime closure passes the XP x86 subsystem/import gates and the artifact bundles compatible `ucrtbase.dll` and `msvcp140.dll`.
+
+The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; every run returned `ExitCode=0` without loader/runtime errors or antivirus intervention. This closes representative XP x86 runtime viability for the tested workload.
+
+It does not prove Firefox 153/xul compatibility or GOST TLS on XP. The immediate Windows-compatibility next experiment is a separate full 32-bit Firefox/xul build using the now-proven x86 msvcr14x + modern Rust/libstd + narrow YY scheme, followed by PE/runtime-closure audit and only then real Firefox startup on XP.
 
 ## Bundled government-system extensions — independent track
 
