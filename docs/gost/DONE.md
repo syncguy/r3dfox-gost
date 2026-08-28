@@ -152,6 +152,24 @@ Deliberate Cancel naturally produces current-attempt `selected=0` and `0x8009032
 
 T3 is closed. The timeout segment corroborates decline-vs-teardown separation but does not close T4's specified navigation/tab/load abort scenario.
 
+## Windows compatibility
+
+### Windows XP SP3 x86 representative msvcr14x + Rust/libstd + YY runtime — COMPLETE
+
+Exact representative source/run:
+
+- experiment branch `agent/msvcr14x-win7-smoke`;
+- source `d78137a931145af877dc458b01e494ad0467723d`;
+- run `33138244191`, job `98743029100`;
+- runtime artifact `9673057839` (`msvcr14x-rust-yy-xp-x86-runtime`), artifact SHA-256 `3b9e1c2643cafee89061c3ce260b0b075c60a772d8cbcedb96cb90161a3c4970`;
+- diagnostics artifact `9673058689`, artifact SHA-256 `6775abf4048e12bddcafe3f842be8b23af9c0669190772d0dee04c8e56aac323`.
+
+The Actions workflow passed representative C++ `/MD` + modern `i686-pc-windows-msvc` Rust/libstd + pinned msvcr14x + narrow YY-Thunks linking, actual runtime dependency closure, XP x86 PE-floor/import gates, modern-host sanity execution, and runtime-bundle publication. The bundle contains the probe plus compatible `ucrtbase.dll` and `msvcp140.dll`.
+
+The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; all three runs returned `ExitCode=0` without loader/runtime errors or antivirus intervention.
+
+This closes representative XP x86 runtime viability for the tested workload. It does not prove Firefox 153/xul startup on XP or GOST TLS behavior on XP; full 32-bit Firefox/xul integration remains the next separate compatibility milestone.
+
 ## Bundled government-system extensions
 
 ### CryptoPro standalone updater/fallback/package mechanism — COMPLETE
