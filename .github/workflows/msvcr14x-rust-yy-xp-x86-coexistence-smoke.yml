@@ -43,46 +43,65 @@ jobs:
           (Get-Command cl.exe).Source | Set-Content -Encoding utf8 diagnostics\cl-path.txt
           (Get-Command link.exe).Source | Set-Content -Encoding utf8 diagnostics\link-path.txt
 
-      - name: Download compact YY-Thunks object package
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
-          $asset = $release.assets | Where-Object { $_.name -eq 'YY-Thunks-Objs.zip' } | Select-Object -First 1
-          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Objs asset not found" }
+          $asset = $release.assets | Where-Object { $_.name -eq 'YY-Thunks-Lib.zip' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
           $zip = Join-Path $env:RUNNER_TEMP $asset.name
-          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-objs'
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-package'
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           Expand-Archive -Path $zip -DestinationPath $root
-          Get-ChildItem -Path $root -Recurse -File |
-            Where-Object { $_.Name -match 'RoActivateInstance|RoGetActivationFactory|WindowsCompareStringOrdinal|WindowsCreateString|WindowsDeleteString|WindowsGetStringRawBuffer|YY_Thunks_for_' } |
-            Select-Object FullName,Length | Format-Table -AutoSize | Out-String -Width 320 |
-            Set-Content -Encoding utf8 diagnostics\yy-object-candidates.txt
-          "YY_OBJS_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "yy_objs_asset=$($asset.name) size=$($asset.size) digest=$($asset.digest)" | Add-Content -Encoding utf8 diagnostics\identity.txt
 
-      - name: Build narrow YY WinRT provider
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyDir = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
+            Select-Object -First 1
+          if (-not $yyDir) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+
+          $runtimeObject = Join-Path $yyDir.FullName 'runtimeobject.lib'
+          $kernel32 = Join-Path $yyDir.FullName 'kernel32.lib'
+          foreach ($required in @($runtimeObject,$kernel32)) {
+            if (-not (Test-Path $required)) { throw "Required YY library missing: $required" }
+          }
+          "YY_RUNTIMEOBJECT_LIB=$runtimeObject" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "yy_lib_asset=$($asset.name) size=$($asset.size) digest=$($asset.digest)" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          "resolved_yy_lib=$($yyDir.FullName)" | Add-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Build narrow YY WinRT provider from runtimeobject aliases
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $work = Join-Path $env:RUNNER_TEMP 'yy-winrt-delay-smoke'
+          $selected = Join-Path $work 'selected'
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
-          New-Item -ItemType Directory -Force $work | Out-Null
+          New-Item -ItemType Directory -Force $selected | Out-Null
 
-          $allFiles = @(Get-ChildItem -Path $env:YY_OBJS_ROOT -Recurse -File)
-          function Resolve-Object([string]$api, [string]$extension) {
-            $pattern = '^_' + [regex]::Escape($api) + '@[0-9]+\.' + [regex]::Escape($extension) + '$'
-            $matches = @($allFiles | Where-Object { $_.Name -match $pattern })
-            if ($matches.Count -eq 0) { throw "YY Objs package has no $api .$extension object" }
-            $runtimeMatches = @($matches | Where-Object { $_.FullName -match '(?i)runtimeobject\.lib_WeakAlias' })
-            if ($runtimeMatches.Count -eq 1) { return $runtimeMatches[0] }
-            $hashGroups = @($matches | ForEach-Object {
-              [pscustomobject]@{ File=$_; Hash=(Get-FileHash -Algorithm SHA256 $_.FullName).Hash }
-            } | Group-Object Hash)
-            if ($hashGroups.Count -eq 1) { return $matches[0] }
-            $detail = ($matches | ForEach-Object { $_.FullName }) -join '; '
-            throw ("Ambiguous YY object for {0} .{1}: {2}" -f $api, $extension, $detail)
+          $runtimeMembers = @(& lib.exe /nologo /list $env:YY_RUNTIMEOBJECT_LIB 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $runtimeMembers.Count -eq 0) { throw 'Cannot enumerate YY runtimeobject.lib' }
+          $kernelMembers = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $kernelMembers.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
+          $runtimeMembers | Set-Content -Encoding utf8 diagnostics\yy-runtimeobject-members.txt
+
+          function Extract-One([string]$archive, [string]$member, [string]$key) {
+            $dir = Join-Path $selected $key
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$member" $archive *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $member" }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw "No extracted object for $key" }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            return $dst
           }
 
           $apis = @(
@@ -94,20 +113,20 @@ jobs:
           $mapping = [System.Collections.Generic.List[string]]::new()
           foreach ($api in $apis) {
             foreach ($kind in @('obj','obi')) {
-              $choice = Resolve-Object $api $kind
-              $objects.Add($choice.FullName)
-              $mapping.Add("$api-$kind|$($choice.FullName)|$((Get-FileHash -Algorithm SHA256 $choice.FullName).Hash)")
+              $pattern = '(?i)(?:^|[\\/])_' + [regex]::Escape($api) + '@[0-9]+\.' + $kind + '$'
+              $matches = @($runtimeMembers | Where-Object { $_ -match $pattern })
+              if ($matches.Count -ne 1) { throw "Expected one runtimeobject.lib $api .$kind member; found $($matches.Count): $($matches -join '; ')" }
+              $key = "$api-$kind"
+              $objects.Add((Extract-One $env:YY_RUNTIMEOBJECT_LIB $matches[0] $key))
+              $mapping.Add("$key|runtimeobject.lib|$($matches[0])")
             }
           }
 
-          $implementationName = "YY_Thunks_for_$env:YY_THUNKS_TARGET.obj"
-          $implementationMatches = @($allFiles | Where-Object { $_.Name -ieq $implementationName -and $_.FullName -match '(?i)[\\/]x86[\\/]' })
-          if ($implementationMatches.Count -ne 1) {
-            $detail = ($implementationMatches | ForEach-Object { $_.FullName }) -join '; '
-            throw "Expected one x86 $implementationName; found $($implementationMatches.Count): $detail"
-          }
-          $objects.Add($implementationMatches[0].FullName)
-          $mapping.Add("implementation|$($implementationMatches[0].FullName)|$((Get-FileHash -Algorithm SHA256 $implementationMatches[0].FullName).Hash)")
+          $implementationPattern = '(?i)(?:^|[\\/])YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $implementation = @($kernelMembers | Where-Object { $_ -match $implementationPattern })
+          if ($implementation.Count -ne 1) { throw "Expected one common YY implementation member; found $($implementation.Count)" }
+          $objects.Add((Extract-One $env:YY_KERNEL32_LIB $implementation[0] 'implementation'))
+          $mapping.Add("implementation|kernel32.lib|$($implementation[0])")
           $mapping | Set-Content -Encoding utf8 diagnostics\yy-winrt-selected-members.txt
 
           $provider = Join-Path $work 'yy-xp-winrt-provider.lib'
@@ -118,45 +137,59 @@ jobs:
           foreach ($api in $apis) {
             if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing YY_Thunks_$api" }
           }
-          if ($symbols.IndexOf('YY_Thunks_LockResource', [System.StringComparison]::Ordinal) -ge 0) { throw 'Narrow provider unexpectedly exposes unrelated LockResource thunk' }
+          if ($symbols.IndexOf('YY_Thunks_LockResource', [System.StringComparison]::Ordinal) -ge 0) { throw 'Narrow WinRT provider unexpectedly exposes unrelated LockResource thunk' }
           "WINRT_WORK=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_WINRT_PROVIDER=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Locate lld-link and Windows SDK delay-import inputs
+      - name: Build exact synthetic WinRT import surfaces
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
-          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
-          if (-not (Test-Path $lld)) { throw "lld-link.exe not found: $lld" }
-
-          function Resolve-SdkLib([string]$name) {
+          function Resolve-Lib([string]$name) {
             foreach ($dir in ($env:LIB -split ';')) {
               if (-not $dir) { continue }
               $candidate = Join-Path $dir $name
               if (Test-Path $candidate) { return (Resolve-Path $candidate).Path }
             }
-            $sdkLibRoot = Join-Path $env:WindowsSdkDir 'Lib'
-            $found = Get-ChildItem -Path $sdkLibRoot -Recurse -File -Filter $name -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match '(?i)[\\/]x86\\' } | Select-Object -First 1
-            if ($found) { return $found.FullName }
-            throw "Cannot resolve Windows SDK library $name"
+            throw "Cannot resolve library $name"
           }
 
-          $sdkWinrt = Resolve-SdkLib 'api-ms-win-core-winrt-l1-1-0.lib'
-          $sdkString = Resolve-SdkLib 'api-ms-win-core-winrt-string-l1-1-0.lib'
-          $delayimp = Resolve-SdkLib 'delayimp.lib'
-          $kernel32 = Resolve-SdkLib 'kernel32.lib'
-          @(
-            "lld_link=$lld"
-            "sdk_winrt=$sdkWinrt"
-            "sdk_winrt_string=$sdkString"
-            "delayimp=$delayimp"
-            "kernel32=$kernel32"
-          ) | Set-Content -Encoding utf8 diagnostics\resolved-link-inputs.txt
+          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
+          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw "lld-link.exe not found: $lld" }
+          $delayimp = Resolve-Lib 'delayimp.lib'
+          $kernel32 = Resolve-Lib 'kernel32.lib'
+
+          $winrtDef = Join-Path $env:WINRT_WORK 'winrt.def'
+          $stringDef = Join-Path $env:WINRT_WORK 'winrt-string.def'
+          @'
+          LIBRARY api-ms-win-core-winrt-l1-1-0.dll
+          EXPORTS
+            RoActivateInstance=_RoActivateInstance@8
+            RoGetActivationFactory=_RoGetActivationFactory@12
+          '@ | Set-Content -Encoding ascii $winrtDef
+          @'
+          LIBRARY api-ms-win-core-winrt-string-l1-1-0.dll
+          EXPORTS
+            WindowsCompareStringOrdinal=_WindowsCompareStringOrdinal@12
+            WindowsCreateString=_WindowsCreateString@12
+            WindowsCreateStringReference=_WindowsCreateStringReference@16
+            WindowsDeleteString=_WindowsDeleteString@4
+            WindowsGetStringRawBuffer=_WindowsGetStringRawBuffer@8
+          '@ | Set-Content -Encoding ascii $stringDef
+
+          $winrtLib = Join-Path $env:WINRT_WORK 'baseline-winrt.lib'
+          $stringLib = Join-Path $env:WINRT_WORK 'baseline-winrt-string.lib'
+          & lib.exe /nologo /machine:x86 "/def:$winrtDef" "/out:$winrtLib" 2>&1 | Tee-Object -FilePath diagnostics\synthetic-winrt-lib.log
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $winrtLib)) { throw 'Failed to build synthetic WinRT import library' }
+          & lib.exe /nologo /machine:x86 "/def:$stringDef" "/out:$stringLib" 2>&1 | Tee-Object -FilePath diagnostics\synthetic-winrt-string-lib.log
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stringLib)) { throw 'Failed to build synthetic WinRT string import library' }
+
+          (& dumpbin.exe /nologo /linkermember:1 $winrtLib 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\synthetic-winrt-symbols.txt
+          (& dumpbin.exe /nologo /linkermember:1 $stringLib 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\synthetic-winrt-string-symbols.txt
           "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "SDK_WINRT_LIB=$sdkWinrt" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "SDK_WINRT_STRING_LIB=$sdkString" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "BASELINE_WINRT_LIB=$winrtLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "BASELINE_WINRT_STRING_LIB=$stringLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "DELAYIMP_LIB=$delayimp" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "SDK_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -206,7 +239,7 @@ jobs:
           $map = Join-Path $env:WINRT_WORK 'baseline-delay.map'
           $args = @(
             '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM",'/out:' + $dll,'/map:' + $map,
-            $env:WINRT_PROBE_OBJ,$env:SDK_WINRT_LIB,$env:SDK_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
+            $env:WINRT_PROBE_OBJ,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
           & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object -FilePath diagnostics\baseline-delay-link.log
@@ -229,7 +262,7 @@ jobs:
           $map = Join-Path $env:WINRT_WORK 'thunked-winrt.map'
           $args = @(
             '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM",'/out:' + $dll,'/map:' + $map,
-            $env:WINRT_PROBE_OBJ,$env:YY_WINRT_PROVIDER,$env:SDK_WINRT_LIB,$env:SDK_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
+            $env:WINRT_PROBE_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
           & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object -FilePath diagnostics\thunked-winrt-link.log
@@ -244,9 +277,10 @@ jobs:
             'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal','WindowsCreateString',
             'WindowsCreateStringReference','WindowsDeleteString','WindowsGetStringRawBuffer'
           )) {
-            if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select YY_Thunks_$api" }
+            if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Thunked map does not prove selection of YY_Thunks_$api" }
           }
-          & dumpbin.exe /nologo /headers $dll 2>&1 | Set-Content -Encoding utf8 diagnostics\thunked-winrt-headers.txt
+          Copy-Item $map diagnostics\thunked-winrt.map -Force
+          Copy-Item $dll diagnostics\thunked-winrt.dll -Force
 
       - name: Upload WinRT closing diagnostics
         if: always()
@@ -263,7 +297,7 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Uses compact YY-Thunks-Objs.zip and extracts only seven direct/import aliases plus the common x86 implementation object." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline must reproduce the two exact xul WinRT API-set delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Thunked candidate must select all seven YY_Thunks_* symbols and remove both target API-set DLLs from final PE imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- This is linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY source: runtimeobject.lib weak aliases plus the common XP x86 implementation member." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline import surfaces are synthetic and contain only the two exact xul WinRT API-set DLL names and seven observed APIs." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline must reproduce both delay-import groups; thunked candidate must select all seven YY_Thunks_* symbols and eliminate both groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
