@@ -8,20 +8,32 @@ F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, F3 generic
 
 Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or S1/S1-B/S1-C on unchanged source merely for confirmation.
 
-### 1. Implement the planned picker UX/default change
+### 1. Validate the Session-default picker build
 
-The explicit `Session` baseline is complete:
+The planned picker UX/default iteration is implemented and fully built on:
 
-- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`; inner log `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8` proves one explicit Session choice is reused for ten later matching Treasury client-auth requests in the same browser process and remains isolated from a different GIS GMP mTLS host;
-- `session-current2.zip` SHA-256 `e32b71ca51d151e553ab82c321fd8f829270e09b6a8390f7fb3ea828af3a29e7`; inner log `5b156cf0765c9aad3ceffeac6d1a845cea381f219ea168d59b318201b9f419b5` proves a new browser process receives a fresh picker and the old Session choice does not survive process restart.
+- source `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`);
+- short SSL compile run `33073577249`, job `98521835147`, success;
+- authoritative main full build run `33073577269`, job `98521835354`, success;
+- main release artifact `9652941006` (`r3dfox-gost-win64-release`);
+- main Win7 import-audit artifact `9652941552`;
+- independent thunk-rs full build run `33073577260`, job `98521835116`, success.
 
-Implement next:
+Implemented behavior to regress on exact artifact `9652941006`:
 
-- make `Session` the default remember choice;
-- preserve explicit `Once` and the proven positive-only short fanout lease;
-- keep the current 5-second idle lease for now, with later consideration of an `about:config` preference;
-- render `Issued by` using a human-friendly issuer display in the same style as the already-improved `Issued to` rather than exposing the full raw DN in the primary details row;
-- run targeted exact-build regressions for default Session and explicit Once after the change.
+- `Session` is the default remember choice;
+- explicit `Once` remains available and keeps the proven positive-only 5-second idle fanout lease;
+- `Issued by` uses a human-friendly issuer common name when available, with full issuer DN only as fallback;
+- callback registration logs expose `picker_default=session`.
+
+Run these targeted regressions before proceeding deeper into the remaining matrix:
+
+1. default Session first Treasury login: one picker, successful GOST mTLS/application login;
+2. same-process matching reuse across later connections/windows/tabs: no second picker;
+3. full browser-process restart: fresh picker;
+4. explicit Once: preserve short positive fanout and fresh picker after idle expiry;
+5. different GOST mTLS host: no cross-host remembered-decision leakage;
+6. picker presentation smoke: Session visibly selected by default and `Issued by` is human-readable.
 
 The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain a separate implementation/test item; do not assume the current `Permanent` UI choice survives process restart until that is explicitly implemented and proven.
 
