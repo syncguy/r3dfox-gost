@@ -27,6 +27,7 @@ Current constraints and behavior:
 - `Session` is the GOST picker default;
 - a positive Session choice is process-local, reused for matching client-auth decisions in the running browser process, isolated from a different GOST mTLS host, and cleared by browser-process restart;
 - explicit `Once` remains available and uses the positive-only 5-second idle fanout lease; each successful reuse refreshes the idle expiry;
+- explicit client-certificate Cancel is attempt-local: it is consumed as a declined decision and is not stored as reusable negative state;
 - `Issued by` uses the human-facing issuer common name when available, with the full issuer DN only as fallback;
 - current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics are not yet implemented/proven.
 
@@ -76,7 +77,7 @@ Runtime-proven source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `3303
 - GIS-G4 cross-host remembered-decision isolation;
 - explicit positive Session browser-process lifetime S1/S1-B/S1-C.
 
-Do not repeat those historical tests on unchanged source merely for confirmation. Detailed captures and counts remain in `TEST_LOG.md` and `DONE.md`.
+Do not repeat those historical tests on unchanged source merely for confirmation. Detailed captures and counts remain in the test logs and `DONE.md`.
 
 ### Session-default exact-artifact regression SD1-SD6 — COMPLETE
 
@@ -95,16 +96,32 @@ Confirmed on the exact artifact:
 
 All supplied SD1-SD5 captures contain zero `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, and `MSSPI_X509_LOOKUP`. Successful recorded GOST handshakes use TLS 1.2 / `0xFF85`, state `0x00000000`; completed mTLS proves real client private-key use.
 
-This closes the Session-default UX/runtime iteration. It does **not** close true persistent `Permanent` semantics, Cancel/Abort/provider negative paths, candidate-policy work, or final fail-closed server verification.
+### T3 explicit Cancel / no certificate — COMPLETE
+
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Capture `T3 — explicit Cancel.zip` has SHA-256 `32c3e844e85c1997f57bc682d193c91c9fbcfa2c9b0dc91d939a9e82eeec293c`; inner log SHA-256 `d6174d335074904da2e6bbbddfe2b22e582a805292c81e518c72be8a85bfa38b`.
+
+In one browser process (`Parent 1544`):
+
+- four deliberate picker Cancels resolve as `selected=0`, waiter removal `reason=declined-consume`, decision phase `2`;
+- no positive Session state or `Once` lease is created by a decline;
+- every subsequent attempt creates a fresh decision/picker rather than consuming sticky negative state;
+- a fifth picker left unanswered is removed after `30.276 s` from pending phase `0` by `close-pre`; closing callback re-entry and the later stale UI callback are safely rejected;
+- `Try again` creates fresh decision `6`, which resolves positively as `selected=1 remember=2`;
+- recovery then completes 12 Treasury TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1` and successful protected-cabinet authorization in the same process.
+
+The four deliberate no-certificate attempts naturally produce current-attempt `selected=0`, `0x80090326`, and `0x0000054f` markers. They are **not** sticky-failure evidence: after positive decision `6` there are zero further `E/GostTLS` and zero further `selected=0` markers. Future negative tests must distinguish intentional per-attempt failure markers from unsolicited errors on recovery attempts.
+
+The timeout segment corroborates separation from explicit Declined state, but T4 remains open because its specified navigation/tab/load-teardown scenario has not yet been exercised.
 
 ## Immediate runtime / implementation order
 
-1. **T3 — explicit Cancel / no certificate — NEXT.** A deliberate user decline must remain attempt-local; a later independent attempt must receive a fresh picker. Distinguish explicit `Declined` from involuntary `Aborted`.
-2. **T4 — involuntary Abort.** Exercise navigation/tab/load teardown without a user decision. State must be `Aborted`, not reusable `Declined`, and a later attempt must recover.
-3. **T5 — Session failure-boundary regression.** Verify temporary provider failures and matching-policy boundaries cannot overwrite or leak an established positive Session decision.
-4. **T6 — real Permanent semantics.** Implement/prove persistence distinct from the current process-local non-Once store, including intended forget/change behavior.
-5. Continue provider/media, picker/localization, dynamic discovery, candidate-policy and negative matrix.
-6. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
+1. **T4 — involuntary Abort — NEXT.** Exercise navigation/tab/load teardown while the picker is outstanding and without a user decision. It must not become reusable `Declined`; a later independent attempt must receive a fresh picker and recover.
+2. **T5 — Session failure-boundary regression.** Verify temporary provider failures and matching-policy boundaries cannot overwrite or leak an established positive Session decision.
+3. **T6 — real Permanent semantics.** Implement/prove persistence distinct from the current process-local non-Once store, including intended forget/change behavior.
+4. Continue provider/media, picker/localization, dynamic discovery, candidate-policy and negative matrix.
+5. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
 
 Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
