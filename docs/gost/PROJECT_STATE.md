@@ -29,6 +29,8 @@ Current constraints and behavior:
 - explicit `Once` remains available and uses the positive-only 5-second idle fanout lease; each successful reuse refreshes the idle expiry;
 - explicit client-certificate Cancel is attempt-local: it is consumed as a declined decision and is not stored as reusable negative state;
 - an unanswered picker abandoned by navigation/tab/load teardown remains unresolved and is removed through phase-0 lifecycle cleanup rather than being converted into Declined state;
+- client-certificate discovery from `CurrentUser\MY` is distinct from live private-key availability: a certificate can remain picker-discoverable while its CryptoPro key medium/container is unavailable;
+- if that medium is unavailable before first key acquisition, provider refusal fails only the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`; the positive Firefox Session decision remains intact and can be reused after the medium returns;
 - on the current CryptoPro/SSPI environment, removing the private-key medium **after** successful Session mTLS does not necessarily invalidate the already-acquired provider/credential context: a later fresh Treasury socket can still perform a new client-auth TLS exchange using the remembered Session decision;
 - `Issued by` uses the human-facing issuer common name when available, with the full issuer DN only as fallback;
 - current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics are not yet implemented/proven.
@@ -154,12 +156,31 @@ This is stronger than an already-open HTTP/TLS session surviving: a later new so
 
 The capture therefore **does not pass or fail T5**. It invalidates post-login medium removal as the planned T5 fault injection. T5 is deferred until a safe deterministic way exists to invalidate an already-acquired provider credential inside the same browser process.
 
+### T7/T8 missing-medium/provider recovery — COMPLETE
+
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Capture `T7-T8.zip` has SHA-256 `bd3fdf5bd73a2c7a6331235fe4f7bddb155698cdb6daaa5ef95f6fada1fae32c`; inner log SHA-256 `8692ca7043f256d9673767a01e368d935c3f6df664ed814424b0abbeacf971a7`.
+
+In one browser process (`Parent 7056`, `browser_id=14`):
+
+- with the key medium unavailable before first GOST key acquisition, Treasury candidate enumeration still reports one certificate from `CurrentUser\MY`;
+- exactly one Firefox decision/picker is created and resolves positive at `04:57:20.614 UTC` as `selected=1 remember=2`;
+- provider/container refusal then causes the current MSSPI attempt to fail at `04:57:22.379` with `0x8009030e` (`SEC_E_NO_CREDENTIALS`); there is no `selected=0`, `declined-consume`, or negative remembered decision;
+- a new Treasury attempt in the same process receives another CertificateRequest at `04:57:28.516` and reuses `selected=1 scope=session` without another picker;
+- after the medium is restored, the provider/key path emits the outbound client-auth flight at `04:57:55.829` and completes TLS 1.2 / `0xFF85` mTLS at `04:57:56.095`, state `0x00000000`, `client_cert_loaded=1`;
+- protected MSSPI application writes/reads resume immediately, and the capture finishes with 12 successful recovered Treasury mTLS handshakes and 12 Session remembered uses after the initial failed attempt.
+
+T7 is closed: discovery of a certificate identity from `MY` is independent of live private-key availability, and a missing-medium/provider refusal is attempt-local rather than sticky Firefox certificate state.
+
+T8 is closed: restoring the key medium allows the existing positive Session decision to recover in the same Firefox process, complete real Treasury GOST mTLS, and resume protected application traffic without another picker or browser restart.
+
 ## Immediate runtime / implementation order
 
-1. **T7/T8 — missing-medium/provider Cancel and recovery — NEXT RUNTIME.** Start a clean process/profile with the key medium unavailable before the first GOST private-key acquisition. Exercise the provider/key failure, then restore the medium and prove same-process Treasury mTLS/application recovery without sticky certificate state.
-2. **T6 — real Permanent semantics.** Implement/prove persistence distinct from the current process-local non-Once store, including intended forget/change behavior.
+1. **T6 — real Permanent semantics — NEXT.** Implement and prove persistence distinct from the current process-local non-Once store, including restart persistence and intended forget/change behavior.
+2. **T9 — long provider wait.** Exercise a provider/PIN/media wait beyond the ordinary picker-timeout scale and verify lifecycle/network behavior.
 3. **T5 — Session failure-boundary regression — DEFERRED.** Resume only with a safe deterministic mechanism that actually invalidates an already-acquired provider/private-key credential in the live process; do not repeat post-login medium removal or invent an invasive synthetic invalidation merely to force the test.
-4. Continue long provider wait, picker/localization, dynamic discovery, candidate-policy and negative matrix.
+4. Continue picker/localization, dynamic discovery, candidate-policy and negative matrix.
 5. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
 
 Keep timeout-source/poll-churn attribution as separate non-blocking work.
@@ -182,14 +203,14 @@ Do not use a production verification bypass.
 
 ## Provider/private-key media evidence
 
-Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, job `97789764275`, artifact `9567881847` proves:
+Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, job `97789764275`, artifact `9567881847` first established the missing-media behavior historically. The current exact artifact now revalidates the important parts under coordinated Session-default client auth:
 
-- a certificate may remain in `CurrentUser\MY` while its CryptoPro private-key medium/container is unavailable;
-- `CERT_KEY_PROV_INFO_PROP_ID` is binding metadata, not proof of live key availability;
-- provider Cancel can fail only the current attempt with `SEC_E_NO_CREDENTIALS`;
-- a later attempt can recover when the medium becomes available.
-
-That older missing-media scenario remains relevant for T7/T8, but the current T5 probe adds an important boundary: **the medium must be unavailable before the first GOST private-key acquisition if the goal is to force a provider failure.** Once a usable provider/credential context has already been acquired, later medium removal may not invalidate it.
+- a certificate can remain in `CurrentUser\MY` and be picker-discoverable while its CryptoPro private-key medium/container is unavailable;
+- `CERT_KEY_PROV_INFO_PROP_ID`/store presence is binding/discovery metadata, not proof of live key availability;
+- provider refusal before first key acquisition fails only the current attempt with `SEC_E_NO_CREDENTIALS`;
+- the positive Session decision survives that provider failure;
+- a later attempt recovers in the same process after the medium returns and completes real GOST mTLS/application traffic;
+- conversely, once a usable provider/credential context has already been acquired, later medium removal may not invalidate it, so that procedure is not a valid T5 fault injection.
 
 ## Windows compatibility — independent track
 
@@ -238,4 +259,4 @@ The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlug
 - `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
 - GOST runtime != Windows compatibility.
 - Extension packaging != extension runtime, GOST runtime, or Win7 runtime.
-- Docs HEAD != source-under-test SHA for an earlier binary.
+- Documentation HEADs never replace the exact source-under-test SHA for a previously built/runtime-tested browser.
