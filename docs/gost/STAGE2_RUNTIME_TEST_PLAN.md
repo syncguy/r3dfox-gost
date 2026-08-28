@@ -16,9 +16,84 @@ Current authoritative GOST runtime-test browser:
 - artifact `9652941006` (`r3dfox-gost-win64-release`);
 - Win7 import-audit artifact `9652941552`.
 
-The exact run is successful and is the authoritative full-browser build/package candidate for the Session-default regression. Before the first runtime conclusion on artifact `9652941006`, record local SHA-256 hashes for the launched `r3dfox.exe` and `xul.dll`; the GOST coordinator is linked into `xul.dll`, so its hash is decisive when binary identity is uncertain.
+The exact run is successful and is the authoritative full-browser build/package candidate for the Session-default regression.
 
-Every runtime conclusion must record exact source SHA, run/attempt/job, browser artifact, sanitized capture hashes, user-visible result and sanitized protocol/lifecycle result. Never publish client-certificate identifiers, credential/provider/container data, PIN/passwords, private-key material, account data or unsanitized captures.
+Exact binary identity for artifact `9652941006`:
+
+- `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
+- `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
+
+These hashes were independently checked against the official `r3dfox-v153.0.3.win64.zip` contained in GitHub Actions artifact `9652941006` and match the user's local `certutil -hashfile ... SHA256` preflight. The GOST coordinator is linked into `xul.dll`, so its hash is decisive when binary identity is uncertain.
+
+## Mandatory runtime preflight — REQUIRED before every SD/T result
+
+A runtime result is valid only after the preflight below has passed. If any required item is missing or mismatched, do not interpret the runtime log as evidence for the named test.
+
+### Binary identity
+
+Before starting a new independent runtime test sequence, verify the launched files:
+
+```bat
+certutil -hashfile r3dfox.exe SHA256
+certutil -hashfile xul.dll SHA256
+```
+
+For the current authoritative artifact `9652941006`, they must equal:
+
+- `r3dfox.exe` — `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
+- `xul.dll` — `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
+
+Any mismatch makes the test invalid until the correct browser is launched.
+
+### GOST environment
+
+Use this baseline environment unless a named test explicitly requires a different override:
+
+```bat
+set "R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru,pay.gov.ru,portalgisgmp.login.roskazna.ru,portalgisgmp.cert.roskazna.ru"
+set "R3DFOX_GOST_CLIENT_CERT_THUMBPRINT="
+set "R3DFOX_GOST_CLIENT_AUTH_MODE="
+set "R3DFOX_GOST_CIPHERS="
+```
+
+The empty diagnostic variables are intentional: the default coordinated client-auth path and default GOST cipher configuration must be exercised unless the test explicitly says otherwise.
+
+### Profile isolation and launch
+
+Start each **independent** test sequence from a new clean profile path that has not previously been used, for example `C:\Temp\r3dfox\profile-SD1` or another profile named for the exact test/sequence. Do not silently reuse an old profile.
+
+Use the matching per-test log path:
+
+```bat
+r3dfox.exe -no-remote ^
+  -profile C:\Temp\r3dfox\profile-SDx ^
+  --MOZ_LOG=timestamp,sync,GostTLS:5 ^
+  --MOZ_LOG_FILE=C:\Temp\r3dfox\SDx ^
+  https://fzs.roskazna.ru/
+```
+
+A dependent test whose purpose is to observe state continuity must intentionally reuse the required process/profile instead of creating a new one. In particular:
+
+- SD1 -> SD2 must remain in the same running browser process/profile;
+- SD3 must fully terminate that browser process and relaunch the same exact artifact with the **same SD1/SD2 profile**, otherwise a fresh-profile launch would not test the Session restart boundary;
+- SD4 must preserve one process/profile across the initial `Once` choice, compatible fanout, idle expiry, and the independent post-expiry attempt;
+- SD5 must establish Treasury Session state and test GIS GMP cross-host isolation in the same running process/profile.
+
+For other independent SD/T tests, begin with a new clean test-specific profile unless the test definition explicitly requires continuity.
+
+### Evidence identity rule
+
+Every recorded SD/T result must state or be recoverably bound to:
+
+- source-under-test SHA;
+- Actions run ID and job ID;
+- browser artifact ID;
+- exact `r3dfox.exe` and `xul.dll` SHA-256 values;
+- test/profile identity;
+- whether the baseline environment above was used or which explicit override the test required;
+- sanitized runtime capture/log hash when a capture is retained.
+
+Do not publish client-certificate identifiers, credential/provider/container data, PIN/passwords, private-key material, account data or unsanitized captures.
 
 ## Completed historical baseline tests — do not repeat
 
@@ -102,7 +177,7 @@ Treasury result:
 - eleven Treasury TLS 1.2 / `0xFF85` mTLS handshakes complete with `client_cert_loaded=1`;
 - user confirms the active Session remains usable across tabs and browser windows in the same running browser process.
 
-The logged Treasury requests all carry `browser_id=14`; the raw log therefore proves process-level matching remembered reuse, while the tab/window topology is user-observed rather than separately represented by distinct browser IDs.
+The logged Treasury client-auth requests all carry `browser_id=14`; the raw log therefore proves process-level matching remembered reuse, while the tab/window topology is user-observed rather than separately represented by distinct browser IDs.
 
 Restart-boundary capture:
 
@@ -132,13 +207,13 @@ Do not repeat GIS-G4 on unchanged source merely for confirmation.
 
 The picker UX/default change is implemented and the authoritative main build is green on source `afbdad307f63e594d3715169d6e34235280dddaf`, run `33073577269`, job `98521835354`, artifact `9652941006`.
 
-Run this targeted sequence on that exact artifact:
+Run this targeted sequence on that exact artifact only after the mandatory preflight above has passed:
 
 1. **SD1 — default Session first login.** Verify the picker visibly opens with `Session` selected by default, choose the intended certificate without changing the remember mode, and require successful Treasury GOST mTLS/application login. The runtime log must include `picker_default=session` and positive Session resolution rather than a `Once` lease store.
 2. **SD2 — same-process Session reuse.** In the same running browser process, exercise later matching connections and user-visible tabs/windows. Require no second Treasury picker and require later matching client-auth requests to consume the Session-scoped remembered decision.
-3. **SD3 — restart boundary.** Fully terminate the browser process and launch the same exact artifact again. The first matching Treasury client-auth request must show a fresh picker; old Session state must not survive process restart.
-4. **SD4 — explicit Once regression.** Explicitly switch the picker to `Once`. Require the already-proven short positive fanout behavior for compatible follow-on connections, then after idle expiry require an independent attempt in the same process to show a fresh picker.
-5. **SD5 — cross-host isolation.** With an active Treasury Session decision, visit the different GIS GMP GOST mTLS endpoint. Require a fresh decision/picker there; the Treasury Session certificate must not be silently applied cross-host.
+3. **SD3 — restart boundary.** Fully terminate the browser process and launch the same exact artifact again using the same SD1/SD2 profile. The first matching Treasury client-auth request must show a fresh picker; old Session state must not survive process restart.
+4. **SD4 — explicit Once regression.** Start from a clean test-specific profile, explicitly switch the picker to `Once`, and require the already-proven short positive fanout behavior for compatible follow-on connections. After idle expiry, an independent attempt in the same process/profile must show a fresh picker.
+5. **SD5 — cross-host isolation.** In one clean test sequence, establish an active Treasury Session decision and then visit the different GIS GMP GOST mTLS endpoint in the same process/profile. Require a fresh decision/picker there; the Treasury Session certificate must not be silently applied cross-host.
 6. **SD6 — picker presentation smoke.** Verify the initial remember control shows `Session` as default and the `Issued by` primary details row is human-readable rather than a raw full issuer DN when a common name is available. Do not record real certificate identity values in repository documentation.
 
 SD1-SD5 are exact-build regressions of already-proven mechanisms after the UI/default source change, not reopening the closed historical F1/F2/F3/S1/GIS-G4 conclusions. SD6 validates the new presentation behavior that build success cannot prove.
@@ -241,6 +316,7 @@ T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.3
 
 ## Stop / escalation rules
 
+- Do not accept any SD/T runtime result unless the mandatory preflight above passed for the exact test sequence.
 - Do not repeat already-proven old-artifact tests unless explicitly regression-testing a changed source.
 - On failure, preserve the capture and stop the dependent branch rather than generating downstream noise.
 - Build success never substitutes for runtime proof.
