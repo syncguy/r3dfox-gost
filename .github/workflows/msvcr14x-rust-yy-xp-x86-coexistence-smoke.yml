@@ -20,7 +20,7 @@ jobs:
   winrt-delay-smoke:
     name: YY-Thunks WinRT delay-load closing smoke / x86
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Enable MSVC x86 environment
@@ -43,96 +43,71 @@ jobs:
           (Get-Command cl.exe).Source | Set-Content -Encoding utf8 diagnostics\cl-path.txt
           (Get-Command link.exe).Source | Set-Content -Encoding utf8 diagnostics\link-path.txt
 
-      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+      - name: Download compact YY-Thunks object package
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
-          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
-          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+          $asset = $release.assets | Where-Object { $_.name -eq 'YY-Thunks-Objs.zip' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Objs asset not found" }
           $zip = Join-Path $env:RUNNER_TEMP $asset.name
-          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-package'
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-objs'
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           Expand-Archive -Path $zip -DestinationPath $root
+          Get-ChildItem -Path $root -Recurse -File |
+            Where-Object { $_.Name -match 'RoActivateInstance|RoGetActivationFactory|WindowsCompareStringOrdinal|WindowsCreateString|WindowsDeleteString|WindowsGetStringRawBuffer|YY_Thunks_for_' } |
+            Select-Object FullName,Length | Format-Table -AutoSize | Out-String -Width 320 |
+            Set-Content -Encoding utf8 diagnostics\yy-object-candidates.txt
+          "YY_OBJS_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "yy_objs_asset=$($asset.name) size=$($asset.size) digest=$($asset.digest)" | Add-Content -Encoding utf8 diagnostics\identity.txt
 
-          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
-          $yyDir = Get-ChildItem -Path $root -Recurse -Directory |
-            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
-            Select-Object -First 1
-          if (-not $yyDir) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
-
-          $runtimeObject = Join-Path $yyDir.FullName 'runtimeobject.lib'
-          $kernel32 = Join-Path $yyDir.FullName 'kernel32.lib'
-          foreach ($required in @($runtimeObject,$kernel32)) {
-            if (-not (Test-Path $required)) { throw "Required YY library missing: $required" }
-          }
-          Get-ChildItem -LiteralPath $yyDir.FullName -File -Filter '*.lib' | Sort-Object Name |
-            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
-            Set-Content -Encoding utf8 diagnostics\yy-xp-x86-libraries.txt
-          "YY_RUNTIMEOBJECT_LIB=$runtimeObject" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "resolved_yy_lib=$($yyDir.FullName)" | Add-Content -Encoding utf8 diagnostics\identity.txt
-
-      - name: Build narrow YY WinRT provider from runtimeobject aliases
+      - name: Build narrow YY WinRT provider
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $work = Join-Path $env:RUNNER_TEMP 'yy-winrt-delay-smoke'
-          $selected = Join-Path $work 'selected'
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
-          New-Item -ItemType Directory -Force $selected | Out-Null
+          New-Item -ItemType Directory -Force $work | Out-Null
 
-          $runtimeMembers = @(& lib.exe /nologo /list $env:YY_RUNTIMEOBJECT_LIB 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
-          if ($LASTEXITCODE -ne 0 -or $runtimeMembers.Count -eq 0) { throw 'Cannot enumerate YY runtimeobject.lib' }
-          $kernelMembers = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
-          if ($LASTEXITCODE -ne 0 -or $kernelMembers.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
-          $runtimeMembers | Set-Content -Encoding utf8 diagnostics\yy-runtimeobject-members.txt
+          $allFiles = @(Get-ChildItem -Path $env:YY_OBJS_ROOT -Recurse -File)
+          function Resolve-Object([string]$api, [string]$extension) {
+            $pattern = '^_' + [regex]::Escape($api) + '@[0-9]+\.' + [regex]::Escape($extension) + '$'
+            $matches = @($allFiles | Where-Object { $_.Name -match $pattern })
+            if ($matches.Count -eq 0) { throw "YY Objs package has no $api .$extension object" }
+            $runtimeMatches = @($matches | Where-Object { $_.FullName -match '(?i)runtimeobject\.lib_WeakAlias' })
+            if ($runtimeMatches.Count -eq 1) { return $runtimeMatches[0] }
+            $hashGroups = @($matches | ForEach-Object {
+              [pscustomobject]@{ File=$_; Hash=(Get-FileHash -Algorithm SHA256 $_.FullName).Hash }
+            } | Group-Object Hash)
+            if ($hashGroups.Count -eq 1) { return $matches[0] }
+            $detail = ($matches | ForEach-Object { $_.FullName }) -join '; '
+            throw "Ambiguous YY object for $api .$extension: $detail"
+          }
 
           $apis = @(
             'RoActivateInstance','RoGetActivationFactory',
             'WindowsCompareStringOrdinal','WindowsCreateString','WindowsCreateStringReference',
             'WindowsDeleteString','WindowsGetStringRawBuffer'
           )
-
-          function Extract-One([string]$archive, [string]$member, [string]$key) {
-            $dir = Join-Path $selected $key
-            New-Item -ItemType Directory -Force $dir | Out-Null
-            Push-Location $dir
-            try {
-              & lib.exe /nologo "/extract:$member" $archive *> extract.log
-              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $member" }
-            } finally { Pop-Location }
-            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
-            if (-not $file) { throw "No extracted object for $key" }
-            $dst = Join-Path $dir 'member.obj'
-            Copy-Item -Force $file.FullName $dst
-            (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String) | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
-            return $dst
-          }
-
           $objects = [System.Collections.Generic.List[string]]::new()
           $mapping = [System.Collections.Generic.List[string]]::new()
           foreach ($api in $apis) {
             foreach ($kind in @('obj','obi')) {
-              $pattern = '(?i)(?:^|[\\/])_' + [regex]::Escape($api) + '@[0-9]+\.' + $kind + '$'
-              $matches = @($runtimeMembers | Where-Object { $_ -match $pattern })
-              if ($matches.Count -ne 1) {
-                throw "Expected one runtimeobject.lib $api .$kind member; found $($matches.Count): $($matches -join '; ')"
-              }
-              $key = "$api-$kind"
-              $objects.Add((Extract-One $env:YY_RUNTIMEOBJECT_LIB $matches[0] $key))
-              $mapping.Add("$key|runtimeobject.lib|$($matches[0])")
+              $choice = Resolve-Object $api $kind
+              $objects.Add($choice.FullName)
+              $mapping.Add("$api-$kind|$($choice.FullName)|$((Get-FileHash -Algorithm SHA256 $choice.FullName).Hash)")
             }
           }
 
-          $implementationPattern = '(?i)(?:^|[\\/])YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
-          $implementation = @($kernelMembers | Where-Object { $_ -match $implementationPattern })
-          if ($implementation.Count -ne 1) { throw "Expected one common YY implementation member; found $($implementation.Count)" }
-          $objects.Add((Extract-One $env:YY_KERNEL32_LIB $implementation[0] 'implementation'))
-          $mapping.Add("implementation|kernel32.lib|$($implementation[0])")
+          $implementationName = "YY_Thunks_for_$env:YY_THUNKS_TARGET.obj"
+          $implementationMatches = @($allFiles | Where-Object { $_.Name -ieq $implementationName -and $_.FullName -match '(?i)[\\/]x86[\\/]' })
+          if ($implementationMatches.Count -ne 1) {
+            $detail = ($implementationMatches | ForEach-Object { $_.FullName }) -join '; '
+            throw "Expected one x86 $implementationName; found $($implementationMatches.Count): $detail"
+          }
+          $objects.Add($implementationMatches[0].FullName)
+          $mapping.Add("implementation|$($implementationMatches[0].FullName)|$((Get-FileHash -Algorithm SHA256 $implementationMatches[0].FullName).Hash)")
           $mapping | Set-Content -Encoding utf8 diagnostics\yy-winrt-selected-members.txt
 
           $provider = Join-Path $work 'yy-xp-winrt-provider.lib'
@@ -141,13 +116,9 @@ jobs:
           $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 diagnostics\yy-winrt-provider-symbols.txt
           foreach ($api in $apis) {
-            if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) {
-              throw "Narrow provider missing YY_Thunks_$api"
-            }
+            if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing YY_Thunks_$api" }
           }
-          if ($symbols.IndexOf('YY_Thunks_LockResource', [System.StringComparison]::Ordinal) -ge 0) {
-            throw 'Narrow WinRT provider unexpectedly exposes unrelated LockResource thunk'
-          }
+          if ($symbols.IndexOf('YY_Thunks_LockResource', [System.StringComparison]::Ordinal) -ge 0) { throw 'Narrow provider unexpectedly exposes unrelated LockResource thunk' }
           "WINRT_WORK=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_WINRT_PROVIDER=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -167,8 +138,7 @@ jobs:
             }
             $sdkLibRoot = Join-Path $env:WindowsSdkDir 'Lib'
             $found = Get-ChildItem -Path $sdkLibRoot -Recurse -File -Filter $name -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match '(?i)[\\/]x86[\\/]*$|(?i)[\\/]x86\\' } |
-              Select-Object -First 1
+              Where-Object { $_.FullName -match '(?i)[\\/]x86\\' } | Select-Object -First 1
             if ($found) { return $found.FullName }
             throw "Cannot resolve Windows SDK library $name"
           }
@@ -201,7 +171,6 @@ jobs:
           #include <windows.h>
           #include <roapi.h>
           #include <winstring.h>
-
           extern "C" __declspec(dllexport) HRESULT __stdcall winrt_probe() {
             static const wchar_t kClassName[] = L"r3dfox.gost.yy.winrt.probe";
             const UINT32 length = static_cast<UINT32>((sizeof(kClassName) / sizeof(kClassName[0])) - 1);
@@ -218,9 +187,9 @@ jobs:
             result ^= WindowsCreateStringReference(kClassName, length, &header, &reference);
             result ^= RoActivateInstance(value, &instance);
             result ^= RoGetActivationFactory(value, iid, &factory);
+            result ^= WindowsGetStringRawBuffer(value, &rawLength) != nullptr ? S_OK : S_FALSE;
             result ^= WindowsDeleteString(reference);
             result ^= WindowsDeleteString(value);
-            result ^= WindowsGetStringRawBuffer(value, &rawLength) != nullptr ? S_OK : S_FALSE;
             return result ^ static_cast<HRESULT>(rawLength) ^ comparison;
           }
           '@ | Set-Content -Encoding utf8 $src
@@ -268,18 +237,14 @@ jobs:
           $raw = (& dumpbin.exe /nologo /imports $dll 2>&1 | Out-String)
           $raw | Set-Content -Encoding utf8 diagnostics\thunked-winrt-imports.txt
           foreach ($targetDll in @('api-ms-win-core-winrt-l1-1-0.dll','api-ms-win-core-winrt-string-l1-1-0.dll')) {
-            if ($raw.IndexOf($targetDll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-              throw "Thunked PE still contains target WinRT delay-load DLL $targetDll"
-            }
+            if ($raw.IndexOf($targetDll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Thunked PE still contains target WinRT delay-load DLL $targetDll" }
           }
           $mapText = Get-Content $map -Raw
           foreach ($api in @(
             'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal','WindowsCreateString',
             'WindowsCreateStringReference','WindowsDeleteString','WindowsGetStringRawBuffer'
           )) {
-            if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) {
-              throw "Final map did not select YY_Thunks_$api"
-            }
+            if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select YY_Thunks_$api" }
           }
           & dumpbin.exe /nologo /headers $dll 2>&1 | Set-Content -Encoding utf8 diagnostics\thunked-winrt-headers.txt
 
@@ -298,7 +263,7 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY source archive for the seven WinRT aliases: runtimeobject.lib; both .obj and .obi members are extracted." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Uses compact YY-Thunks-Objs.zip and extracts only seven direct/import aliases plus the common x86 implementation object." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Baseline must reproduce the two exact xul WinRT API-set delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Thunked candidate must select all seven YY_Thunks_* symbols and remove both target API-set DLLs from final PE imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This is linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
