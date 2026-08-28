@@ -77,6 +77,7 @@ Detailed capture identities and event-level evidence are in `TEST_LOG.md`, dated
 - **T3 CLOSED:** explicit Firefox picker Cancel is Declined/phase `2`, attempt-local, and does not poison later recovery.
 - **T4 CLOSED:** closing the tab that owns an unanswered picker removes the still-unresolved decision through phase-0 lifecycle cleanup, not Declined state; another tab in the same browser process receives a fresh picker and successfully recovers.
 - **T7/T8 CLOSED:** a certificate remaining in `CurrentUser\MY` is still picker-discoverable while its key medium is unavailable; provider refusal fails the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`, leaves the positive Session decision intact, and same-process recovery after the medium returns reuses `scope=session` and completes Treasury GOST mTLS/application traffic without another picker.
+- **T9 CHARACTERIZATION CLOSED:** a long provider/key-access wait is lifecycle-safe but synchronously occupies the shared Firefox Socket Thread. T9 measured `74.742 s` with responsive browser UI, zero Socket Thread `GostTLS` activity, queued network work starting immediately when provider Cancel returned, and later clean Session/mTLS recovery. The no-network-starvation expectation is therefore false on the current implementation; stock-behavior comparison/threading redesign remains a separate follow-up.
 
 ## T5 probe — POST-LOGIN MEDIA REMOVAL DOES NOT EXERCISE T5
 
@@ -126,7 +127,22 @@ In one process (`Parent 7056`, `browser_id=14`), the private-key medium is unava
 
 **T8 PASS / CLOSED:** returning the key medium permits same-process recovery using the existing Session decision, real Treasury mTLS, and protected application traffic without browser restart or another Firefox picker.
 
-The approximately `27.313 s` provider wait between the recovery Session hit and outbound client-auth flight does not exceed the established ordinary picker-timeout scale and therefore does not close T9.
+## T9 — LONG PROVIDER WAIT CHARACTERIZED
+
+Capture:
+
+- `T9 — долгий provider wait.zip` SHA-256 `2f06aeb4dae884cfd4b6f973bcce21de42dc092d907575a798b361e4f7c48bac`;
+- inner `SDx.moz_log` SHA-256 `25a32e6bcd1c1b01d08c6624a429315f2eddefd97e81021dbc990c4b18b7b264`.
+
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+The Firefox certificate decision resolves positively as Session and the Socket Thread logs completion at `05:36:46.482 UTC`. It then enters synchronous provider/private-key access. No `GostTLS` record of any kind occurs until provider Cancel returns at `05:38:01.224 UTC`, a measured **`74.742 s`** later.
+
+User observation confirms that the Firefox UI remains responsive during the wait and can create tabs/initiate navigation. The `GostTLS` capture cannot timestamp those UI actions, but it proves the network side is blocked: on the exact timestamp that provider Cancel returns as `SEC_E_NO_CREDENTIALS`, `pay.gov.ru` immediately begins `NewSocket`; it completes GOST TLS 1.2 / `0xFF85` only `291 ms` later with `client_cert_loaded=0`. `portalgisgmp.login.roskazna.ru` starts `362 ms` after release and also completes normally.
+
+The provider failure creates no `selected=0` or `declined-consume`. Later in the same `Parent 788`, Treasury again consumes `selected=1 scope=session`; 12 subsequent TLS 1.2 / `0xFF85` mTLS handshakes succeed. Thus long provider wait/cancel does not corrupt coordinator or Session state.
+
+**T9 result:** lifecycle/recovery is safe, but the no-network-starvation expectation fails. Current MSSPI/CryptoPro provider access synchronously monopolizes the shared Firefox Socket Thread, queueing other network work while leaving the browser UI responsive. Whether this is materially worse than stock Firefox token/PIN/client-certificate behavior remains an open comparison question; do not redesign threading without preserving this exact evidence as the baseline.
 
 ## NEXT — T6 real Permanent semantics
 
@@ -146,17 +162,33 @@ Required properties:
 
 After implementation, define a compact T6 runtime sequence proving initial Permanent selection, same-process reuse, full process restart persistence, explicit forget/change behavior, and regression safety for Session/Once.
 
+## NEXT RUNTIME — T10 Russian UI presentation
+
+T9 is now characterized on the current exact artifact. The next independent runtime test that does not require a new build is T10.
+
+Procedure:
+
+1. mandatory preflight with a new clean `profile-T10` and dedicated log;
+2. open Treasury client-auth until the Firefox certificate picker appears;
+3. visually verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, human-friendly `Issued by`, and that serial remains details-only rather than polluting the main candidate row;
+4. verify `Session` remains visibly selected by default and `Once` / `Permanent` remain selectable;
+5. complete one normal Session Treasury login to confirm no functional regression after the presentation inspection;
+6. do not publish screenshots or raw certificate identity fields unless they are safely redacted; user confirmation of the visible presentation is sufficient when the raw values are sensitive.
+
 ## Remaining client-decision semantics
 
 ### T5 — Session failure-boundary regression — DEFERRED
 
 Requires a reproducible way to fail an already-acquired provider/private-key credential inside one live browser process after positive Session state exists. Post-login medium removal is proven insufficient in the current environment.
 
-## Provider/private-key media
+## Provider/private-key concurrency follow-up
 
-### T9 — long provider wait
+T9 establishes a concrete global Socket Thread starvation baseline during synchronous provider/key access. Before any threading redesign:
 
-Hold provider/PIN/media UI beyond the ordinary picker-timeout scale. Record actual duration and check for network starvation, timeout corruption, or teardown materially worse than stock synchronous token/PIN behavior. Do not redesign MSSPI threading without a concrete regression.
+- compare with stock Firefox synchronous token/PIN/client-certificate behavior;
+- identify the exact ownership/threading constraints around NSPR layer state and MSSPI handle lifetime;
+- preserve provider cancellation, coordinator decisions, proxy/CONNECT sequencing and later Session recovery;
+- treat an off-thread implementation as a focused experiment with its own exact build/runtime evidence rather than silently changing the transport architecture.
 
 ## Picker presentation / discovery / policy
 
@@ -218,7 +250,9 @@ Final exact source/build must prove together final server trust, intended defaul
 
 ## Separate non-blocking investigation
 
-T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`); T3 adds another unanswered-picker teardown at `30.276 s`. T4 is not another timeout sample: tab close removes its pending decision after `4.059 s`. Attribute the actual Firefox/Necko/load timer and historical first-cycle poll churn before changing timeout policy.
+T2R observed non-uniform Firefox-picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`); T3 adds another unanswered-picker teardown at `30.276 s`. T4 is not another timeout sample: tab close removes its pending decision after `4.059 s`.
+
+T9 is a different phase entirely: the Firefox certificate decision had already resolved before the `74.742 s` synchronous provider wait began. No automatic ~30-second picker teardown occurred while MSSPI/CryptoPro key access was blocking the Socket Thread. Keep picker-timeout attribution and provider-wait concurrency analysis separate.
 
 ## Stop / escalation rules
 
