@@ -143,10 +143,10 @@ jobs:
 
           $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
           $wanted = @(
-            @{ Key='process-direct'; Pattern='(?i)[\\/]ProcessPrng\.obj$' },
-            @{ Key='process-import'; Pattern='(?i)[\\/]ProcessPrng\.obi$' },
-            @{ Key='precise-direct'; Pattern='(?i)[\\/]GetSystemTimePreciseAsFileTime\.obj$' },
-            @{ Key='precise-import'; Pattern='(?i)[\\/]GetSystemTimePreciseAsFileTime\.obi$' },
+            @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
+            @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
+            @{ Key='precise-direct'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obj$' },
+            @{ Key='precise-import'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obi$' },
             @{ Key='implementation'; Pattern=$implementationPattern }
           )
           $objects = @()
