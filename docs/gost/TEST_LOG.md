@@ -74,6 +74,82 @@ The intended T5 question requires an actual provider/private-key failure on the 
 
 Do not repeat this same post-login medium-removal procedure expecting `SEC_E_NO_CREDENTIALS`; it has now been experimentally shown not to exercise the desired boundary.
 
-**Runtime next:** T7/T8 should be exercised with the key medium unavailable **before the first GOST private-key acquisition** in a clean browser process/profile, then restored for a same-process retry. T5 remains deferred until a safe deterministic way exists to invalidate an already-acquired provider/key credential context without restarting the browser. Do not invent an invasive synthetic invalidation merely to force T5.
+Status: current methodology finding; T5 deferred/open.
 
-Status: current methodology finding; T5 deferred/open, T7/T8 next runtime experiment.
+---
+
+## 2026-08-28 — T7/T8 pass: missing medium fails the first key acquisition and same Session recovers after medium return
+
+**Track:** GOST TLS runtime / CryptoPro private-key medium failure and same-process recovery  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577269`  
+**Job:** `98521835354`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9652941006` (`r3dfox-gost-win64-release`)  
+**Campaign binary identity:** `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`; `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru`  
+**Runtime capture:** user-provided `T7-T8.zip`, SHA-256 `bd3fdf5bd73a2c7a6331235fe4f7bddb155698cdb6daaa5ef95f6fada1fae32c`; inner `SDx.moz_log`, SHA-256 `8692ca7043f256d9673767a01e368d935c3f6df664ed814424b0abbeacf971a7`
+
+The raw capture is not committed because it contains detailed certificate-authority diagnostics. Only sanitized lifecycle/protocol facts are recorded.
+
+### Procedure
+
+The test begins before any successful GOST private-key acquisition in the browser process. The client certificate remains discoverable in `CurrentUser\MY` even though its private-key container/medium is unavailable. The user selects that certificate in the Firefox picker with the default Session choice. When CryptoPro requests access to the unavailable key/container, the user declines the provider/container action. For the recovery half, the private-key container/medium is restored on the machine while the same Firefox process/profile remains alive.
+
+The entire capture stays in `Parent 7056`, `browser_id=14`.
+
+### T7 — current-attempt provider failure is separate from certificate decision
+
+The first Treasury client-auth request arrives at `04:57:15.805 UTC`:
+
+- candidate enumeration reports `count=1` despite the unavailable key medium, confirming the certificate itself remains discoverable from `MY`;
+- exactly one coordinated `decision=1` and one Firefox certificate dialog are created;
+- at `04:57:20.614 UTC`, the decision resolves positively as `selected=1 remember=2`;
+- there is no Firefox `selected=0`, `declined-consume`, or negative remembered decision.
+
+At `04:57:22.379 UTC`, the first attempt to continue MSSPI client authentication after that positive selection fails with `error=0x8009030e` (`SEC_E_NO_CREDENTIALS`) and enters terminal state `0x40000000`. Follow-on calls on that already-failed connection report `0x0000054f`; they are repetitions of the same failed attempt, not separate certificate decisions.
+
+The failed socket then closes cleanly. No positive mTLS completion occurs for that first attempt.
+
+### T8 — same-process Session reuse and provider recovery
+
+A new independent Treasury attempt begins at `04:57:28.360 UTC`, only about six seconds after the failed socket, with the same browser process/profile.
+
+At `04:57:28.516 UTC` the server issues a fresh client-certificate request. The coordinator does **not** create another decision or picker. Instead it applies the existing positive choice directly:
+
+- `selected=1 scope=session mode=coordinated`;
+- no `selected=0` or Declined state exists;
+- no browser restart occurs.
+
+While the key medium/container is being restored, that request remains inside provider/key acquisition. At `04:57:55.829 UTC`, `27.313 s` after the remembered Session hit, MSSPI emits the outbound `redacted=client-auth` TLS flight. The handshake then completes at `04:57:56.095 UTC` as TLS `0x0303` / cipher `0xFF85`, state `0x00000000`, `client_cert_loaded=1`.
+
+Protected application traffic resumes immediately after the recovered handshake: the first successful `msspi_write` occurs at `04:57:56.095 UTC`, followed by successful decrypted reads at `04:57:56.376 UTC`. The remaining Treasury fanout succeeds normally.
+
+Whole capture:
+
+- coordinated decisions created/resolved: `1` / `1`;
+- Firefox certificate dialogs requested/completed: `1` / `1`;
+- Treasury client-certificate requests: `13`;
+- Session remembered uses after the first failed attempt: `12`;
+- successful Treasury TLS 1.2 / `0xFF85` mTLS handshakes after recovery: `12`;
+- underlying provider/key failure class: `0x8009030e` (`SEC_E_NO_CREDENTIALS`);
+- `selected=0`: `0`;
+- `declined-consume`: `0`;
+- `0x80090326`: `0`;
+- `MSSPI_X509_LOOKUP`: `0`;
+- `Once` lease use: `0`.
+
+### Conclusion
+
+**T7 PASS / CLOSED.** The certificate remains discoverable from `CurrentUser\MY` while its private-key medium is unavailable. A positive Firefox Session selection can therefore be made independently of live key availability. Provider/container refusal fails only that current MSSPI attempt with `SEC_E_NO_CREDENTIALS`; it is not converted into a reusable Firefox no-certificate decision and does not poison the remembered Session choice.
+
+**T8 PASS / CLOSED.** Restoring the key medium in the same running browser process allows the next independent Treasury client-auth request to reuse the existing `scope=session` decision without another Firefox picker. MSSPI then acquires/uses the key, completes real Treasury TLS 1.2 / `0xFF85` mTLS, and protected application traffic resumes without browser restart.
+
+This current-artifact result reproduces and strengthens the older missing-medium/provider-recovery evidence while proving compatibility with the current coordinated Session-default client-auth implementation.
+
+T5 remains separate and deferred: T7/T8 begin with the medium unavailable before first key acquisition, whereas T5 requires failure of an already-acquired live provider credential.
+
+**NEXT:** T6 real `Permanent` semantics. T9 long provider wait remains a later runtime test; the approximately 27-second provider wait in this capture does not exceed the existing ordinary picker-timeout scale and does not close T9.
+
+Status: current; T7/T8 provider/media recovery closed on the Session-default exact artifact.
