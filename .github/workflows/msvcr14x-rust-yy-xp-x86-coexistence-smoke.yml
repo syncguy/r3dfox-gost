@@ -82,7 +82,7 @@ jobs:
             } | Group-Object Hash)
             if ($hashGroups.Count -eq 1) { return $matches[0] }
             $detail = ($matches | ForEach-Object { $_.FullName }) -join '; '
-            throw "Ambiguous YY object for $api .$extension: $detail"
+            throw ("Ambiguous YY object for {0} .{1}: {2}" -f $api, $extension, $detail)
           }
 
           $apis = @(
