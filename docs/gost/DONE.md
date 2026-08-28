@@ -167,6 +167,25 @@ A different tab in the same process (`browser_id=15`) then creates a fresh decis
 
 Together T3/T4 close the intended split: explicit picker Cancel is Declined/phase `2`; involuntary navigation/tab/load abandonment remains unresolved phase `0` and is removed by lifecycle teardown. Neither path poisons later recovery.
 
+### Stage 2 T7/T8 missing-medium/provider recovery — COMPLETE
+
+Exact source/runtime browser remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Passing capture:
+
+- `T7-T8.zip` SHA-256 `bd3fdf5bd73a2c7a6331235fe4f7bddb155698cdb6daaa5ef95f6fada1fae32c`;
+- inner `SDx.moz_log` SHA-256 `8692ca7043f256d9673767a01e368d935c3f6df664ed814424b0abbeacf971a7`.
+
+With the private-key medium unavailable before first GOST key acquisition, the certificate remains discoverable as one candidate from `CurrentUser\MY`. The single Firefox decision resolves positively as `selected=1 remember=2`. CryptoPro/provider refusal then fails that current MSSPI attempt with `0x8009030e` (`SEC_E_NO_CREDENTIALS`) without creating `selected=0`, `declined-consume`, or reusable negative certificate state.
+
+A new Treasury request in the same `Parent 7056` consumes the existing `selected=1 scope=session` choice with no second picker. After the key medium is restored, the provider/key path proceeds, a new client-auth TLS flight is emitted, and Treasury TLS 1.2 / `0xFF85` mTLS completes with state `0x00000000` and `client_cert_loaded=1`. Protected application writes/reads resume immediately. The capture contains 13 Treasury client-certificate requests, 12 Session remembered uses after the failed attempt, and 12 successful recovered mTLS handshakes.
+
+T7 closes the missing-medium/provider-Cancel boundary: identity discovery from `MY` is independent of live private-key availability, and the provider failure is attempt-local rather than a sticky Firefox decline.
+
+T8 closes same-process provider recovery: returning the medium allows the original positive Session choice to complete real GOST mTLS/application traffic without browser restart or another Firefox picker.
+
+The separate T5 already-acquired-credential failure boundary remains deferred; post-login medium removal is experimentally insufficient to invalidate the live provider credential in this environment.
+
 ## Windows compatibility
 
 ### Windows XP SP3 x86 representative msvcr14x + Rust/libstd + YY runtime — COMPLETE
