@@ -109,9 +109,14 @@ jobs:
           $pattern = '(?i)(?:^|[\\/])YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
           $implementation = @($kernelMembers | Where-Object { $_ -match $pattern })
           if ($implementation.Count -ne 1) { throw "Expected one common YY implementation; found $($implementation.Count)" }
-          $objects.Add((Extract-One $env:YY_KERNEL32_LIB $implementation[0] 'implementation'))
+          $implementationObj = Extract-One $env:YY_KERNEL32_LIB $implementation[0] 'implementation'
+          $objects.Add($implementationObj)
           $mapping.Add("implementation|kernel32.lib|$($implementation[0])")
           $mapping | Set-Content -Encoding utf8 diagnostics\yy-winrt-selected-members.txt
+          $implementationSymbols = (& dumpbin.exe /nologo /symbols $implementationObj 2>&1 | Out-String)
+          $implementationSymbols | Set-Content -Encoding utf8 diagnostics\yy-common-implementation-symbols.txt
+          @($implementationSymbols -split "`r?`n" | Where-Object { $_ -match '\bUNDEF\b' -and $_ -match '\bExternal\b' }) |
+            Set-Content -Encoding utf8 diagnostics\yy-common-implementation-undefined.txt
 
           $provider = Join-Path $work 'yy-xp-winrt-provider.lib'
           & lib.exe /nologo "/out:$provider" @($objects)
@@ -183,7 +188,6 @@ jobs:
           extern "C" int __cdecl _purecall() { return 0; }
           void __cdecl operator delete(void*) noexcept {}
           extern "C" int __cdecl atexit(void (__cdecl*)(void)) { return 0; }
-          extern "C" wchar_t* __cdecl wcsrchr(const wchar_t*, wchar_t) { return nullptr; }
           extern "C" __declspec(dllexport) HRESULT __stdcall winrt_probe() {
             static const wchar_t kClassName[] = L"r3dfox.gost.yy.winrt.probe";
             const UINT32 length = static_cast<UINT32>((sizeof(kClassName) / sizeof(kClassName[0])) - 1);
@@ -209,10 +213,30 @@ jobs:
           & cl.exe /nologo /c /O2 /GS- /GR- /Zl /std:c++20 $src "/Fo:$obj" 2>&1 | Tee-Object diagnostics\winrt-probe-compile.log
           if ($LASTEXITCODE -ne 0) { throw 'WinRT probe compile failed' }
           (& dumpbin.exe /nologo /symbols $obj 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\winrt-probe-symbols.txt
+
+          $stubAsm = Join-Path $env:WINRT_WORK 'harness-stubs.asm'
+          $stubObj = Join-Path $env:WINRT_WORK 'harness-stubs.obj'
+          @'
+          .386
+          .model flat, C
+          .code
+          wcsrchr PROC
+            xor eax, eax
+            ret
+          wcsrchr ENDP
+          END
+          '@ | Set-Content -Encoding ascii $stubAsm
+          & ml.exe /nologo /c /coff $stubAsm "/Fo$stubObj" 2>&1 | Tee-Object diagnostics\harness-stubs-assemble.log
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stubObj)) { throw 'Harness MASM stub compile failed' }
+          $stubSymbols = (& dumpbin.exe /nologo /symbols $stubObj 2>&1 | Out-String)
+          $stubSymbols | Set-Content -Encoding utf8 diagnostics\harness-stubs-symbols.txt
+          if ($stubSymbols.IndexOf('_wcsrchr',[System.StringComparison]::Ordinal) -lt 0) { throw 'Harness stub missing _wcsrchr' }
+
           "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "BASELINE_WINRT_LIB=$winrtLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "BASELINE_WINRT_STRING_LIB=$stringLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "WINRT_PROBE_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "HARNESS_STUB_OBJ=$stubObj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: GATE - Baseline reproduces both WinRT delay-import groups
         shell: powershell
@@ -248,7 +272,7 @@ jobs:
           $args = @(
             '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',
             "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
-            $env:WINRT_PROBE_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib',
+            $env:WINRT_PROBE_OBJ,$env:HARNESS_STUB_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib',
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
           & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object diagnostics\thunked-winrt-link.log
@@ -282,6 +306,6 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline uses llvm-dlltool i386 stdcall import objects with IMPORT_NAME_UNDECORATE plus local no-op delay/C++ runtime harness stubs." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline uses llvm-dlltool i386 stdcall import objects; thunked link adds only local link-only CRT helper stubs, including a MASM _wcsrchr object." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Passing candidate must select all seven YY_Thunks_* symbols and eliminate both observed xul WinRT delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
