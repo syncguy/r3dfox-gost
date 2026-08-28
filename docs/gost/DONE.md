@@ -186,6 +186,23 @@ T8 closes same-process provider recovery: returning the medium allows the origin
 
 The separate T5 already-acquired-credential failure boundary remains deferred; post-login medium removal is experimentally insufficient to invalidate the live provider credential in this environment.
 
+### Stage 2 T9 long provider wait characterization — COMPLETE WITH CONCURRENCY LIMITATION
+
+Exact source/runtime browser remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Passing/characterization capture:
+
+- `T9 — долгий provider wait.zip` SHA-256 `2f06aeb4dae884cfd4b6f973bcce21de42dc092d907575a798b361e4f7c48bac`;
+- inner `SDx.moz_log` SHA-256 `25a32e6bcd1c1b01d08c6624a429315f2eddefd97e81021dbc990c4b18b7b264`.
+
+After a positive Treasury Session decision, the shared Firefox Socket Thread enters synchronous MSSPI/CryptoPro provider/private-key access. From dialog completion at `05:36:46.482 UTC` until provider Cancel returns at `05:38:01.224 UTC`, the capture contains no `GostTLS` event at all: a measured `74.742 s` Socket Thread stall. The user confirms the browser UI remains responsive and can open tabs/initiate navigation during the wait.
+
+Provider Cancel returns `0x8009030e` (`SEC_E_NO_CREDENTIALS`) for the current Treasury attempt without creating `selected=0` or `declined-consume`. On the exact same timestamp, queued `pay.gov.ru` networking begins; its GOST TLS 1.2 / `0xFF85` handshake completes `291 ms` later with `client_cert_loaded=0`. GIS GMP login networking starts immediately afterward. Later Treasury traffic in the same process reuses `scope=session` and completes 12 successful recovered mTLS handshakes.
+
+This closes T9 as a characterization: long provider wait/cancel is lifecycle-safe and does not corrupt Session/coordinator state, but the intended no-network-starvation expectation is false on the current architecture. Synchronous provider access monopolizes the shared Firefox Socket Thread and queues unrelated networking while the UI remains responsive.
+
+Whether that concurrency limitation is materially worse than stock Firefox synchronous token/PIN/client-certificate behavior remains open in `TODO.md`. Any off-thread MSSPI/provider experiment must preserve the already-proven NSPR/MSSPI lifecycle, cancellation, client-auth decision semantics and proxy/CONNECT ordering.
+
 ## Windows compatibility
 
 ### Windows XP SP3 x86 representative msvcr14x + Rust/libstd + YY runtime — COMPLETE
