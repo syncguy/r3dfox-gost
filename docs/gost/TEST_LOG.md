@@ -350,3 +350,37 @@ The diagnosis/implementation step is complete: there is now a concrete, minimal 
 Next evidence required: build the exact full x86 browser from source containing `27bf83a...`, then run it on physical Win7 x32 with normal content sandboxing enabled. Passing requires content tabs to survive startup and ordinary pages to load without the immediate `RandomUint64OrDie` termination.
 
 Status: candidate fix committed; exact x86 build/physical Win7 sandbox-on validation pending.
+
+---
+
+## 2026-08-28 — T10 Russian picker presentation pass
+
+**Track:** GOST TLS runtime / coordinated client-certificate picker UX and Russian presentation  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577269`  
+**Job:** `98521835354`  
+**Runtime artifact:** `9652941006` (`r3dfox-gost-win64-release`)  
+**Campaign binary identity:** `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`; `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`
+
+T10 is a presentation/UX checkpoint. Raw certificate screenshots or identity fields are intentionally not retained because they may expose sensitive certificate data; the runtime plan explicitly permits sanitized user confirmation for the visible presentation.
+
+The user confirms all intended visible properties on the current Session-default campaign:
+
+- owner/name presentation is human-readable;
+- `Issued by` is human-readable and identifies the issuing CA without exposing raw technical DN presentation in the normal row;
+- Cyrillic text renders correctly;
+- certificate expiry is readable/localized correctly;
+- `Session` is visibly selected by default;
+- `Once`, `Session`, and `Permanent` choices are all present;
+- certificate details are readable;
+- serial is confined to details rather than polluting the main candidate presentation;
+- after choosing the normal `Session` path, Treasury login completes successfully.
+
+The successful login is recorded as a functional smoke confirming that the presentation inspection did not break the established current-artifact flow. This entry does not claim new protocol properties beyond the already-established TLS 1.2 / `0xFF85` Treasury mTLS evidence for this exact artifact.
+
+**T10 PASS / CLOSED.** The detailed Russian coordinated-client-certificate picker presentation is suitable for the tested workflow and preserves the intended Session-default behavior. `Permanent` is only confirmed as a visible option here; its real cross-process persistence semantics remain T6 and are not implied by T10.
+
+**NEXT runtime:** T11/T12 discovery boundary. **NEXT implementation:** T6 real `Permanent` semantics.
+
+Status: current; T10 presentation milestone closed on the current Session-default artifact.
