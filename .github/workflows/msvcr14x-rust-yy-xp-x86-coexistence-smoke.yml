@@ -272,7 +272,7 @@ jobs:
           $args = @(
             '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',
             "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
-            $env:WINRT_PROBE_OBJ,$env:HARNESS_STUB_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib',
+            $env:WINRT_PROBE_OBJ,$env:HARNESS_STUB_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib','advapi32.lib',
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
           & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object diagnostics\thunked-winrt-link.log
@@ -306,6 +306,6 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline uses llvm-dlltool i386 stdcall import objects; thunked link adds only local link-only CRT helper stubs, including a MASM _wcsrchr object." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline uses llvm-dlltool i386 stdcall import objects; thunked link adds only local link-only CRT helper stubs, including a MASM _wcsrchr object, plus XP-available system import libraries required by YY common code." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Passing candidate must select all seven YY_Thunks_* symbols and eliminate both observed xul WinRT delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
