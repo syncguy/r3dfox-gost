@@ -153,3 +153,46 @@ T5 remains separate and deferred: T7/T8 begin with the medium unavailable before
 **NEXT:** T6 real `Permanent` semantics. T9 long provider wait remains a later runtime test; the approximately 27-second provider wait in this capture does not exceed the existing ordinary picker-timeout scale and does not close T9.
 
 Status: current; T7/T8 provider/media recovery closed on the Session-default exact artifact.
+
+---
+
+## 2026-08-27 — Russian-first ru + en-US packaging run fails only at final portable-archive verification
+
+**Track:** bundled government-system extensions / CryptoPro Mozilla packaging and localization  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `07c7c48419ca39952a57a53967c1bcabaa8384c1` (`ci(packaging): add Russian-first multi-locale build`)  
+**Actions run:** `33076347741`  
+**Job:** `98531418338` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`)  
+**Workflow:** `CryptoPro Mozilla packaging smoke`  
+**Run attempt:** `1`  
+**Result:** failure  
+**User-supplied packaging evidence archive:** SHA-256 `c933efb49c723af0a96881507940928f2aec7b6d7ccf534824403af749cf65dc`
+
+### Proven successful boundary
+
+The red workflow result is not a compiler or full-build failure. The exact job completed successfully through all of the following relevant stages:
+
+- Russian-first packaging configuration;
+- CryptoPro XPI selection and working-tree preparation;
+- SpiderMonkey style gate;
+- Win7 Rust build-std preflight and Mozilla Rust target gate;
+- `security/manager/ssl` compilation gate;
+- full release `r3dfox` build;
+- verification of the selected CryptoPro XPI in the real `obj-gost-win64/dist/bin` tree;
+- `mach package` for the intended `ru + en-US` multi-locale package.
+
+The subsequent browser and evidence artifact upload steps also completed successfully.
+
+### Failure boundary
+
+The only failed step is step 31, `GATE - Verify CryptoPro XPI and ru/en-US UI in final portable archive`.
+
+Therefore the failure is localized to verification of the final produced portable archive: after a successful build, successful real `dist/bin` XPI check, and successful packaging command, the workflow's final gate did not accept the portable archive as satisfying the combined CryptoPro-extension plus `ru`/`en-US` UI expectations.
+
+The supplied `cryptopro-mozilla-packaging-evidence.zip` contains selection/configuration diagnostics (`cryptopro-extension-selection.json`, Rust/vendor/configure evidence) but does not contain the failing step-31 portable-archive verification output itself. Accordingly, this entry does not infer which individual subcondition inside that combined final gate failed; the exact evidence supports only the failure boundary above.
+
+### Conclusion
+
+Run `33076347741`, job `98531418338`, source `07c7c48419ca39952a57a53967c1bcabaa8384c1` is a **failed final portable-package verification experiment**, not a failed Firefox compilation or failed CryptoPro `dist/bin` staging experiment. The result belongs to the bundled-extension/localization packaging track and does not change the established GOST TLS runtime/handshake or Windows Vista/7 compatibility conclusions.
+
+Status: failed at final portable-archive verification; exact failing subcondition is not established by the available evidence.
