@@ -4,48 +4,28 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive default-`Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, and the explicit positive `Session` lifetime baseline are closed on source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432`.
+F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, and the SD1-SD6 Session-default exact-artifact regression are closed.
 
-Do not repeat T1R/T1R-B, GIS-G1/G2/G3/G4, or S1/S1-B/S1-C on unchanged source merely for confirmation.
+Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat SD1-SD6 on unchanged source merely for confirmation.
 
-### 1. Validate the Session-default picker build
+### 1. Continue client-decision semantics
 
-The planned picker UX/default iteration is implemented and fully built on:
+Immediate next tests:
 
-- source `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`);
-- short SSL compile run `33073577249`, job `98521835147`, success;
-- authoritative main full build run `33073577269`, job `98521835354`, success;
-- main release artifact `9652941006` (`r3dfox-gost-win64-release`);
-- main Win7 import-audit artifact `9652941552`;
-- independent thunk-rs full build run `33073577260`, job `98521835116`, success.
+1. **T3 — explicit Cancel / no certificate.** A deliberate user decline must remain attempt-local and must not create sticky negative state; a later independent attempt must receive a fresh picker.
+2. **T4 — involuntary Abort.** Navigation/tab/load teardown without a user decision must be classified as `Aborted`, not reusable `Declined`; a later attempt must recover normally.
+3. **T5 — Session failure-boundary regression.** The positive Session lifetime is already proven; additionally verify temporary provider failures and matching-policy boundaries cannot overwrite or leak the positive Session decision.
+4. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including the intended forget/change behavior.
 
-Implemented behavior to regress on exact artifact `9652941006`:
-
-- `Session` is the default remember choice;
-- explicit `Once` remains available and keeps the proven positive-only 5-second idle fanout lease;
-- `Issued by` uses a human-friendly issuer common name when available, with full issuer DN only as fallback;
-- callback registration logs expose `picker_default=session`.
-
-Run these targeted regressions before proceeding deeper into the remaining matrix:
-
-1. default Session first Treasury login: one picker, successful GOST mTLS/application login;
-2. same-process matching reuse across later connections/windows/tabs: no second picker;
-3. full browser-process restart: fresh picker;
-4. explicit Once: preserve short positive fanout and fresh picker after idle expiry;
-5. different GOST mTLS host: no cross-host remembered-decision leakage;
-6. picker presentation smoke: Session visibly selected by default and `Issued by` is human-readable.
-
-The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain a separate implementation/test item; do not assume the current `Permanent` UI choice survives process restart until that is explicitly implemented and proven.
+The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain unproven; do not assume the current `Permanent` UI choice survives process restart.
 
 ### 2. Continue the remaining Stage 2 runtime matrix
 
 Remaining groups include:
 
-- explicit Cancel/no-certificate vs involuntary Abort;
-- full `Permanent` semantics;
 - missing-media/provider Cancel and recovery;
 - long provider-media wait using measured current-artifact timeout behavior;
-- Russian picker row/details rendering;
+- Russian picker row/details rendering beyond the completed SD6 smoke;
 - dynamic `CurrentUser\MY` discovery and token-only/removable-media discovery;
 - no acceptable cert / unsuitable cert / wrong cert / unavailable key / PIN-private-key failure / server rejection;
 - issuer-aware validity/KU/EKU/private-key candidate policy;
