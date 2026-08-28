@@ -238,7 +238,7 @@ jobs:
           $dll = Join-Path $env:WINRT_WORK 'baseline-delay.dll'
           $map = Join-Path $env:WINRT_WORK 'baseline-delay.map'
           $args = @(
-            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM",'/out:' + $dll,'/map:' + $map,
+            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
             $env:WINRT_PROBE_OBJ,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
@@ -261,7 +261,7 @@ jobs:
           $dll = Join-Path $env:WINRT_WORK 'thunked-winrt.dll'
           $map = Join-Path $env:WINRT_WORK 'thunked-winrt.map'
           $args = @(
-            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM",'/out:' + $dll,'/map:' + $map,
+            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86',"/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
             $env:WINRT_PROBE_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,$env:DELAYIMP_LIB,$env:SDK_KERNEL32_LIB,
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
