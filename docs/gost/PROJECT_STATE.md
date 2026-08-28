@@ -28,6 +28,7 @@ Current constraints and behavior:
 - a positive Session choice is process-local, reused for matching client-auth decisions in the running browser process, isolated from a different GOST mTLS host, and cleared by browser-process restart;
 - explicit `Once` remains available and uses the positive-only 5-second idle fanout lease; each successful reuse refreshes the idle expiry;
 - explicit client-certificate Cancel is attempt-local: it is consumed as a declined decision and is not stored as reusable negative state;
+- an unanswered picker abandoned by navigation/tab/load teardown remains unresolved and is removed through phase-0 lifecycle cleanup rather than being converted into Declined state;
 - `Issued by` uses the human-facing issuer common name when available, with the full issuer DN only as fallback;
 - current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics are not yet implemented/proven.
 
@@ -113,15 +114,31 @@ In one browser process (`Parent 1544`):
 
 The four deliberate no-certificate attempts naturally produce current-attempt `selected=0`, `0x80090326`, and `0x0000054f` markers. They are **not** sticky-failure evidence: after positive decision `6` there are zero further `E/GostTLS` and zero further `selected=0` markers. Future negative tests must distinguish intentional per-attempt failure markers from unsolicited errors on recovery attempts.
 
-The timeout segment corroborates separation from explicit Declined state, but T4 remains open because its specified navigation/tab/load-teardown scenario has not yet been exercised.
+### T4 involuntary tab/load Abort — COMPLETE
+
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Capture `T4 involuntary Abort.zip` has SHA-256 `bfa51cc1d45c35c8c94cae6a7eb8fc32c6490d30782cdb256a1aefb24078d2f1`; inner log SHA-256 `f921c42d5e7b0299a40f79a5a707d5da93990018fb535edf529aef94a3d82f65`.
+
+In one browser process (`Parent 6184`):
+
+- the first Treasury client-auth request creates `decision=1`, `browser_id=14`, and a picker at `03:43:37.496 UTC`;
+- closing that tab while the picker is unanswered removes the waiter after only `4.059 s` via `reason=close-pre`, removes decision `1` unresolved in phase `0`, rejects shutdown callback re-entry as `reason=closing`, and rejects the late picker callback as stale;
+- decision `1` has no resolution record, no `selected=0`, no `declined-consume`, and no phase `2`, proving the tab/load abandonment is observably distinct from T3 explicit Cancel;
+- the remaining tab in the same process uses `browser_id=15` and creates a fresh `decision=2` / picker at `03:43:54.093 UTC`;
+- decision `2` resolves positively at `03:44:04.399 UTC` as `selected=1 remember=2`;
+- recovery adds eight `scope=session` remembered hits and 9 successful Treasury TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1` and successful personal-cabinet authorization.
+
+Whole T4 capture: two decisions, two picker requests, one positive decision resolution, zero `declined-consume`, zero `selected=0`, zero `E/GostTLS`, zero `0x80090326`, zero `0x0000054f`, and zero `MSSPI_X509_LOOKUP`.
+
+Together T3/T4 close the intended negative-decision split on the current artifact: explicit picker Cancel is Declined/phase `2`; involuntary navigation/tab/load abandonment remains unresolved phase `0` and is removed by lifecycle teardown. Neither path poisons later recovery.
 
 ## Immediate runtime / implementation order
 
-1. **T4 — involuntary Abort — NEXT.** Exercise navigation/tab/load teardown while the picker is outstanding and without a user decision. It must not become reusable `Declined`; a later independent attempt must receive a fresh picker and recover.
-2. **T5 — Session failure-boundary regression.** Verify temporary provider failures and matching-policy boundaries cannot overwrite or leak an established positive Session decision.
-3. **T6 — real Permanent semantics.** Implement/prove persistence distinct from the current process-local non-Once store, including intended forget/change behavior.
-4. Continue provider/media, picker/localization, dynamic discovery, candidate-policy and negative matrix.
-5. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
+1. **T5 — Session failure-boundary regression — NEXT.** Establish a positive Treasury Session decision, induce one controlled private-key/provider failure on a later matching attempt without changing the certificate decision, then restore provider/key availability in the same process/profile. The failure must remain attempt/provider-local and must not erase, broaden, or overwrite the Session choice; a later matching request should reuse the existing Session decision and complete GOST mTLS without a fresh Firefox picker. A missing-medium/provider-Cancel run may also satisfy T7/T8 if their criteria are met.
+2. **T6 — real Permanent semantics.** Implement/prove persistence distinct from the current process-local non-Once store, including intended forget/change behavior.
+3. Continue provider/media, picker/localization, dynamic discovery, candidate-policy and negative matrix.
+4. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
 
 Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
@@ -150,7 +167,7 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 - provider Cancel can fail only the current attempt with `SEC_E_NO_CREDENTIALS`;
 - a later attempt can recover when the medium becomes available.
 
-These scenarios still require revalidation after the current client-decision/UX work.
+These scenarios still require revalidation after the current client-decision/UX work. The preferred next use of this older scenario is T5: establish current-artifact Session state first, then verify an attempt-local provider/key failure cannot overwrite that remembered Session decision and that same-process recovery reuses it after provider availability returns.
 
 ## Windows compatibility — independent track
 
