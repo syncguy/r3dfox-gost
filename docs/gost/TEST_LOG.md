@@ -196,3 +196,71 @@ The supplied `cryptopro-mozilla-packaging-evidence.zip` contains selection/confi
 Run `33076347741`, job `98531418338`, source `07c7c48419ca39952a57a53967c1bcabaa8384c1` is a **failed final portable-package verification experiment**, not a failed Firefox compilation or failed CryptoPro `dist/bin` staging experiment. The result belongs to the bundled-extension/localization packaging track and does not change the established GOST TLS runtime/handshake or Windows Vista/7 compatibility conclusions.
 
 Status: failed at final portable-archive verification; exact failing subcondition is not established by the available evidence.
+
+---
+
+## 2026-08-28 — T9 long provider wait: UI remains responsive but synchronous provider access starves the Firefox Socket Thread
+
+**Track:** GOST TLS runtime / long CryptoPro provider wait and networking concurrency  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577269`  
+**Job:** `98521835354`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9652941006` (`r3dfox-gost-win64-release`)  
+**Campaign binary identity:** `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`; `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`  
+**Runtime capture:** user-provided `T9 — долгий provider wait.zip`, SHA-256 `2f06aeb4dae884cfd4b6f973bcce21de42dc092d907575a798b361e4f7c48bac`; inner `SDx.moz_log`, SHA-256 `25a32e6bcd1c1b01d08c6624a429315f2eddefd97e81021dbc990c4b18b7b264`
+
+The raw capture is not committed because it contains detailed certificate-authority diagnostics. Only sanitized lifecycle/protocol facts are recorded.
+
+### Long provider wait
+
+The entire sequence remains in one browser process, `Parent 788`, with the Treasury client-auth decision associated with `browser_id=14`.
+
+At `05:36:43.610 UTC`, `lk-fzs.roskazna.ru` issues a client-certificate request. Candidate enumeration reports one certificate, coordinated `decision=1` is created, and the Firefox certificate dialog is requested. The decision resolves positively at `05:36:46.420 UTC` as `selected=1 remember=2`; the Socket Thread consumes it and logs `client certificate dialog completed ... selected=1` at `05:36:46.482 UTC`.
+
+From that point the Socket Thread enters the synchronous MSSPI/CryptoPro provider/private-key path. The next `GostTLS` record of any kind does not occur until `05:38:01.224 UTC`: there are **zero logged events during the intervening 74.742 seconds**.
+
+The user independently confirms that the Firefox UI itself remains responsive during this provider wait: new tabs/windows can be opened and navigation can be initiated. Those UI actions cannot be timestamped from this `GostTLS`-only capture because the network Socket Thread is the component that is blocked. The absence of Socket Thread activity and the queued-network release below are consistent with those navigations waiting behind the provider call rather than with a frozen browser event loop.
+
+At `05:38:01.224 UTC`, provider Cancel returns from the blocked MSSPI call as `error=0x8009030e` (`SEC_E_NO_CREDENTIALS`) and the Treasury connection enters terminal state `0x40000000`. Three immediate follow-on calls on that already-terminal connection log `0x0000054f`; they are consequences of the same failed provider attempt, not separate client-certificate decisions. There is no `selected=0` and no `declined-consume`.
+
+### Queued networking resumes immediately
+
+The first queued GOST network work appears on the **same timestamp** as the provider failure:
+
+- `05:38:01.224 UTC`: `allowlist matched` / `NewSocket begin` for `pay.gov.ru`;
+- `05:38:01.515 UTC`: `pay.gov.ru` completes GOST TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=0`, only **291 ms** after the blocked provider call returned;
+- `05:38:01.586 UTC`: a new socket for `portalgisgmp.login.roskazna.ru` begins;
+- `05:38:02.970 UTC`: that GIS GMP login endpoint also completes GOST TLS 1.2 / `0xFF85` without a client certificate.
+
+The capture therefore proves a shared Socket Thread serialization boundary: while the synchronous provider/private-key operation is blocked, other GOST network work queues even though the browser UI remains usable. Once provider Cancel returns, queued network connections start immediately.
+
+### Later Session recovery remains clean
+
+The long wait and provider failure do not corrupt the positive Treasury Session decision. Later in the same `Parent 788` process, a fresh Treasury client-auth request at `05:39:40.174 UTC` consumes `selected=1 scope=session`; the first recovered TLS 1.2 / `0xFF85` mTLS handshake completes at `05:39:40.534 UTC`, and the capture contains **12 successful recovered Treasury mTLS handshakes** through `05:39:44.335 UTC`.
+
+Whole-capture state relevant to T9:
+
+- one positive coordinated Firefox decision (`selected=1 remember=2`);
+- long synchronous provider wait after Firefox decision: `74.742 s`;
+- first provider failure: `0x8009030e` (`SEC_E_NO_CREDENTIALS`);
+- `selected=0`: `0`;
+- `declined-consume`: `0`;
+- Session remembered uses: `12`;
+- successful later Treasury mTLS handshakes: `12`;
+- `MSSPI_X509_LOOKUP`: `0`.
+
+### Conclusion
+
+**T9 characterization is COMPLETE, with a failed no-network-starvation subcriterion.**
+
+The long provider wait is lifecycle-safe: Firefox UI remains responsive, the positive Session decision is not converted into negative state, provider Cancel terminates the current attempt cleanly, queued network work resumes immediately, and later same-process Treasury mTLS recovery succeeds.
+
+However, the synchronous MSSPI/CryptoPro provider call **does globally occupy the Firefox Socket Thread** for the observed `74.742 s`. Other network operations initiated from usable browser tabs/windows wait until that call returns. This is now a concrete runtime limitation rather than a hypothetical threading concern.
+
+The experiment alone does not establish whether this is materially worse than stock Firefox synchronous token/PIN/client-certificate behavior. A separate comparison/design decision is required before changing MSSPI threading. If offloading is attempted, it must preserve NSPR/MSSPI state ownership, cancellation, client-auth coordination, proxy/CONNECT sequencing and the already-proven recovery semantics.
+
+**NEXT runtime:** T10 detailed Russian picker presentation. **NEXT implementation:** T6 real `Permanent` semantics.
+
+Status: current; T9 measured and closed as a characterization, global Socket Thread starvation remains an open performance/concurrency follow-up.
