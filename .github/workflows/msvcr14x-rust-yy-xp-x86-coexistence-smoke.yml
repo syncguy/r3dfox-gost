@@ -178,6 +178,9 @@ jobs:
           #include <roapi.h>
           #include <winstring.h>
           extern "C" FARPROC WINAPI __delayLoadHelper2(PCImgDelayDescr, FARPROC*) { return nullptr; }
+          // Link-only harness stub: YY's common implementation references the CRT purecall helper,
+          // but this smoke never executes the produced PE and must not pull a full CRT into imports.
+          extern "C" int __cdecl _purecall() { return 0; }
           extern "C" __declspec(dllexport) HRESULT __stdcall winrt_probe() {
             static const wchar_t kClassName[] = L"r3dfox.gost.yy.winrt.probe";
             const UINT32 length = static_cast<UINT32>((sizeof(kClassName) / sizeof(kClassName[0])) - 1);
@@ -276,6 +279,6 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline uses llvm-dlltool i386 stdcall import objects with IMPORT_NAME_UNDECORATE plus a local no-op delay helper." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline uses llvm-dlltool i386 stdcall import objects with IMPORT_NAME_UNDECORATE plus local no-op delay/purecall harness stubs." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Passing candidate must select all seven YY_Thunks_* symbols and eliminate both observed xul WinRT delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
