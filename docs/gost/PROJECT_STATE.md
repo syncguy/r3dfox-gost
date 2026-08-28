@@ -291,7 +291,27 @@ The implementation direction is now concrete rather than speculative. Chromium's
 
 This commit is a **candidate fix, not yet a runtime pass**. The next required evidence is a full x86 build from source containing `27bf83a...`, followed by physical Win7 x32 startup with the content sandbox enabled. The fix closes this blocker only if ordinary content tabs survive and real pages load without the immediate `RandomUint64OrDie` crash.
 
-The sandbox-off browser later crashes after some successful browsing. That later failure is a separate unresolved runtime blocker and must not be conflated with the immediate sandbox/RNG startup failure.
+### Physical Windows 7 x32 — later parent/browser crash localized to WinRT delay-load
+
+The later whole-browser failure observed with `MOZ_DISABLE_CONTENT_SANDBOX=1` is now independently localized and is **not** the RNG/sandbox blocker.
+
+Evidence remains bound to exact source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, runtime artifact `9676549576`, diagnostics artifact `9676550507`.
+
+A user-supplied ProcMon capture shows the parent/browser process, after roughly 45 seconds of successful lifetime and ordinary browsing, beginning a loader search for `api-ms-win-core-winrt-l1-1-0.dll`. Every searched Win7 loader/PATH location returns not-found; no successful load occurs. The exact diagnostics artifact independently proves that `xul.dll` owns a delay-load import group for that module containing `RoActivateInstance` and `RoGetActivationFactory`. The adjacent `api-ms-win-core-winrt-string-l1-1-0.dll` delay-load group contains `WindowsCompareStringOrdinal`, `WindowsCreateString`, `WindowsCreateStringReference`, `WindowsDeleteString`, and `WindowsGetStringRawBuffer`.
+
+WinDbg was then configured to stop on first-chance `0xc06d007e`. At the actual failure, `KERNELBASE!RaiseException` is followed by `xul.dll` delay-load frames. The exception record contains one parameter pointing to the MSVC delay-loader information structure. Reading that structure in the stopped process proves:
+
+- DLL: `api-ms-win-core-winrt-l1-1-0.dll`;
+- procedure: `RoGetActivationFactory`;
+- last error: `0x0000007e` (`ERROR_MOD_NOT_FOUND`).
+
+Thus the failure chain is proven directly: `xul.dll` delay-load -> missing WinRT API-set on Win7 -> `RoGetActivationFactory` resolution cannot begin because the module is absent -> MSVC delay-load helper raises `0xc06d007e` -> unhandled parent/browser crash. `KERNELBASE.dll` is the exception-raising site, not the defective dependency owner.
+
+YY-Thunks 1.2.2 already contains a pre-Win8 `RoGetActivationFactory` thunk. When the real API is unavailable it clears the output factory and returns `CLASS_E_CLASSNOTAVAILABLE`, which is the appropriate graceful unsupported-WinRT behavior rather than a loader exception. However, the exact XP/x32 workflow does **not** currently expose that thunk to `xul.dll`: its narrow YY provider selects only ProcessPrng, `GetSystemTimePreciseAsFileTime`, FLS/fiber/stack-guarantee aliases plus the common `YY_Thunks_for_5.1.2600.0.obj`, alongside `synchronization.lib`. The WinRT alias/import members are absent, so `xul.dll` remains bound to the MSVC delay-import path.
+
+Several obvious Firefox WinRT call sites examined in the exact source are already guarded (`WindowsUIUtils` by Win10, `WindowsSMTCProvider` by Win8.1, and relevant `nsWindowsPackageManager` methods by Win10). Therefore the exact C++ caller that escaped into `RoGetActivationFactory` is not yet proven from source. The symbol-less xul stack and direct-call search establish multiple machine-code call sites but do not safely map the failing one back to a named C++ function.
+
+Current implementation direction: preserve the existing narrow-link strategy and identify the YY-Thunks 1.2.2 alias/import members required for `RoGetActivationFactory` and the companion WinRT string APIs used by xul; add only those proven members, rebuild, and rerun the physical Win7 test. Do **not** ship a fake `api-ms-win-core-winrt-l1-1-0.dll`, and do not solve this by broad full-YY `kernel32.lib` interposition. A successful thunked startup must still be followed by exact runtime validation; it does not prove GOST TLS.
 
 ### Older Win7 full-xul build evidence
 
