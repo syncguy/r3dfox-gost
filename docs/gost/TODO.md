@@ -4,18 +4,20 @@ This file is the persistent forward-looking backlog. Current synthesis is in `PR
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, the SD1-SD6 Session-default exact-artifact regression, T3 explicit Cancel/no-certificate semantics, and T4 involuntary tab/load Abort semantics are closed.
+F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, the SD1-SD6 Session-default exact-artifact regression, T3 explicit Cancel/no-certificate semantics, T4 involuntary tab/load Abort semantics, and T7/T8 missing-medium/provider recovery are closed.
 
 Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat closed tests on unchanged source merely for confirmation.
 
 ### 1. Continue client-decision / provider semantics
 
-Immediate runtime next:
+Immediate next:
 
-1. **T7/T8 — missing key medium + provider Cancel/recovery.** Start a new clean process/profile with the private-key medium unavailable **before the first GOST private-key acquisition**. Reach the Treasury client-auth flow, observe the current-attempt provider/key failure or provider Cancel, then restore the medium while keeping the same browser process/profile and retry. The recovery attempt must be able to obtain/use the key and complete Treasury GOST mTLS without sticky negative certificate state.
-2. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including the intended forget/change behavior.
+1. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including intended process-restart persistence and the intended forget/change behavior.
+2. **T9 — long provider wait.** After T6 or when a suitable runtime window is available, hold provider/PIN/media UI beyond the ordinary picker-timeout scale and verify there is no network starvation, timeout corruption, or teardown materially worse than stock synchronous token/PIN behavior.
 
 **T5 — Session failure-boundary regression is DEFERRED, not closed.** The 2026-08-28 T5 probe showed that removing the key medium *after* a successful Treasury Session mTLS does not create a provider failure: CryptoPro/SSPI retains an already-acquired credential context, and a fresh Treasury socket about 192 seconds later still receives a new CertificateRequest, reuses `scope=session`, emits a client-auth flight and completes TLS 1.2 / `0xFF85` mTLS. Therefore post-login medium removal is not a valid T5 fault injection in the current environment. Resume T5 only when there is a safe deterministic way to invalidate an already-acquired provider/private-key credential inside the same browser process; do not invent an invasive synthetic invalidation merely to force the test.
+
+T7/T8 now prove the complementary pre-acquisition boundary on the current artifact: with the certificate still discoverable from `CurrentUser\MY` but the key medium unavailable before first private-key acquisition, provider refusal produces `SEC_E_NO_CREDENTIALS` only for that MSSPI attempt; the positive Firefox `Session` decision survives, and after the medium returns the next request in the same browser process reuses `scope=session`, completes GOST mTLS and resumes protected application traffic without another picker.
 
 T3/T4 establish the negative-decision split on the current artifact: explicit picker Cancel is consumed as Declined/phase `2`, while an unanswered picker abandoned by tab/load teardown remains unresolved phase `0` and is removed by lifecycle cleanup. Neither path poisons later recovery.
 
@@ -26,7 +28,7 @@ The current source routes every non-`Once` positive choice through the same in-m
 Remaining groups include:
 
 - T5 deterministic failure-boundary test once an already-acquired provider credential can be invalidated safely;
-- long provider-media wait using measured current-artifact timeout behavior;
+- T9 long provider-media wait;
 - Russian picker row/details rendering beyond the completed SD6 smoke;
 - dynamic `CurrentUser\MY` discovery and token-only/removable-media discovery;
 - no acceptable cert / unsuitable cert / wrong cert / unavailable key / PIN-private-key failure / server rejection;
