@@ -16,38 +16,29 @@ Current authoritative GOST runtime-test browser:
 - artifact `9652941006` (`r3dfox-gost-win64-release`);
 - Win7 import-audit artifact `9652941552`.
 
-The exact run is successful and is the authoritative full-browser build/package candidate for the Session-default regression.
-
 Exact binary identity for artifact `9652941006`:
 
 - `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
 - `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
 
-These hashes were independently checked against the official `r3dfox-v153.0.3.win64.zip` contained in GitHub Actions artifact `9652941006` and match the user's local `certutil -hashfile ... SHA256` preflight. The GOST coordinator is linked into `xul.dll`, so its hash is decisive when binary identity is uncertain.
+These hashes were independently checked against the official GitHub Actions artifact and match the local `certutil` preflight.
 
 ## Mandatory runtime preflight — REQUIRED before every SD/T result
 
-A runtime result is valid only after the preflight below has passed. If any required item is missing or mismatched, do not interpret the runtime log as evidence for the named test.
+A runtime result is valid only after the preflight below passes. A mismatch or missing item invalidates the result for the named test.
 
 ### Binary identity
-
-Before starting a new independent runtime test sequence, verify the launched files:
 
 ```bat
 certutil -hashfile r3dfox.exe SHA256
 certutil -hashfile xul.dll SHA256
 ```
 
-For the current authoritative artifact `9652941006`, they must equal:
+For artifact `9652941006`, require the exact hashes above.
 
-- `r3dfox.exe` — `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
-- `xul.dll` — `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
+### Baseline GOST environment
 
-Any mismatch makes the test invalid until the correct browser is launched.
-
-### GOST environment
-
-Use this baseline environment unless a named test explicitly requires a different override:
+Use this environment unless the named test explicitly requires a different override:
 
 ```bat
 set "R3DFOX_GOST_HOSTS=fzs.roskazna.ru,lk-fzs.roskazna.ru,pay.gov.ru,portalgisgmp.login.roskazna.ru,portalgisgmp.cert.roskazna.ru"
@@ -56,187 +47,108 @@ set "R3DFOX_GOST_CLIENT_AUTH_MODE="
 set "R3DFOX_GOST_CIPHERS="
 ```
 
-The empty diagnostic variables are intentional: the default coordinated client-auth path and default GOST cipher configuration must be exercised unless the test explicitly says otherwise.
+The empty diagnostic variables are intentional: default coordinated client auth and default GOST cipher configuration must be exercised unless the test explicitly says otherwise.
 
 ### Profile isolation and launch
 
-Start each **independent** test sequence from a new clean profile path that has not previously been used, for example `C:\Temp\r3dfox\profile-SD1` or another profile named for the exact test/sequence. Do not silently reuse an old profile.
+Start each independent test sequence from a new clean test-specific profile. Reuse a process/profile only when continuity is part of the test semantics.
 
-Use the matching per-test log path:
+Example:
 
 ```bat
 r3dfox.exe -no-remote ^
-  -profile C:\Temp\r3dfox\profile-SDx ^
+  -profile C:\Temp\r3dfox\profile-Tx ^
   --MOZ_LOG=timestamp,sync,GostTLS:5 ^
-  --MOZ_LOG_FILE=C:\Temp\r3dfox\SDx ^
+  --MOZ_LOG_FILE=C:\Temp\r3dfox\Tx ^
   https://fzs.roskazna.ru/
 ```
 
-A dependent test whose purpose is to observe state continuity must intentionally reuse the required process/profile instead of creating a new one. In particular:
+Every recorded result must be bound to source SHA, Actions run/job, artifact ID, binary hashes, test/profile identity, environment state, and sanitized capture/log hash when retained. Never publish client-certificate identifiers, private credential/provider/container metadata, PIN/passwords, private-key material, account data, or unsanitized captures.
 
-- SD1 -> SD2 must remain in the same running browser process/profile;
-- SD3 must fully terminate that browser process and relaunch the same exact artifact with the **same SD1/SD2 profile**, otherwise a fresh-profile launch would not test the Session restart boundary;
-- SD4 must preserve one process/profile across the initial `Once` choice, compatible fanout, idle expiry, and the independent post-expiry attempt;
-- SD5 must establish Treasury Session state and test GIS GMP cross-host isolation in the same running process/profile.
+## Closed historical baselines — do not repeat on unchanged source
 
-For other independent SD/T tests, begin with a new clean test-specific profile unless the test definition explicitly requires continuity.
+### T2R — PASS / F1 CLOSED
 
-### Evidence identity rule
+Source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, run `33039013849`, job `98408139479`, artifact `9636591432`.
 
-Every recorded SD/T result must state or be recoverably bound to:
+Three unanswered-picker timeout cycles prove closing handles cannot create/join replacement client-auth decisions, teardown removes waiters/decisions safely, stale UI callbacks are harmless, and retries recover without browser restart. The old sticky `selected=0` / `0x80090326` path is gone.
 
-- source-under-test SHA;
-- Actions run ID and job ID;
-- browser artifact ID;
-- exact `r3dfox.exe` and `xul.dll` SHA-256 values;
-- test/profile identity;
-- whether the baseline environment above was used or which explicit override the test required;
-- sanitized runtime capture/log hash when a capture is retained.
+### T1R/T1R-B — PASS / F2 CLOSED
 
-Do not publish client-certificate identifiers, credential/provider/container data, PIN/passwords, private-key material, account data or unsanitized captures.
+Same `ef1a7...` artifact. One positive `Once` choice feeds compatible connection waves, while an independent post-expiry attempt in the same browser process receives a new picker and new lease generation.
 
-## Completed historical baseline tests — do not repeat
+### GIS-G1/G2/G3 — PASS / F3 CLOSED
 
-### T1 old baseline — DONE
+Same `ef1a7...` artifact. Generic coordinated client auth reaches `portalgisgmp.cert.roskazna.ru`, completes real TLS 1.2 / `0xFF85` GOST mTLS/application flow, and does not produce spurious client-auth UI on `pay.gov.ru` or `portalgisgmp.login.roskazna.ru`.
 
-Source `860de8e38deed326b7fcd1c547e928c5b48c72a9`, run `32951903026` attempt 2, job `98130275465`, artifact `9606431408`.
+### S1/S1-B/S1-C + GIS-G4 — PASS / CLOSED
 
-Real coordinated Treasury mTLS and concurrent single-flight work, but one logical login required three sequential certificate pickers.
+Same `ef1a7...` artifact. Positive explicit Session state is reused for matching Treasury handshakes within the process, remains isolated from a different GOST mTLS host, and is cleared by browser-process restart.
 
-### T2 old baseline — DONE, defect reproduced
+Detailed historical capture identities remain in `TEST_LOG.md` and `DONE.md`.
 
-Same old artifact. Unanswered picker teardown allowed `msspi_shutdown()` to create an orphan coordinated decision; later requests consumed `selected=0` and failed with `0x80090326` until browser restart.
+## Session-default exact-artifact regression — SD1-SD6 PASS / CLOSED
 
-Do not rerun this old defect reproduction.
+Exact source/run/artifact: `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-## T2R — PASS / F1 CLOSED
+Capture identities:
 
-Runtime-proven artifact `9636591432`, source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`.
+- `SD1.zip` SHA-256 `c0a1159c3e8d0869e54e2a07ddca1814dea24ff83677f2a201a8299b11f77f04`; inner log `19dc6a8c1ed0902c59e156e746df431b81e3fd77259c9a61209d73f86c1bceca`;
+- `SD2.zip` SHA-256 `d399664ea66369ae3993d263ab625ede77030000f280ba59f5dca4d76f8d2656`; inner log `ec64a13a38bd1dc8d96088d7f25c879a91e8798d1d23e1bf2caeeed0a772236e`;
+- `SD3.zip` SHA-256 `522de1961c9b1c906df1ab43117578e1a9816fa1bc8882898ab5a2ff3cbc69d9`; inner log `52424d90bc039782f455d9ded1d2cb40eecf4938b964d7272bea7cbdc2b51bcc`;
+- `SD4.zip` SHA-256 `f9c47763a17e334a20ea941c0fb675bf012c1076c33fc69e382941611ceb9d1d`; inner log `e20a570fcc0cd07420c06c2b4d9efb1f40348ccf078ba531ede7189c5840ec99`;
+- `SD5.zip` SHA-256 `9350a2a8b73011c5059f45a4d37835fbcb55c2473c1b80e05eb490b796d2d6d0`; inner log `1fdfc5477186df585ccfd7db7d7bdbc6becb11e5c2bad64793553755293421ed`.
 
-Capture:
+Confirmed:
 
-- `t2r_timeout.zip` SHA-256 `88053089499fee19edf7506d4fe257567dcc688740741313ff9430749e84bba7`;
-- inner `t2r.moz_log` SHA-256 `261ddf9a4008c212f1ee5b5ec2213ab0fb3ee6e6a244e586987ff04a8de8d5`.
+- **SD1 PASS:** default positive choice is Session (`remember=2`); one picker feeds successful Treasury mTLS and later matching requests use `scope=session`;
+- **SD2 PASS:** same-process continuation adds no new picker/decision and later matching requests continue to use the Session decision;
+- **SD3 PASS:** new browser process creates a fresh first decision/picker; old Session state does not cross the process boundary;
+- **SD4 PASS:** explicit `Once` (`remember=0`) retains positive 5-second fanout and independent post-expiry requests create fresh decisions/new lease generations;
+- **SD5 PASS:** active Treasury Session state does not leak to GIS GMP; the certificate endpoint creates its own fresh decision/picker and completes GOST mTLS independently;
+- **SD6 PASS:** user visually confirms Session is selected by default and `Issued by` is human-readable as intended.
 
-Three unanswered-picker cycles prove closing handles are rejected before decision create/join, waiters/decisions are cleaned up, stale UI callbacks are harmless, retries recover without browser restart, and the old sticky `selected=0` / `0x80090326` path is gone. F1 is formally closed.
+Every supplied SD1-SD5 capture has zero `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, and `MSSPI_X509_LOOKUP`.
 
-## Invalid first T1R attempt — HISTORICAL TEST-IDENTITY ERROR
+Do not repeat SD1-SD6 on unchanged source merely for confirmation.
 
-`t1r_error.zip` was later confirmed by the user to have been produced while accidentally running an older browser build. It is not evidence for or against current F2 and does not reopen F1.
+## NEXT — T3 explicit Cancel / no certificate
 
-## T1R — PASS
+Goal: prove a deliberate user decline is attempt-local and does not poison a later independent client-auth attempt.
 
-Runtime-proven artifact `9636591432`, exact local binary hashes verified before launch.
+Procedure on a new clean `profile-T3` after mandatory preflight:
 
-Capture:
+1. Launch the exact authoritative artifact with the baseline GOST environment and a dedicated `T3` log path.
+2. Navigate into the Treasury flow until the Firefox client-certificate picker appears.
+3. Explicitly choose the picker action that declines/cancels client-certificate selection. Do not kill the process and do not simulate provider/media failure in T3.
+4. Allow the current attempt to fail/continue naturally and preserve the resulting log state.
+5. In the **same running browser process/profile**, start a new independent Treasury client-auth attempt after the first attempt has settled.
+6. Require a **fresh picker** on that later attempt. A deliberate decline must not become a reusable sticky negative decision.
+7. For the recovery half, select the intended certificate normally with the default Session choice and require successful Treasury GOST mTLS/application flow without restarting r3dfox.
 
-- `t1r-current.zip` SHA-256 `1c75f484607a6e3eb95439275e2698098a04551689619f95f93f13ca890b248e`;
-- inner `t1r-current.moz_log` SHA-256 `9f77de380e9ebf9b98f2e7cf2d3c0d6eb03233eb7afed0d103b2ecbf49bc78c7`.
+Pass criteria:
 
-Pass result: one picker, one positive `Once` lease store, seven lease reuses across sequential waves, eight successful Treasury mTLS handshakes, protected application success, zero sticky failure markers.
+- first user action is represented as explicit `Declined`/no-certificate semantics rather than involuntary `Aborted`;
+- no positive Session or `Once` lease is stored from the declined decision;
+- after the first attempt settles, a later independent request creates/receives a fresh decision/picker;
+- recovery can complete real TLS 1.2 / `0xFF85` Treasury mTLS in the same browser process after a positive selection;
+- no stale/orphan decision, sticky automatic `selected=0`, or unrelated GOST error poisons the recovery attempt.
 
-## T1R-B — PASS / F2 CLOSED
-
-Capture:
-
-- `T1R-B-current.zip` SHA-256 `c2d018b8637467b4c1368bfa66399dd042d73b88c39c6de7bf07368c7524ea65`;
-- inner `t1r-current.moz_log` SHA-256 `c30c9f61e008d8bdb321570373c1c5cf6f3bc9eaa9e980564d463d03e307686e`.
-
-Same-process post-expiry login creates a fresh decision/picker rather than reusing the expired generation. F2 is formally closed. Do not repeat T1R/T1R-B on unchanged source merely for confirmation.
-
-## GIS-G1/G2/G3 — PASS / F3 CLOSED
-
-Capture:
-
-- `gis-g1-g2-g3.zip` SHA-256 `8bb1fd3cfb6773739f0c9b05fd31555eef4180d65ce0518d54a63c85691558ce`;
-- inner `gis-g1.moz_log` SHA-256 `451ed230a972b19ec35c1edc8952d1b234366ac5775c7252e8e67a92a289f1b1`.
-
-Proven:
-
-- generic callback reaches the real `portalgisgmp.cert.roskazna.ru` client-auth request;
-- current acceptable-CA count `36`, candidate count `1`;
-- one picker leads to real GIS GMP TLS 1.2 / `0xFF85` mTLS/application success;
-- four compatible follow-on requests reuse the positive `Once` lease;
-- non-mTLS GOST hosts do not show spurious picker UI.
-
-F3 is formally closed. Do not repeat GIS-G1/G2/G3 on unchanged source merely for confirmation.
-
-## S1/S1-B/S1-C — PASS / explicit Session process lifetime CLOSED
-
-In-process capture:
-
-- `session-current.zip` SHA-256 `6eccbf7d49e69a92d9634507b111759f096c4dee00a0313ec3d7c20017f5dec1`;
-- inner `session-current.moz_log` SHA-256 `b3b2c8751e1f0cf66cfda73a1c068f609efb1692ade910b0d4ffcb42ff4905f8`;
-- browser process `Parent 6200`.
-
-Treasury result:
-
-- decision `1` / first picker at `11:36:28.521 UTC`;
-- explicit `Session` resolves at `11:36:33.382`, `remember=2`;
-- ten later matching client-auth requests consume `scope=session` without a second Treasury picker;
-- eleven Treasury TLS 1.2 / `0xFF85` mTLS handshakes complete with `client_cert_loaded=1`;
-- user confirms the active Session remains usable across tabs and browser windows in the same running browser process.
-
-The logged Treasury client-auth requests all carry `browser_id=14`; the raw log therefore proves process-level matching remembered reuse, while the tab/window topology is user-observed rather than separately represented by distinct browser IDs.
-
-Restart-boundary capture:
-
-- `session-current2.zip` SHA-256 `e32b71ca51d151e553ab82c321fd8f829270e09b6a8390f7fb3ea828af3a29e7`;
-- inner `session-current.moz_log` SHA-256 `5b156cf0765c9aad3ceffeac6d1a845cea381f219ea168d59b318201b9f419b5`;
-- restarted process `Parent 5112`.
-
-The first Treasury client-auth in the restarted process at `12:05:43.453 UTC` receives no old Session remembered hit, creates fresh `decision=1`, candidate count `1`, and a fresh Firefox picker. After a new explicit Session choice at `12:05:47.363` (`remember=2`), five later matching requests consume `scope=session`, and six Treasury mTLS handshakes succeed. No `Once` lease or sticky failure marker appears.
-
-**S1/S1-B/S1-C PASS.** Positive Session state is reusable throughout the running browser process and cleared by complete browser-process restart.
-
-## GIS-G4 — PASS / cross-host decision isolation CLOSED
-
-The `session-current.zip` capture proves stronger cross-host isolation using a live Treasury `Session` decision:
-
-- Treasury Session is already active;
-- later `portalgisgmp.cert.roskazna.ru` client-auth arrives with `browser_id=17`;
-- fresh decision `2` and a fresh picker are created at `11:37:37.389 UTC`;
-- Treasury Session is not silently applied to the different GOST mTLS host;
-- after the user selects GIS `Once`, one lease plus four reuses feed five successful GIS mTLS handshakes.
-
-Whole capture has zero `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, stale callbacks, or `E/GostTLS`.
-
-Do not repeat GIS-G4 on unchanged source merely for confirmation.
-
-## NEXT — Session-default exact-artifact regression
-
-The picker UX/default change is implemented and the authoritative main build is green on source `afbdad307f63e594d3715169d6e34235280dddaf`, run `33073577269`, job `98521835354`, artifact `9652941006`.
-
-Run this targeted sequence on that exact artifact only after the mandatory preflight above has passed:
-
-1. **SD1 — default Session first login.** Verify the picker visibly opens with `Session` selected by default, choose the intended certificate without changing the remember mode, and require successful Treasury GOST mTLS/application login. The runtime log must include `picker_default=session` and positive Session resolution rather than a `Once` lease store.
-2. **SD2 — same-process Session reuse.** In the same running browser process, exercise later matching connections and user-visible tabs/windows. Require no second Treasury picker and require later matching client-auth requests to consume the Session-scoped remembered decision.
-3. **SD3 — restart boundary.** Fully terminate the browser process and launch the same exact artifact again using the same SD1/SD2 profile. The first matching Treasury client-auth request must show a fresh picker; old Session state must not survive process restart.
-4. **SD4 — explicit Once regression.** Start from a clean test-specific profile, explicitly switch the picker to `Once`, and require the already-proven short positive fanout behavior for compatible follow-on connections. After idle expiry, an independent attempt in the same process/profile must show a fresh picker.
-5. **SD5 — cross-host isolation.** In one clean test sequence, establish an active Treasury Session decision and then visit the different GIS GMP GOST mTLS endpoint in the same process/profile. Require a fresh decision/picker there; the Treasury Session certificate must not be silently applied cross-host.
-6. **SD6 — picker presentation smoke.** Verify the initial remember control shows `Session` as default and the `Issued by` primary details row is human-readable rather than a raw full issuer DN when a common name is available. Do not record real certificate identity values in repository documentation.
-
-SD1-SD5 are exact-build regressions of already-proven mechanisms after the UI/default source change, not reopening the closed historical F1/F2/F3/S1/GIS-G4 conclusions. SD6 validates the new presentation behavior that build success cannot prove.
-
-Current source treats all non-`Once` positive choices through the same process-local remember store. Therefore true persistent `Permanent` behavior is not yet established and remains a separate implementation/test item.
+If the first decline does not map cleanly to the expected explicit-decline state, stop and preserve the capture before proceeding to T4; do not reinterpret navigation teardown as a T3 pass.
 
 ## Remaining client-decision semantics
 
-### T3 — explicit no-certificate / Cancel
-
-Current attempt may fail/continue as appropriate; later independent attempt must show a fresh picker. Distinguish explicit `Declined` from involuntary `Aborted`.
-
 ### T4 — involuntary Abort
 
-Exercise navigation/tab/load teardown without a user decision. State must be `Aborted`, not reusable `Declined`; later attempt must recover.
+Exercise navigation/tab/load teardown without a user decision. State must be `Aborted`, not reusable `Declined`; a later attempt must receive a fresh picker and recover.
 
-### T5 — explicit Session
+### T5 — Session failure-boundary regression
 
-S1/S1-B/S1-C prove the basic positive process lifetime. Later matrix work should additionally prove temporary provider failures and matching-policy boundaries do not overwrite or leak the positive Session decision.
+S1/SD1-SD3 already prove positive Session process lifetime. Verify temporary provider failures and matching-policy boundaries do not overwrite, broaden, or leak an established positive Session decision.
 
-### T6 — explicit Permanent
+### T6 — real Permanent semantics
 
-Implement/verify actual persistent semantics distinct from the current process-local non-Once store. Positive choice should persist according to Firefox permanent remember semantics and be removable by the intended forget/change action. Negative/provider failures must not overwrite it.
+Implement/verify actual persistence distinct from the current process-local non-Once store. Positive choice should persist according to the intended Firefox permanent-remember behavior and be removable by the intended forget/change action. Negative/provider failures must not overwrite it.
 
 ## Provider/private-key media
 
@@ -250,19 +162,17 @@ Make the key medium available on retry. Handshake and protected login should suc
 
 ### T9 — long provider wait
 
-Hold provider/PIN/media UI beyond the ordinary picker-timeout scale. Record actual duration and check for network starvation, timeout corruption or teardown materially worse than stock synchronous token/PIN behavior. Do not redesign MSSPI threading without a concrete regression.
+Hold provider/PIN/media UI beyond the ordinary picker-timeout scale. Record actual duration and check for network starvation, timeout corruption, or teardown materially worse than stock synchronous token/PIN behavior. Do not redesign MSSPI threading without a concrete regression.
 
-## Picker presentation
+## Picker presentation / discovery / policy
 
 ### T10 — Russian UI presentation
 
 Verify human owner display name, localized expiry, Cyrillic issuer rendering, human-facing `Issued to`, human-friendly `Issued by`, and serial remaining details-only. Do not publish actual certificate identity values.
 
-## Candidate discovery / policy
-
 ### T11 — dynamic `CurrentUser\MY`
 
-Candidate discovery must be re-evaluated on new attempts; zero-candidate results cannot be sticky; restored eligible certificate must reappear without browser restart.
+Candidate discovery must be re-evaluated on new attempts; zero-candidate results cannot be sticky; a restored eligible certificate must reappear without browser restart.
 
 ### T12 — token/removable-media-only discovery
 
@@ -308,18 +218,18 @@ Verify intended temporary/permanent override integration and exact server-identi
 
 ### T21 — final Treasury mTLS acceptance
 
-Final exact source/build must prove together final server trust, the intended final default remember behavior, explicit `Once` short-fanout behavior, safe compatible fanout, completed mTLS/private-key use, expected GOST suite, authenticated protected application traffic, retry recovery and no sensitive data publication.
+Final exact source/build must prove together final server trust, intended default remember behavior, explicit `Once` short-fanout behavior, safe compatible fanout, completed mTLS/private-key use, expected GOST suite, authenticated protected application traffic, retry recovery and no sensitive data publication.
 
 ## Separate non-blocking investigation
 
-T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`; quiescent poll counts `10,825`, `34`, `21`). Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1/F2/F3.
+T2R observed non-uniform picker timeout/poll behavior (`32.576`, `37.420`, `30.330 s`; quiescent poll counts `10,825`, `34`, `21`). Attribute the actual Firefox/Necko/load timer and first-cycle poll churn before changing timeout policy. This does not reopen F1/F2/F3 or SD1-SD6.
 
 ## Stop / escalation rules
 
-- Do not accept any SD/T runtime result unless the mandatory preflight above passed for the exact test sequence.
-- Do not repeat already-proven old-artifact tests unless explicitly regression-testing a changed source.
+- Do not repeat already-proven old-artifact tests unless explicitly regression-testing changed source.
+- Mandatory preflight is required before every named runtime result.
 - On failure, preserve the capture and stop the dependent branch rather than generating downstream noise.
 - Build success never substitutes for runtime proof.
 - Main and thunk-rs artifacts are not interchangeable for GOST conclusions.
 - Keep Windows compatibility and bundled-extension testing separate from the GOST runtime matrix.
-- After every meaningful runtime experiment, append `TEST_LOG.md` and update `PROJECT_STATE.md` / `TODO.md` / this checkpoint when the blocker or next step changes.
+- After every meaningful runtime experiment, append `TEST_LOG.md` and update `PROJECT_STATE.md`, `TODO.md`, `DONE.md`, and this checkpoint when the blocker/current next step changes.
