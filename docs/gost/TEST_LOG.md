@@ -325,3 +325,28 @@ The Windows compatibility line therefore has two separate current runtime blocke
 No GOST TLS handshake/runtime conclusion is drawn from either old-Windows test.
 
 Status: current physical-runtime evidence; XP loader blocker open, Win7 immediate sandbox/RNG blocker localized, later Win7 crash open.
+
+---
+
+## 2026-08-28 — Win7 sandbox RNG follow-up: legacy RNG lazy initialization identified and pre-lockdown warm-up implemented
+
+**Track:** Windows compatibility / Win7 x32 content sandbox  
+**Branch:** `agent/gost-tls-poc`  
+**Runtime build under diagnosis:** source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, runtime artifact `9676549576`  
+**Candidate-fix source:** `27bf83a679ec26b93bc72a0ec7635fb26f821782` (`fix(win7): warm legacy RNG before content sandbox lockdown`)
+
+A follow-up WinDbg session on the same failing physical Win7 x32 configuration caught another manifestation of the deliberate Mozilla crash path. The affected content process raised first- and then second-chance `0xC0000005` at a `mov dword ptr [0], ecx` null write; the stack directly contained `mozglue!mozilla::RandomUint64OrDie+0x55`. The nearby exported symbol name (`WindowsOleAut32Initialization+...`) is only symbol-resolution noise around the internal crash primitive and does not implicate OLE automation. This does not contradict the earlier ProcMon/WinDbg `0x80000003` / `int 3` observation: both are release-assert termination paths reached from `RandomUint64OrDie`, and the precise crash instruction is not the root cause.
+
+The same debugger session disassembled Win7 `ADVAPI32!SystemFunction036`. Its entry path performs one-time initialization through `ntdll!RtlRunOnceExecuteOnce`; the cached call target used afterward resolves to `cryptbase!SystemFunction036`. Combined with the exact Firefox source (`GenerateRandomBytesFromOS()` -> `RtlGenRandom` / `SystemFunction036`) and the sandbox-off A/B pass, this identifies the relevant compatibility boundary as **lazy legacy RNG initialization before versus after content sandbox lockdown**.
+
+Source comparison confirms that this Firefox/r3dfox baseline's `SandboxTarget::LowerContentSandbox()` reached `TargetServices::LowerToken()` without warming the OS RNG path first. Modern Chromium's renderer sandbox path explicitly calls `WarmupRandomnessInfrastructure()` immediately before `LowerToken()`. A maintained Win7 Chromium compatibility backport implements that warm-up with `RtlGenRandom`, specifically so the legacy `advapi32 -> cryptbase` RNG state is initialized before the renderer is locked down.
+
+Candidate fix `27bf83a679ec26b93bc72a0ec7635fb26f821782` adds the narrow equivalent in Mozilla-owned sandbox code rather than modifying the imported Chromium sandbox library: on pre-Win8 systems, `LowerContentSandbox()` calls the existing `GenerateRandomBytesFromOS()` helper before `LowerToken()`. Win8+ behavior is unchanged and the content sandbox remains enabled.
+
+### Conclusion
+
+The diagnosis/implementation step is complete: there is now a concrete, minimal fix aligned with the observed Win7 call path and Chromium's established sandbox warm-up ordering. **Runtime validation is still open.** No build or physical Win7 result exists yet for `27bf83a...`, so the sandbox RNG blocker is not closed.
+
+Next evidence required: build the exact full x86 browser from source containing `27bf83a...`, then run it on physical Win7 x32 with normal content sandboxing enabled. Passing requires content tabs to survive startup and ordinary pages to load without the immediate `RandomUint64OrDie` termination.
+
+Status: candidate fix committed; exact x86 build/physical Win7 sandbox-on validation pending.
