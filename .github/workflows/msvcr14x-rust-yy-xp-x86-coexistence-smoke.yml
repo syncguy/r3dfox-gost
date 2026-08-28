@@ -41,8 +41,8 @@ jobs:
             "yy_thunks_target=$env:YY_THUNKS_TARGET"
             "pe_subsystem_min_version=$env:WINDOWS_XP_SUBSYSTEM"
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
-          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
-          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          (Get-Command cl.exe).Source | Set-Content -Encoding utf8 diagnostics\cl-path.txt
+          (Get-Command link.exe).Source | Set-Content -Encoding utf8 diagnostics\link-path.txt
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
