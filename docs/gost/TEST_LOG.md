@@ -107,3 +107,64 @@ For this exact representative workload, pinned msvcr14x + modern `i686-pc-window
 This does **not** prove Firefox 153/xul can be built or run on XP and does not establish any GOST TLS behavior on XP. The next Windows-compatibility experiment is to scale the proven x86 runtime/linker scheme to a full 32-bit Firefox/xul build, then audit its actual PE/runtime dependency closure before attempting real browser startup on XP.
 
 Status: current; representative XP x86 runtime question closed, Firefox-scale XP x86 integration next.
+
+---
+
+## 2026-08-28 — T4 passes: closing the picker-owning tab aborts the pending decision and recovery succeeds in another tab
+
+**Track:** GOST TLS runtime / involuntary client-auth abandonment via tab close  
+**Branch:** `agent/gost-tls-poc`  
+**Code-under-test:** `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`)  
+**Actions run:** `33073577269`  
+**Job:** `98521835354`  
+**Workflow:** `GOST TLS PoC build`  
+**Runtime artifact:** `9652941006` (`r3dfox-gost-win64-release`)  
+**Campaign binary identity:** `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`; `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`  
+**Runtime target:** `fzs.roskazna.ru` -> `lk-fzs.roskazna.ru`  
+**Runtime capture:** user-provided `T4 involuntary Abort.zip`, SHA-256 `bfa51cc1d45c35c8c94cae6a7eb8fc32c6490d30782cdb256a1aefb24078d2f1`; inner `SDx.moz_log`, SHA-256 `f921c42d5e7b0299a40f79a5a707d5da93990018fb535edf529aef94a3d82f65`
+
+The raw capture is not committed because it contains detailed certificate-authority diagnostics. Only sanitized lifecycle/protocol facts are recorded.
+
+The user started from a clean profile, opened `fzs.roskazna.ru`, kept a second blank tab available, invoked Treasury personal-cabinet login in the first tab, and closed that tab with its close button while the Firefox client-certificate picker was still unanswered. The browser process remained alive. In the remaining tab the user navigated to `fzs.roskazna.ru`, invoked login again, selected the intended certificate and successfully entered the Treasury personal cabinet.
+
+### Pending decision is abandoned by tab teardown, not declined
+
+The whole sequence stays in one browser process, `Parent 6184`.
+
+The first `lk-fzs.roskazna.ru` client-auth request creates `decision=1`, `browser_id=14`, and requests the picker at `03:43:37.496 UTC`.
+
+At `03:43:41.555 UTC`, only **4.059 s** later, closing the owning tab tears down that pending handshake:
+
+- waiter `decision=1` is removed with `reason=close-pre`, reaching `waiters=0`;
+- decision `1` is removed with `reason=no-waiters phase=0` while still unresolved;
+- shutdown-time client-certificate callback re-entry is rejected with `reason=closing`;
+- the abandoned picker callback arriving at `03:43:41.571 UTC` is rejected as stale.
+
+There is no `client auth decision resolved` record for decision `1`, no `selected=0`, no `declined-consume`, and no phase `2`. The user-driven tab/load teardown is therefore observably distinct from T3 explicit Cancel. The implementation does not currently emit a literal `Aborted` label; its runtime representation is removal of the still-pending phase-0 decision during lifecycle teardown.
+
+### Fresh decision and same-process recovery
+
+The second tab remains in the same `Parent 6184` but uses `browser_id=15`. Its independent Treasury client-auth request creates fresh `decision=2` and a fresh picker at `03:43:54.093 UTC`.
+
+Decision `2` resolves positively at `03:44:04.399 UTC` as `selected=1 remember=2`; its waiter is consumed with `reason=selected-consume` and the decision is removed in phase `1`.
+
+Recovery evidence after that positive selection:
+
+- eight later matching client-auth requests are served from `scope=session` without another picker;
+- **9** `lk-fzs.roskazna.ru` TLS 1.2 / `0xFF85` mTLS handshakes complete with state `0x00000000` and `client_cert_loaded=1`;
+- all 9 recovered handshakes reach `DriveHandshake verify ... ok=1 status=0x00000000` under the current verification path;
+- the user confirms successful Treasury personal-cabinet authorization.
+
+Whole-capture safety counts: two coordinated decisions, two picker requests, one positive decision resolution, zero `declined-consume`, zero `selected=0`, zero `E/GostTLS`, zero `0x80090326`, zero `0x0000054f`, and zero `MSSPI_X509_LOOKUP`.
+
+### Conclusion
+
+**T4 PASS / CLOSED.**
+
+Closing the tab that owns an unanswered Firefox client-certificate picker abandons the pending client-auth decision through lifecycle teardown rather than converting it into explicit Declined state. The pending decision is removed cleanly, closing/stale callbacks cannot create an orphan replacement decision, and another tab in the same browser process receives a fresh decision/picker and completes successful Treasury GOST mTLS/application login.
+
+Together T3 and T4 now runtime-prove the intended semantic split on the exact Session-default artifact: explicit picker Cancel is `Declined`/phase `2`, while involuntary tab/load abandonment remains unresolved phase `0` and is removed by teardown. Neither path poisons a later independent positive recovery.
+
+**NEXT:** T5 Session failure-boundary regression.
+
+Status: current; T4 involuntary Abort semantics closed, T5 next.
