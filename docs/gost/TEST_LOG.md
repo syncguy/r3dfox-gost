@@ -71,3 +71,39 @@ The `selected=0`, `0x80090326`, and `0x0000054f` entries produced by the four de
 **NEXT:** T4 involuntary Abort via navigation/tab/load teardown without a user picker decision. The timeout segment above is corroborating lifecycle evidence only; do not close T4 until its specified teardown scenario is exercised.
 
 Status: current; T3 explicit decline semantics closed, T4 next.
+
+---
+
+## 2026-08-28 — XP x86 representative coexistence smoke passes on physical Windows XP SP3
+
+**Track:** Windows compatibility / Windows XP SP3 x86  
+**Experiment branch:** `agent/msvcr14x-win7-smoke`  
+**Source-under-test:** `d78137a931145af877dc458b01e494ad0467723d` (`ci: thunk remaining XP x86 Rust imports`)  
+**Actions run:** `33138244191`  
+**Job:** `98743029100`  
+**Workflow:** `msvcr14x Rust YY XP x86 coexistence smoke`  
+**Runtime artifact:** `9673057839` (`msvcr14x-rust-yy-xp-x86-runtime`), artifact digest SHA-256 `3b9e1c2643cafee89061c3ce260b0b075c60a772d8cbcedb96cb90161a3c4970`  
+**Diagnostics artifact:** `9673058689`, artifact digest SHA-256 `6775abf4048e12bddcafe3f842be8b23af9c0669190772d0dee04c8e56aac323`  
+**Runtime target:** physical Windows XP SP3 x86, `Microsoft Windows XP [Version 5.1.2600]`
+
+The exact Actions run is green through the representative C++ `/MD` + modern Rust/libstd + pinned msvcr14x + narrow YY-Thunks link, runtime dependency closure, XP x86 PE floor gate, direct post-XP import rejection gate, Windows 2022 sanity execution, and artifact publication.
+
+The runtime artifact contains the probe plus the two selected compatibility runtime DLLs:
+
+- `msvcr14x-rust-yy-xp-x86-smoke.exe` — 149,504 bytes;
+- `msvcp140.dll` — 423,936 bytes;
+- `ucrtbase.dll` — 908,800 bytes.
+
+On the physical XP SP3 x86 machine the user executed the exact probe three consecutive times from that bundle. Each run returned normally to `cmd.exe`, produced no loader/runtime error or crash dialog, and `echo ExitCode=%ERRORLEVEL%` reported `ExitCode=0` on all three runs. The machine had active current antivirus protection and no antivirus detection or execution block occurred during the test.
+
+The representative workload intentionally exercises modern Rust/libstd and C++ runtime paths including `RandomState`, `Once`, `RwLock`, `Mutex`/`Condvar`, thread creation/join, timing, ordinary `/MD` C++ STL use, and the selected YY-Thunks-backed compatibility surface. Therefore this is real runtime proof, not only PE/import analysis.
+
+### Conclusion
+
+**XP x86 representative coexistence milestone PASS / CLOSED.**
+
+For this exact representative workload, pinned msvcr14x + modern `i686-pc-windows-msvc` Rust/libstd + narrow YY-Thunks 1.2.2 works on real physical Windows XP SP3 x86 with the bundled compatible `ucrtbase.dll` and `msvcp140.dll` and returns exit code 0 repeatedly.
+
+This does **not** prove Firefox 153/xul can be built or run on XP and does not establish any GOST TLS behavior on XP. The next Windows-compatibility experiment is to scale the proven x86 runtime/linker scheme to a full 32-bit Firefox/xul build, then audit its actual PE/runtime dependency closure before attempting real browser startup on XP.
+
+Status: current; representative XP x86 runtime question closed, Firefox-scale XP x86 integration next.
