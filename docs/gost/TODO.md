@@ -99,13 +99,15 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 The representative Windows XP SP3 x86 coexistence question is closed for source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`: the exact probe with bundled msvcr14x `ucrtbase.dll` and `msvcp140.dll` ran three times on physical Windows XP SP3 x86 with `ExitCode=0`.
 
-Open work:
+The first full Firefox 153 x86 integration build now also exists: source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, package artifact `9676548553`, physical-test runtime artifact `9676549576`, diagnostics artifact `9676550507`. Full compilation/package/runtime staging succeeded; the run is red only because the post-build XP import audit failed. Physical tests have converted that broad audit result into concrete runtime blockers.
 
-1. create a separate full 32-bit Firefox/xul experiment using the proven x86 `msvcr14x + modern Rust/libstd + narrow YY-Thunks` scheme while preserving `/MD` and XP x86 PE floor;
-2. audit the resulting Firefox PE/runtime dependency closure for direct API-set/VCRUNTIME/known post-XP imports and fix only observed blockers;
-3. if the full x86 build and import gates pass, run the exact portable browser first on a modern Windows host as packaging/startup sanity and then on real Windows XP SP3 x86;
-4. separately continue the existing Win7 full-xul line: fix/replay delay-load parser, run real Win7, and expand Win7 runtime coverage;
-5. keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility.
+Open work, in order:
+
+1. **XP x32 loader blocker — `CloseThreadpoolWork`.** On physical XP the browser does not reach UI startup because a startup-loaded PE module has a hard `KERNEL32!CloseThreadpoolWork` dependency. Identify the exact importing module from the build diagnostics/import tables; redirect/remove only that observed hard import using the narrow compatibility strategy; rebuild and rerun the exact physical XP startup test. Do not assume the dialog title proves `r3dfox.exe` itself owns the import.
+2. **Win7 x32 content-sandbox RNG blocker.** On physical Win7 the same build starts the parent/browser UI, but sandboxed `tab` processes deterministically terminate with `STATUS_BREAKPOINT` in `mozglue!mozilla::RandomUint64OrDie` after OS random-byte generation returns false. The A/B test with `MOZ_DISABLE_CONTENT_SANDBOX=1` creates a fresh profile, loads the policy-enabled uBlock extension and opens multiple real pages, proving the immediate tab-startup failure is sandbox-dependent rather than a generic Win7 loader failure. Determine why the Win7 sandboxed process loses the `RtlGenRandom`/`SystemFunction036` path in this build and implement a narrow fix that preserves the content sandbox; disabling the sandbox is diagnostic only, never the shipping solution.
+3. **Win7 later crash — separate blocker.** With the content sandbox disabled the browser later crashes after some successful browsing. Capture and diagnose that later failure separately; do not conflate it with the now-localized `RandomUint64OrDie` startup crash. Prefer debugger/minidump evidence once the sandbox/RNG blocker is fixed or bypassed diagnostically.
+4. Re-run the resulting exact full x86 build on physical Win7 and XP after each compatibility fix, treating each newly observed loader/runtime failure as a separate evidence-backed blocker rather than preemptively rewriting every audit finding.
+5. Keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility. A browser that starts and browses ordinary pages still does not prove the MSSPI GOST path on XP/Win7.
 
 ## Bundled government-system extensions — independent
 
