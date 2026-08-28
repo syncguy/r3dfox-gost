@@ -227,13 +227,17 @@ jobs:
           free PROC
             ret
           free ENDP
+          malloc PROC
+            xor eax, eax
+            ret
+          malloc ENDP
           END
           '@ | Set-Content -Encoding ascii $stubAsm
           & ml.exe /nologo /c /coff "/Fo$stubObj" $stubAsm 2>&1 | Tee-Object diagnostics\harness-stubs-assemble.log
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stubObj)) { throw 'Harness MASM stub compile failed' }
           $stubSymbols = (& dumpbin.exe /nologo /symbols $stubObj 2>&1 | Out-String)
           $stubSymbols | Set-Content -Encoding utf8 diagnostics\harness-stubs-symbols.txt
-          foreach ($symbol in @('_wcsrchr','_free')) {
+          foreach ($symbol in @('_wcsrchr','_free','_malloc')) {
             if ($stubSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Harness stub missing $symbol" }
           }
 
@@ -311,6 +315,6 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline uses llvm-dlltool i386 stdcall import objects; thunked link adds only local link-only CRT helper stubs, including MASM _wcsrchr/_free objects, plus XP-available system import libraries required by YY common code." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline uses llvm-dlltool i386 stdcall import objects; thunked link adds only local link-only CRT helper stubs, including MASM _wcsrchr/_free/_malloc objects, plus XP-available system import libraries required by YY common code." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Passing candidate must select all seven YY_Thunks_* symbols and eliminate both observed xul WinRT delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
