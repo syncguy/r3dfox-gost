@@ -51,7 +51,7 @@ jobs:
           if ($widget -match '"OSKInputPaneManager\.cpp"') { throw 'WinRT OSK backend is still selected' }
           if ($widget -notmatch 'SOURCES\["WindowsUIUtils\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsUIUtils WinRT fallback flag missing' }
           if ($pkg -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsPackageManager WinRT fallback flag missing' }
-          git diff --check HEAD~1..HEAD
+          git diff --check
 
       - name: Repair stale mime_guess vendored checksum
         shell: powershell
