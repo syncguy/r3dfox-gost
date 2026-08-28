@@ -29,6 +29,7 @@ Current constraints and behavior:
 - explicit `Once` remains available and uses the positive-only 5-second idle fanout lease; each successful reuse refreshes the idle expiry;
 - explicit client-certificate Cancel is attempt-local: it is consumed as a declined decision and is not stored as reusable negative state;
 - an unanswered picker abandoned by navigation/tab/load teardown remains unresolved and is removed through phase-0 lifecycle cleanup rather than being converted into Declined state;
+- on the current CryptoPro/SSPI environment, removing the private-key medium **after** successful Session mTLS does not necessarily invalidate the already-acquired provider/credential context: a later fresh Treasury socket can still perform a new client-auth TLS exchange using the remembered Session decision;
 - `Issued by` uses the human-facing issuer common name when available, with the full issuer DN only as fallback;
 - current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics are not yet implemented/proven.
 
@@ -133,12 +134,33 @@ Whole T4 capture: two decisions, two picker requests, one positive decision reso
 
 Together T3/T4 close the intended negative-decision split on the current artifact: explicit picker Cancel is Declined/phase `2`; involuntary navigation/tab/load abandonment remains unresolved phase `0` and is removed by lifecycle teardown. Neither path poisons later recovery.
 
+### T5 post-login media-removal probe — METHODOLOGY FINDING; T5 DEFERRED
+
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Capture `T5 — Session failure-boundary regression.zip` has SHA-256 `ede5279115bb6fb80ddae7f40df1c87918a226ffedf6f16979ea30220d218076`; inner log SHA-256 `c9d63066b298bb127ad01060dc3428bcc1171535bd348950d0a3c067040d79c4`.
+
+In one browser process (`Parent 644`), a normal positive Session decision is established and the initial Treasury flow completes. The user then makes the private-key medium unavailable and independently observes missing-container/provider-refusal behavior on the official CryptoPro CAdES demo. That CAdES/native CSP path is outside `GostTLS` transport logging, so the exact removal/provider-refusal event itself is external procedure evidence.
+
+The Treasury log nevertheless proves that post-login media removal does not invalidate the already-acquired MSSPI credential in this environment:
+
+- the initial Treasury burst ends at `04:12:30.946 UTC`;
+- at `04:15:42.644 UTC`, `191.698 s` later, a fresh `lk-fzs.roskazna.ru` socket is created;
+- at `04:15:42.864`, the new socket receives a fresh client-certificate request, consumes `selected=1 scope=session`, and emits a `redacted=client-auth` TLS flight;
+- at `04:15:43.160`, that fresh connection completes TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
+- whole capture contains 10 Treasury client-certificate requests, 9 Session remembered hits and 10 successful Treasury mTLS handshakes, with zero `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `SEC_E_NO_CREDENTIALS`.
+
+This is stronger than an already-open HTTP/TLS session surviving: a later new socket performs a new client-auth TLS exchange successfully. The current interpretation is that CryptoPro/SSPI retains an already-acquired provider/private-key credential context after the medium is removed. That behavior is acceptable and should not be treated as a failure.
+
+The capture therefore **does not pass or fail T5**. It invalidates post-login medium removal as the planned T5 fault injection. T5 is deferred until a safe deterministic way exists to invalidate an already-acquired provider credential inside the same browser process.
+
 ## Immediate runtime / implementation order
 
-1. **T5 — Session failure-boundary regression — NEXT.** Establish a positive Treasury Session decision, induce one controlled private-key/provider failure on a later matching attempt without changing the certificate decision, then restore provider/key availability in the same process/profile. The failure must remain attempt/provider-local and must not erase, broaden, or overwrite the Session choice; a later matching request should reuse the existing Session decision and complete GOST mTLS without a fresh Firefox picker. A missing-medium/provider-Cancel run may also satisfy T7/T8 if their criteria are met.
+1. **T7/T8 — missing-medium/provider Cancel and recovery — NEXT RUNTIME.** Start a clean process/profile with the key medium unavailable before the first GOST private-key acquisition. Exercise the provider/key failure, then restore the medium and prove same-process Treasury mTLS/application recovery without sticky certificate state.
 2. **T6 — real Permanent semantics.** Implement/prove persistence distinct from the current process-local non-Once store, including intended forget/change behavior.
-3. Continue provider/media, picker/localization, dynamic discovery, candidate-policy and negative matrix.
-4. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
+3. **T5 — Session failure-boundary regression — DEFERRED.** Resume only with a safe deterministic mechanism that actually invalidates an already-acquired provider/private-key credential in the live process; do not repeat post-login medium removal or invent an invasive synthetic invalidation merely to force the test.
+4. Continue long provider wait, picker/localization, dynamic discovery, candidate-policy and negative matrix.
+5. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
 
 Keep timeout-source/poll-churn attribution as separate non-blocking work.
 
@@ -167,7 +189,7 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 - provider Cancel can fail only the current attempt with `SEC_E_NO_CREDENTIALS`;
 - a later attempt can recover when the medium becomes available.
 
-These scenarios still require revalidation after the current client-decision/UX work. The preferred next use of this older scenario is T5: establish current-artifact Session state first, then verify an attempt-local provider/key failure cannot overwrite that remembered Session decision and that same-process recovery reuses it after provider availability returns.
+That older missing-media scenario remains relevant for T7/T8, but the current T5 probe adds an important boundary: **the medium must be unavailable before the first GOST private-key acquisition if the goal is to force a provider failure.** Once a usable provider/credential context has already been acquired, later medium removal may not invalidate it.
 
 ## Windows compatibility — independent track
 
@@ -196,7 +218,7 @@ The workflow proves the representative x86 candidate links with ordinary C++ `/M
 
 The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; every run returned `ExitCode=0` without loader/runtime errors or antivirus intervention. This closes representative XP x86 runtime viability for the tested workload.
 
-It does not prove Firefox 153/xul compatibility or GOST TLS on XP. The immediate Windows-compatibility next experiment is a separate full 32-bit Firefox/xul build using the now-proven x86 msvcr14x + modern Rust/libstd + narrow YY scheme, followed by PE/runtime-closure audit and only then real Firefox startup on XP.
+It does not prove Firefox 153/xul compatibility or GOST TLS on XP. The immediate Windows-compatibility next experiment remains a separate full 32-bit Firefox/xul integration line; its workflow/code state must be evaluated independently from GOST runtime conclusions.
 
 ## Bundled government-system extensions — independent track
 
