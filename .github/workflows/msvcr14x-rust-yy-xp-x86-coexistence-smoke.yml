@@ -281,7 +281,7 @@ jobs:
           $args = @(
             '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',
             "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
-            $env:WINRT_PROBE_OBJ,$env:HARNESS_STUB_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib','advapi32.lib','gdi32.lib','user32.lib','version.lib','ntdll.lib','oleaut32.lib',
+            $env:WINRT_PROBE_OBJ,$env:HARNESS_STUB_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib','advapi32.lib','gdi32.lib','user32.lib','version.lib','ntdll.lib','oleaut32.lib','ole32.lib',
             '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
           )
           & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object diagnostics\thunked-winrt-link.log
