@@ -203,6 +203,14 @@ This closes T9 as a characterization: long provider wait/cancel is lifecycle-saf
 
 Whether that concurrency limitation is materially worse than stock Firefox synchronous token/PIN/client-certificate behavior remains open in `TODO.md`. Any off-thread MSSPI/provider experiment must preserve the already-proven NSPR/MSSPI lifecycle, cancellation, client-auth decision semantics and proxy/CONNECT ordering.
 
+### Stage 2 T10 detailed Russian picker presentation — COMPLETE
+
+Exact source/runtime browser remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
+
+Sanitized user confirmation closes the detailed Russian picker UX beyond SD6: owner/name and issuer are human-readable, Cyrillic and expiry render correctly, `Session` is visibly selected by default, `Once` / `Session` / `Permanent` are all present, details are readable, and certificate serial remains details-only. A normal `Session` choice still leads to successful Treasury login after the inspection.
+
+No raw screenshot or certificate identity is retained. T10 closes presentation only; it does not prove or imply real `Permanent` persistence, which remains T6.
+
 ## Windows compatibility
 
 ### Windows XP SP3 x86 representative msvcr14x + Rust/libstd + YY runtime — COMPLETE
