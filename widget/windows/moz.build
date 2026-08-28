@@ -58,7 +58,6 @@ EXPORTS.mozilla.widget += [
     "JumpListBuilder.h",
     "nsWindowLoggedMessages.h",
     "WinCompositorWidget.h",
-    "WinCompositorWindowThread.h",
     "WindowsSMTCProvider.h",
     "WinEventObserver.h",
     "WinMessages.h",
@@ -139,11 +138,12 @@ SOURCES += [
     "nsFilePicker.cpp",
     "nsSharePicker.cpp",
     "nsWidgetFactory.cpp",
-    "OSKInputPaneManager.cpp",
+    "OSKInputPaneManagerLegacy.cpp",
     "WinCompositorWidget.cpp",
     "WindowsSMTCProvider.cpp",
     "WindowsUIUtils.cpp",
 ]
+SOURCES["WindowsUIUtils.cpp"].flags += ["-D__MINGW32__"]
 
 # Needs INITGUID and we don't allow INITGUID in unified sources since bug 970429.
 SOURCES += [
