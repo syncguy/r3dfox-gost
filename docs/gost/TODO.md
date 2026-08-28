@@ -77,16 +77,17 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 - only a successful, normally verified GOST connection becomes session-confirmed;
 - discovery cache is process/session scoped and never bypasses trust/client-auth policy.
 
-## Windows Vista/7 compatibility — independent
+## Windows compatibility — independent
+
+The representative Windows XP SP3 x86 coexistence question is closed for source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`: the exact probe with bundled msvcr14x `ucrtbase.dll` and `msvcp140.dll` ran three times on physical Windows XP SP3 x86 with `ExitCode=0`.
 
 Open work:
 
-1. integrate proven `msvcr14x + modern Rust/libstd + narrow YY-Thunks` into full Firefox/xul while preserving `/MD`;
-2. audit final PE set for direct API-set/VCRUNTIME/known Win8+ imports;
-3. fix/replay delay-load parser and classify guarded post-Win7 paths;
-4. run the resulting portable browser on real Windows 7 without the copied compatibility bundle;
-5. expand real Win7 runtime coverage;
-6. run GOST TLS on Win7 as a separate exact-build/runtime milestone.
+1. create a separate full 32-bit Firefox/xul experiment using the proven x86 `msvcr14x + modern Rust/libstd + narrow YY-Thunks` scheme while preserving `/MD` and XP x86 PE floor;
+2. audit the resulting Firefox PE/runtime dependency closure for direct API-set/VCRUNTIME/known post-XP imports and fix only observed blockers;
+3. if the full x86 build and import gates pass, run the exact portable browser first on a modern Windows host as packaging/startup sanity and then on real Windows XP SP3 x86;
+4. separately continue the existing Win7 full-xul line: fix/replay delay-load parser, run real Win7, and expand Win7 runtime coverage;
+5. keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility.
 
 ## Bundled government-system extensions — independent
 
