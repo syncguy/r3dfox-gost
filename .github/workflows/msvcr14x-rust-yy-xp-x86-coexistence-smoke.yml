@@ -132,30 +132,42 @@ jobs:
           $lld = (Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source
           if (-not $lld) { $lld = 'C:\Program Files\LLVM\bin\lld-link.exe' }
           if (-not (Test-Path $lld)) { throw 'lld-link.exe not found' }
+          $dlltool = Join-Path (Split-Path $lld) 'llvm-dlltool.exe'
+          if (-not (Test-Path $dlltool)) { throw "llvm-dlltool.exe not found next to lld-link: $dlltool" }
 
           $winrtDef = Join-Path $env:WINRT_WORK 'winrt.def'
           $stringDef = Join-Path $env:WINRT_WORK 'winrt-string.def'
           @'
           LIBRARY api-ms-win-core-winrt-l1-1-0.dll
           EXPORTS
-            RoActivateInstance=_RoActivateInstance@8
-            RoGetActivationFactory=_RoGetActivationFactory@12
+            RoActivateInstance@8
+            RoGetActivationFactory@12
           '@ | Set-Content -Encoding ascii $winrtDef
           @'
           LIBRARY api-ms-win-core-winrt-string-l1-1-0.dll
           EXPORTS
-            WindowsCompareStringOrdinal=_WindowsCompareStringOrdinal@12
-            WindowsCreateString=_WindowsCreateString@12
-            WindowsCreateStringReference=_WindowsCreateStringReference@16
-            WindowsDeleteString=_WindowsDeleteString@4
-            WindowsGetStringRawBuffer=_WindowsGetStringRawBuffer@8
+            WindowsCompareStringOrdinal@12
+            WindowsCreateString@12
+            WindowsCreateStringReference@16
+            WindowsDeleteString@4
+            WindowsGetStringRawBuffer@8
           '@ | Set-Content -Encoding ascii $stringDef
           $winrtLib = Join-Path $env:WINRT_WORK 'baseline-winrt.lib'
           $stringLib = Join-Path $env:WINRT_WORK 'baseline-winrt-string.lib'
-          & lib.exe /nologo /machine:x86 "/def:$winrtDef" "/out:$winrtLib"
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot build WinRT import library' }
-          & lib.exe /nologo /machine:x86 "/def:$stringDef" "/out:$stringLib"
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot build WinRT string import library' }
+          & $dlltool -k -m i386 -d $winrtDef -l $winrtLib 2>&1 | Tee-Object diagnostics\synthetic-winrt-lib.log
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $winrtLib)) { throw 'Cannot build WinRT import library' }
+          & $dlltool -k -m i386 -d $stringDef -l $stringLib 2>&1 | Tee-Object diagnostics\synthetic-winrt-string-lib.log
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stringLib)) { throw 'Cannot build WinRT string import library' }
+          $winrtSymbols = (& dumpbin.exe /nologo /linkermember:1 $winrtLib 2>&1 | Out-String)
+          $stringSymbols = (& dumpbin.exe /nologo /linkermember:1 $stringLib 2>&1 | Out-String)
+          $winrtSymbols | Set-Content -Encoding utf8 diagnostics\synthetic-winrt-symbols.txt
+          $stringSymbols | Set-Content -Encoding utf8 diagnostics\synthetic-winrt-string-symbols.txt
+          foreach ($symbol in @('_RoActivateInstance@8','__imp__RoActivateInstance@8','_RoGetActivationFactory@12','__imp__RoGetActivationFactory@12')) {
+            if ($winrtSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Synthetic WinRT lib missing $symbol" }
+          }
+          foreach ($symbol in @('_WindowsCompareStringOrdinal@12','__imp__WindowsCompareStringOrdinal@12','_WindowsCreateString@12','__imp__WindowsCreateString@12','_WindowsCreateStringReference@16','__imp__WindowsCreateStringReference@16','_WindowsDeleteString@4','__imp__WindowsDeleteString@4','_WindowsGetStringRawBuffer@8','__imp__WindowsGetStringRawBuffer@8')) {
+            if ($stringSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Synthetic WinRT string lib missing $symbol" }
+          }
 
           $src = Join-Path $env:WINRT_WORK 'winrt-probe.cpp'
           $obj = Join-Path $env:WINRT_WORK 'winrt-probe.obj'
@@ -219,6 +231,7 @@ jobs:
           )) {
             if ($raw.IndexOf($name,[System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "Baseline imports missing $name" }
           }
+          Copy-Item $map diagnostics\baseline-delay.map -Force
 
       - name: GATE - Narrow YY provider eliminates both WinRT delay-import groups
         shell: powershell
@@ -263,6 +276,6 @@ jobs:
         run: |
           "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline uses exact synthetic API-set imports and a local no-op delay helper, avoiding unrelated delayimp runtime metadata." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline uses llvm-dlltool i386 stdcall import objects with IMPORT_NAME_UNDECORATE plus a local no-op delay helper." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Passing candidate must select all seven YY_Thunks_* symbols and eliminate both observed xul WinRT delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
