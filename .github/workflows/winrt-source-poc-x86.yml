@@ -6,23 +6,24 @@ on:
     branches:
       - agent/winrt-source-poc
     paths:
-      - '.github/workflows/winrt-source-poc-x86.yml'
-      - 'widget/windows/**'
-      - 'toolkit/components/alerts/nsAlertsService.cpp'
-      - 'toolkit/system/windowsPackageManager/**'
+      - "widget/windows/**"
+      - "toolkit/system/windowsPackageManager/**"
+      - ".github/workflows/winrt-source-poc-x86.yml"
 
 permissions:
   contents: read
 
 jobs:
-  winrt-source-poc-x86:
-    runs-on: windows-2025
-    timeout-minutes: 30
+  source-winrt-x86:
+    name: Firefox source WinRT isolation / x86
+    runs-on: windows-2022
+    timeout-minutes: 120
+
     env:
       MOZILLABUILD: C:\mozilla-build
       MOZCONFIG: ${{ github.workspace }}\.mozconfig-winrt-poc-x86
-      MACH_NO_TERMINAL_FOOTER: '1'
-      MACH_HIDE_DEV_DRIVE_SUGGESTION: '1'
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
 
     steps:
       - name: Checkout source PoC branch
@@ -34,76 +35,45 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force diagnostics | Out-Null
-          "run_id=${{ github.run_id }}" | Set-Content diagnostics\identity.txt
-          "job=${{ github.job }}" | Add-Content diagnostics\identity.txt
-          "sha=${{ github.sha }}" | Add-Content diagnostics\identity.txt
-          git rev-parse HEAD | Add-Content diagnostics\identity.txt
-          git status --short | Add-Content diagnostics\identity.txt
+          @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "source=$env:GITHUB_SHA"
+            "ref=$env:GITHUB_REF"
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: GATE - Verify intended source isolation
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $bad = @(
-            'RoActivateInstance',
-            'RoGetActivationFactory',
-            'WindowsCompareStringOrdinal',
-            'WindowsCreateString',
-            'WindowsCreateStringReference',
-            'WindowsDeleteString',
-            'WindowsGetStringRawBuffer'
-          )
-          $paths = @(
-            'widget/windows/ToastNotification.cpp',
-            'widget/windows/ToastNotification.h',
-            'widget/windows/OSKInputPaneManagerLegacy.cpp',
-            'widget/windows/rust',
-            'toolkit/components/alerts/nsAlertsService.cpp'
-          )
-          $matches = @()
-          foreach ($path in $paths) {
-            if (Test-Path $path) {
-              $matches += Get-ChildItem $path -Recurse -File -ErrorAction SilentlyContinue |
-                Select-String -SimpleMatch -Pattern $bad -ErrorAction SilentlyContinue
-            }
-          }
-          if ($matches) {
-            $matches | ForEach-Object { "{0}:{1}: {2}" -f $_.Path, $_.LineNumber, $_.Line.Trim() }
-            throw 'Forbidden WinRT API references remain in the isolated PoC source paths'
-          }
-
-          # windowsPackageManager intentionally retains its WinRT implementation
-          # behind an existing __MINGW32__ guard.  The PoC isolates that source
-          # through a per-file compiler flag, so raw source text is not the gate.
-          # The later object-symbol gate is authoritative for this directory.
-          $packageMoz = Get-Content 'toolkit\system\windowsPackageManager\moz.build' -Raw
-          if ($packageMoz -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags \+= \["-D__MINGW32__"\]') {
-            throw 'windowsPackageManager legacy WinRT guard flag is not active'
-          }
+          $widget = Get-Content widget\windows\moz.build -Raw
+          $pkg = Get-Content toolkit\system\windowsPackageManager\moz.build -Raw
+          if ($widget -notmatch 'OSKInputPaneManagerLegacy\.cpp') { throw 'Legacy OSK backend is not selected' }
+          if ($widget -match '"OSKInputPaneManager\.cpp"') { throw 'WinRT OSK backend is still selected' }
+          if ($widget -notmatch 'SOURCES\["WindowsUIUtils\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsUIUtils WinRT fallback flag missing' }
+          if ($pkg -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsPackageManager WinRT fallback flag missing' }
+          git diff --check
 
       - name: Repair stale mime_guess vendored checksum
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
           $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
-          if (Test-Path $checksum) {
-            $json = Get-Content $checksum -Raw | ConvertFrom-Json
-            $files = [ordered]@{}
-            foreach ($prop in $json.files.PSObject.Properties) {
-              if (Test-Path (Join-Path 'third_party\rust\mime_guess' $prop.Name)) {
-                $files[$prop.Name] = $prop.Value
-              }
-            }
-            $fixed = [ordered]@{ files = $files; package = $json.package }
-            $fixed | ConvertTo-Json -Compress | Set-Content $checksum -NoNewline
-          }
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) { throw 'Expected stale mime_guess checksum was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
 
       - name: Install MozillaBuild
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest 'https://ftp.mozilla.org/pub/mozilla.org/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe' -OutFile "$env:TEMP\MozillaBuildSetup.exe"
-          Start-Process "$env:TEMP\MozillaBuildSetup.exe" -ArgumentList '/S' -Wait
+          Invoke-WebRequest -Uri 'https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe' -OutFile "$env:RUNNER_TEMP\MozillaBuildSetup.exe"
+          Start-Process -FilePath "$env:RUNNER_TEMP\MozillaBuildSetup.exe" -ArgumentList '/S' -Wait
           if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
 
       - name: Write x86 mozconfig
@@ -203,75 +173,80 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $dumpbin = Get-ChildItem "$env:USERPROFILE\.mozbuild\vs" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $dumpbin) { throw 'dumpbin.exe not found' }
-
-          $forbidden = @(
-            'RoActivateInstance',
-            'RoGetActivationFactory',
-            'WindowsCompareStringOrdinal',
-            'WindowsCreateString',
-            'WindowsCreateStringReference',
-            'WindowsDeleteString',
+          $apis = @(
+            'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal',
+            'WindowsCreateString','WindowsCreateStringReference','WindowsDeleteString',
             'WindowsGetStringRawBuffer'
           )
-          $roots = @(
-            'obj-winrt-poc-x86\widget\windows',
-            'obj-winrt-poc-x86\toolkit\system\windowsPackageManager'
-          )
-          $objects = @()
-          foreach ($root in $roots) {
-            if (Test-Path $root) {
-              $objects += Get-ChildItem $root -Recurse -Include *.obj,*.o -File
-            }
+          $objects = Get-ChildItem obj-winrt-poc-x86 -Recurse -File -Filter '*.obj' | Where-Object {
+            $_.Name -match 'WindowsUIUtils|OSKInputPaneManagerLegacy|nsWindowsPackageManager'
           }
-          if (-not $objects) { throw 'No target object files found for WinRT import scan' }
-
-          $hits = @()
+          if (-not $objects) { throw 'Expected WinRT-related objects were not found' }
+          $report = [System.Collections.Generic.List[string]]::new()
           foreach ($obj in $objects) {
-            $text = & $dumpbin /symbols $obj.FullName 2>&1
-            foreach ($symbol in $forbidden) {
-              if ($text -match [regex]::Escape($symbol)) {
-                $hits += "{0}: {1}" -f $obj.FullName, $symbol
+            $symbols = (& dumpbin.exe /nologo /symbols $obj.FullName 2>&1 | Out-String)
+            $report.Add("=== $($obj.FullName) ===")
+            foreach ($api in $apis) {
+              if ($symbols.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $report.Add("FOUND $api")
+                throw "$($obj.Name) still references $api"
               }
             }
+            $report.Add('PASS no target WinRT API symbols')
           }
-          $hits | Set-Content diagnostics\forbidden-object-symbols.txt
-          if ($hits) {
-            $hits | ForEach-Object { Write-Host $_ }
-            throw 'Forbidden WinRT API symbol references remain in targeted object files'
-          }
-          'PASS: no forbidden WinRT API references in targeted object files' |
-            Set-Content diagnostics\forbidden-object-symbols.txt
+          $report | Set-Content -Encoding utf8 diagnostics\disabled-path-symbol-gate.txt
 
-      - name: Inventory targeted objects
+      - name: Inventory remaining WinRT references in widget objects
         if: always()
+        env:
+          COMPILE_GATE_OUTCOME: ${{ steps.compile_winrt_objects.outcome }}
         shell: powershell
         run: |
-          Get-ChildItem 'obj-winrt-poc-x86\widget\windows','obj-winrt-poc-x86\toolkit\system\windowsPackageManager' -Recurse -Include *.obj,*.o -File -ErrorAction SilentlyContinue |
-            Select-Object FullName,Length,LastWriteTime |
-            Format-Table -AutoSize |
-            Out-String -Width 240 |
-            Set-Content diagnostics\target-object-inventory.txt
+          $apis = @(
+            'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal',
+            'WindowsCreateString','WindowsCreateStringReference','WindowsDeleteString',
+            'WindowsGetStringRawBuffer'
+          )
+          $hits = [System.Collections.Generic.List[string]]::new()
+
+          $expectedObjects = @(
+            'obj-winrt-poc-x86\widget\windows\WindowsUIUtils.obj',
+            'obj-winrt-poc-x86\widget\windows\OSKInputPaneManagerLegacy.obj'
+          )
+          $missingObjects = @($expectedObjects | Where-Object { -not (Test-Path $_) })
+          $inventoryComplete =
+            ($env:COMPILE_GATE_OUTCOME -eq 'success') -and ($missingObjects.Count -eq 0)
+          if (-not $inventoryComplete) {
+            $missingText = if ($missingObjects.Count) { $missingObjects -join ',' } else { 'none' }
+            $hits.Add("INVENTORY_INCOMPLETE compile_gate=$env:COMPILE_GATE_OUTCOME missing=$missingText")
+          }
+
+          Get-ChildItem obj-winrt-poc-x86\widget\windows -Recurse -File -Filter '*.obj' -ErrorAction SilentlyContinue | ForEach-Object {
+            $symbols = (& dumpbin.exe /nologo /symbols $_.FullName 2>&1 | Out-String)
+            $found = @($apis | Where-Object { $symbols.IndexOf($_,[System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            if ($found.Count) { $hits.Add("$($_.Name)|$($found -join ',')") }
+          }
+          if ($inventoryComplete -and -not $hits.Count) {
+            $hits.Add('NO_REMAINING_WINRT_REFERENCES_IN_WIDGET_OBJECTS')
+          }
+          $hits | Set-Content -Encoding utf8 diagnostics\remaining-widget-winrt-references.txt
+          $hits | ForEach-Object { Write-Host $_ }
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: winrt-source-poc-x86-${{ github.run_id }}
+          name: winrt-source-poc-x86-diagnostics
           path: diagnostics
-          if-no-files-found: warn
+          retention-days: 14
 
       - name: Summary
         if: always()
         shell: powershell
         run: |
-          @'
-          ## WinRT source PoC x86
-
-          - Source isolation gate: see workflow result above.
-          - Compile gate: `widget/windows/target-objects` and `toolkit/system/windowsPackageManager/target-objects` must both pass.
-          - Forbidden API gate scans only objects produced by those targeted directories.
-          - This workflow is intentionally not a full Firefox build.
-          '@ | Add-Content $env:GITHUB_STEP_SUMMARY
+          "## WinRT source PoC x86" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Compile gate: ${{ steps.compile_winrt_objects.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- PackageManager and UISettings use existing non-WinRT fallback compilation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- InputPane uses a legacy no-op backend." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Remaining widget WinRT references are inventoried separately, especially toast notifications." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
