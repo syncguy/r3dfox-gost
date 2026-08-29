@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Record source identity
+        run: echo "Full XP x32 build source will be $GITHUB_SHA"
+
       - name: Dispatch gost-poc-build-xp-x32.yml on this branch
         env:
           GH_TOKEN: ${{ github.token }}
