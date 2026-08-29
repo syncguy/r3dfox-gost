@@ -94,6 +94,15 @@ Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any
 - Keep source-under-test identity separate from later documentation-only HEADs. A docs commit must never be cited as the binary/source SHA for an earlier build or runtime result.
 - When a run is still in progress, describe its state as provisional. Do not document a pending gate as passed or close the corresponding task before the exact run finishes.
 
+### Long-running GitHub Actions handoff
+- After creating or triggering a GitHub Actions run, verify once that the intended run exists and record its source-under-test commit SHA, run ID, job ID when available, and current state such as `queued` or `in_progress`.
+- Do **not** keep the interactive chat alive by repeatedly polling an in-progress GitHub Actions run unless the user explicitly asks to watch that run live. Long Firefox builds may take hours; repeated `queued`/`in_progress` checks add no technical evidence and are not the default workflow.
+- Once a long-running run has been successfully created and its identity is recorded, finish the current interactive task instead of waiting for the run to complete.
+- When later result checking would be useful, offer the user an optional scheduled or conditional task that will check the exact run later and report only when there is a meaningful state/result to report. Create such a task only after the user agrees; never create it implicitly merely because a build is long-running.
+- If the user does not request an automated follow-up, leave the run for a later chat/request. A later technical chat can recover it by the recorded run ID/job ID/source SHA.
+- For a genuinely short smoke test, one additional status check can be reasonable when completion is already near and the result is immediately useful, but do not enter an open-ended polling loop without explicit user direction.
+- If further technical work strictly depends on the CI result, state that dependency, hand off the running build as above, and stop. Do not turn waiting time into repeated status polling.
+
 ### Mandatory GOST runtime-test preflight
 - Every GOST TLS runtime test sequence must pass the exact binary/environment/profile preflight defined in `docs/gost/STAGE2_RUNTIME_TEST_PLAN.md` before its result is accepted as evidence.
 - Verify the launched `r3dfox.exe` and `xul.dll` SHA-256 values against the authoritative build artifact for the source under test. A mismatch invalidates the test until the correct binary is launched.
