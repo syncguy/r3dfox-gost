@@ -2,11 +2,34 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// The WinRT source-removal PoC currently selects this file's existing MinGW
+// fallback with a per-source __MINGW32__ define under clang-cl.  Do not let
+// that temporary toolchain spoof leak into shared Mozilla headers: it changes
+// MOZ_THREAD_LOCAL selection in mfbt/ThreadLocal.h.  Capture the PoC signal,
+// compile common headers with their real clang-cl identity, then restore the
+// local fallback selector only after all common includes are complete.
+#if defined(__MINGW32__) && defined(_MSC_VER)
+#  define MOZ_WINDOWS_PACKAGE_MANAGER_LEGACY_NO_WINRT 1
+#  undef __MINGW32__
+#endif
+
 #include "nsWindowsPackageManager.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/Logging.h"
 #include "mozilla/WindowsVersion.h"
 #include "mozilla/WinHeaderOnlyUtils.h"
+#include "nsError.h"
+#include "nsString.h"
+#include "nsISupportsPrimitives.h"
+#include "nsCOMPtr.h"
+#include "nsComponentManagerUtils.h"
+#include "nsXPCOMCID.h"
+#include "json/json.h"
+
+#if defined(MOZ_WINDOWS_PACKAGE_MANAGER_LEGACY_NO_WINRT)
+#  define __MINGW32__ 1
+#endif
+
 #ifndef __MINGW32__
 #  include "nsProxyRelease.h"
 #  include <comutil.h>
@@ -15,13 +38,6 @@
 #  include <windows.management.deployment.h>
 #  include <windows.services.store.h>
 #endif  // __MINGW32__
-#include "nsError.h"
-#include "nsString.h"
-#include "nsISupportsPrimitives.h"
-#include "nsCOMPtr.h"
-#include "nsComponentManagerUtils.h"
-#include "nsXPCOMCID.h"
-#include "json/json.h"
 
 #ifndef __MINGW32__  // WinRT headers not yet supported by MinGW
 using namespace Microsoft::WRL;
@@ -398,7 +414,7 @@ static void GetCampaignIdFromStoreProductOnBackgroundThread(
 
   auto callback = Callback<IAsyncOperationCompletedHandler<StoreAppLicense*> >(
       [asyncSal, promiseHolder, campaignId = std::move(campaignId)](
-          IAsyncOperation<StoreAppLicense*>* asyncInfo,
+          IAsyncOperation<StoreProductResult*>* asyncInfo,
           AsyncStatus status) -> HRESULT {
         bool asyncOpSucceeded = status == AsyncStatus::Completed;
         if (!asyncOpSucceeded) {
