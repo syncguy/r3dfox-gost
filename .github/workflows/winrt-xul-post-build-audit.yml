@@ -1,0 +1,146 @@
+name: "WinRT full xul post-build audit"
+
+on:
+  workflow_run:
+    workflows:
+      - "GOST TLS PoC build  XP x32"
+    types:
+      - completed
+    branches:
+      - agent/winrt-source-poc
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  audit-xul:
+    name: Nonblocking xul WinRT direct/delay audit
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - name: Record source build identity
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            "source_run=${{ github.event.workflow_run.id }}"
+            "source_sha=${{ github.event.workflow_run.head_sha }}"
+            "source_branch=${{ github.event.workflow_run.head_branch }}"
+            "source_conclusion=${{ github.event.workflow_run.conclusion }}"
+          ) | Set-Content -Encoding utf8 diagnostics\source-build-identity.txt
+
+      - name: Download full-build runtime artifact
+        id: download-runtime
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: r3dfox-gost-xp-x32-runtime
+          path: runtime-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: DIAGNOSTIC - Inventory full xul WinRT imports
+        id: winrt-audit
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+
+          $archive = Get-ChildItem runtime-artifact -Recurse -File -Filter '*.7z' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $archive) {
+            'NO_RUNTIME_ARTIFACT_AVAILABLE' | Set-Content -Encoding utf8 diagnostics\winrt-xul-targeted-hits.txt
+            "## Full xul WinRT audit: no runtime artifact" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "- Source run: ${{ github.event.workflow_run.id }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "- Source SHA: ${{ github.event.workflow_run.head_sha }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "- Source conclusion: ${{ github.event.workflow_run.conclusion }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "- The full build did not expose the runtime archive to this diagnostic workflow; no xul import conclusion is drawn." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 0
+          }
+
+          $expanded = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-runtime'
+          New-Item -ItemType Directory -Force $expanded | Out-Null
+          & 7z.exe x -y "-o$expanded" $archive.FullName | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z extraction failed with exit code $LASTEXITCODE" }
+
+          $xul = Get-ChildItem $expanded -Recurse -File -Filter 'xul.dll' | Select-Object -First 1
+          if (-not $xul) { throw 'xul.dll was not found in the runtime archive' }
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found: $vswhere" }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio VC tools installation not found' }
+          $vcTools = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $vcTools) { throw 'MSVC tools directory not found' }
+          $dumpbin = Join-Path $vcTools.FullName 'bin\Hostx64\x86\dumpbin.exe'
+          if (-not (Test-Path $dumpbin)) { throw "dumpbin not found: $dumpbin" }
+
+          $raw = @(& $dumpbin /nologo /imports $xul.FullName 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed with exit code $LASTEXITCODE" }
+          $raw | Set-Content -Encoding utf8 diagnostics\winrt-xul-imports.txt
+          "xul=$($xul.FullName)" | Set-Content -Encoding utf8 diagnostics\winrt-xul-scanner.txt
+          "dumpbin=$dumpbin" | Add-Content -Encoding utf8 diagnostics\winrt-xul-scanner.txt
+
+          $apis = @(
+            'RoActivateInstance',
+            'RoGetActivationFactory',
+            'WindowsCompareStringOrdinal',
+            'WindowsCreateString',
+            'WindowsCreateStringReference',
+            'WindowsDeleteString',
+            'WindowsGetStringRawBuffer'
+          )
+          $hits = [System.Collections.Generic.List[string]]::new()
+          $mode = 'UNKNOWN'
+          foreach ($line in $raw) {
+            if ($line -match '^\s*Section contains the following imports:\s*$') {
+              $mode = 'DIRECT'
+              continue
+            }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
+              $mode = 'DELAY'
+              continue
+            }
+
+            if ($line -match '(?i)\b(api-ms-win-core-winrt[^\s]*\.dll)\b') {
+              $hits.Add("$mode|DLL|$($matches[1])")
+            }
+            foreach ($api in $apis) {
+              if ($line.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $hits.Add("$mode|API|$api")
+              }
+            }
+          }
+
+          $uniqueHits = @($hits | Sort-Object -Unique)
+          if ($uniqueHits.Count -eq 0) {
+            'NO_TARGETED_WINRT_IMPORTS_FOUND' | Set-Content -Encoding utf8 diagnostics\winrt-xul-targeted-hits.txt
+          } else {
+            $uniqueHits | Set-Content -Encoding utf8 diagnostics\winrt-xul-targeted-hits.txt
+          }
+
+          "## Full xul WinRT import diagnostic" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source run: ${{ github.event.workflow_run.id }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source SHA: ${{ github.event.workflow_run.head_sha }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source conclusion: ${{ github.event.workflow_run.conclusion }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Targeted hit count: $($uniqueHits.Count)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if ($uniqueHits.Count -gt 0) {
+            "- Targeted WinRT direct/delay references were observed. This diagnostic is intentionally nonblocking." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $uniqueHits | ForEach-Object { "  - $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8 }
+          } else {
+            "- No targeted WinRT DLL/API references were found in dumpbin /imports output." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          "- Raw dumpbin output is retained in the diagnostics artifact and remains authoritative for parser review." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload WinRT xul diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winrt-full-xul-post-build-audit
+          if-no-files-found: warn
+          retention-days: 14
+          path: diagnostics
