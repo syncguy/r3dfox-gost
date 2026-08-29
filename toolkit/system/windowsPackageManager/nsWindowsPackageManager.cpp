@@ -414,7 +414,7 @@ static void GetCampaignIdFromStoreProductOnBackgroundThread(
 
   auto callback = Callback<IAsyncOperationCompletedHandler<StoreAppLicense*> >(
       [asyncSal, promiseHolder, campaignId = std::move(campaignId)](
-          IAsyncOperation<StoreProductResult*>* asyncInfo,
+          IAsyncOperation<StoreAppLicense*>* asyncInfo,
           AsyncStatus status) -> HRESULT {
         bool asyncOpSucceeded = status == AsyncStatus::Completed;
         if (!asyncOpSucceeded) {
