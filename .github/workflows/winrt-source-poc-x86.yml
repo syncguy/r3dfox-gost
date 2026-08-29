@@ -49,8 +49,10 @@ jobs:
           $pkg = Get-Content toolkit\system\windowsPackageManager\moz.build -Raw
           if ($widget -notmatch 'OSKInputPaneManagerLegacy\.cpp') { throw 'Legacy OSK backend is not selected' }
           if ($widget -match '"OSKInputPaneManager\.cpp"') { throw 'WinRT OSK backend is still selected' }
-          if ($widget -notmatch 'SOURCES\["WindowsUIUtils\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsUIUtils WinRT fallback flag missing' }
-          if ($pkg -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsPackageManager WinRT fallback flag missing' }
+          if ($widget -notmatch 'SOURCES\["WindowsUIUtils\.cpp"\]\.flags.*MOZ_NO_WINRT') { throw 'WindowsUIUtils MOZ_NO_WINRT fallback flag missing' }
+          if ($pkg -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags.*MOZ_NO_WINRT') { throw 'WindowsPackageManager MOZ_NO_WINRT fallback flag missing' }
+          if ($widget -match 'SOURCES\["WindowsUIUtils\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsUIUtils must not spoof __MINGW32__' }
+          if ($pkg -match 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags.*__MINGW32__') { throw 'WindowsPackageManager must not spoof __MINGW32__' }
           git diff --check
 
       - name: Repair stale mime_guess vendored checksum
@@ -247,6 +249,6 @@ jobs:
           "## WinRT source PoC x86" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Compile gate: ${{ steps.compile_winrt_objects.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- PackageManager and UISettings use existing non-WinRT fallback compilation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- PackageManager and UISettings use MOZ_NO_WINRT without changing the clang-cl/MSVC toolchain identity." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- InputPane uses a legacy no-op backend." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Remaining widget WinRT references are inventoried separately, especially toast notifications." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

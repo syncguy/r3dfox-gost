@@ -144,7 +144,7 @@ SOURCES += [
     "WindowsSMTCProvider.cpp",
     "WindowsUIUtils.cpp",
 ]
-SOURCES["WindowsUIUtils.cpp"].flags += ["-D__MINGW32__"]
+SOURCES["WindowsUIUtils.cpp"].flags += ["-DMOZ_NO_WINRT"]
 
 # Needs INITGUID and we don't allow INITGUID in unified sources since bug 970429.
 SOURCES += [
