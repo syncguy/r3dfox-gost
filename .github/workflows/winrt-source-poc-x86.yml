@@ -122,14 +122,43 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: GATE - Compile WinRT-related target objects
+        id: compile_winrt_objects
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
-          & $mozmake -C obj-winrt-poc-x86 'widget/windows/target-objects' 2>&1 | Tee-Object diagnostics\widget-target-objects.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $mozmake -C obj-winrt-poc-x86 'toolkit/system/windowsPackageManager/target-objects' 2>&1 | Tee-Object diagnostics\package-manager-target-objects.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Windows PowerShell 5.1 promotes native stderr redirected through the
+          # pipeline to NativeCommandError.  With ErrorActionPreference=Stop
+          # that used to terminate this step on the first clang diagnostic line
+          # before Tee-Object could preserve the actual compiler output.  Keep
+          # native stderr non-terminating only while each mozmake command runs;
+          # the real native exit code remains the gate authority.
+          $savedErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          try {
+            & $mozmake -C obj-winrt-poc-x86 'widget/windows/target-objects' 2>&1 |
+              Tee-Object diagnostics\widget-target-objects.log
+            $widgetCode = $LASTEXITCODE
+          } finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+          }
+          if ($widgetCode -ne 0) {
+            throw "widget/windows target-objects failed with exit code $widgetCode"
+          }
+
+          $savedErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          try {
+            & $mozmake -C obj-winrt-poc-x86 'toolkit/system/windowsPackageManager/target-objects' 2>&1 |
+              Tee-Object diagnostics\package-manager-target-objects.log
+            $packageManagerCode = $LASTEXITCODE
+          } finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+          }
+          if ($packageManagerCode -ne 0) {
+            throw "windowsPackageManager target-objects failed with exit code $packageManagerCode"
+          }
 
       - name: GATE - Disabled legacy paths have no WinRT API references
         shell: powershell
@@ -160,6 +189,8 @@ jobs:
 
       - name: Inventory remaining WinRT references in widget objects
         if: always()
+        env:
+          COMPILE_GATE_OUTCOME: ${{ steps.compile_winrt_objects.outcome }}
         shell: powershell
         run: |
           $apis = @(
@@ -168,12 +199,27 @@ jobs:
             'WindowsGetStringRawBuffer'
           )
           $hits = [System.Collections.Generic.List[string]]::new()
+
+          $expectedObjects = @(
+            'obj-winrt-poc-x86\widget\windows\WindowsUIUtils.obj',
+            'obj-winrt-poc-x86\widget\windows\OSKInputPaneManagerLegacy.obj'
+          )
+          $missingObjects = @($expectedObjects | Where-Object { -not (Test-Path $_) })
+          $inventoryComplete =
+            ($env:COMPILE_GATE_OUTCOME -eq 'success') -and ($missingObjects.Count -eq 0)
+          if (-not $inventoryComplete) {
+            $missingText = if ($missingObjects.Count) { $missingObjects -join ',' } else { 'none' }
+            $hits.Add("INVENTORY_INCOMPLETE compile_gate=$env:COMPILE_GATE_OUTCOME missing=$missingText")
+          }
+
           Get-ChildItem obj-winrt-poc-x86\widget\windows -Recurse -File -Filter '*.obj' -ErrorAction SilentlyContinue | ForEach-Object {
             $symbols = (& dumpbin.exe /nologo /symbols $_.FullName 2>&1 | Out-String)
             $found = @($apis | Where-Object { $symbols.IndexOf($_,[System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
             if ($found.Count) { $hits.Add("$($_.Name)|$($found -join ',')") }
           }
-          if (-not $hits.Count) { $hits.Add('NO_REMAINING_WINRT_REFERENCES_IN_WIDGET_OBJECTS') }
+          if ($inventoryComplete -and -not $hits.Count) {
+            $hits.Add('NO_REMAINING_WINRT_REFERENCES_IN_WIDGET_OBJECTS')
+          }
           $hits | Set-Content -Encoding utf8 diagnostics\remaining-widget-winrt-references.txt
           $hits | ForEach-Object { Write-Host $_ }
 
@@ -191,6 +237,7 @@ jobs:
         run: |
           "## WinRT source PoC x86" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Compile gate: ${{ steps.compile_winrt_objects.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- PackageManager and UISettings use existing non-WinRT fallback compilation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- InputPane uses a legacy no-op backend." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Remaining widget WinRT references are inventoried separately, especially toast notifications." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
