@@ -58,8 +58,7 @@ jobs:
             'widget/windows/ToastNotification.h',
             'widget/windows/OSKInputPaneManagerLegacy.cpp',
             'widget/windows/rust',
-            'toolkit/components/alerts/nsAlertsService.cpp',
-            'toolkit/system/windowsPackageManager'
+            'toolkit/components/alerts/nsAlertsService.cpp'
           )
           $matches = @()
           foreach ($path in $paths) {
@@ -71,6 +70,15 @@ jobs:
           if ($matches) {
             $matches | ForEach-Object { "{0}:{1}: {2}" -f $_.Path, $_.LineNumber, $_.Line.Trim() }
             throw 'Forbidden WinRT API references remain in the isolated PoC source paths'
+          }
+
+          # windowsPackageManager intentionally retains its WinRT implementation
+          # behind an existing __MINGW32__ guard.  The PoC isolates that source
+          # through a per-file compiler flag, so raw source text is not the gate.
+          # The later object-symbol gate is authoritative for this directory.
+          $packageMoz = Get-Content 'toolkit\system\windowsPackageManager\moz.build' -Raw
+          if ($packageMoz -notmatch 'SOURCES\["nsWindowsPackageManager\.cpp"\]\.flags \+= \["-D__MINGW32__"\]') {
+            throw 'windowsPackageManager legacy WinRT guard flag is not active'
           }
 
       - name: Repair stale mime_guess vendored checksum
