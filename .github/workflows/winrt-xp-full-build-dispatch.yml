@@ -1,0 +1,25 @@
+name: "Dispatch XP full build from WinRT source PoC"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/winrt-xp-full-build-dispatch.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch existing XP x32 full build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch gost-poc-build-xp-x32.yml on this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        run: gh workflow run gost-poc-build-xp-x32.yml --repo "$REPO" --ref "$REF"
