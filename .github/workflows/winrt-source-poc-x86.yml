@@ -175,6 +175,17 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found: $vswhere" }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio VC tools installation not found' }
+          $vcTools = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $vcTools) { throw 'MSVC tools directory not found' }
+          $dumpbin = Join-Path $vcTools.FullName 'bin\Hostx64\x86\dumpbin.exe'
+          if (-not (Test-Path $dumpbin)) { throw "dumpbin not found: $dumpbin" }
+          "dumpbin=$dumpbin" | Set-Content -Encoding utf8 diagnostics\symbol-scanner.txt
+          Write-Host "Using dumpbin: $dumpbin"
+
           $apis = @(
             'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal',
             'WindowsCreateString','WindowsCreateStringReference','WindowsDeleteString',
@@ -186,11 +197,13 @@ jobs:
           if (-not $objects) { throw 'Expected WinRT-related objects were not found' }
           $report = [System.Collections.Generic.List[string]]::new()
           foreach ($obj in $objects) {
-            $symbols = (& dumpbin.exe /nologo /symbols $obj.FullName 2>&1 | Out-String)
+            $symbols = (& $dumpbin /nologo /symbols $obj.FullName 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin failed for $($obj.FullName) with exit code $LASTEXITCODE" }
             $report.Add("=== $($obj.FullName) ===")
             foreach ($api in $apis) {
               if ($symbols.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
                 $report.Add("FOUND $api")
+                $report | Set-Content -Encoding utf8 diagnostics\disabled-path-symbol-gate.txt
                 throw "$($obj.Name) still references $api"
               }
             }
@@ -204,6 +217,16 @@ jobs:
           COMPILE_GATE_OUTCOME: ${{ steps.compile_winrt_objects.outcome }}
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found: $vswhere" }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio VC tools installation not found' }
+          $vcTools = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $vcTools) { throw 'MSVC tools directory not found' }
+          $dumpbin = Join-Path $vcTools.FullName 'bin\Hostx64\x86\dumpbin.exe'
+          if (-not (Test-Path $dumpbin)) { throw "dumpbin not found: $dumpbin" }
+
           $apis = @(
             'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal',
             'WindowsCreateString','WindowsCreateStringReference','WindowsDeleteString',
@@ -224,7 +247,8 @@ jobs:
           }
 
           Get-ChildItem obj-winrt-poc-x86\widget\windows -Recurse -File -Filter '*.obj' -ErrorAction SilentlyContinue | ForEach-Object {
-            $symbols = (& dumpbin.exe /nologo /symbols $_.FullName 2>&1 | Out-String)
+            $symbols = (& $dumpbin /nologo /symbols $_.FullName 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin failed for $($_.FullName) with exit code $LASTEXITCODE" }
             $found = @($apis | Where-Object { $symbols.IndexOf($_,[System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
             if ($found.Count) { $hits.Add("$($_.Name)|$($found -join ',')") }
           }
