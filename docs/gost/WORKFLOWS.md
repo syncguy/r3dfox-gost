@@ -166,6 +166,40 @@ This is an exploratory Windows XP compatibility workflow, separate from both the
 
 A successful build/run on a current GitHub-hosted Windows runner plus PE 5.01 headers is not proof that the executable runs on Windows XP. Real XP runtime execution remains a separate gate.
 
+## WinRT source-removal targeted x86 PoC
+
+Workflow file:
+
+`.github/workflows/winrt-source-poc-x86.yml`
+
+Workflow name:
+
+`WinRT source PoC x86`
+
+Role:
+
+This is the low-cost targeted validation workflow for the current source-level WinRT removal/fallback hypothesis on experiment branch `agent/winrt-source-poc`. It is deliberately **not** a full Firefox build. Its job is to establish the narrow proof chain before spending time on a full x86 `xul.dll` build:
+
+`source isolation -> configure/export prerequisites -> compile selected WinRT-related target objects -> inspect those objects for forbidden WinRT API references`.
+
+The source-isolation gate requires the legacy `OSKInputPaneManagerLegacy.cpp` path, excludes the WinRT `OSKInputPaneManager.cpp` path, and checks the current PoC source conditionals for `WindowsUIUtils.cpp` and `nsWindowsPackageManager.cpp`. The decisive compile gate targets only `widget/windows/target-objects` and `toolkit/system/windowsPackageManager/target-objects`. The decisive symbol gate scans the resulting selected objects and rejects references to:
+
+- `RoActivateInstance`;
+- `RoGetActivationFactory`;
+- `WindowsCompareStringOrdinal`;
+- `WindowsCreateString`;
+- `WindowsCreateStringReference`;
+- `WindowsDeleteString`;
+- `WindowsGetStringRawBuffer`.
+
+The inventory step runs with `if: always()` and is diagnostic only. A green inventory after an earlier failure is not a validation pass; if target compilation did not complete, the inventory is incomplete by construction.
+
+Current exact CI evidence is run `33242986136`, job `99075394860`, source `f6e87ba87919f999d2a3ec6c2b9ba103fea1d99e`. Source isolation, bootstrap and x86 configure succeeded, but `Build export prerequisites` failed. Therefore the target-object compile gate and no-WinRT-reference gate were skipped. This run is **INCONCLUSIVE**, not a source-removal validation pass.
+
+Current continuation point is precise: repair `Build export prerequisites`, then require both decisive gates to pass. Only after that should this compatibility line advance to a full x86 Firefox/xul build/package, final ordinary/delay-import audit, physical Windows 7 runtime, and separately physical Windows XP runtime.
+
+This workflow belongs only to the Windows compatibility line. It does not establish GOST TLS handshake behavior.
+
 ## CryptoPro extension standalone smoke — historical proof
 
 Historical workflow file:
@@ -284,9 +318,11 @@ Keep these concepts separate:
 - `msvcr14x-win7-smoke.yml` = isolated msvcr14x CRT/UCRT smoke;
 - `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
+- `winrt-source-poc-x86.yml` = targeted source-level WinRT removal/fallback x86 proof gate, not a full Firefox build;
 - `cryptopro-extension-smoke.yml` = historical standalone CryptoPro updater/fallback/staging/package proof;
 - `cryptopro-mozilla-packaging-smoke.yml` = dedicated real-Firefox CryptoPro packaging integration/regression proof;
 - `agent/gost-tls-poc` = active development branch;
+- `agent/winrt-source-poc` = experimental branch for source-level WinRT removal/fallback validation;
 - `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.
 
