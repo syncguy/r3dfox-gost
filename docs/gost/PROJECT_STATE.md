@@ -1,8 +1,8 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 
-This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`.
+This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the alternative source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`.
 
 ## Repository / branch policy
 
@@ -311,7 +311,43 @@ YY-Thunks 1.2.2 already contains a pre-Win8 `RoGetActivationFactory` thunk. When
 
 Several obvious Firefox WinRT call sites examined in the exact source are already guarded (`WindowsUIUtils` by Win10, `WindowsSMTCProvider` by Win8.1, and relevant `nsWindowsPackageManager` methods by Win10). Therefore the exact C++ caller that escaped into `RoGetActivationFactory` is not yet proven from source. The symbol-less xul stack and direct-call search establish multiple machine-code call sites but do not safely map the failing one back to a named C++ function.
 
-Current implementation direction: preserve the existing narrow-link strategy and identify the YY-Thunks 1.2.2 alias/import members required for `RoGetActivationFactory` and the companion WinRT string APIs used by xul; add only those proven members, rebuild, and rerun the physical Win7 test. Do **not** ship a fake `api-ms-win-core-winrt-l1-1-0.dll`, and do not solve this by broad full-YY `kernel32.lib` interposition. A successful thunked startup must still be followed by exact runtime validation; it does not prove GOST TLS.
+Current implementation direction on the main branch is to preserve the existing narrow-link strategy and identify the YY-Thunks 1.2.2 alias/import members required for `RoGetActivationFactory` and the companion WinRT string APIs used by xul; add only those proven members, rebuild, and rerun the physical Win7 test. Do **not** ship a fake `api-ms-win-core-winrt-l1-1-0.dll`, and do not solve this by broad full-YY `kernel32.lib` interposition. A successful thunked startup must still be followed by exact runtime validation; it does not prove GOST TLS.
+
+### Alternative WinRT source-removal/fallback PoC — OPEN, NOT YET VALIDATED
+
+A separate branch, `agent/winrt-source-poc`, explores a second strategy for the same proven Win7 WinRT delay-load blocker: remove or replace nonessential WinRT consumers at Firefox source level instead of accumulating WinRT loader thunks. Detailed design and exact file-level observations are in [`WINRT_SOURCE_POC.md`](./WINRT_SOURCE_POC.md).
+
+Exact comparison reviewed on 2026-08-29:
+
+- main/base `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`;
+- experimental HEAD `f1c55320f77a9ff932fa3e6cca2bc2443c20ec45`;
+- 8 commits ahead, 0 behind;
+- 11 changed files, 336 additions / 989 deletions.
+
+The PoC intentionally replaces/stubs several WinRT-dependent features while retaining interfaces or legacy fallbacks:
+
+- native WinRT ToastNotification backend -> ABI-compatible stub plus XUL alerts fallback;
+- WinRT `InputPane` path -> `OSKInputPaneManagerLegacy.cpp` no-op implementation;
+- Windows widget Rust crate -> removes `windows` / `windows-core`, returns empty toast history, disables WinRT permission monitoring and excludes WinRT-backed Rust notification/taskbar/UI paths;
+- `nsWindowsPackageManager.cpp` and `WindowsUIUtils.cpp` are forced through existing non-WinRT/MinGW conditionals by per-source `-D__MINGW32__` in the PoC.
+
+Architecturally this is a genuine alternative to narrow YY WinRT thunking: make the old-Windows build explicitly omit unsupported modern Windows integrations rather than pretending the WinRT runtime exists. Its potential advantage is removal of the import surface itself; its cost is greater Firefox source divergence and deliberate loss/degradation of native toast, InputPane, AppCapability/permission monitoring and related modern Windows integration.
+
+The `__MINGW32__` spoof is acceptable only as a source-isolation experiment. If this approach survives validation it should be replaced by a narrowly scoped explicit legacy/no-WinRT build capability, and the Rust dependency removal should be reduced to the minimum required WinRT feature surface rather than assumed wholesale.
+
+Current CI evidence is **negative/incomplete**, not a validation pass:
+
+- run `33242986136`, job `99075394860`, source `f6e87ba87919f999d2a3ec6c2b9ba103fea1d99e`, workflow `WinRT source PoC x86`: source-isolation gate/configure passed, then `Build export prerequisites` failed; target object compilation and no-WinRT-reference gates were skipped;
+- run `33243005271`, job `99075448278`, source `f1c55320f77a9ff932fa3e6cca2bc2443c20ec45`, workflow `GOST TLS PoC build  XP x32`: compatibility setup/configure passed, then `Build export prerequisites` failed before SSL target compilation, full Firefox build/package and final PE audit.
+
+Therefore the PoC has not yet proved that its modified objects compile, that `xul.dll` links, that the WinRT delay imports disappear, or that the browser runs on Win7/XP. Do not merge it into `agent/gost-tls-poc` until an exact PoC SHA passes targeted compilation/import checks, full x86 build/package, final `xul.dll` ordinary/delay-import audit, physical Win7 runtime through the previous crash window, and separate physical XP validation.
+
+Keep the two remedies as independent hypotheses until evidence selects one:
+
+1. narrow YY-Thunks coverage for the proven WinRT imports;
+2. source-level removal/fallback of nonessential WinRT consumers.
+
+Neither compatibility hypothesis proves GOST TLS runtime behavior.
 
 ### Older Win7 full-xul build evidence
 
