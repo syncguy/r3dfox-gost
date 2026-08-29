@@ -7,11 +7,10 @@ mod permission_monitor;
 use nserror::{nsresult, NS_OK};
 use nsstring::{nsAString, nsString};
 use thin_vec::ThinVec;
-use windows::core::HSTRING;
-use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
-use windows_collections::IVectorView;
 use xpcom::{xpcom, xpcom_method};
 
+// XP has no Windows toast history.  Keep the component ABI but expose an empty
+// history without linking the windows crate or WinRT activation/string APIs.
 #[xpcom(implement(nsIAlertsServiceRust), nonatomic)]
 struct AlertsServiceRust {}
 
@@ -19,27 +18,16 @@ impl AlertsServiceRust {
     xpcom_method!(get_history => GetHistory(aumid: *const nsAString, result: *mut ThinVec<nsString>));
     fn get_history(
         &self,
-        aumid: &nsAString,
+        _aumid: &nsAString,
         result: *mut ThinVec<nsString>,
     ) -> Result<(), nsresult> {
-        if result == std::ptr::null_mut() {
+        if result.is_null() {
             return Err(nserror::NS_ERROR_INVALID_ARG);
         }
 
-        // SAFETY: The caller is responsible to pass a valid pointer.
-        let result = unsafe { &mut *result };
-        || -> windows::core::Result<()> {
-            let history = ToastNotificationManager::History()?;
-            let notifications: IVectorView<ToastNotification> =
-                history.GetHistoryWithId(&HSTRING::from_wide(&aumid[..]))?;
-
-            for n in notifications {
-                let tag = n.Tag()?;
-                result.push((&tag.to_string()).into());
-            }
-            Ok(())
-        }()
-        .map_err(|_| nserror::NS_ERROR_UNEXPECTED)
+        // SAFETY: XPCOM owns and validates the out parameter.
+        unsafe { (&mut *result).clear() };
+        Ok(())
     }
 }
 

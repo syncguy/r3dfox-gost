@@ -214,11 +214,11 @@ OS_LIBS += [
     "winmm",
 ]
 
-# mingw is missing Windows toast notification definitions.
+# XP legacy source selection: keep the component ABI with the no-WinRT
+# ToastNotification.cpp stub, and do not compile ToastNotificationHandler.cpp.
 if CONFIG["CC_TYPE"] == "clang-cl":
     SOURCES += [
         "ToastNotification.cpp",
-        "ToastNotificationHandler.cpp",
     ]
 
 SPHINX_TREES["/widget/windows"] = "docs"
