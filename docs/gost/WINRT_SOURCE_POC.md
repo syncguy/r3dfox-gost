@@ -1,6 +1,6 @@
 # WinRT source-removal PoC for legacy Windows
 
-Status: experimental design note; not merged into the main implementation and not yet validated by a successful target build/runtime.
+Status: **primary active WinRT-remediation experiment**; not merged into the main implementation and not yet validated by a successful target build/runtime.
 
 Last reviewed: 2026-08-29.
 
@@ -17,13 +17,36 @@ The exact diagnostics also show the adjacent delay-load groups:
 - `api-ms-win-core-winrt-l1-1-0.dll`: `RoActivateInstance`, `RoGetActivationFactory`;
 - `api-ms-win-core-winrt-string-l1-1-0.dll`: `WindowsCompareStringOrdinal`, `WindowsCreateString`, `WindowsCreateStringReference`, `WindowsDeleteString`, `WindowsGetStringRawBuffer`.
 
-The main branch currently records a narrow YY-Thunks strategy as one possible remedy: expose only the proven YY-Thunks 1.2.2 WinRT aliases/import members required by `xul.dll` instead of using broad complete-YY interposition.
+An initial remediation line tried to keep Firefox's WinRT consumers intact and progressively expose the needed WinRT surface through the project's narrow YY-Thunks provider. That approach has now been experimentally retired **for this WinRT blocker** after its run/change history showed an expanding transitive dependency boundary rather than convergence. The detailed evidence is recorded in `TEST_LOG.md`.
 
-`agent/winrt-source-poc` explores a different question:
+`agent/winrt-source-poc` therefore asks the project's current primary WinRT-remediation question:
 
-> Instead of emulating every WinRT entry point required by Firefox 153, can we remove or replace the nonessential Firefox WinRT consumers at source level so the legacy build does not carry those WinRT dependencies at all?
+> Instead of emulating the growing WinRT/transitive runtime surface required by Firefox 153, can we remove or replace the nonessential Firefox WinRT consumers at source level so the legacy build does not carry those WinRT dependencies at all?
 
-This is an alternative compatibility strategy, not an extension of the GOST TLS transport.
+This is a compatibility strategy, not an extension of the GOST TLS transport.
+
+## Why YY-Thunks expansion was retired for this blocker
+
+This decision must not be generalized beyond WinRT.
+
+YY-Thunks remains useful for bounded old-Windows Win32 gaps. In particular, the representative XP x86 coexistence line at source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`, completed three physical Windows XP SP3 x86 executions with `ExitCode=0`.
+
+What is retired is the attempt to make YY-Thunks the **primary carrier for Firefox's WinRT feature/runtime surface**.
+
+The dedicated WinRT YY smoke began at commit `90067edba48fd4e8bb986ced02a47ae2189e9fb3` (`ci(win7): add WinRT YY-Thunks delay-load smoke`) and reached `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` (`ci(win7): link OLE32 in WinRT smoke`) about 3 h 26 min later. Between those points:
+
+- 26 additional commits accumulated;
+- `.github/workflows/msvcr14x-rust-yy-xp-x86-coexistence-smoke.yml` alone saw 345 changed lines (171 additions / 174 deletions);
+- the compatibility harness expanded from WinRT aliases into CRT/runtime stubs and MASM glue;
+- system-library dependencies were added sequentially through `ADVAPI32`, `GDI32`, `USER32`, `VERSION`, `NTDLL`, `OLEAUT32`, and `OLE32`.
+
+The final reviewed run is exact source `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`, run `33186862417`, job `98901994671`, workflow run number `31`. It still failed in the synthetic closing link, now on another newly exposed dependency:
+
+`__imp__StrCmpLogicalW@8`
+
+The problem is therefore not that one particular YY alias was missing. The experiment demonstrated a moving transitive boundary: every apparent closure pulled in another part of the Windows/WinRT support environment before the strategy had even reached successful full `xul.dll` closure plus physical Win7 runtime proof.
+
+**Policy for this blocker:** do not continue by blindly adding the next YY alias, CRT stub, system import library or hand-written harness dependency. Source-level WinRT removal/fallback is the primary active direction. A small residual YY shim may be reconsidered only if source removal later leaves one or a few unavoidable imports with narrow, stable and evidence-bounded semantics.
 
 ## Exact branch identity reviewed
 
@@ -126,32 +149,26 @@ If the source-removal strategy is ultimately adopted, replace this macro spoofin
 
 ## Architectural interpretation
 
-The branch represents a second, fundamentally different remedy for the Win7 `RoGetActivationFactory` crash.
+The branch is now the project's **primary active strategy** for the Win7 `RoGetActivationFactory` crash, but it remains an experiment until exact build/import/runtime evidence passes.
 
-### Strategy A — narrow thunking
+### Retired primary strategy — expanding YY-Thunks across the WinRT surface
 
-Keep Firefox's WinRT consumers intact but teach the linker/runtime to resolve only the actually required WinRT imports through narrowly selected YY-Thunks members. Unsupported WinRT calls should fail gracefully, for example with `CLASS_E_CLASSNOTAVAILABLE`, rather than causing delay-load exceptions.
+The YY route was attractive because it minimized Firefox source divergence and, in isolation, YY-Thunks provides sensible pre-Win8 fallbacks for APIs such as `RoGetActivationFactory`.
 
-Advantages:
+The dedicated run history, however, demonstrated that closing Firefox's WinRT activation/string imports did not remain a small fixed alias problem. The support surface expanded through import alias generation, shared implementation dependencies, CRT/runtime glue, assembly stubs and an increasing list of Windows import libraries, then ended on another unresolved `StrCmpLogicalW` dependency at run `33186862417` / job `98901994671` / SHA `3ebfef1...`.
 
-- smaller semantic divergence from current Firefox source;
-- preserves more modern Windows functionality where YY-Thunks can emulate the API contract correctly.
+For this blocker that scaling behavior is sufficient reason to stop. Do not spend additional project effort recursively reproducing the next transitive dependency unless later source-removal evidence reduces the problem to a genuinely bounded residual import.
 
-Risks:
-
-- every additional WinRT/API-set dependency may require careful alias/member discovery;
-- a thunk can make an API loadable without proving that the higher-level feature behaves sensibly on the old OS;
-- broad YY interposition remains unacceptable because of the previously proven Rust/raw-dylib collision class.
-
-### Strategy B — source-level WinRT removal/fallback (`agent/winrt-source-poc`)
+### Primary active strategy — source-level WinRT removal/fallback (`agent/winrt-source-poc`)
 
 Compile a legacy Firefox variant that does not include nonessential WinRT consumers, preserving interfaces with stubs or existing legacy fallbacks.
 
 Advantages:
 
-- attacks the cause at the feature boundary instead of accumulating loader shims;
+- attacks the cause at the feature boundary instead of accumulating loader/runtime shims;
 - can completely remove some WinRT imports from `xul.dll` rather than only satisfying them at runtime;
-- makes the unsupported-feature policy explicit: old Windows gets legacy behavior rather than pretending modern Windows facilities exist.
+- makes the unsupported-feature policy explicit: old Windows gets legacy behavior rather than pretending modern Windows facilities exist;
+- gives a finite reviewable target: identify which WinRT-backed Firefox features are nonessential on the legacy OS, remove/replace them, then inspect final `xul.dll` imports.
 
 Risks:
 
@@ -161,7 +178,7 @@ Risks:
 - ABI-compatible stubs can still change semantics in subtle ways and require browser-level regression testing;
 - spoofing `__MINGW32__` is too coarse for a final implementation.
 
-The two strategies should be compared empirically. Do not assume source removal is superior merely because it is conceptually cleaner, and do not assume thunking is superior merely because it changes fewer Firefox files.
+The strategy preference does **not** constitute a validation pass. The source-removal PoC must still prove target compilation, final import closure and physical runtime.
 
 ## Functional cost currently accepted by the PoC
 
@@ -225,10 +242,11 @@ Therefore the current experimental HEAD has **not** produced a full Firefox arti
 
 Currently proven:
 
-- the experimental branch exists as a coherent source-level alternative to the narrow YY WinRT-thunk approach;
+- the experimental branch exists as a coherent source-level alternative to carrying the WinRT surface through YY-Thunks;
 - its reviewed diff is based directly on main SHA `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` and is 8 commits ahead / 0 behind at HEAD `f1c55320f77a9ff932fa3e6cca2bc2443c20ec45`;
 - the source changes intentionally remove/stub several concrete WinRT consumers and preserve selected interface/fallback paths;
-- both current CI attempts reach configure but stop at `Build export prerequisites` before the target proof gates.
+- both current CI attempts reach configure but stop at `Build export prerequisites` before the target proof gates;
+- the prior YY WinRT-expansion experiment is no longer a competing primary strategy because its run history demonstrated non-converging transitive dependency growth.
 
 Not proven:
 
@@ -242,7 +260,7 @@ Not proven:
 
 ## Required proof sequence before considering integration
 
-Do not merge this PoC into `agent/gost-tls-poc` solely because the source diff appears reasonable.
+Do not merge this PoC into `agent/gost-tls-poc` solely because it is now the preferred strategy.
 
 Required evidence, in order:
 
@@ -266,13 +284,16 @@ If the source-removal approach passes the proof sequence, do not merge the exper
 - document each intentionally lost feature and its fallback behavior;
 - keep the resulting patch independent from `nsGostSSLIOLayer`, NSS/NSPR/MSSPI and GOST handshake work.
 
+If this reduced source-level design leaves a genuinely small residual old-Windows import gap, a narrow YY-Thunks shim may be used for that residual gap. Do not re-expand the retired WinRT-provider experiment by default.
+
 ## Decision rule
 
-The source-level strategy becomes a serious candidate for mainline integration only when exact build/import/runtime evidence shows that it removes the proven WinRT crash at an acceptable functional cost.
+**Current project decision:** source-level removal/fallback of nonessential WinRT consumers is the primary active remedy for the proven Win7 WinRT delay-load blocker.
 
-Until then, retain both approaches as separate hypotheses:
+The previous strategy of progressively extending the narrow YY-Thunks provider across the Firefox WinRT activation/string/transitive support surface is **retired as unpromising for this blocker** based on exact workflow history ending with run `33186862417`, job `98901994671`, SHA `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`, still failing on newly exposed `__imp__StrCmpLogicalW@8` after 31 workflow runs and 26 follow-up commits from the first dedicated WinRT smoke.
 
-- narrow YY-Thunks WinRT coverage;
-- source-level WinRT feature removal/fallback.
+This decision does not assert that `agent/winrt-source-poc` already works. Its current runs fail before the target proof gates. The next job is to make the source-removal PoC reach the compile/import/full-build/runtime evidence chain, not to add another dependency to the YY WinRT harness.
 
-Neither hypothesis is currently closed.
+YY-Thunks remains allowed for narrow, stable, evidence-bounded Win32 compatibility needs and for any later residual import proven to remain after source-level reduction.
+
+Neither the strategy decision nor eventual old-Windows startup success proves GOST TLS runtime behavior.
