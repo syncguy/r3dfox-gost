@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -212,6 +212,31 @@ Sanitized user confirmation closes the detailed Russian picker UX beyond SD6: ow
 No raw screenshot or certificate identity is retained. T10 closes presentation only; it does not prove or imply real `Permanent` persistence, which remains T6.
 
 ## Windows compatibility
+
+### YY-Thunks WinRT expansion as the primary blocker strategy — RETIRED
+
+This research line is formally closed as unpromising for the current Firefox 153 WinRT startup blocker. It does **not** retire YY-Thunks from the project as a whole.
+
+The dedicated WinRT expansion sequence started at source `90067edba48fd4e8bb986ced02a47ae2189e9fb3` (`ci(win7): add WinRT YY-Thunks delay-load smoke`) and was reviewed through final source `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` (`ci(win7): link OLE32 in WinRT smoke`). Across the sequence, the representative harness repeatedly advanced only by adding further YY aliases, CRT/runtime stubs, system import libraries, MASM glue, or harness isolation work.
+
+Final exact evidence:
+
+- source `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`;
+- run `33186862417`;
+- job `98901994671`;
+- workflow run number `31`;
+- final unresolved transitive dependency: `__imp__StrCmpLogicalW@8`.
+
+The sequence had already expanded through WinRT/runtime aliases and dependencies including `RoActivateInstance`, `RoGetActivationFactory`, WinRT string APIs, `_purecall`, operator delete, `atexit`, `wcsrchr`, `free`, `malloc`, and additional `ADVAPI32`, `GDI32`, `USER32`, `VERSION`, `NTDLL`, `OLEAUT32`, and `OLE32` linkage before reaching the next unresolved dependency. This showed that the approach was not converging toward a small, stable WinRT compatibility shim; it was reconstructing an increasingly broad transitive Windows/WinRT/CRT support surface before reaching real full-`xul.dll` or physical-Win7 proof.
+
+Closed conclusion:
+
+- do not continue solving the WinRT blocker by blindly adding the next YY alias, CRT stub, import library, system library, or harness workaround;
+- retain YY-Thunks for narrow, stable, evidence-bounded Win32 compatibility gaps where it has already proved useful;
+- residual surgical YY interposition may be reconsidered later if source-level WinRT reduction leaves only one or a few bounded imports;
+- the primary active direction for this blocker is source-level WinRT removal/fallback, tracked in `WINRT_SOURCE_POC.md`, `PROJECT_STATE.md`, `TEST_LOG.md`, and `TODO.md`.
+
+This closure is about the Windows compatibility line only and has no bearing on GOST TLS handshake correctness.
 
 ### Windows XP SP3 x86 representative msvcr14x + Rust/libstd + YY runtime — COMPLETE
 
