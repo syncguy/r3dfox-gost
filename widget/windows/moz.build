@@ -58,6 +58,7 @@ EXPORTS.mozilla.widget += [
     "JumpListBuilder.h",
     "nsWindowLoggedMessages.h",
     "WinCompositorWidget.h",
+    "WinCompositorWindowThread.h",
     "WindowsSMTCProvider.h",
     "WinEventObserver.h",
     "WinMessages.h",
