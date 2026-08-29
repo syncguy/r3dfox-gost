@@ -8,6 +8,72 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-08-29 — YY-Thunks expansion is retired as the primary remedy for the Win7 WinRT delay-load blocker
+
+**Track:** Windows compatibility / Win7 x32 WinRT delay-load remediation strategy  
+**Branch reviewed:** `agent/gost-tls-poc`  
+**First dedicated WinRT YY smoke source:** `90067edba48fd4e8bb986ced02a47ae2189e9fb3` (`ci(win7): add WinRT YY-Thunks delay-load smoke`)  
+**Final reviewed source:** `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` (`ci(win7): link OLE32 in WinRT smoke`)  
+**Final workflow:** `msvcr14x Rust YY XP x86 coexistence smoke`  
+**Final run:** `33186862417`, run number `31`  
+**Final job:** `98901994671`  
+**Final result:** failure
+
+### Scope of this decision
+
+This finding is deliberately narrow. It does **not** reject YY-Thunks as a project dependency or as a tool for bounded old-Windows Win32 compatibility gaps. The representative XP x86 coexistence workload remains physically runtime-proven on source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`, with three physical XP SP3 x86 executions returning `ExitCode=0`.
+
+The retired strategy is specifically:
+
+> keep Firefox 153's WinRT consumers intact and keep extending the project's narrow YY-Thunks provider / link harness until the entire WinRT activation/string delay-load surface and its transitive dependencies link and run on legacy Windows.
+
+The proven Win7 blocker itself is unchanged and remains bound to source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, runtime artifact `9676549576`: `xul.dll` delay-loads `api-ms-win-core-winrt-l1-1-0.dll`, reaches `RoGetActivationFactory`, Win7 reports `ERROR_MOD_NOT_FOUND (0x7e)`, and the MSVC delay-load helper raises `0xc06d007e`.
+
+### Run-history / change-history signal
+
+The dedicated YY WinRT line began at `90067edba48fd4e8bb986ced02a47ae2189e9fb3` on 2026-08-28 12:21 UTC and reached `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` at 15:47 UTC, about 3 h 26 min later.
+
+Between those two points the branch accumulated **26 additional commits**. A direct compare shows that almost all code churn was concentrated in `.github/workflows/msvcr14x-rust-yy-xp-x86-coexistence-smoke.yml`: 171 additions and 174 deletions, 345 changed lines, while only 9 lines changed in `docs/gost/TODO.md`.
+
+The important signal is not net YAML length but the semantic expansion of the compatibility surface. The commit history repeatedly moved the boundary outward:
+
+- introduce WinRT YY delay-load smoke;
+- switch to YY `runtimeobject` WinRT aliases and then a compact YY object package;
+- isolate the delay-load probe from the normal `delayimp` runtime;
+- generate correct x86 WinRT import aliases;
+- add harness/runtime stubs for `_purecall`, operator delete, `atexit`, `wcsrchr`, `free`, and `malloc`, including a MASM detour for the isolated `wcsrchr` stub;
+- add system libraries one after another: `ADVAPI32`, `GDI32`, `USER32`, `VERSION`, `NTDLL`, `OLEAUT32`, then `OLE32`.
+
+This is exactly the failure mode the project's narrow-provider policy was intended to avoid: a supposedly surgical compatibility shim begins reconstructing an expanding transitive Windows/WinRT support environment around the imported implementation rather than closing one stable API boundary.
+
+### Final run evidence
+
+Run `33186862417`, job `98901994671`, source `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` is the decisive stopping point for this strategy.
+
+The run successfully reached the narrow-provider/WinRT-link probe far enough to show that the previously targeted WinRT activation/string import groups and accumulated supporting objects/libraries were being incorporated. It did **not** close the synthetic WinRT gate. The final link failed on another newly exposed dependency:
+
+`__imp__StrCmpLogicalW@8`
+
+Thus after adding the WinRT aliases, shared YY implementation support, CRT/harness stubs and a growing sequence of Windows system libraries, the result was not a bounded completed provider but the next outward dependency (`StrCmpLogicalW`, from the shell/string-comparison support surface).
+
+The workflow's final metadata is also material: this was run number `31`, still red, and the strategy had not yet reached a successful full `xul.dll` closure or physical Win7 runtime validation for the WinRT blocker.
+
+### Conclusion
+
+**STRATEGY DECISION — CLOSED AS UNPROMISING FOR THIS WINRT BLOCKER.**
+
+Do not continue the present approach by blindly adding the next YY alias, CRT stub, import library, Windows system library or hand-written harness dependency revealed by the synthetic WinRT link probe. The evidence shows an unbounded/transitive portability surface and poor leverage: substantial iterative compatibility work is being spent before reaching the actual Firefox `xul.dll`/physical-Win7 proof boundary.
+
+This does not mean a YY thunk may never appear in the final legacy-Windows solution. YY-Thunks remains appropriate for small, stable, evidence-bounded Win32 imports. If source-level WinRT removal later leaves one or a few unavoidable imports with narrow and well-defined semantics, a surgical YY shim may be reconsidered for those residual imports. What is retired is **YY-Thunks expansion as the primary mechanism for carrying Firefox's WinRT feature surface onto Win7/XP**.
+
+The active primary direction for the WinRT blocker is now source-level removal/fallback of nonessential WinRT consumers, currently isolated in `agent/winrt-source-poc`. That PoC is still unvalidated: runs `33242986136` / job `99075394860` / source `f6e87ba87919f999d2a3ec6c2b9ba103fea1d99e` and `33243005271` / job `99075448278` / source `f1c55320f77a9ff932fa3e6cca2bc2443c20ec45` both fail at `Build export prerequisites` before their target proof gates. Promoting source removal to the primary direction is therefore a strategy choice based on the negative YY scaling evidence, **not** a claim that the source-removal PoC already works.
+
+No GOST TLS runtime/handshake conclusion follows from this strategy decision.
+
+Status: current; YY WinRT-expansion path retired for this blocker, source-level WinRT removal/fallback is the primary active experiment, residual bounded YY use remains allowed if later evidence justifies it.
+
+---
+
 ## 2026-08-29 — WinRT source-removal PoC documented as an alternative to narrow YY-Thunks coverage; current validation runs fail before target proof gates
 
 **Track:** Windows compatibility / Win7 x32 WinRT delay-load remediation  
