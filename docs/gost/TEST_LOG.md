@@ -193,3 +193,71 @@ The full YY `kernel32.lib` remains prohibited; any future production provider mu
 6. Run the resulting exact artifact on physical XP; `CloseThreadpoolWork` is no longer expected to be the first direct-import loader blocker, but only runtime can establish the next actual boundary.
 
 Status: current architectural correction and import-triage baseline; the broad YY smoke is successful but deliberately non-authoritative for production membership; no GOST TLS conclusion follows.
+
+---
+
+## 2026-08-31 — Legacy Microsoft `D3DCompiler_47` same-ABI substitution prepared; exact full-build A/B is running
+
+**Track:** Windows XP x86 compatibility / separately supplied graphics component  
+**Experimental branch:** `agent/winrt-source-poc`  
+**Last completed full-build baseline:** source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`, run/job `33310150314` / `99253613546`, diagnostics `9733280937`  
+**Legacy D3DCompiler source binary:** Microsoft `D3DCompiler_47` `10.0.14393.33`, SHA-256 `3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e`  
+**Current full-build source-under-test:** `0096e6522475c95a52fad4413d43258e30cf6e8a`  
+**Current full-build run/job:** `33325676035` / `99295249758`  
+**Workflow:** `.github/workflows/gost-poc-build-xp-x32.yml`  
+**State at documentation time:** `in_progress`; the pinned legacy-D3DCompiler preparation step has passed and the full Firefox build is running.
+
+### Why this is not a YY experiment
+
+The modern `d3dcompiler_47.dll` in baseline run `33310150314` is Microsoft version `10.0.26100.7705`, SHA-256 `38078c09a4980c0d234ede9b36b11f59517be3248524ca9aa031312a5a2652b7`. It contributes exactly five curated XP-incompatible imports:
+
+- `FlsAlloc`;
+- `FlsFree`;
+- `FlsGetValue`;
+- `FlsSetValue`;
+- `InitializeCriticalSectionEx`.
+
+A `d3dcompiler_47.dll` from a Firefox installation known to run on the user's physical XP machine was inspected. It is an unpatched Microsoft build `10.0.14393.33` with the same D3DCompiler 47 external export surface but without those five Vista+ imports. The older implementation internally uses XP-era synchronization/TLS primitives instead.
+
+Therefore the preferred remediation class for this component is **`LEGACY_COMPONENT_VERSION`**, not YY and not a project shim. Firefox/ANGLE still sees the same `d3dcompiler_47.dll` name and D3DCompiler 47 ABI; only the DLL's internal Windows dependency surface changes.
+
+The fact that the legacy DLL does not internally import `InitializeCriticalSectionEx`, `Fls*`, or `VirtualProtect` is not an ABI loss. Those names are not D3DCompiler exports consumed by Firefox. `VirtualProtect` itself is available on XP and is not a blocker.
+
+### Reproducible provenance proof
+
+Setup run `33324633438`, job `99292485878`, source `53cb94bf7aa5ae6696c666bcf63a600c7ae11840` successfully downloaded the official Mozilla Firefox `52.2.1esr` x86 installer from `archive.mozilla.org`, extracted `core/d3dcompiler_47.dll`, and validated the exact SHA-256:
+
+`3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e`.
+
+That setup run then failed only at `git push`: GitHub rejected a `GITHUB_TOKEN` attempt to modify `.github/workflows/gost-poc-build-xp-x32.yml` because the token lacked workflow-update permission. The failure is an automation-permission failure, not a failure to locate or validate the pinned DLL.
+
+### Renderer handoff
+
+Renderer run `33325597050`, job `99295039973`, source `fcbf71dc5d5ab70925bcaa34e62adf08d4768a3b` completed successfully. It rendered the verified legacy-D3DCompiler full-build workflow outside `.github/workflows`, avoiding the self-modifying-workflow restriction.
+
+The actual workflow change was then committed as source-under-test `0096e6522475c95a52fad4413d43258e30cf6e8a` (`ci(xp): use legacy Firefox D3DCompiler_47`). That exact commit triggered full Firefox run `33325676035` / job `99295249758`.
+
+A later commit `ab700aac14ae9812c35c6594655c843c9d40bb07` only restored the XP workflow to `workflow_dispatch`-only. It is not the source-under-test for the running build and must not be cited as its binary source SHA.
+
+### Exact full-build experiment contract
+
+The running workflow is designed to:
+
+1. download the official Firefox `52.2.1esr` x86 installer from `archive.mozilla.org`;
+2. locate `d3dcompiler_47.dll` only by exact SHA-256 `3a010ee7...`;
+3. complete the normal Firefox build first;
+4. replace only `obj-gost-xp-x32/dist/bin/d3dcompiler_47.dll` with the pinned legacy Microsoft DLL;
+5. verify version `10.0.14393.33` and original source hash before modifying its PE header;
+6. retarget the x86 PE subsystem to Windows XP 5.01 together with the rest of `dist/bin`;
+7. verify after retargeting that `FlsAlloc`, `FlsFree`, `FlsGetValue`, `FlsSetValue`, and `InitializeCriticalSectionEx` are absent;
+8. record the new post-retarget SHA because the PE-header change legitimately alters the original binary hash;
+9. require the packaged/staged DLL to keep that post-retarget hash;
+10. run the ordinary full XP direct-import audit and publish the normal package/runtime/diagnostics artifacts.
+
+### Expected A/B and evidence boundary
+
+If the component strategy works, the five `d3dcompiler_47.dll` gate rows above should disappear without adding any YY membership or changing the corresponding imports that may still exist in `xul.dll`, `mozglue.dll`, or other independently built PEs.
+
+This is currently an **active experiment**, not a result. Do not document the five rows as removed, promote run `33325676035` to the authoritative baseline, or claim package/physical-XP compatibility until the exact run completes and its diagnostics/artifacts are inspected.
+
+Status: provenance/source-selection method proven; renderer handoff proven; full Firefox A/B in progress. No GOST TLS conclusion follows.
