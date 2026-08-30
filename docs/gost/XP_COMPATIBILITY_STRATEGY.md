@@ -20,6 +20,25 @@ Preferred order:
 
 A missing API count is therefore an **inventory**, not an implementation backlog.
 
+## Inherited r3dfox x86 sandbox baseline
+
+The upstream fork baseline matters before treating any sandbox-enabled failure as a project blocker.
+
+Official `Eclipse-Community/r3dfox` release `v153.0.3` targets `win-153` and explicitly states that the **32-bit build is built with `--disable-sandbox`**. The release note links issue `Eclipse-Community/r3dfox#11` and explains that with sandbox enabled on Vista the browser fails to open multiple processes, breaking normal operation; the 64-bit build is described as unaffected.
+
+Issue #11 records the maintainer's deliberate policy choice: the x86 browser does not spawn child processes correctly with the sandbox enabled, `MOZ_DISABLE_CONTENT_SANDBOX=1` mostly mitigates it, and the maintainer chose to ship the 32-bit build without sandbox rather than require that runtime workaround. The issue is closed as `not_planned`.
+
+Therefore the project must treat **sandbox-disabled x86 as the inherited r3dfox release baseline**, not as a regression introduced by the XP/GOST work.
+
+For the XP port:
+
+- a sandbox-enabled Win7/Vista x86 pass is **not** a prerequisite for continuing XP loader/import/source-compatibility work;
+- the normal XP product experiment may use build-time `--disable-sandbox`, matching upstream r3dfox x86, instead of relying on an environment variable at runtime;
+- historical sandbox-on experiments remain useful evidence and possible future hardening work, but they are not on the default XP critical path;
+- restoring an XP/Vista/Win7 x86 restricted-token sandbox is a separate security-hardening project and should be explicitly reprioritized before consuming new full-build cycles.
+
+This does not claim that disabling sandbox is security-equivalent to a working sandbox. It is a compatibility-baseline decision inherited from the maintained fork we are porting.
+
 ## Proven examples of the policy
 
 ### WinRT: remove/fallback, do not emulate
@@ -36,43 +55,36 @@ If a future XP artifact again contains reachable imports such as `RoGetActivatio
 
 The `agent/legacy-rng-poc` line demonstrates the preferred source-level adaptation model.
 
-Current experimental HEAD:
+Experimental source:
 
 - branch `agent/legacy-rng-poc`;
 - source `19c82e7eec160dab761083d454d084515060f808`;
 - underlying source change `7f84f7b4d083b1ea068b86910a90fabebb7524e1` (`fix(xp): use CryptoAPI for Windows OS RNG`).
 
-Instead of trying to make the modern/sandbox-sensitive Windows RNG path work on XP by emulating its implementation details, `mozilla::GenerateRandomBytesFromOS()` keeps the same Firefox-facing contract and uses real Windows CryptoAPI:
+`mozilla::GenerateRandomBytesFromOS()` keeps the same Firefox-facing contract and uses real Windows CryptoAPI:
 
 `CryptAcquireContextW -> CryptGenRandom -> CryptReleaseContext`.
 
-This is the model to prefer elsewhere: Firefox should continue asking for the semantic operation it needs, while the legacy Windows implementation uses the best real API available on XP.
+This remains a useful example of source-level semantic replacement. Its separate Win7 sandbox-on runtime experiment did **not** establish that this per-call CryptoAPI lifecycle works after modern sandbox lockdown, and sandbox-on behavior is no longer an XP acceptance gate because upstream r3dfox x86 itself ships without sandbox.
 
-## Current full-build candidate awaiting physical Win7 validation
+## Sandbox-enabled Win7 experiment — historical/optional hardening evidence
 
-The current CryptoAPI-RNG full build is:
+The CryptoAPI-RNG full build was:
 
 - workflow run `33298304132`;
 - job `99221664596` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - branch `agent/legacy-rng-poc`;
 - source-under-test `19c82e7eec160dab761083d454d084515060f808`.
 
-The job is red only because the final broad XP PE/direct-import audit still reports unresolved compatibility inventory. The browser build itself completed successfully:
+The browser build/package completed successfully; the Actions job became red only at the broad XP import audit. Artifacts were:
 
-- `Build release r3dfox XP x32` — success;
-- runtime staging — success;
-- PE subsystem retargeting — success;
-- packaging — success;
-- physical-test runtime archive — success;
-- artifact uploads — success.
+- package `9729515763`, digest SHA-256 `5434c8b61a8351761b514653136133aa026081824d6694d59031df6baedf4be9`;
+- runtime `9729516268`, digest SHA-256 `7fbc6b3977b1910dc3087424233726cecbc6b4e6564bff4bdfbb336f61cc8de7`;
+- diagnostics `9729516770`, digest SHA-256 `309e63e4dc0369cb84431a6ed024578438e5562dbdbbd056f5fbfab7d9570b3f`.
 
-Artifacts:
+On physical Win7 x32 with the content sandbox enabled, the parent browser started but ordinary pages still produced `Gah. Your tab just crashed.`. This is a valid FAIL for that **sandbox-enabled experimental configuration**, but it is not an XP port blocker after accounting for the official r3dfox x86 `--disable-sandbox` release policy.
 
-- package `9729515763`, `r3dfox-gost-xp-x32-package`, digest SHA-256 `5434c8b61a8351761b514653136133aa026081824d6694d59031df6baedf4be9`;
-- runtime `9729516268`, `r3dfox-gost-xp-x32-runtime`, digest SHA-256 `7fbc6b3977b1910dc3087424233726cecbc6b4e6564bff4bdfbb336f61cc8de7`;
-- diagnostics `9729516770`, `r3dfox-gost-xp-x32-diagnostics`, digest SHA-256 `309e63e4dc0369cb84431a6ed024578438e5562dbdbbd056f5fbfab7d9570b3f`.
-
-Immediate acceptance test: run this exact artifact on physical Win7 x32 with the content sandbox **enabled**. The candidate closes the sandbox RNG blocker only if ordinary content processes survive startup and real pages load without the `RandomUint64OrDie` crash. Do not infer that result from the successful build.
+Do not spend another full Firefox build on retained CryptoAPI provider state, RNG pre-warm, `LowerToken`, or related sandbox-on work unless sandbox restoration is explicitly made a goal again. If that happens, reuse the existing WinDbg/RNG evidence instead of restarting diagnosis from zero.
 
 ## Import inventory baseline
 
@@ -168,7 +180,7 @@ Success criterion: the final required XP PE no longer imports or reaches that fe
 
 Use when Firefox needs the operation but XP provides an older real mechanism.
 
-The current CryptoAPI RNG change is the canonical example.
+The CryptoAPI RNG experiment is one example of the intended source-level pattern, independent of the optional sandbox-on experiment.
 
 Other likely candidates should be evaluated semantically, for example older registry, locale, path, process-query, socket or time-zone APIs. Do not mechanically implement a Vista API under the same name if changing one internal Firefox implementation can preserve the behavior more cleanly.
 
@@ -182,20 +194,20 @@ This remains valid project policy despite the retired WinRT YY experiment. The r
 
 The project may include external compatibility work when it is technically and legally better than reimplementing the same API surface.
 
-A concrete candidate is the SourceForge project `bcrypt-xp-dll`:
+The SourceForge `bcrypt-xp-dll` package was inspected directly. The supplied archive contains only prebuilt x64/x86 `bcrypt.dll` binaries and no corresponding source tree, `LICENSE`/`COPYING` file, or written source offer. The x86 binary exposes a broad BCrypt surface, but it is an opaque cryptographic binary and also brings additional CRT/API-set dependencies.
 
-https://sourceforge.net/projects/bcrypt-xp-dll/
+Therefore that binary is **not an acceptable vendored/distributed project dependency in its current form**. It may remain useful as a reference/probe binary for ABI and physical-XP experiments, but not as the foundation of the shipped compatibility layer unless corresponding source/provenance becomes available and licensing can be satisfied.
 
-`bcrypt.dll` must therefore **not** be pre-classified as "rewrite every BCrypt consumer" or "remove BCrypt at all costs". A compatible replacement DLL may be a better boundary if it supplies the exact exports/semantics required by our binaries.
+A better third-party-backed design may be an open, reproducible compatibility facade built from source. Mbed TLS is one candidate cryptographic backend because its source is public and it offers an Apache-2.0/GPL-2.0-or-later licensing choice. Such a facade should still implement only the BCrypt subset actually required by the Firefox XP runtime; it must not replace NSS or the MSSPI GOST TLS stack.
 
-Before adoption, require:
+Before adopting any third-party compatibility implementation, require:
 
 1. inspect source provenance and maintenance state;
 2. verify license compatibility with distribution in this project;
-3. inventory the exact BCrypt exports required by the final XP runtime;
+3. inventory the exact exports required by the final XP runtime;
 4. compare calling convention, structures, constants, status codes and edge-case semantics;
 5. review crypto implementation/dependencies and security implications;
-6. build/package x86 deterministically where possible rather than trusting an opaque binary;
+6. build/package x86 deterministically from source rather than trusting an opaque binary;
 7. run focused API tests and the exact browser on physical XP SP3 x86;
 8. document the pinned source/version/hash and keep it independently replaceable.
 
@@ -286,11 +298,13 @@ Do not debug XP by waiting for one loader/runtime failure at a time when the sam
 
 All work in this document belongs to the Windows compatibility track.
 
-A successful XP/Win7 build, loader pass, sandbox pass, ordinary browsing pass, BCrypt compatibility DLL test, or YY-Thunks closure does **not** prove:
+A successful XP/Win7 build, loader pass, ordinary browsing pass, BCrypt compatibility DLL test, or YY-Thunks closure does **not** prove:
 
 - MSSPI/CryptoPro GOST handshake behavior;
 - GOST server verification;
 - GOST client-certificate selection or mTLS;
 - protected GOST application traffic.
 
-Those remain separate exact-artifact runtime tests after the old-Windows browser itself is sufficiently stable.
+Sandbox restoration, if ever pursued, is a separate x86 hardening milestone and is not required to claim that the browser follows the inherited r3dfox x86 compatibility baseline.
+
+Those GOST properties remain separate exact-artifact runtime tests after the old-Windows browser itself is sufficiently stable.
