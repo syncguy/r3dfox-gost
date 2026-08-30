@@ -1,8 +1,8 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
-This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`.
+This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture and import triage are in `XP_COMPATIBILITY_STRATEGY.md`.
 
 ## Repository / branch policy
 
@@ -29,7 +29,7 @@ Current constraints and behavior:
 - explicit `Once` remains available and uses the positive-only 5-second idle fanout lease; each successful reuse refreshes the idle expiry;
 - explicit client-certificate Cancel is attempt-local: it is consumed as a declined decision and is not stored as reusable negative state;
 - an unanswered picker abandoned by navigation/tab/load teardown remains unresolved and is removed through phase-0 lifecycle cleanup rather than being converted into Declined state;
-- client-certificate discovery from `CurrentUser\MY` is distinct from live private-key availability: a certificate can remain picker-discoverable while its CryptoPro key medium/container is unavailable;
+- client-certificate discovery from `CurrentUser\MY` is distinct from live private-key availability: a certificate can remain picker-discoverable while its CryptoPro private-key medium/container is unavailable;
 - if that medium is unavailable before first key acquisition, provider refusal fails only the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`; the positive Firefox Session decision remains intact and can be reused after the medium returns;
 - on the current CryptoPro/SSPI environment, removing the private-key medium **after** successful Session mTLS does not necessarily invalidate the already-acquired provider/credential context: a later fresh Treasury socket can still perform a new client-auth TLS exchange using the remembered Session decision;
 - long synchronous CryptoPro/provider key access currently runs on the shared Firefox Socket Thread: T9 measured a `74.742 s` provider wait with a responsive browser UI but zero Socket Thread `GostTLS` activity; queued `pay.gov.ru`/GIS GMP network work started immediately when provider Cancel returned, so global network starvation during provider UI is a confirmed concurrency limitation while coordinator/Session state remains safe;
@@ -246,9 +246,17 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 
 ## Windows compatibility — independent track
 
+### Upstream r3dfox x86 sandbox baseline — sandbox disabled by design
+
+Official `Eclipse-Community/r3dfox` release `v153.0.3` targets `win-153` and explicitly states that the **32-bit build is built with `--disable-sandbox`**. The release note says that with sandbox enabled under Vista, the browser fails to open multiple processes and breaks; the 64-bit build is described as fine.
+
+`Eclipse-Community/r3dfox#11` records the same policy decision. The maintainer reports that the Vista x86 browser does not spawn processes outside the main browser process, `MOZ_DISABLE_CONTENT_SANDBOX=1` mostly mitigates it, and they chose to ship the 32-bit build without sandbox rather than require that workaround. The issue is closed `not_planned`.
+
+This is part of the inherited r3dfox x86 baseline and predates this project's XP/GOST work. Therefore **a sandbox-enabled Win7/Vista x86 pass is not an XP compatibility prerequisite**. The XP/x86 product experiment may use build-time `--disable-sandbox`, matching upstream r3dfox x86. Restoring a working x86 sandbox is optional future security hardening and must be explicitly reprioritized before consuming additional full-build/debug cycles.
+
 ### Current full Firefox XP x32 experiment
 
-The first full Firefox 153 x86 compatibility build is now source-under-test `982d6529a707c6feecad97c725feed8a3cd21c81` (`ci: add XP x32 full Firefox build workflow`), Actions run `33141004769`, job `98751650853`, workflow `GOST TLS PoC build XP x32`.
+The first full Firefox 153 x86 compatibility build is source-under-test `982d6529a707c6feecad97c725feed8a3cd21c81` (`ci: add XP x32 full Firefox build workflow`), Actions run `33141004769`, job `98751650853`, workflow `GOST TLS PoC build XP x32`.
 
 The run's overall conclusion is red because the final XP PE/direct-import audit gate failed, but the build itself crossed the important integration boundary:
 
@@ -265,35 +273,29 @@ Published artifacts:
 - runtime artifact `9676549576` (`r3dfox-gost-xp-x32-runtime`), digest SHA-256 `f0287c7917d7d08756acf57ed8cd2eeed9b8d397ea8416fbf2f166308e89f4f5`;
 - diagnostics artifact `9676550507` (`r3dfox-gost-xp-x32-diagnostics`), digest SHA-256 `ecec3fe35df412c77c217ed5ed27f2a628d9bc3a931876a171cffa1b41c64862`.
 
-This proves a full Firefox/r3dfox XP x86 build/package exists. It does not prove XP startup or GOST TLS.
+A later CryptoAPI-RNG full build also completed its browser/package stages at source `19c82e7eec160dab761083d454d084515060f808`, run `33298304132`, job `99221664596`; its sandbox-enabled Win7 content-tab test failed, but that result is now classified as optional sandbox-hardening evidence rather than an XP gate.
 
-### Physical Windows XP x32 — first loader blocker confirmed
+### Physical Windows XP x32 — current concrete loader blocker
 
 The exact build from run `33141004769` fails on physical XP before browser UI startup with:
 
 `The procedure entry point CloseThreadpoolWork could not be located in the dynamic link library KERNEL32.dll.`
 
-The current XP blocker is therefore no longer an abstract import-audit concern: a startup-loaded module has a real hard dependency on `KERNEL32!CloseThreadpoolWork`, which XP cannot resolve. The exact importing PE module is still unknown and must be identified from the diagnostics/import tables before applying a narrow thunk/redirect. The error-dialog title is not sufficient evidence that `r3dfox.exe` itself owns the import.
+This remains the first concrete physical-XP blocker. A startup-loaded module has a hard dependency on `KERNEL32!CloseThreadpoolWork`, which XP cannot resolve. The exact importing PE module must be identified from diagnostics/import tables before selecting a narrow source/compatibility remedy. The error-dialog title is not sufficient evidence that `r3dfox.exe` itself owns the import.
 
-### Physical Windows 7 x32 — sandbox RNG blocker localized; narrow pre-lockdown fix prepared
+The immediate XP critical path is therefore loader/import/source compatibility, not repair of the upstream-disabled x86 sandbox.
 
-The exact full XP x32 build from source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, starts the parent/browser UI on physical Win7 x32. With normal content sandboxing enabled, `tab` processes die very early and user-visible tabs show `Gah. Your tab just crashed.`. Mozilla logging, ProcMon and WinDbg localize the first blocker to the content RNG path:
+### Win7 x32 sandbox/RNG experiments — historical evidence, not current XP blocker
 
-- affected `tab` processes repeatedly terminate while socket/GPU/RDD/utility process classes can remain alive, so this is not a generic inability to create Firefox child processes;
-- ProcMon observed early `STATUS_BREAKPOINT` exits, while a later WinDbg session caught the same deliberate Mozilla crash path as first/second-chance `0xC0000005` on a null write reached from `mozglue!mozilla::RandomUint64OrDie+0x55`; the exact exception instruction can differ, but both observations belong to the same release-assert termination path rather than an unrelated random access violation;
-- exact source-under-test `RandomUint64OrDie()` calls `MOZ_RELEASE_ASSERT(GenerateRandomBytesFromOS(...))`; on Windows `GenerateRandomBytesFromOS()` is exactly `RtlGenRandom` / `SystemFunction036`;
-- Win7 `ADVAPI32!SystemFunction036` was disassembled in the affected process: it performs one-time initialization through `ntdll!RtlRunOnceExecuteOnce` and dispatches the actual RNG call through a cached pointer to `cryptbase!SystemFunction036`;
-- the r3dfox/Firefox 153 `LowerContentSandbox()` path previously called `LowerToken()` without first initializing that RNG path.
+When this project's x86 workflow enabled the modern content sandbox, physical Win7 x32 exposed a real sandbox-dependent content crash. Source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, localized the early tab death to the `RandomUint64OrDie`/OS-RNG path, and disabling the content sandbox allowed ordinary browsing.
 
-The same-binary A/B test with `MOZ_DISABLE_CONTENT_SANDBOX=1` removes the immediate tab-startup failure: the browser creates a clean profile, loads the policy-enabled uBlock extension and successfully opens multiple real web pages. Therefore the immediate Win7 failure is causally **content-sandbox dependent** and is not a global Win7 loader/import failure.
+Commit `27bf83a679ec26b93bc72a0ec7635fb26f821782` added pre-lockdown RNG warm-up. A later experiment replaced the Windows OS RNG implementation with CryptoAPI; exact source `19c82e7eec160dab761083d454d084515060f808`, run `33298304132`, job `99221664596`, still produced `Gah. Your tab just crashed.` with sandbox enabled on physical Win7 x32.
 
-The implementation direction is now concrete rather than speculative. Chromium's renderer sandbox path explicitly warms its randomness infrastructure immediately before `LowerToken()`. A maintained Win7 compatibility backport for modern Chromium uses `RtlGenRandom` for that warm-up so the legacy `advapi32 -> cryptbase` RNG state is initialized before sandbox lockdown. Commit `27bf83a679ec26b93bc72a0ec7635fb26f821782` applies the narrow equivalent in this fork: on pre-Win8 systems `LowerContentSandbox()` calls the existing Mozilla `GenerateRandomBytesFromOS()` before `LowerToken()`. The content sandbox remains enabled; modern Win8+ behavior is unchanged.
-
-This commit is a **candidate fix, not yet a runtime pass**. The next required evidence is a full x86 build from source containing `27bf83a...`, followed by physical Win7 x32 startup with the content sandbox enabled. The fix closes this blocker only if ordinary content tabs survive and real pages load without the immediate `RandomUint64OrDie` crash.
+Those observations remain technically valid and are preserved in `TEST_LOG.md`. They no longer justify spending build/debug cycles before XP startup, because official r3dfox v153.0.3 x86 itself ships with `--disable-sandbox`. If sandbox support is explicitly reopened later, reuse this evidence and design the desired XP/Vista/Win7 x86 sandbox semantics deliberately rather than treating the modern Win7 path as a prerequisite.
 
 ### Physical Windows 7 x32 — later parent/browser crash localized to WinRT delay-load
 
-The later whole-browser failure observed with `MOZ_DISABLE_CONTENT_SANDBOX=1` is now independently localized and is **not** the RNG/sandbox blocker.
+The later whole-browser failure observed with `MOZ_DISABLE_CONTENT_SANDBOX=1` is independently localized and is **not** the sandbox/RNG issue.
 
 Evidence remains bound to exact source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, runtime artifact `9676549576`, diagnostics artifact `9676550507`.
 
@@ -307,67 +309,25 @@ WinDbg was then configured to stop on first-chance `0xc06d007e`. At the actual f
 
 Thus the failure chain is proven directly: `xul.dll` delay-load -> missing WinRT API-set on Win7 -> `RoGetActivationFactory` resolution cannot begin because the module is absent -> MSVC delay-load helper raises `0xc06d007e` -> unhandled parent/browser crash. `KERNELBASE.dll` is the exception-raising site, not the defective dependency owner.
 
+For XP this evidence remains useful because WinRT has no XP meaning either. The project strategy is source removal/fallback, not reconstructing the WinRT runtime.
+
 ### YY-Thunks WinRT expansion — RETIRED FOR THIS BLOCKER
 
 YY-Thunks 1.2.2 remains a valid project tool for **bounded old-Windows Win32 compatibility gaps**. The representative XP x86 coexistence workload at source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`, passed three physical XP SP3 x86 runs with `ExitCode=0`.
 
-However, using the narrow YY provider as the primary mechanism for carrying Firefox's **WinRT activation/string feature surface** onto Win7/XP is now retired as unpromising.
+However, using the narrow YY provider as the primary mechanism for carrying Firefox's **WinRT activation/string feature surface** onto Win7/XP is retired as unpromising.
 
-The dedicated WinRT YY smoke began at `90067edba48fd4e8bb986ced02a47ae2189e9fb3` (`ci(win7): add WinRT YY-Thunks delay-load smoke`) and reached `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` (`ci(win7): link OLE32 in WinRT smoke`) about 3 h 26 min later. The interval contains 26 additional commits. Direct compare shows 345 changed lines in `.github/workflows/msvcr14x-rust-yy-xp-x86-coexistence-smoke.yml` alone (171 additions / 174 deletions).
+The dedicated WinRT YY smoke began at `90067edba48fd4e8bb986ced02a47ae2189e9fb3` and reached `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5` after 26 additional commits and about 3 h 26 min. The dependency boundary repeatedly expanded through aliases, shared YY objects, CRT/harness stubs, MASM glue and additional Windows libraries. Final run `33186862417`, job `98901994671`, source `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`, still failed in the synthetic closing link on `__imp__StrCmpLogicalW@8`.
 
-More important than line count, the dependency boundary repeatedly expanded: WinRT aliases -> compact/shared YY objects -> x86 import-alias generation -> CRT/runtime/harness stubs (`_purecall`, operator delete, `atexit`, `wcsrchr`, `free`, `malloc`) -> MASM glue -> sequential system-library additions (`ADVAPI32`, `GDI32`, `USER32`, `VERSION`, `NTDLL`, `OLEAUT32`, `OLE32`).
+Do not continue that line by mechanically adding the next alias/stub/library. A narrow YY shim remains acceptable for small stable residual Win32 gaps.
 
-The final exact run is `33186862417`, job `98901994671`, source `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`, workflow run number `31`. It still failed in the synthetic WinRT closing link on a newly exposed dependency:
+### WinRT source-removal/fallback — primary architectural direction
 
-`__imp__StrCmpLogicalW@8`
+A separate branch, `agent/winrt-source-poc`, explores removal/replacement of nonessential WinRT consumers at source level. Detailed design is in [`WINRT_SOURCE_POC.md`](./WINRT_SOURCE_POC.md).
 
-This is sufficient evidence that the approach is not converging toward a small stable WinRT shim. It is reconstructing an expanding transitive Windows/WinRT support surface before reaching successful full `xul.dll` closure and physical Win7 validation.
+The PoC intentionally replaces/stubs modern Windows integrations while keeping legacy interfaces/fallbacks: native WinRT toast backend -> stub/XUL fallback, InputPane -> legacy path, selected Rust/package/UI WinRT consumers -> removed or unsupported for the legacy target.
 
-**Do not continue this line by adding the next alias, CRT stub, system library or harness workaround merely because the next linker error names one.** A narrow YY shim may be reconsidered only if the source-level strategy later leaves one or a few unavoidable residual imports with small, stable and evidence-bounded semantics.
-
-### WinRT source-removal/fallback PoC — PRIMARY ACTIVE DIRECTION, NOT YET VALIDATED
-
-A separate branch, `agent/winrt-source-poc`, now carries the primary experiment for the same proven Win7 WinRT delay-load blocker: remove or replace nonessential WinRT consumers at Firefox source level instead of accumulating WinRT loader/runtime thunks. Detailed design and exact file-level observations are in [`WINRT_SOURCE_POC.md`](./WINRT_SOURCE_POC.md).
-
-Exact comparison reviewed on 2026-08-29:
-
-- main/base `3ebfef1ddbb70b0d2b29f160dabcaa8fbef4fab5`;
-- experimental HEAD `f1c55320f77a9ff932fa3e6cca2bc2443c20ec45`;
-- 8 commits ahead, 0 behind;
-- 11 changed files, 336 additions / 989 deletions.
-
-The PoC intentionally replaces/stubs several WinRT-dependent features while retaining interfaces or legacy fallbacks:
-
-- native WinRT ToastNotification backend -> ABI-compatible stub plus XUL alerts fallback;
-- WinRT `InputPane` path -> `OSKInputPaneManagerLegacy.cpp` no-op implementation;
-- Windows widget Rust crate -> removes `windows` / `windows-core`, returns empty toast history, disables WinRT permission monitoring and excludes WinRT-backed Rust notification/taskbar/UI paths;
-- `nsWindowsPackageManager.cpp` and `WindowsUIUtils.cpp` are forced through existing non-WinRT/MinGW conditionals by per-source `-D__MINGW32__` in the PoC.
-
-Architecturally this now has priority because it attacks the dependency at the feature boundary rather than recursively reproducing the runtime surface. Its cost is greater Firefox source divergence and deliberate loss/degradation of native toast, InputPane, AppCapability/permission monitoring and related modern Windows integration.
-
-The `__MINGW32__` spoof is acceptable only as a source-isolation experiment. If this approach survives validation it should be replaced by a narrowly scoped explicit legacy/no-WinRT build capability, and the Rust dependency removal should be reduced to the minimum required WinRT feature surface rather than assumed wholesale.
-
-Current CI evidence is **negative/incomplete**, not a validation pass:
-
-- run `33242986136`, job `99075394860`, source `f6e87ba87919f999d2a3ec6c2b9ba103fea1d99e`, workflow `WinRT source PoC x86`: source-isolation gate/configure passed, then `Build export prerequisites` failed; target object compilation and no-WinRT-reference gates were skipped;
-- run `33243005271`, job `99075448278`, source `f1c55320f77a9ff932fa3e6cca2bc2443c20ec45`, workflow `GOST TLS PoC build  XP x32`: compatibility setup/configure passed, then `Build export prerequisites` failed before SSL target compilation, full Firefox build/package and final PE audit.
-
-Therefore the PoC has not yet proved that its modified objects compile, that `xul.dll` links, that the WinRT delay imports disappear, or that the browser runs on Win7/XP. Promoting this strategy means it is the **next implementation experiment**, not that the blocker is fixed.
-
-Required proof chain is: repair export build -> targeted WinRT-related object compilation -> object/reference scan -> full x86 Firefox/xul build/package -> final `xul.dll` ordinary/delay-import audit -> physical Win7 runtime through the previous later-crash window -> separate physical XP runtime.
-
-Neither this compatibility strategy decision nor a future compatibility pass proves GOST TLS runtime behavior.
-
-### Older Win7 full-xul build evidence
-
-The independent narrow YY/thunk-rs full-xul build for the Session-default source remains useful build/import evidence:
-
-- source `afbdad307f63e594d3715169d6e34235280dddaf`;
-- run `33073577260`, job `98521835116`;
-- browser artifact `9652182123`;
-- diagnostics `9652183604`.
-
-Its role remains build/package/direct-import validation. The new physical run `33141004769` is the current concrete x86 old-Windows runtime evidence and does not by itself replace or prove the separate Win7 thunk workflow's exact artifact behavior.
+This direction has architectural priority for XP because the unsupported feature should disappear rather than be emulated. Exact build/import/runtime validation remains evidence-driven; do not infer an XP runtime pass from source design alone.
 
 ### Windows XP SP3 x86 representative runtime — COMPLETE
 
@@ -379,11 +339,9 @@ The isolated XP x86 coexistence line has a real physical-machine runtime PASS:
 - runtime artifact `9673057839` (`msvcr14x-rust-yy-xp-x86-runtime`), artifact SHA-256 `3b9e1c2643cafee89061c3ce260b0b075c60a772d8cbcedb96cb90161a3c4970`;
 - diagnostics artifact `9673058689`, artifact SHA-256 `6775abf4048e12bddcafe3f842be8b23af9c0669190772d0dee04c8e56aac323`.
 
-The workflow proves the representative x86 candidate links with ordinary C++ `/MD`, modern `i686-pc-windows-msvc` Rust/libstd, pinned msvcr14x and a narrow YY-Thunks 1.2.2 provider; final PE/runtime closure passes the XP x86 subsystem/import gates and the artifact bundles compatible `ucrtbase.dll` and `msvcp140.dll`.
+The exact artifact was executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; every run returned `ExitCode=0` without loader/runtime errors or antivirus intervention. This closes representative XP x86 runtime viability for the tested workload.
 
-The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; every run returned `ExitCode=0` without loader/runtime errors or antivirus intervention. This closes representative XP x86 runtime viability for the tested workload.
-
-It does not prove Firefox 153/xul compatibility or GOST TLS on XP; the new full Firefox build has now moved that question to the concrete `CloseThreadpoolWork` loader blocker above.
+It does not prove Firefox 153/xul compatibility or GOST TLS on XP; the full Firefox path remains blocked by concrete loader/import/source compatibility work above.
 
 ## Bundled government-system extensions — independent track
 
@@ -402,5 +360,6 @@ The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlug
 - Coordinated runtime success != final server-trust closure.
 - `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
 - GOST runtime != Windows compatibility.
-- Extension packaging != extension runtime, GOST runtime, or Win7 runtime.
+- Extension packaging != extension runtime, GOST runtime, or old-Windows runtime.
+- Upstream r3dfox x86 shipping with `--disable-sandbox` defines the inherited compatibility baseline; a future sandbox restoration would be an additional security-hardening milestone, not a prerequisite for XP startup/browsing.
 - Documentation HEADs never replace the exact source-under-test SHA for a previously built/runtime-tested browser.
