@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Windows XP compatibility strategy
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 This document records the architectural policy for the Windows XP x86 compatibility track. It is intentionally separate from the GOST TLS runtime/handshake track: making Firefox/r3dfox start and browse on XP or Win7 does not prove any MSSPI/CryptoPro GOST behavior.
 
@@ -143,7 +143,36 @@ For every separately linked PE, choose explicitly among:
 - remove/disable the optional component on XP if its functionality is not required;
 - replace the component with a vetted compatible dependency.
 
-`d3dcompiler_47.dll` is the clearest example: its current gate rows are `FlsAlloc`, `FlsFree`, `FlsGetValue`, `FlsSetValue`, and `InitializeCriticalSectionEx`. Injecting YY into the `xul.dll` link does nothing to these direct imports in the already-separate DLL.
+### `d3dcompiler_47.dll`: prefer a legacy-compatible build of the same ABI
+
+The current Firefox package from run `33310150314` contains Microsoft `D3DCompiler_47` version `10.0.26100.7705`, SHA-256 `38078c09a4980c0d234ede9b36b11f59517be3248524ca9aa031312a5a2652b7`. Its XP gate rows are:
+
+- `FlsAlloc`;
+- `FlsFree`;
+- `FlsGetValue`;
+- `FlsSetValue`;
+- `InitializeCriticalSectionEx`.
+
+A `d3dcompiler_47.dll` taken from a Firefox installation that is known to run on the user's physical Windows XP system was inspected separately. It is an unpatched Microsoft `D3DCompiler_47` version `10.0.14393.33`, SHA-256 `3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e`. Its external D3DCompiler ABI is the same 29-export `D3DCompiler_47` surface used by the current build, while its internal Windows dependencies use older XP-era mechanisms and do **not** import the five Vista+ functions above.
+
+The absence of `InitializeCriticalSectionEx`, `Fls*`, or `VirtualProtect` from the legacy DLL is not an ABI deficiency for Firefox/ANGLE: those are internal Windows dependencies of a particular D3DCompiler implementation, not exports that Firefox expects from `d3dcompiler_47.dll`. `VirtualProtect` is itself available on XP and was never an XP blocker in this component.
+
+The preferred remediation is therefore **legacy component-version selection**, not YY interposition and not binary import redirection:
+
+- keep the DLL name and D3DCompiler 47 ABI unchanged;
+- obtain the pinned legacy Microsoft DLL from a reproducible trusted source;
+- verify exact version and source SHA before staging;
+- replace only the build-produced `dist/bin/d3dcompiler_47.dll`;
+- retarget its PE subsystem header to 5.1 together with the rest of the XP package;
+- verify the five forbidden imports remain absent after retargeting and packaging;
+- record the post-retarget hash because `editbin /SUBSYSTEM:...,5.01` legitimately changes the original file hash;
+- require final import-audit and physical-XP browser validation before adopting the substitution as closed.
+
+Reproducible provenance for the exact legacy binary is now confirmed. Setup run `33324633438`, job `99292485878`, source `53cb94bf7aa5ae6696c666bcf63a600c7ae11840` extracted `core/d3dcompiler_47.dll` from the official Mozilla Firefox `52.2.1esr` x86 installer on `archive.mozilla.org` and validated the exact SHA-256 `3a010ee7...`. That run then failed only when its `GITHUB_TOKEN` attempted to push a change under `.github/workflows`; GitHub rejected the self-modifying workflow because the token lacked workflow-update permission. This setup failure did not invalidate the binary provenance/hash result.
+
+Renderer run `33325597050`, job `99295039973`, source `fcbf71dc5d5ab70925bcaa34e62adf08d4768a3b` then completed successfully and generated the verified full-build workflow change without attempting a forbidden self-update. The actual Firefox source-under-test for the live substitution experiment is commit `0096e6522475c95a52fad4413d43258e30cf6e8a`, which started full build run `33325676035`, job `99295249758`. At the time of this documentation update that run is still in progress: the pinned legacy-D3DCompiler preparation step has passed, and the full Firefox build is running. No package/import/runtime conclusion may be drawn until that exact run completes. A later workflow-only commit `ab700aac14ae9812c35c6594655c843c9d40bb07` merely restored the workflow to `workflow_dispatch`-only and is **not** the source-under-test for run `33325676035`.
+
+This component is therefore provisionally classified as `LEGACY_COMPONENT_VERSION`; its five current gate rows should not be assigned to the production YY provider while the exact legacy-version A/B is active.
 
 ### Test/developer/fake PEs are not product blockers by default
 
@@ -293,6 +322,10 @@ Use only for bounded, unavoidable low-level Win32 gaps after caller analysis. Av
 
 Use a source-available, license/provenance-reviewed compatibility implementation when it provides a clean independently testable boundary.
 
+### `LEGACY_COMPONENT_VERSION`
+
+A separately supplied component keeps the same public ABI/name, but an older trusted version has a strictly more compatible Windows dependency surface. Pin exact provenance/version/hash, verify export compatibility, and validate the exact staged binary through import audit and physical XP runtime. `d3dcompiler_47.dll` is the current canonical experiment for this class.
+
 ### `COMPONENT_REBUILD`
 
 A separately linked DLL owns its own incompatible imports. Rebuild/select/replace that component; do not pretend a `xul.dll` linker change modifies another PE's import table.
@@ -339,6 +372,7 @@ Suggested dispositions:
 - `OWNED_LEGACY_BACKEND`;
 - `YY_COVERED`;
 - `THIRD_PARTY_COMPAT`;
+- `LEGACY_COMPONENT_VERSION`;
 - `COMPONENT_REBUILD`;
 - `OPTIONAL_COMPONENT_DISABLED`;
 - `TEST_ONLY_IGNORE`;
@@ -356,14 +390,15 @@ The hard acceptance gate for required startup/runtime PEs should eventually be z
 
 ## Immediate next sequence
 
-1. Treat run `33310150314` / diagnostics `9733280937` as the current full-build import baseline.
-2. Perform caller/owner classification for the `xul.dll`, `mozglue.dll`, `r3dfox.exe`, and `plugin-container.exe` gaps before expanding the production YY provider.
-3. In parallel classify separately linked DLLs as required/optional and decide rebuild/legacy-version/disablement per component.
-4. Regenerate the broader stock-XP export comparison from the sandbox-disabled diagnostics rather than using the old 57/73 estimates as current numbers.
-5. Build the **smallest resulting** production compatibility provider/backends after classification.
-6. Rebuild Firefox only after the focused source/YY/component smokes prove those choices.
-7. Run the exact new runtime artifact on physical XP. Because `CloseThreadpoolWork` is absent from the current direct-import inventory, expect the physical test either to pass that old loader boundary or expose the next concrete blocker; do not claim closure before the runtime test.
-8. Keep GOST TLS runtime validation as a later separate exact-artifact milestone.
+1. Keep run `33310150314` / diagnostics `9733280937` as the last completed authoritative full-build import baseline until the current legacy-D3DCompiler A/B completes.
+2. Complete exact run `33325676035` / job `99295249758` / source `0096e6522475c95a52fad4413d43258e30cf6e8a` and compare its final `d3dcompiler_47.dll` plus full import audit against run `33310150314`. Do not count the renderer/setup runs as Firefox build evidence.
+3. Perform caller/owner classification for the `xul.dll`, `mozglue.dll`, `r3dfox.exe`, and `plugin-container.exe` gaps before expanding the production YY provider.
+4. In parallel classify the remaining separately linked DLLs as required/optional and decide rebuild/legacy-version/disablement per component; keep `d3dcompiler_47.dll` on the `LEGACY_COMPONENT_VERSION` path unless run `33325676035` disproves it.
+5. Regenerate the broader stock-XP export comparison from the sandbox-disabled diagnostics rather than using the old 57/73 estimates as current numbers.
+6. Build the **smallest resulting** production compatibility provider/backends after classification.
+7. Rebuild Firefox only after the focused source/YY/component smokes prove those choices.
+8. Run the exact new runtime artifact on physical XP. Because `CloseThreadpoolWork` is absent from the current direct-import inventory, expect the physical test either to pass that old loader boundary or expose the next concrete blocker; do not claim closure before the runtime test.
+9. Keep GOST TLS runtime validation as a later separate exact-artifact milestone.
 
 ## Decision rules for future debugging
 
