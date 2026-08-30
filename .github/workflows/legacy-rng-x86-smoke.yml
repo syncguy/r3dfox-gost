@@ -36,10 +36,11 @@ jobs:
           $vcvars = Join-Path $install 'VC\Auxiliary\Build\vcvars32.bat'
           New-Item -ItemType Directory -Force -Path out | Out-Null
 
-          $common = '/nologo /std:c++20 /O2 /GS- /GR- /Zl /DWINVER=0x0501 /D_WIN32_WINNT=0x0501 build\legacy_rng_smoke.cpp /link /NODEFAULTLIB /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /MACHINE:X86 kernel32.lib advapi32.lib'
-          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_CRYPTOAPI /Fe:out\legacy-rng-cryptoapi.exe"
+          $common = '/nologo /std:c++20 /O2 /GS- /GR- /Zl /DWINVER=0x0501 /D_WIN32_WINNT=0x0501'
+          $link = '/link /NODEFAULTLIB /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /MACHINE:X86 kernel32.lib advapi32.lib'
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_CRYPTOAPI build\legacy_rng_smoke.cpp /Fe:out\legacy-rng-cryptoapi.exe $link"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_RTL_CONTROL /Fe:out\legacy-rng-rtl-control.exe"
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_RTL_CONTROL build\legacy_rng_smoke.cpp /Fe:out\legacy-rng-rtl-control.exe $link"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run probes on hosted Windows
