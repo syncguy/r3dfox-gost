@@ -10,19 +10,9 @@
 #endif
 
 #if defined(XP_WIN)
-
-// Microsoft doesn't "officially" support using RtlGenRandom() directly
-// anymore, and the Windows headers assume that __stdcall is
-// the default calling convention (which is true when Microsoft uses this
-// function to build their own CRT libraries).
-
-// We will explicitly declare it with the proper calling convention.
-
-#  include "minwindef.h"
-#  define RtlGenRandom SystemFunction036
-extern "C" BOOLEAN NTAPI RtlGenRandom(PVOID RandomBuffer,
-                                      ULONG RandomBufferLength);
-
+#  include <windows.h>
+#  include <wincrypt.h>
+#  pragma comment(lib, "advapi32.lib")
 #endif
 
 #if defined(ANDROID) || defined(XP_DARWIN) || defined(__DragonFly__) ||    \
@@ -88,7 +78,21 @@ MFBT_API bool GenerateRandomBytesFromOS(void* aBuffer, size_t aLength) {
   MOZ_ASSERT(aLength > 0);
 
 #if defined(XP_WIN)
-  return !!RtlGenRandom(aBuffer, aLength);
+  if (aLength > MAXDWORD) {
+    return false;
+  }
+
+  HCRYPTPROV provider = 0;
+  if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_FULL,
+                            CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
+    return false;
+  }
+
+  const BOOL ok =
+      CryptGenRandom(provider, static_cast<DWORD>(aLength),
+                     static_cast<BYTE*>(aBuffer));
+  CryptReleaseContext(provider, 0);
+  return ok == TRUE;
 
 #elif defined(USE_ARC4RANDOM)  // defined(XP_WIN)
 
