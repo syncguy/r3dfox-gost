@@ -118,3 +118,50 @@ Run this exact artifact on physical Windows 7 x32 with the content sandbox enabl
 Do not call the sandbox blocker fixed from build success alone. A later WinRT/other compatibility failure, if reached, remains a separate blocker and must be bound to this exact source/artifact before interpretation.
 
 Status: full-build candidate available; physical Win7 x32 runtime result pending; no GOST TLS conclusion follows.
+
+---
+
+## 2026-08-30 — CryptoAPI RNG full-build candidate still crashes content tabs on physical Win7 x32
+
+**Track:** Windows compatibility / Win7 content-sandbox RNG  
+**Experimental branch:** `agent/legacy-rng-poc`  
+**Source-under-test:** `19c82e7eec160dab761083d454d084515060f808`  
+**Run:** `33298304132`  
+**Job:** `99221664596`  
+**Package artifact tested:** `9729515763` (`r3dfox-gost-xp-x32-package`), artifact digest SHA-256 `5434c8b61a8351761b514653136133aa026081824d6694d59031df6baedf4be9`  
+**Platform:** physical Windows 7 x32  
+**Content sandbox:** enabled; `MOZ_DISABLE_CONTENT_SANDBOX` not set
+
+### Observation
+
+The browser parent UI starts, but opening ordinary pages still causes content-tab failure with the Firefox crash page:
+
+`Gah. Your tab just crashed.`
+
+Therefore the acceptance criterion for the CryptoAPI RNG full-build candidate is **FAIL**: replacing `GenerateRandomBytesFromOS()` with per-call CryptoAPI acquisition did not make sandboxed content processes survive normal page loading on the tested Win7 x32 machine.
+
+No new debugger trace was captured in this observation, so this result does not yet prove that the new crash still terminates at the same `RandomUint64OrDie` assertion. It proves only that the candidate did not close the user-visible sandbox blocker.
+
+### Source-level lifecycle finding
+
+The exact source contains both parts of the attempted remedy:
+
+- `SandboxTarget::LowerContentSandbox()` calls `GenerateRandomBytesFromOS()` before `LowerToken()` on pre-Win8 systems;
+- `GenerateRandomBytesFromOS()` now performs `CryptAcquireContextW(..., CRYPT_VERIFYCONTEXT | CRYPT_SILENT)`, calls `CryptGenRandom()`, then immediately calls `CryptReleaseContext()` on every invocation.
+
+This creates a concrete lifecycle weakness in the candidate: the pre-lockdown call obtains a CryptoAPI CSP context and releases it before sandbox lockdown. A later RNG call therefore cannot reuse that pre-lockdown provider handle; it must acquire a new CSP context from inside the restricted content process.
+
+Microsoft documents the `HCRYPTPROV` returned by `CryptAcquireContext` as the provider handle used by later CryptoAPI calls, and documents `CRYPT_VERIFYCONTEXT` temporary context lifetime through `CryptReleaseContext`. This makes retained pre-lockdown provider state a technically plausible next hypothesis, but the current runtime failure does **not** by itself prove that `CryptAcquireContextW` is the failing post-lockdown call.
+
+### Next diagnostic
+
+Do not spend another full Firefox build solely on the retained-provider hypothesis yet. Use the current exact binary under WinDbg on physical Win7 x32 and distinguish the failure point:
+
+1. observe the pre-lockdown `CryptAcquireContextW` / `CryptGenRandom` call;
+2. observe the first post-lockdown RNG call from the sandboxed `tab` process;
+3. determine whether `CryptAcquireContextW` returns zero, or whether acquisition succeeds and `CryptGenRandom` fails;
+4. record `GetLastError()` for the first failing CryptoAPI call and confirm whether the eventual termination still reaches `mozglue!mozilla::RandomUint64OrDie`.
+
+Only after that result should the next source experiment choose between retaining a pre-lockdown CSP handle, changing the provider/path, or abandoning CryptoAPI for this sandbox-specific boundary.
+
+Status: current candidate failed physical Win7 sandbox acceptance; root cause of the post-lockdown failure still requires debugger confirmation; no GOST TLS conclusion follows.
