@@ -1,0 +1,31 @@
+name: Legacy RNG full XP x32 dispatch
+
+on:
+  push:
+    branches:
+      - agent/legacy-rng-poc
+    paths:
+      - mfbt/RandomNum.cpp
+      - .github/workflows/legacy-rng-full-xp-dispatch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-full-xp-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record source identity
+        run: |
+          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "branch=$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch existing XP x32 full build at current branch HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run gost-poc-build-xp-x32.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME"
