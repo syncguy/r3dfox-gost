@@ -6,6 +6,7 @@ on:
       - agent/legacy-rng-poc
     paths:
       - build/legacy_rng_smoke.cpp
+      - build/legacy_rng_mozglue_smoke.cpp
       - .github/workflows/legacy-rng-x86-smoke.yml
   workflow_dispatch:
 
@@ -37,10 +38,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path out | Out-Null
 
           $common = '/nologo /std:c++20 /O2 /GS- /GR- /Zl /DWINVER=0x0501 /D_WIN32_WINNT=0x0501'
-          $link = '/link /NODEFAULTLIB /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /MACHINE:X86 kernel32.lib advapi32.lib'
-          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_CRYPTOAPI build\legacy_rng_smoke.cpp /Fe:out\legacy-rng-cryptoapi.exe $link"
+          $clLink = '/link /NODEFAULTLIB /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /MACHINE:X86 kernel32.lib advapi32.lib'
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_CRYPTOAPI build\legacy_rng_smoke.cpp /Fe:out\legacy-rng-cryptoapi.exe $clLink"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_RTL_CONTROL build\legacy_rng_smoke.cpp /Fe:out\legacy-rng-rtl-control.exe $link"
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_RTL_CONTROL build\legacy_rng_smoke.cpp /Fe:out\legacy-rng-rtl-control.exe $clLink"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /c build\legacy_rng_mozglue_smoke.cpp /Fo:out\legacy-rng-mozglue.obj"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmd /d /s /c "`"$vcvars`" >nul && link /nologo out\legacy-rng-mozglue.obj /OUT:out\legacy-rng-mozglue.exe /NODEFAULTLIB /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /MACHINE:X86 kernel32.lib advapi32.lib"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run probes on hosted Windows
@@ -49,13 +55,17 @@ jobs:
           $ErrorActionPreference = 'Continue'
           & .\out\legacy-rng-cryptoapi.exe
           $crypto = $LASTEXITCODE
+          & .\out\legacy-rng-mozglue.exe
+          $mozglue = $LASTEXITCODE
           & .\out\legacy-rng-rtl-control.exe
           $rtl = $LASTEXITCODE
           "cryptoapi_exit=$crypto" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "mozglue_representative_exit=$mozglue" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "rtl_control_exit=$rtl" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
           if ($crypto -ne 0) { throw "CryptoAPI candidate failed with exit $crypto" }
+          if ($mozglue -ne 0) { throw "mozglue representative candidate failed with exit $mozglue" }
 
-      - name: Audit imports and PE floor
+      - name: Audit representative object and PE imports
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -67,27 +77,68 @@ jobs:
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $dumpbin) { throw 'dumpbin.exe not found' }
 
-          foreach ($exe in @('out\legacy-rng-cryptoapi.exe', 'out\legacy-rng-rtl-control.exe')) {
+          $executables = @(
+            'out\legacy-rng-cryptoapi.exe',
+            'out\legacy-rng-mozglue.exe',
+            'out\legacy-rng-rtl-control.exe'
+          )
+          foreach ($exe in $executables) {
             $name = [IO.Path]::GetFileNameWithoutExtension($exe)
             & $dumpbin /headers $exe | Out-File "out\$name-headers.txt" -Encoding ascii
             & $dumpbin /imports $exe | Out-File "out\$name-imports.txt" -Encoding ascii
           }
 
-          $cryptoImports = Get-Content 'out\legacy-rng-cryptoapi-imports.txt' -Raw
-          foreach ($required in @('CryptAcquireContextW', 'CryptGenRandom', 'CryptReleaseContext')) {
-            if ($cryptoImports -notmatch [regex]::Escape($required)) { throw "Missing expected CryptoAPI import: $required" }
-          }
-          if ($cryptoImports -match 'SystemFunction036|BCryptGenRandom|api-ms-win-') {
-            throw 'CryptoAPI candidate contains a forbidden RNG/API-set import'
+          & $dumpbin /symbols out\legacy-rng-mozglue.obj | Out-File out\legacy-rng-mozglue-symbols.txt -Encoding ascii
+          & $dumpbin /directives out\legacy-rng-mozglue.obj | Out-File out\legacy-rng-mozglue-directives.txt -Encoding ascii
+
+          $requiredCryptoImports = @('CryptAcquireContextW', 'CryptGenRandom', 'CryptReleaseContext')
+          $forbidden = 'SystemFunction036|RtlGenRandom|BCryptGenRandom|ProcessPrng|api-ms-win-'
+
+          foreach ($candidate in @('legacy-rng-cryptoapi', 'legacy-rng-mozglue')) {
+            $imports = Get-Content "out\$candidate-imports.txt" -Raw
+            foreach ($required in $requiredCryptoImports) {
+              if ($imports -notmatch [regex]::Escape($required)) {
+                throw "$candidate is missing expected CryptoAPI import: $required"
+              }
+            }
+            if ($imports -match $forbidden) {
+              throw "$candidate contains a forbidden RNG/API-set import"
+            }
+            if ($imports -match 'GenerateRandomBytesFromOS') {
+              throw "$candidate imports GenerateRandomBytesFromOS instead of defining the backend internally"
+            }
           }
 
-          $headers = Get-Content 'out\legacy-rng-cryptoapi-headers.txt' -Raw
-          if ($headers -notmatch '5\.01 subsystem version') {
-            throw 'CryptoAPI candidate is not PE subsystem 5.01'
+          $rtlImports = Get-Content 'out\legacy-rng-rtl-control-imports.txt' -Raw
+          if ($rtlImports -notmatch 'SystemFunction036') {
+            throw 'RTL control probe lost its SystemFunction036 control import'
           }
 
-          Get-FileHash out\legacy-rng-cryptoapi.exe -Algorithm SHA256 | Format-List | Out-File out\sha256.txt -Encoding ascii
-          Get-FileHash out\legacy-rng-rtl-control.exe -Algorithm SHA256 | Format-List | Out-File out\sha256-control.txt -Encoding ascii
+          $objectSymbols = Get-Content 'out\legacy-rng-mozglue-symbols.txt' -Raw
+          if ($objectSymbols -notmatch 'GenerateRandomBytesFromOS') {
+            throw 'Representative object does not define GenerateRandomBytesFromOS'
+          }
+          if ($objectSymbols -match 'UNDEF[^\r\n]*GenerateRandomBytesFromOS') {
+            throw 'Representative object leaves GenerateRandomBytesFromOS undefined'
+          }
+          if ($objectSymbols -match 'SystemFunction036|RtlGenRandom|BCryptGenRandom|ProcessPrng') {
+            throw 'Representative object references a forbidden RNG backend'
+          }
+
+          foreach ($candidate in @('legacy-rng-cryptoapi', 'legacy-rng-mozglue')) {
+            $headers = Get-Content "out\$candidate-headers.txt" -Raw
+            if ($headers -notmatch '5\.01 subsystem version') {
+              throw "$candidate is not PE subsystem 5.01"
+            }
+          }
+
+          foreach ($exe in $executables) {
+            $name = [IO.Path]::GetFileName($exe)
+            $sha256 = (Get-FileHash $exe -Algorithm SHA256).Hash
+            $sha1 = (Get-FileHash $exe -Algorithm SHA1).Hash
+            "$name SHA256=$sha256" | Tee-Object -FilePath out\hashes.txt -Append
+            "$name SHA1=$sha1" | Tee-Object -FilePath out\hashes.txt -Append
+          }
 
       - name: Upload standalone XP x86 probes
         uses: actions/upload-artifact@v4
