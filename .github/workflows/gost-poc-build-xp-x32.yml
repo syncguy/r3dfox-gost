@@ -393,6 +393,7 @@ jobs:
           ac_add_options --disable-debug-js-modules
           ac_add_options --disable-debug-symbols
           ac_add_options --disable-tests
+          ac_add_options --disable-sandbox
           ac_add_options --enable-hardening
           ac_add_options --enable-stl-hardening
           ac_add_options --enable-jemalloc
