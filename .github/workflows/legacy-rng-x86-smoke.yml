@@ -1,0 +1,96 @@
+name: Legacy RNG x86 smoke
+
+on:
+  push:
+    branches:
+      - agent/legacy-rng-poc
+    paths:
+      - build/legacy_rng_smoke.cpp
+      - .github/workflows/legacy-rng-x86-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-rng-x86:
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record source identity
+        shell: pwsh
+        run: |
+          "source_sha=$env:GITHUB_SHA" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "branch=$env:GITHUB_REF_NAME" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Build XP-compatible x86 probes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $install) { throw 'Visual Studio installation not found' }
+          $vcvars = Join-Path $install 'VC\Auxiliary\Build\vcvars32.bat'
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+
+          $common = '/nologo /std:c++20 /O2 /GS- /GR- /Zl /DWINVER=0x0501 /D_WIN32_WINNT=0x0501 build\legacy_rng_smoke.cpp /link /NODEFAULTLIB /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /MACHINE:X86 kernel32.lib advapi32.lib'
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_CRYPTOAPI /Fe:out\legacy-rng-cryptoapi.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmd /d /s /c "`"$vcvars`" >nul && cl $common /DLEGACY_RNG_RTL_CONTROL /Fe:out\legacy-rng-rtl-control.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run probes on hosted Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & .\out\legacy-rng-cryptoapi.exe
+          $crypto = $LASTEXITCODE
+          & .\out\legacy-rng-rtl-control.exe
+          $rtl = $LASTEXITCODE
+          "cryptoapi_exit=$crypto" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "rtl_control_exit=$rtl" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          if ($crypto -ne 0) { throw "CryptoAPI candidate failed with exit $crypto" }
+
+      - name: Audit imports and PE floor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem -Path (Join-Path $install 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName -match '\\bin\\Hostx64\\x86\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw 'dumpbin.exe not found' }
+
+          foreach ($exe in @('out\legacy-rng-cryptoapi.exe', 'out\legacy-rng-rtl-control.exe')) {
+            $name = [IO.Path]::GetFileNameWithoutExtension($exe)
+            & $dumpbin /headers $exe | Out-File "out\$name-headers.txt" -Encoding ascii
+            & $dumpbin /imports $exe | Out-File "out\$name-imports.txt" -Encoding ascii
+          }
+
+          $cryptoImports = Get-Content 'out\legacy-rng-cryptoapi-imports.txt' -Raw
+          foreach ($required in @('CryptAcquireContextW', 'CryptGenRandom', 'CryptReleaseContext')) {
+            if ($cryptoImports -notmatch [regex]::Escape($required)) { throw "Missing expected CryptoAPI import: $required" }
+          }
+          if ($cryptoImports -match 'SystemFunction036|BCryptGenRandom|api-ms-win-') {
+            throw 'CryptoAPI candidate contains a forbidden RNG/API-set import'
+          }
+
+          $headers = Get-Content 'out\legacy-rng-cryptoapi-headers.txt' -Raw
+          if ($headers -notmatch '5\.01 subsystem version') {
+            throw 'CryptoAPI candidate is not PE subsystem 5.01'
+          }
+
+          Get-FileHash out\legacy-rng-cryptoapi.exe -Algorithm SHA256 | Format-List | Out-File out\sha256.txt -Encoding ascii
+          Get-FileHash out\legacy-rng-rtl-control.exe -Algorithm SHA256 | Format-List | Out-File out\sha256-control.txt -Encoding ascii
+
+      - name: Upload standalone XP x86 probes
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-rng-x86-probes
+          path: out
+          if-no-files-found: error
