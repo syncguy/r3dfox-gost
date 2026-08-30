@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — TODO / Deferred Work
 
-This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP multi-host mTLS branch is in `STAGE2_GIS_GMP.md`; the WinRT source-removal alternative is in `WINRT_SOURCE_POC.md`; experiment evidence is in `TEST_LOG.md` and dated volumes.
+This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP multi-host mTLS branch is in `STAGE2_GIS_GMP.md`; the WinRT source-removal alternative is in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture/import triage is in `XP_COMPATIBILITY_STRATEGY.md`; experiment evidence is in `TEST_LOG.md` and dated volumes.
 
 ## GOST TLS runtime — immediate
 
@@ -100,17 +100,36 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 The representative Windows XP SP3 x86 coexistence question is closed for source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`: the exact probe with bundled msvcr14x `ucrtbase.dll` and `msvcp140.dll` ran three times on physical Windows XP SP3 x86 with `ExitCode=0`.
 
-The first full Firefox 153 x86 integration build also exists: source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, package artifact `9676548553`, physical-test runtime artifact `9676549576`, diagnostics artifact `9676550507`. Full compilation/package/runtime staging succeeded; the run is red only because the post-build XP import audit failed. Physical tests have converted that broad audit result into concrete runtime blockers.
+The current full Firefox import baseline is now the sandbox-disabled `agent/winrt-source-poc` build:
 
-**Inherited x86 sandbox baseline:** official upstream r3dfox `v153.0.3` explicitly ships the 32-bit build with `--disable-sandbox`. `Eclipse-Community/r3dfox#11` documents that sandbox-enabled Vista x86 fails to spawn child processes, `MOZ_DISABLE_CONTENT_SANDBOX=1` mostly mitigates it, and the maintainer chose to ship x86 without sandbox; the issue is closed `not_planned`. Therefore a sandbox-enabled Win7/Vista x86 pass is **not** an XP-port prerequisite. Use build-time sandbox disablement for the XP/x86 product experiment unless sandbox restoration is explicitly reprioritized.
+- source-under-test `1635d28360ee35d47c1d8237bcf8f5864cc1144f`;
+- run `33310150314`;
+- job `99253613546`;
+- runtime artifact `9733280458`;
+- diagnostics artifact `9733280937`;
+- full browser build/package/runtime staging succeeded; the run is red only at the broad XP import gate.
+
+The curated current gate reports 103 rows, 26 unique forbidden API names across 15 PEs, with `xul.dll` contributing 19 API rows + `bcrypt.dll` and `mozglue.dll` contributing 11 API rows + `bcrypt.dll`.
+
+**Inherited x86 sandbox baseline:** official upstream r3dfox `v153.0.3` ships the 32-bit build with `--disable-sandbox`. A sandbox-enabled Win7/Vista x86 pass is not an XP-port prerequisite. Keep build-time sandbox disablement on the XP/x86 product path unless sandbox restoration is explicitly reprioritized.
+
+**Old physical-XP `CloseThreadpoolWork` blocker:** the earlier exact artifact from run `33141004769` failed before UI startup on hard `KERNEL32!CloseThreadpoolWork`. The current run `33310150314` direct-import inventory and raw per-PE import diagnostics contain no `CloseThreadpoolWork`. Therefore that specific import blocker is no longer expected in the current artifact, but only an exact physical-XP launch can close the runtime boundary.
 
 Open work, in order:
 
-1. **XP x32 loader blocker — `CloseThreadpoolWork`.** On physical XP the browser does not reach UI startup because a startup-loaded PE module has a hard `KERNEL32!CloseThreadpoolWork` dependency. Identify the exact importing module from the build diagnostics/import tables; redirect/remove only that observed hard import using the narrow compatibility strategy; rebuild and rerun the exact physical XP startup test. Do not assume the dialog title proves `r3dfox.exe` itself owns the import.
-2. **XP import/source compatibility inventory.** Continue the per-subsystem classification from [`XP_COMPATIBILITY_STRATEGY.md`](./XP_COMPATIBILITY_STRATEGY.md): XP-native replacement where a real legacy API exists, bounded YY-Thunks for stable low-level gaps, source removal/fallback for modern-only features, vetted open third-party implementations where appropriate, and custom shims only for the residual set. Keep required browser runtime separate from test/dev PEs.
-3. **WinRT source removal/fallback.** The physical Win7 sandbox-off browser from exact source `982d6529a707c6feecad97c725feed8a3cd21c81` / run `33141004769` later proved a separate parent-process WinRT delay-load crash: `xul.dll` -> missing `api-ms-win-core-winrt-l1-1-0.dll` -> `RoGetActivationFactory` -> `ERROR_MOD_NOT_FOUND (0x7e)` -> `0xc06d007e`. The broad YY WinRT expansion line is retired as unpromising; the intended XP strategy is to remove/stub/fallback nonessential WinRT consumers. See [`WINRT_SOURCE_POC.md`](./WINRT_SOURCE_POC.md). Required proof remains targeted compilation -> reference scan -> full x86 build/import audit -> physical XP runtime. Win7 can remain a convenient intermediate diagnostic platform, but is not the design target.
-4. **Physical XP startup/browsing after each compatibility step.** Re-run the exact build on physical XP as soon as the current loader blocker is removed. Treat each new concrete failure as evidence, but use the generated import/classification inventory to avoid one-error-at-a-time blind development.
-5. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
+1. **Caller/owner classification for the core browser PEs.** Use diagnostics `9733280937` to identify exact callers/owning abstractions for the surviving `xul.dll`, `mozglue.dll`, `r3dfox.exe`, and `plugin-container.exe` imports. Do not map all 26 gate API names directly to YY.
+2. **Prefer XP-native/source/backend solutions before YY.** For current candidates such as `CancelIoEx`, `CompareStringOrdinal`, `GetCurrentProcessorNumber`, `GetFileInformationByHandleEx`, `GetFinalPathNameByHandleW`, the locale-name/LCID family, `GetTickCount64`, `SetFileInformationByHandle`, and `InitializeCriticalSectionEx`, evaluate caller semantics and an XP-native implementation or owned legacy backend first. These are candidate directions, not pre-approved replacements.
+3. **Classify the synchronization family by ownership.** SRW/condition-variable imports appear in multiple PEs. Mozilla-owned abstractions may justify one XP synchronization backend; unavoidable Rust/MSVC/toolchain surfaces are strong narrow-YY candidates; separately linked DLLs require their own build/dependency solution.
+4. **Classify separately linked shipping/feature DLLs independently.** `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, `d3dcompiler_47.dll`, and `gmp-clearkey` cannot be fixed merely by adding an archive to the `xul.dll` link. Decide required vs optional, then rebuild/select legacy version/replace/disable per component.
+5. **Exclude test/developer/fake artifacts from the product blocker budget.** `gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, and `xpcshell.exe` remain visible diagnostically but are not automatic XP product blockers.
+6. **Regenerate the exhaustive XP SP3 inventory from the current sandbox-disabled diagnostics.** The old ~57 `xul.dll` / ~73 whole-`dist/bin` estimates predate sandbox removal and are no longer current planning counts.
+7. **Keep YY physically narrow.** Run `33316988353`, job `99272141403`, source `39ce8453be32557dfb709bce8ee412c16f78a72f` successfully proved that YY 1.2.2 can cover the current 26-name API set at representative-link scale. Treat this only as upper-bound capability evidence; production YY membership must be derived after caller classification. Never reintroduce full YY `kernel32.lib` interposition.
+8. **BCrypt remains a separate compatibility boundary.** `bcrypt.dll` is still directly imported by `xul.dll` and `mozglue.dll`. Continue the source-available/reproducible minimal-BCrypt-facade investigation separately from the general YY decision.
+9. **Focused smokes before the next full Firefox build.** Prove each chosen source fallback, owned backend, component rebuild, and final narrow YY membership cheaply before spending another multi-hour full-build cycle.
+10. **Physical XP startup/browsing.** Test the resulting exact artifact on physical XP. The current artifact `9733280458` may also be used as an intermediate runtime probe to confirm that the former `CloseThreadpoolWork` boundary has moved, but do not infer a browser pass from import tables alone.
+11. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
+
+Detailed classification policy and current component matrix are authoritative in [`XP_COMPATIBILITY_STRATEGY.md`](./XP_COMPATIBILITY_STRATEGY.md).
 
 ### Deferred optional hardening — restore x86 sandbox
 
