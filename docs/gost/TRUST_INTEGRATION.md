@@ -67,6 +67,22 @@ The packaging workflow path triggers must include at least:
 - `r3dfox/moz.build`;
 - `browser/installer/package-manifest.in`.
 
+## Historical heavy packaging gate to reactivate
+
+The existing heavy integration workflow is `.github/workflows/cryptopro-mozilla-packaging-smoke.yml` (`CryptoPro Mozilla packaging smoke`). Its last relevant failed run is:
+
+- run `33076347741`;
+- job `98531418338`;
+- source-under-test `07c7c48419ca39952a57a53967c1bcabaa8384c1`.
+
+That run successfully completed the full Firefox build, CryptoPro XPI `dist/bin` gate, package creation, and artifact upload. It failed only in the final portable verification because the gate required exactly one loose `defaults\pref\r3dfox-bundle.js` after extraction and found zero. This is not evidence that the Russian locale/default preference was absent: packaged Firefox may fold pref resources into `omni.ja`, and the same gate already performs a separate `omni.ja` locale-resource inspection.
+
+Before this heavy workflow is used as the final trust/package integration proof, replace the loose-file-only `r3dfox-bundle.js` assertion with a packaging-form-independent check (loose file or the appropriate `omni.ja` content) or otherwise verify the effective Russian-default configuration without assuming a loose pref file.
+
+Do not rerun historical run `33076347741`; a rerun would remain pinned to source `07c7c484...`. The next heavy test must be a new run from the then-current integrated source SHA.
+
+The heavy workflow should additionally verify the exact bundled root SHA in both `dist/bin/distribution/Certificates` and the final portable archive, and its `paths:` trigger must include `r3dfox/policies.json` and `r3dfox/certificates/**`.
+
 ## Runtime acceptance gate
 
 After the integrated build, use a completely new profile and verify:
