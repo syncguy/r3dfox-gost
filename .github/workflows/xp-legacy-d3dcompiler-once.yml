@@ -1,5 +1,4 @@
-# Retried after correcting the post-retarget D3DCompiler hash gate.
-name: "XP legacy D3DCompiler one-shot setup"
+name: "XP legacy D3DCompiler workflow renderer"
 
 on:
   push:
@@ -10,82 +9,52 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
-  prepare:
+  render:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Resolve exact legacy Mozilla D3DCompiler_47
+      - name: Render verified legacy D3DCompiler full-build workflow
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $expected = '3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e'
-          $sources = @(
-            'https://archive.mozilla.org/pub/firefox/releases/52.2.1esr/win32/en-US/Firefox%20Setup%2052.2.1esr.exe',
-            'https://archive.mozilla.org/pub/firefox/releases/52.0.2/win32/en-US/Firefox%20Setup%2052.0.2.exe',
-            'https://archive.mozilla.org/pub/firefox/releases/54.0.1/win32/en-US/Firefox%20Setup%2054.0.1.exe'
-          )
-          $chosen = $null
-          foreach ($uri in $sources) {
-            $installer = Join-Path $env:RUNNER_TEMP 'legacy-firefox.exe'
-            $extract = Join-Path $env:RUNNER_TEMP 'legacy-firefox'
-            try {
-              Invoke-WebRequest -Uri $uri -OutFile $installer
-              if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
-              New-Item -ItemType Directory -Force $extract | Out-Null
-              & 7z.exe x $installer "-o$extract" -y | Out-Null
-              if ($LASTEXITCODE -ne 0) { throw "7z failed: $LASTEXITCODE" }
-              foreach ($candidate in @(Get-ChildItem -Path $extract -Recurse -File -Filter 'd3dcompiler_47.dll')) {
-                $hash = (Get-FileHash -Algorithm SHA256 $candidate.FullName).Hash.ToLowerInvariant()
-                if ($hash -eq $expected) {
-                  $chosen = $uri
-                  "Validated $($candidate.FullName) SHA256=$hash"
-                  break
-                }
-              }
-              if ($chosen) { break }
-            } catch {
-              Write-Host "Source probe failed for $uri : $($_.Exception.Message)"
-            }
-          }
-          if (-not $chosen) { throw "No official Mozilla installer yielded expected D3DCompiler_47 SHA256 $expected" }
-          "LEGACY_D3D_SOURCE_URI=$chosen" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Patch XP full-build workflow
-        shell: powershell
+        env:
+          LEGACY_D3D_SOURCE_URI: https://archive.mozilla.org/pub/firefox/releases/52.2.1esr/win32/en-US/Firefox%20Setup%2052.2.1esr.exe
         run: |
           $ErrorActionPreference = 'Stop'
           python build\xp\patch-legacy-d3dcompiler-workflow.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --check -- .github/workflows/gost-poc-build-xp-x32.yml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff -- .github/workflows/gost-poc-build-xp-x32.yml
 
-      - name: Commit workflow change and remove one-shot
+          $clean = 'build\xp\generated-gost-poc-build-xp-x32.yml'
+          $trigger = 'build\xp\generated-gost-poc-build-xp-x32-trigger.yml'
+          Copy-Item -Force '.github\workflows\gost-poc-build-xp-x32.yml' $clean
+
+          @'
+          from pathlib import Path
+          src = Path('build/xp/generated-gost-poc-build-xp-x32.yml').read_text(encoding='utf-8')
+          old = 'on:\n  workflow_dispatch:\n'
+          new = '''on:\n  workflow_dispatch:\n  push:\n    branches:\n      - agent/winrt-source-poc\n    paths:\n      - .github/workflows/gost-poc-build-xp-x32.yml\n'''
+          if src.count(old) != 1:
+              raise SystemExit(f'workflow trigger anchor count: {src.count(old)}')
+          Path('build/xp/generated-gost-poc-build-xp-x32-trigger.yml').write_text(src.replace(old, new, 1), encoding='utf-8', newline='\n')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          git diff --no-index -- $clean $trigger | Out-Host
+          if ($LASTEXITCODE -notin @(0,1)) { exit $LASTEXITCODE }
+
+      - name: Publish rendered workflow blobs outside workflow directory
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          Remove-Item '.github\workflows\xp-legacy-d3dcompiler-once.yml'
-          git add .github/workflows/gost-poc-build-xp-x32.yml .github/workflows/xp-legacy-d3dcompiler-once.yml build/xp/patch-legacy-d3dcompiler-workflow.py
-          git commit -m 'ci(xp): use legacy Firefox D3DCompiler_47'
+          git add build/xp/generated-gost-poc-build-xp-x32.yml build/xp/generated-gost-poc-build-xp-x32-trigger.yml
+          git commit -m 'ci(xp): render legacy D3DCompiler workflow blobs'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git push origin HEAD:agent/winrt-source-poc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "TARGET_SHA=$((git rev-parse HEAD).Trim())" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Dispatch XP full build
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          gh workflow run gost-poc-build-xp-x32.yml --repo syncguy/r3dfox-gost --ref agent/winrt-source-poc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "Dispatched full XP x32 build for $env:TARGET_SHA"
