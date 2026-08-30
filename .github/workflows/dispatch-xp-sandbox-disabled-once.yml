@@ -1,0 +1,21 @@
+name: "Dispatch XP sandbox-disabled full build once"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - .github/workflows/dispatch-xp-sandbox-disabled-once.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch XP x32 full build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run gost-poc-build-xp-x32.yml --repo syncguy/r3dfox-gost --ref agent/winrt-source-poc
