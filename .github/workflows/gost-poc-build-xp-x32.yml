@@ -2,11 +2,6 @@ name: "GOST TLS PoC build  XP x32"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent/winrt-source-poc
-    paths:
-      - .github/workflows/gost-poc-build-xp-x32.yml
 
 permissions:
   contents: read
