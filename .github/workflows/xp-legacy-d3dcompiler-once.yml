@@ -1,3 +1,4 @@
+# Retried after correcting the post-retarget D3DCompiler hash gate.
 name: "XP legacy D3DCompiler one-shot setup"
 
 on:
