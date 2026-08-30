@@ -165,3 +165,43 @@ Do not spend another full Firefox build solely on the retained-provider hypothes
 Only after that result should the next source experiment choose between retaining a pre-lockdown CSP handle, changing the provider/path, or abandoning CryptoAPI for this sandbox-specific boundary.
 
 Status: current candidate failed physical Win7 sandbox acceptance; root cause of the post-lockdown failure still requires debugger confirmation; no GOST TLS conclusion follows.
+
+---
+
+## 2026-08-30 — Upstream r3dfox v153.0.3 x86 deliberately ships with sandbox disabled; Win7 sandbox-on work is not an XP prerequisite
+
+**Track:** Windows compatibility / upstream baseline correction  
+**Upstream repository:** `Eclipse-Community/r3dfox`  
+**Release:** `v153.0.3`  
+**Release target branch:** `win-153`  
+**Related upstream issue:** `Eclipse-Community/r3dfox#11` (`Fix sandbox under 32 bit build on Vista`)
+
+### Authoritative upstream baseline
+
+The official r3dfox `v153.0.3` release notes explicitly state that the **32-bit build is built with `--disable-sandbox`**. The reason given is that, with sandbox enabled under Vista, the browser fails to open multiple processes and the browser breaks; the 64-bit build is described as fine.
+
+Issue #11 records the same policy from the maintainer. The reported Vista x86 behavior is that the browser does not spawn processes outside the main browser process. `MOZ_DISABLE_CONTENT_SANDBOX=1` is described as a mitigation that mostly works, but the maintainer chose to ship the 32-bit build without sandbox instead of requiring that workaround. The issue is closed with state reason `not_planned`.
+
+This upstream fact predates the project's current XP experiments and must be treated as part of the inherited r3dfox x86 baseline, not as a new regression introduced by GOST/XP work.
+
+### Reclassification of this project's Win7 sandbox experiments
+
+The physical Win7 x32 RNG/sandbox observations remain valid historical evidence about what happens when this project builds the x86 browser **with the modern sandbox enabled**. Runs `33141004769` and `33298304132` demonstrated that our sandbox-enabled experimental configuration can crash content tabs, and the latter did not pass its sandbox-on acceptance test.
+
+However, those experiments no longer define an obligatory XP compatibility blocker. The project's target is an XP-capable derivative of r3dfox x86, whose own official v153.0.3 baseline intentionally disables the sandbox on 32-bit legacy Windows because that configuration is already unsupported/broken upstream.
+
+Therefore:
+
+- do not require a sandbox-enabled Win7 x32 pass before continuing the XP loader/import/source-compatibility work;
+- do not spend full-build cycles on `LowerToken`, RNG pre-warm, retained CryptoAPI provider state, or other sandbox-on fixes unless sandbox restoration is explicitly reprioritized;
+- preserve the Win7 sandbox/RNG evidence as optional hardening research rather than deleting or pretending it never occurred;
+- the normal XP compatibility acceptance path may use a build-time x86 sandbox-disabled configuration aligned with upstream r3dfox's shipped 32-bit baseline;
+- restoring a working restricted-token sandbox for Vista/7/XP x86 remains a possible future security-hardening project, but it is independent from proving that Firefox 153 can start and browse on XP.
+
+This correction does not mean `MOZ_DISABLE_CONTENT_SANDBOX=1` should become the final packaging mechanism. For an XP/x86 product build, prefer the same explicit build-time `--disable-sandbox` policy used by upstream r3dfox x86 unless the project later chooses to revive sandbox support.
+
+### Current XP critical path after correction
+
+The immediate XP work remains the real loader/import/source compatibility surface: first the physical XP startup blocker(s), then elimination/replacement of modern-only dependencies such as WinRT and other required imports, followed by exact physical XP startup/browsing tests. Sandbox restoration is no longer on that critical path.
+
+Status: current baseline correction; previous sandbox-on runtime evidence remains valid but is reclassified as optional hardening research rather than a prerequisite for the XP port; no GOST TLS conclusion follows.
