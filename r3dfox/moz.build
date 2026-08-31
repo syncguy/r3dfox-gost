@@ -12,7 +12,7 @@ FINAL_TARGET_FILES.distribution.extensions += [
   "extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi",
 ]
 
-# local-settings does not yet end up being pacakged.
+# local-settings does not yet end up being packaged.
 FINAL_TARGET_FILES.defaults.pref += [
   "local-settings.js",
   "r3dfox-bundle.js",
