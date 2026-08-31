@@ -610,16 +610,6 @@ jobs:
             throw "Packaged XPI hash mismatch: expected $env:CRYPTOPRO_SELECTED_SHA256 got $packagedHash"
           }
 
-          $bundleMatches = @(Get-ChildItem $extract -Recurse -File -Filter 'r3dfox-bundle.js' |
-            Where-Object { $_.FullName -match '\\defaults\\pref\\r3dfox-bundle\.js$' })
-          if ($bundleMatches.Count -ne 1) {
-            throw "Expected one packaged defaults\pref\r3dfox-bundle.js; found $($bundleMatches.Count)."
-          }
-          $bundleText = [System.IO.File]::ReadAllText($bundleMatches[0].FullName)
-          if (-not $bundleText.Contains('pref("intl.locale.requested", "ru");')) {
-            throw 'Packaged browser does not request Russian UI by default.'
-          }
-
           $env:R3DFOX_LOCALE_EXTRACT = $extract
           @'
           import os
@@ -633,10 +623,20 @@ jobs:
 
           found = {"ru": False, "en-US": False}
           examples = {"ru": None, "en-US": None}
+          bundle_hits = []
+          expected_pref = 'pref("intl.locale.requested", "ru");'
+
           for omni in omni_files:
               with zipfile.ZipFile(omni) as zf:
                   for name in zf.namelist():
                       normalized = "/" + name.replace("\\", "/").lstrip("/")
+                      if normalized == "/defaults/pref/r3dfox-bundle.js":
+                          bundle_hits.append(f"{omni}:{name}")
+                          bundle_text = zf.read(name).decode("utf-8-sig")
+                          if expected_pref not in bundle_text:
+                              raise SystemExit(
+                                  "Packaged defaults/pref/r3dfox-bundle.js does not request Russian UI by default"
+                              )
                       for locale in found:
                           markers = (
                               f"/localization/{locale}/",
@@ -648,6 +648,12 @@ jobs:
                               found[locale] = True
                               examples[locale] = examples[locale] or f"{omni}:{name}"
 
+          if len(bundle_hits) != 1:
+              raise SystemExit(
+                  "Expected exactly one defaults/pref/r3dfox-bundle.js inside packaged omni.ja; "
+                  f"found {len(bundle_hits)}"
+              )
+          print("bundle-evidence=" + bundle_hits[0])
           print("packaged-ui-locales=" + ",".join(k for k, v in found.items() if v))
           for locale, example in examples.items():
               print(f"locale-evidence {locale}={example}")
