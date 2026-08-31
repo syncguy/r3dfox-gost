@@ -58,3 +58,35 @@ Observed gate results for the exact run:
 Manual artifact inspection supplied by the user for the downloaded primary package confirms that the packaged `d3dcompiler_47.dll` reports version **`10.0.14393.33`**. This independently confirms that the intended legacy DLL, rather than the prior incompatible replacement, is present in the user-visible packaged artifact.
 
 Conclusion: **PASS for the D3DCompiler_47 replacement/staging/packaging experiment.** The pinned legacy Firefox XP `D3DCompiler_47.dll` is successfully prepared, staged into the built browser, survives the PE-retarget/package path, is still present in the packaged result under the dedicated validation gates, and the downloaded package is manually confirmed to contain version `10.0.14393.33`. The overall Actions run remains red because the subsequent broad XP PE-floor/direct-import audit still reports independent compatibility violations. Therefore this result closes only the `D3DCompiler_47.dll` packaging hypothesis; it does not make the full XP compatibility pipeline green, does not prove physical Windows XP runtime, and has no bearing on GOST TLS handshake status.
+
+---
+
+## 2026-08-31 — SRW YY thunking passes, fresh SRW-smoke CRT bundle fails physical XP while prior CRT bundle passes
+
+Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
+
+Exact source/build identity:
+
+- source-under-test `89b236ad3289fcb9dc65b4bcabdf39d41f7f3be7` on `agent/gost-tls-poc`;
+- workflow `msvcr14x Rust YY XP x86 coexistence smoke`;
+- Actions run `33373236602`, job `99428838270`;
+- runtime artifact `9751154072` (`msvcr14x-rust-yy-xp-x86-srw-runtime`), artifact digest `sha256:bc339afc644e53e31cbb2763a80f6b0949ae0686206d3d516163a2a83580f225`;
+- diagnostics artifact `9751155495`, digest `sha256:b5819b09616e98fb2de8e99fbffe9a5c3639cd251a010d392d7f5d101422c4ec`;
+- run conclusion: `failure` only at the runtime-bundle XP PE-floor gate.
+
+CI observations before the failure:
+
+- YY-Thunks 1.2.2 `kernel32.lib` contains the required weak aliases for `AcquireSRWLockExclusive`, `AcquireSRWLockShared`, `ReleaseSRWLockExclusive`, `ReleaseSRWLockShared`, and `SleepConditionVariableSRW`;
+- the narrow YY XP provider builds successfully;
+- representative C++ `/MD` + Rust archive + YY provider link succeeds;
+- the final linker map selects all five `YY_Thunks_*` implementations;
+- the final probe has no direct imports of those five SRW APIs;
+- the generated probe PE is explicitly retargeted to subsystem 5.01;
+- the later PE-floor gate rejects the freshly built `msvcp140.dll` because its subsystem is 6.0.
+
+Physical Windows XP A/B observation supplied by the user for the exact SRW probe:
+
+1. With the `msvcp140.dll` and `ucrtbase.dll` produced/staged by the current SRW runtime artifact, `msvcr14x-rust-yy-xp-x86-srw.exe` does not start and the XP loader reports: `The procedure entry point FlsGetValue could not be located in the dynamic link library KERNEL32.dll.`
+2. Keeping the same SRW probe EXE but replacing only `msvcp140.dll` and `ucrtbase.dll` with the pair from the previously created `msvcr14x-rust-yy-xp-x86-smoke` makes the probe run successfully on physical XP.
+
+Conclusion: **PASS for the five-function SRW YY-Thunks mechanism; FAIL for the freshly produced CRT runtime bundle.** The same EXE succeeds or fails solely according to the app-local CRT pair, so the physical-XP failure is localized to the current `msvcp140.dll`/`ucrtbase.dll` runtime bundle rather than to the SRW thunk provider or the probe itself. The existing PE-floor gate correctly detects a real compatibility regression and must not be weakened. The next CRT experiment must restore/reproduce the provenance and build configuration of the previously proven XP-compatible `msvcp140.dll` + `ucrtbase.dll` pair and use that runtime contract for subsequent SRW/full-browser packaging work.
