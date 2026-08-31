@@ -263,6 +263,60 @@ jobs:
             Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
             Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
 
+      - name: GATE - Require proven XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbiddenApis = @(
+            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared',
+            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
+            'SleepConditionVariableSRW'
+          )
+          $forbiddenDllPatterns = @(
+            '^(?i)(api-ms-win-|ext-ms-)',
+            '^(?i)KERNELBASE\.dll$',
+            '^(?i)BCRYPT(?:PRIMITIVES)?\.dll$',
+            '^(?i)COMBASE\.dll$',
+            '^(?i)NCRYPT\.dll$',
+            '^(?i)VCRUNTIME140(?:_1)?\.dll$'
+          )
+          $report = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $path = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $path)) { throw "XP CRT contract missing runtime: $path" }
+
+            $headers = @(& dumpbin.exe /nologo /headers $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $path" }
+            $headers | Set-Content -Encoding utf8 (Join-Path 'diagnostics' "$dll-headers.txt")
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$dll is not x86 machine 14C" }
+            $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $dll" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$dll subsystem $version is newer than XP x86 5.01" }
+
+            $imports = @(& dumpbin.exe /nologo /imports $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $imports | Set-Content -Encoding utf8 (Join-Path 'diagnostics' "$dll-imports.txt")
+            $text = $imports -join "`n"
+            foreach ($api in $forbiddenApis) {
+              if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "$dll retains forbidden XP direct import $api" }
+            }
+            foreach ($line in $imports) {
+              if ($line -notmatch '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { continue }
+              $dep = $matches[1]
+              foreach ($pattern in $forbiddenDllPatterns) {
+                if ($dep -match $pattern) { throw "$dll retains forbidden XP dependency $dep" }
+              }
+            }
+
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            $report.Add("$dll|sha256=$hash|subsystem=$version|machine=x86")
+          }
+          $report | Set-Content -Encoding utf8 diagnostics\msvcr14x-xp-contract.txt
+
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
         run: |
@@ -578,9 +632,30 @@ jobs:
           @("retargeted_sha256=$hash", "retargeted_file_version=$version", "retargeted_subsystem=5.01") |
             Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
 
+      - name: GATE - Record staged XP CRT identity before packaging
+        id: record-staged-crt
+        if: steps.verify-retargeted-d3dcompiler.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $rows = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $path = Join-Path $bin $dll
+            if (-not (Test-Path $path)) { throw "Staged XP CRT missing before packaging: $path" }
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            $rows.Add("$dll|sha256=$hash")
+            if ($dll -eq 'ucrtbase.dll') {
+              "XP_UCRTBASE_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            } else {
+              "XP_MSVCP140_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+          $rows | Set-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+
       - name: Package XP x32 experiment
         id: package-release
-        if: steps.verify-retargeted-d3dcompiler.outcome == 'success'
+        if: steps.record-staged-crt.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -601,9 +676,59 @@ jobs:
           if ($hash -ne $expected) { throw "D3DCompiler_47 changed during package: expected=$expected actual=$hash" }
           "post_package_sha256=$hash" | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
 
+      - name: GATE - Verify msvcr14x CRT survived portable packaging
+        id: verify-packaged-crt
+        if: steps.verify-legacy-d3dcompiler.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:XP_UCRTBASE_STAGED_SHA256 -or -not $env:XP_MSVCP140_STAGED_SHA256) {
+            throw 'Staged XP CRT hashes were not recorded before packaging'
+          }
+          $expected = @{
+            'ucrtbase.dll' = $env:XP_UCRTBASE_STAGED_SHA256
+            'msvcp140.dll' = $env:XP_MSVCP140_STAGED_SHA256
+          }
+          $dist = (Resolve-Path (Join-Path $env:OBJDIR 'dist')).Path
+          $archives = @(Get-ChildItem -LiteralPath $dist -File |
+            Where-Object { $_.Extension -in @('.7z','.zip') -and $_.Name -ne 'r3dfox-gost-xp-x32-runtime.7z' } |
+            Sort-Object LastWriteTimeUtc -Descending)
+          if ($archives.Count -eq 0) { throw "No portable package archive found under $dist" }
+
+          $verifiedArchive = $null
+          foreach ($archive in $archives) {
+            $extract = Join-Path $env:RUNNER_TEMP ("xp-package-crt-" + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Force $extract | Out-Null
+            & 7z.exe x $archive.FullName "-o$extract" -y | Out-Null
+            if ($LASTEXITCODE -ne 0) { continue }
+
+            $matches = @{}
+            $candidateOk = $true
+            foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+              $found = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter $dll)
+              if ($found.Count -ne 1) { $candidateOk = $false; break }
+              $hash = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
+              if ($hash -ne $expected[$dll]) {
+                throw "$dll packaged hash mismatch in $($archive.Name): expected=$($expected[$dll]) actual=$hash"
+              }
+              $matches[$dll] = $hash
+            }
+            if (-not $candidateOk) { continue }
+
+            $verifiedArchive = $archive
+            @(
+              "archive=$($archive.FullName)",
+              "ucrtbase.dll|sha256=$($matches['ucrtbase.dll'])",
+              "msvcp140.dll|sha256=$($matches['msvcp140.dll'])"
+            ) | Add-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+            break
+          }
+          if (-not $verifiedArchive) { throw 'No produced portable package contains exactly one matching ucrtbase.dll and msvcp140.dll' }
+          "XP_PORTABLE_ARCHIVE=$($verifiedArchive.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build XP x32 runtime test archive from dist/bin
         id: runtime-archive
-        if: steps.verify-legacy-d3dcompiler.outcome == 'success'
+        if: steps.verify-packaged-crt.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -764,5 +889,5 @@ jobs:
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the narrow XP provider proven by the representative physical-XP smoke." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Runtime archive includes the Firefox dist/bin tree plus compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Portable package and runtime archive include the verified XP-compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This proves full-build/link/import viability only. Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
