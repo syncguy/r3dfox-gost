@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-31
 
-This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture and import triage are in `XP_COMPATIBILITY_STRATEGY.md`.
+This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture and import triage are in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory XP x86 dependency/build contract is in `XP_BUILD_CONTRACT.md`.
 
 ## Repository / branch policy
 
@@ -175,7 +175,7 @@ In one browser process (`Parent 7056`, `browser_id=14`):
 
 T7 is closed: discovery of a certificate identity from `MY` is independent of live private-key availability, and a missing-medium/provider refusal is attempt-local rather than sticky Firefox certificate state.
 
-T8 is closed: restoring the key medium allows the existing positive Session decision to recover in the same Firefox process, complete real Treasury GOST mTLS, and resume protected application traffic without another picker or browser restart.
+T8 is closed: restoring the key medium allows the existing positive Session decision to recover in the same Firefox process, complete real GOST mTLS, and resume protected application traffic without another picker or browser restart.
 
 ### T9 long provider wait / Socket Thread starvation — CHARACTERIZED
 
@@ -246,6 +246,14 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 
 ## Windows compatibility — independent track
 
+### Physically proven XP x86 dependency build contract
+
+The current authoritative dependency-build reference is source `b19ba4ff3eebd2f323743d92110241fc9d4ce399` on `agent/gost-tls-poc`, Actions run `33387080767`, job `99472017220`, runtime artifact `9756275917`. The focused `msvcr14x + Rust libstd + YY-Thunks / XP x86 SRW` workflow is green, its app-local `ucrtbase.dll` and `msvcp140.dll` are x86 PE subsystem 5.1 and do not retain the FLS/SRW hard imports that caused the earlier regression, and the exact newly generated runtime artifact has now been executed successfully on a real Windows XP computer.
+
+This physically closes the fresh-CRT regression from run `33373236602` / job `99428838270` / source `89b236ad3289fcb9dc65b4bcabdf39d41f7f3be7`. That older build produced a Win7+ CRT closure and failed on XP at `KERNEL32!FlsGetValue`. The current contract is not defined as “`-r` alone fixes XP”; it is the complete pinned/restored build and verified runtime-closure contract documented in `XP_BUILD_CONTRACT.md`.
+
+The default-branch full XP workflow now uses the same pinned/restored msvcr14x build path and includes a fail-fast `GATE - Require proven XP x86 msvcr14x runtime contract` before the expensive Firefox build. It checks the app-local CRT closure for x86/XP PE floor, known FLS/SRW hard imports and forbidden modern DLL dependencies, and records hashes/headers/imports in diagnostics. This is the first dependency family migrated from “retarget later and inspect globally” to “build XP-compatible, prove locally, then stage”. The next full run must prove this gate on its own exact source SHA before the resulting broad import inventory becomes the new planning baseline.
+
 ### Inherited x86 baseline
 
 Official `Eclipse-Community/r3dfox` `v153.0.3` ships the 32-bit build with `--disable-sandbox`; issue `Eclipse-Community/r3dfox#11` records the intentional decision. Therefore a sandbox-enabled Win7/Vista x86 pass is not an XP prerequisite. The XP/x86 product path uses build-time sandbox disablement unless sandbox restoration is explicitly reprioritized as optional hardening. This inherited choice is now physically confirmed on Windows 7 x32 for the current XP-oriented full-browser artifact: build-time sandbox disablement removes the need for the `MOZ_DISABLE_CONTENT_SANDBOX=1` runtime workaround and avoids the prior restricted-sandbox notification while preserving normal browser operation.
@@ -276,17 +284,20 @@ Do not treat the 26 current gate API names as a production YY backlog.
 
 Caller/owner classification is now mandatory before implementation:
 
-1. remove modern-only features/paths where XP has no useful equivalent;
-2. prefer XP-native source replacements where older APIs preserve the required operation;
-3. prefer one owned legacy backend when several imports belong to a common Firefox abstraction;
-4. use physically narrow YY only for unavoidable stable low-level gaps after caller analysis;
-5. solve separately linked DLLs at their own build/dependency boundary;
-6. use vetted source-available third-party compatibility boundaries where appropriate;
-7. reserve custom shims for the residual set.
+1. for project-built or pinned-source dependencies under our control, first remove post-XP dependencies at their source/build/dependency boundary and keep a dedicated fail-fast contract gate;
+2. remove modern-only features/paths where XP has no useful equivalent;
+3. prefer XP-native source replacements where older APIs preserve the required operation;
+4. prefer one owned legacy backend when several imports belong to a common Firefox abstraction;
+5. use physically narrow YY only for unavoidable stable low-level gaps after caller analysis;
+6. solve separately linked DLLs at their own build/dependency boundary;
+7. use vetted source-available third-party compatibility boundaries where appropriate;
+8. reserve custom shims for the residual set.
+
+PE subsystem retargeting is explicitly **header-only remediation**. It can correct the loader floor of an otherwise XP-safe PE but cannot make a binary compatible when its import/dependency closure still requires post-XP APIs or DLLs.
 
 The current `xul.dll` imports that require source/caller analysis before YY assignment include `CancelIoEx`, `CompareStringOrdinal`, `GetCurrentProcessorNumber`, `GetFileInformationByHandleEx`, `GetFinalPathNameByHandleW`, `GetLocaleInfoEx`, `LCIDToLocaleName`, `LocaleNameToLCID`, `GetTickCount64`, `SetFileInformationByHandle`, and `InitializeCriticalSectionEx`.
 
-The SRW/condition-variable family appears across `xul.dll`, `mozglue.dll`, the executables, and several other DLLs. Determine whether each occurrence belongs to Mozilla-owned abstractions, Rust/MSVC/toolchain code, or a separately linked dependency. An owned abstraction may justify one XP synchronization backend; unavoidable toolchain surfaces are strong narrow-YY candidates; separate DLLs require their own solution.
+The SRW/condition-variable family appears across `xul.dll`, `mozglue.dll`, the executables, and several other DLLs. Determine whether each occurrence belongs to Mozilla-owned abstractions, Rust/MSVC/toolchain code, or a separately linked dependency. An owned abstraction may justify one XP synchronization backend; unavoidable toolchain surfaces are strong narrow-YY candidates; separate DLLs require their own solution. The msvcr14x CRT-side FLS/SRW regression is now owned by the mandatory XP build contract and must not reappear in later full builds.
 
 Other feature/shipping PEs in the broad audit include `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, `d3dcompiler_47.dll`, and `gmp-clearkey`. A `xul.dll` linker change cannot rewrite their independent import tables. Test/developer/fake PEs (`gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, `xpcshell.exe`) must not automatically count as XP product blockers.
 
@@ -308,14 +319,15 @@ The physical Win7 crash from source `982d6529a707c6feecad97c725feed8a3cd21c81`, 
 
 ### Immediate Windows compatibility order
 
-1. Use diagnostics `9733280937` for caller/owner classification of `xul.dll`, `mozglue.dll`, `r3dfox.exe`, and `plugin-container.exe`.
-2. Classify separately linked shipping/feature DLLs as required/optional and choose rebuild/legacy-version/replacement/disablement per component.
-3. Regenerate the broader stock-XP export comparison from the sandbox-disabled diagnostics; the old ~57/~73 estimates are no longer current planning counts.
-4. Prove the chosen XP-native fallbacks, owned backends, component changes, and final smallest YY provider in focused smokes before another multi-hour Firefox build.
-5. Rebuild and run the exact resulting artifact on physical XP. The old `CloseThreadpoolWork` import boundary has disappeared from the current PE inventory, so the next physical test should either pass that boundary or expose the next actual loader/runtime blocker.
-6. Keep GOST TLS on old Windows as a later separate exact-artifact milestone.
+1. Run the current default-branch full XP workflow and require the new pre-Firefox msvcr14x XP contract gate to pass; bind the result to exact run/job/SHA.
+2. Use that contract-compliant full-build diagnostics to regenerate the surviving component/import baseline; do not continue planning from CRT violations that the new build contract has already removed.
+3. For each remaining project-built/Firefox-owned dependency family, identify its owner and remove post-XP dependencies at source/build/backend level where practical, then add a focused fail-fast gate before moving on.
+4. Classify separately linked shipping/feature DLLs as required/optional and choose rebuild/legacy-version/replacement/disablement per component.
+5. Keep YY physically narrow and use it only after caller/owner classification proves a residual low-level gap is unavoidable.
+6. Rebuild and run the exact resulting artifact on physical XP; only then close full-browser startup/browsing.
+7. Keep GOST TLS on old Windows as a later separate exact-artifact milestone.
 
-Detailed rules and the component matrix are in `XP_COMPATIBILITY_STRATEGY.md`; exact evidence is in `TEST_LOG.md`; forward tasks are in `TODO.md`.
+Detailed rules and the component matrix are in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory build contract is in `XP_BUILD_CONTRACT.md`; exact evidence is in `TEST_LOG.md`; forward tasks are in `TODO.md`.
 
 ## Bundled government-system extensions — independent track
 
