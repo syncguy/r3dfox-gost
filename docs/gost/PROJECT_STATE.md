@@ -290,6 +290,8 @@ The SRW/condition-variable family appears across `xul.dll`, `mozglue.dll`, the e
 
 Other feature/shipping PEs in the broad audit include `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, `d3dcompiler_47.dll`, and `gmp-clearkey`. A `xul.dll` linker change cannot rewrite their independent import tables. Test/developer/fake PEs (`gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, `xpcshell.exe`) must not automatically count as XP product blockers.
 
+Focused `D3DCompiler_47.dll` replacement is now separately proven at source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`: the pinned legacy Firefox XP DLL is prepared and staged successfully, passes the retargeted legacy-D3DCompiler gate, and survives packaging under its dedicated post-package gate. The overall run still fails at the later broad XP PE-floor/direct-import audit, so the D3DCompiler staging/packaging hypothesis is closed but the broader XP import blocker remains open.
+
 `bcrypt.dll` remains directly imported by both `xul.dll` and `mozglue.dll` and is an independent compatibility boundary.
 
 ### YY coverage smoke — capability proof only
