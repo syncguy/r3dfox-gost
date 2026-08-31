@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Checkout
+      - name: Checkout test branch
         uses: actions/checkout@v4
 
       - name: Enable MSVC x86 environment
@@ -50,6 +50,8 @@ jobs:
             "repo=$env:GITHUB_REPOSITORY"
             "test_commit=$env:GITHUB_SHA"
             "compatibility_target=Windows XP SP3 x86"
+            "pe_subsystem_min_version=$env:WINDOWS_XP_SUBSYSTEM"
+            "pe_machine=x86"
             "msvcr14x_commit=$env:MSVCR14X_SHA"
             "yy_thunks_version=$env:YY_THUNKS_VERSION"
             "yy_thunks_target=$env:YY_THUNKS_TARGET"
@@ -57,6 +59,9 @@ jobs:
             "rust_target=$env:RUST_TARGET"
             "required_sync_apis=AcquireSRWLockExclusive,AcquireSRWLockShared,ReleaseSRWLockExclusive,ReleaseSRWLockShared,SleepConditionVariableSRW"
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
+          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          rustc -Vv | Set-Content -Encoding utf8 diagnostics\rustc-version.txt
 
       - name: Fetch and build pinned msvcr14x Release x86
         shell: powershell
@@ -69,18 +74,31 @@ jobs:
           git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
           git -C $root checkout --detach FETCH_HEAD
           git -C $root submodule update --init --recursive --depth 1
-          if ((git -C $root rev-parse HEAD).Trim() -ne $env:MSVCR14X_SHA) { throw 'Unexpected msvcr14x commit' }
-          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86'
-          if ($LASTEXITCODE -ne 0) { throw 'msvcr14x build failed' }
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $env:MSVCR14X_SHA) { throw "Unexpected msvcr14x commit: $actual" }
+
+          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86' -r "/bl:$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-release-x86.binlog"
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x build failed: $LASTEXITCODE" }
 
           $required = @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')
           $release = $null
-          foreach ($candidate in @(Get-ChildItem -Path $root -Recurse -File -Filter 'ucrtbase.dll' | ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)) {
-            if (@($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) }).Count -gt 0) { continue }
+          $candidateDirs = @(Get-ChildItem -Path $root -Recurse -File -Filter 'ucrtbase.dll' |
+            ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)
+          foreach ($candidate in $candidateDirs) {
+            $missing = @($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) })
+            if ($missing.Count -gt 0) { continue }
             $headers = (& dumpbin.exe /nologo /headers (Join-Path $candidate 'ucrtbase.dll') 2>&1 | Out-String)
-            if ($headers -match '(?im)^\s*14C machine \(x86\)') { $release = $candidate; break }
+            if ($LASTEXITCODE -eq 0 -and $headers -match '(?im)^\s*14C machine \(x86\)') {
+              $release = $candidate
+              break
+            }
           }
           if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
+
+          Get-ChildItem -LiteralPath $release -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
+            Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
+          "resolved_msvcr14x_release=$release" | Add-Content -Encoding utf8 diagnostics\identity.txt
           "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
@@ -89,27 +107,32 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
           $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
-          if (-not $asset) { throw 'YY-Thunks Lib asset not found' }
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
           $zip = Join-Path $env:RUNNER_TEMP $asset.name
           $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-package'
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           Expand-Archive -Path $zip -DestinationPath $root
-          $target = [regex]::Escape($env:YY_THUNKS_TARGET)
-          $dir = Get-ChildItem $root -Recurse -Directory | Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$target[\\/]x86$" } | Select-Object -First 1
-          if (-not $dir) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
-          $kernel = Join-Path $dir.FullName 'kernel32.lib'
-          $sync = Join-Path $dir.FullName 'synchronization.lib'
-          if (-not (Test-Path $kernel) -or -not (Test-Path $sync)) { throw 'Required YY libraries missing' }
-          "YY_LIB_DIR=$($dir.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "YY_KERNEL32_LIB=$kernel" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "YY_SYNCH_LIB=$sync" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch)) { throw 'Required YY XP x86 libraries are missing' }
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "resolved_yy_lib=$($yyLib.FullName)" | Add-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: GATE - Require five SRW weak aliases in YY kernel32
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $members = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
           $members | Set-Content -Encoding utf8 diagnostics\yy-kernel32-members.txt
           $specs = @(
@@ -135,7 +158,7 @@ jobs:
           $selected = Join-Path $work 'selected'
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
           New-Item -ItemType Directory -Force $selected | Out-Null
-          $members = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
           $wanted = @(
             @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
@@ -173,7 +196,7 @@ jobs:
             New-Item -ItemType Directory -Force $dir | Out-Null
             Push-Location $dir
             try {
-              & lib.exe /nologo "/extract:$($matches[0])" $env:YY_KERNEL32_LIB | Out-Null
+              & lib.exe /nologo "/extract:$($matches[0])" $env:THUNK_YY_KERNEL32_LIB | Out-Null
               if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
             } finally { Pop-Location }
             $file = Get-ChildItem -LiteralPath $dir -File | Select-Object -First 1
@@ -290,8 +313,8 @@ jobs:
           '@ | Set-Content -Encoding utf8 $main
           @"
           @echo off
-          >"$linkLog" echo "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
-          "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
+          >"$linkLog" echo "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:THUNK_YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
+          "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:THUNK_YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
           exit /b %ERRORLEVEL%
           "@ | Set-Content -Encoding ascii $wrapper
           & rustc $main --edition 2021 --target $env:RUST_TARGET -O `
@@ -314,8 +337,8 @@ jobs:
             if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select YY_Thunks_$api" }
           }
           $logged = Get-Content $linkLog -Raw
-          if ($logged.IndexOf($env:YY_KERNEL32_LIB,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY kernel32.lib reached final link command' }
-          if ($logged.IndexOf("-LIBPATH:$env:YY_LIB_DIR",[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY directory reached final LIBPATH' }
+          if ($logged.IndexOf($env:THUNK_YY_KERNEL32_LIB,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY kernel32.lib reached final link command' }
+          if ($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB",[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY directory reached final LIBPATH' }
           "SMOKE_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Copy-Item -Force $map diagnostics\final.map
 
