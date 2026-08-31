@@ -6,7 +6,14 @@ FINAL_TARGET_FILES.distribution += [
   "policies.json",
 ]
 
+FINAL_TARGET_FILES.distribution.extensions += [
+  "extensions/gosuslugi@plugin.xpi",
+  "extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi",
+  "extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi",
+]
+
 # local-settings does not yet end up being pacakged.
 FINAL_TARGET_FILES.defaults.pref += [
   "local-settings.js",
+  "r3dfox-bundle.js",
 ]

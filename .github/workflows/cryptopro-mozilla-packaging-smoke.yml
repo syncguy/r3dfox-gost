@@ -1,20 +1,21 @@
-name: GOST TLS PoC build
+name: CryptoPro Mozilla packaging smoke
 
 on:
   push:
     branches:
       - agent/gost-tls-poc
     paths:
-      - ".github/workflows/gost-poc-build.yml"
-      - "security/manager/ssl/nsGostSSLIOLayer.cpp"
-  workflow_dispatch:
+      - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
+      - "r3dfox/moz.build"
+      - "browser/installer/package-manifest.in"
+      - ".github/workflows/cryptopro-mozilla-packaging-smoke.yml"
 
 permissions:
   contents: read
 
 jobs:
-  win64:
-    name: Windows x64 / r3dfox GOST release
+  cryptopro-mozilla-packaging:
+    name: Windows x64 / CryptoPro real Firefox packaging / ru + en-US
     runs-on: windows-2022
     timeout-minutes: 360
 
@@ -26,12 +27,62 @@ jobs:
       MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
       NIGHTLY_TOOLCHAIN: "nightly-2026-08-20"
       RUST_TARGET_WIN7: "x86_64-win7-windows-msvc"
+      EXTENSION_ID: ru.cryptopro.nmcades@cryptopro.ru
+      FALLBACK_XPI: r3dfox\extensions\ru.cryptopro.nmcades@cryptopro.ru.xpi
+      OFFICIAL_URL: https://www.cryptopro.ru/sites/default/files/products/cades/extensions/firefox_cryptopro_extension_latest.xpi
 
     steps:
       - name: Checkout r3dfox-gost
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Configure packaging-only Russian UI default
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'r3dfox\r3dfox-bundle.js'
+          $text = [System.IO.File]::ReadAllText($path)
+          $line = 'pref("intl.locale.requested", "ru");'
+          if ($text -match '(?m)^pref\("intl\.locale\.requested",') {
+            $text = [regex]::Replace(
+              $text,
+              '(?m)^pref\("intl\.locale\.requested",.*$',
+              $line
+            )
+          } else {
+            if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`n" }
+            $text += $line + "`n"
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $text, $utf8NoBom)
+          if (-not ([System.IO.File]::ReadAllText($path).Contains($line))) {
+            throw 'Russian UI default preference was not written.'
+          }
+          Write-Host 'Packaging-only UI locale default: ru; base en-US remains bundled.'
+          git diff -- $path
+
+      - name: GATE - Select CryptoPro XPI and prepare working tree
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $selected = Join-Path $env:RUNNER_TEMP 'cryptopro-selected.xpi'
+          python build\update-cryptopro-extension.py `
+            --fallback $env:FALLBACK_XPI `
+            --url $env:OFFICIAL_URL `
+            --timeout 30 `
+            --output $selected `
+            --metadata cryptopro-extension-selection.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $meta = Get-Content cryptopro-extension-selection.json -Raw | ConvertFrom-Json
+          if ($meta.selected.id -ne $env:EXTENSION_ID) { throw 'Selected CryptoPro extension ID mismatch.' }
+          Copy-Item -Force $selected $env:FALLBACK_XPI
+          $selectedHash = (Get-FileHash -Algorithm SHA256 $selected).Hash.ToLowerInvariant()
+          $workingHash = (Get-FileHash -Algorithm SHA256 $env:FALLBACK_XPI).Hash.ToLowerInvariant()
+          if ($selectedHash -ne $workingHash) { throw 'Working-tree XPI differs from selected XPI.' }
+          "CRYPTOPRO_SELECTED_XPI=$selected" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CRYPTOPRO_SELECTED_SHA256=$selectedHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "CryptoPro source=$($meta.source) version=$($meta.selected.version) sha256=$selectedHash"
 
       - name: Normalize upstream JSContext include order
         shell: powershell
@@ -163,7 +214,7 @@ jobs:
           $source = [System.IO.File]::ReadAllText($msspiCpp)
           if (-not $source.Contains('#include <Windows.h>')) { throw 'Expected MSSPI Windows.h include was not found' }
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>').Replace('SECPKG_ATTR_REMOTE_CERT_CHAIN', 'SECPKG_ATTR_REMOTE_CERT_CONTEXT'), $utf8NoBom)
+          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>'), $utf8NoBom)
 
       - name: Register GOST and MSSPI sources in moz.build
         shell: powershell
@@ -290,11 +341,6 @@ jobs:
           $merged = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.log'
           Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
 
-          # cargo writes normal progress such as "Updating crates.io index" to
-          # stderr. Windows PowerShell 5.1 can promote native stderr to a
-          # NativeCommandError when it is piped while ErrorActionPreference=Stop.
-          # Start-Process keeps stdout/stderr as files; the real process exit code
-          # is the only success criterion.
           $args = @(
             'vendor', '--locked', '--versioned-dirs',
             '--manifest-path', $rustLibraryManifest,
@@ -472,7 +518,6 @@ jobs:
           if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
           & $mozmake -C 'obj-gost-win64' 'toolkit/library/rust/target-objects'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Write-Host 'Mozilla toolkit Rust target gate PASSED with build-std and merged rust-src vendor dependencies.'
 
       - name: GATE - Compile security manager SSL target objects
         shell: powershell
@@ -481,18 +526,6 @@ jobs:
           $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
           & $mozmake -C 'obj-gost-win64' 'security/manager/ssl/target-objects'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Show runner state BEFORE full build
-        shell: powershell
-        run: |
-          $os = Get-CimInstance Win32_OperatingSystem
-          [pscustomobject]@{
-            TotalPhysicalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
-            FreePhysicalGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
-            TotalVirtualGB  = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
-            FreeVirtualGB   = [math]::Round($os.FreeVirtualMemorySize / 1MB, 2)
-          } | Format-List
-          Get-CimInstance Win32_PageFileUsage | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
 
       - name: GATE - Require large active pagefile
         shell: powershell
@@ -509,66 +542,21 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Audit xul.dll Win7 imports
-        id: win7-import-audit
+      - name: GATE - Verify CryptoPro XPI in real dist/bin
         if: steps.build-release.outcome == 'success'
-        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $xul = 'obj-gost-win64\dist\bin\xul.dll'
-          if (-not (Test-Path $xul)) { throw "xul.dll not found: $xul" }
-
-          $dumpbin = Get-Command dumpbin.exe -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty Source -First 1
-
-          if (-not $dumpbin) {
-            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            if (Test-Path $vswhere) {
-              $vs = (& $vswhere -latest -products * `
-                -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-                -property installationPath).Trim()
-              if ($vs) {
-                $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" `
-                  -ErrorAction SilentlyContinue |
-                  Sort-Object FullName -Descending |
-                  Select-Object -ExpandProperty FullName -First 1
-              }
-            }
+          $distXpi = "obj-gost-win64\dist\bin\distribution\extensions\$env:EXTENSION_ID.xpi"
+          if (-not (Test-Path $distXpi)) { throw "CryptoPro XPI missing from real dist/bin: $distXpi" }
+          $distHash = (Get-FileHash -Algorithm SHA256 $distXpi).Hash.ToLowerInvariant()
+          if ($distHash -ne $env:CRYPTOPRO_SELECTED_SHA256) {
+            throw "dist/bin XPI hash mismatch: expected $env:CRYPTOPRO_SELECTED_SHA256 got $distHash"
           }
+          python -c "import json,zipfile; p=r'$distXpi'; z=zipfile.ZipFile(p); m=json.loads(z.read('manifest.json')); i=m.get('browser_specific_settings',{}).get('gecko',{}).get('id') or m.get('applications',{}).get('gecko',{}).get('id'); assert i==r'$env:EXTENSION_ID', (i, r'$env:EXTENSION_ID'); print('dist-id='+i+' version='+str(m.get('version')))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          if (-not $dumpbin -or -not (Test-Path $dumpbin)) {
-            'Win7 import audit unavailable: dumpbin.exe was not found.' |
-              Set-Content -Encoding utf8 xul-win7-audit-result.txt
-            Write-Warning 'dumpbin.exe was not found; packaging will continue.'
-            exit 0
-          }
-
-          Write-Host "Using dumpbin: $dumpbin"
-          & $dumpbin /imports $xul 2>&1 | Tee-Object -FilePath xul-win7-imports.txt
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
-
-          $imports = [System.IO.File]::ReadAllText((Resolve-Path 'xul-win7-imports.txt'))
-          $forbidden = @(
-            'ProcessPrng','bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll',
-            'WaitOnAddress','WakeByAddressAll','WakeByAddressSingle',
-            'GetSystemTimePreciseAsFileTime','GetOverlappedResultEx'
-          )
-          $found = @()
-          foreach ($symbol in $forbidden) {
-            if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-              $found += $symbol
-              Write-Warning "Win7 blocker still imported by xul.dll: $symbol"
-            }
-          }
-          if ($found.Count -gt 0) {
-            $found | Set-Content -Encoding utf8 xul-win7-forbidden-imports.txt
-          } else {
-            'No known Win8+ imports from the current blacklist were found.' |
-              Set-Content -Encoding utf8 xul-win7-audit-result.txt
-          }
-
-      - name: Package release r3dfox
+      - name: Package release r3dfox as ru + en-US multi-locale
         id: package-release
         if: steps.build-release.outcome == 'success'
         shell: powershell
@@ -576,15 +564,112 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\mach.ps1 package-multi-locale --locales ru
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem 'obj-gost-win64\dist' -File |
             Where-Object { $_.Name -match '\.(zip|7z)$' -or $_.Name -like '*.installer.exe' } |
             Select-Object FullName,Length | Format-Table -AutoSize
 
-      - name: Upload release package
+      - name: GATE - Verify CryptoPro XPI and ru/en-US UI in final portable archive
+        if: steps.package-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = 'obj-gost-win64\dist'
+          $archive = Get-ChildItem $dist -File |
+            Where-Object { $_.Extension -in @('.7z', '.zip') } |
+            Sort-Object @{Expression={ if ($_.Extension -eq '.7z') { 0 } else { 1 } }}, Name |
+            Select-Object -First 1
+          if (-not $archive) { throw 'No portable .7z or .zip package was produced.' }
+
+          $extract = Join-Path $env:RUNNER_TEMP 'cryptopro-package-extract'
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          New-Item -ItemType Directory -Force $extract | Out-Null
+
+          if ($archive.Extension -eq '.zip') {
+            Expand-Archive -LiteralPath $archive.FullName -DestinationPath $extract
+          } else {
+            $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
+            if (-not $sevenZip) {
+              $candidate = 'C:\Program Files\7-Zip\7z.exe'
+              if (Test-Path $candidate) { $sevenZip = $candidate }
+            }
+            if (-not $sevenZip) { throw '7z.exe was not found for final package verification.' }
+            & $sevenZip x -y "-o$extract" $archive.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $expectedSuffix = "\distribution\extensions\$env:EXTENSION_ID.xpi"
+          $matches = @(Get-ChildItem $extract -Recurse -File -Filter "$env:EXTENSION_ID.xpi" |
+            Where-Object { $_.FullName.EndsWith($expectedSuffix, [System.StringComparison]::OrdinalIgnoreCase) })
+          if ($matches.Count -ne 1) {
+            throw "Expected exactly one packaged CryptoPro XPI under distribution\extensions; found $($matches.Count)."
+          }
+          $packagedHash = (Get-FileHash -Algorithm SHA256 $matches[0].FullName).Hash.ToLowerInvariant()
+          if ($packagedHash -ne $env:CRYPTOPRO_SELECTED_SHA256) {
+            throw "Packaged XPI hash mismatch: expected $env:CRYPTOPRO_SELECTED_SHA256 got $packagedHash"
+          }
+
+          $bundleMatches = @(Get-ChildItem $extract -Recurse -File -Filter 'r3dfox-bundle.js' |
+            Where-Object { $_.FullName -match '\\defaults\\pref\\r3dfox-bundle\.js$' })
+          if ($bundleMatches.Count -ne 1) {
+            throw "Expected one packaged defaults\pref\r3dfox-bundle.js; found $($bundleMatches.Count)."
+          }
+          $bundleText = [System.IO.File]::ReadAllText($bundleMatches[0].FullName)
+          if (-not $bundleText.Contains('pref("intl.locale.requested", "ru");')) {
+            throw 'Packaged browser does not request Russian UI by default.'
+          }
+
+          $env:R3DFOX_LOCALE_EXTRACT = $extract
+          @'
+          import os
+          import zipfile
+          from pathlib import Path
+
+          root = Path(os.environ["R3DFOX_LOCALE_EXTRACT"])
+          omni_files = list(root.rglob("omni.ja"))
+          if not omni_files:
+              raise SystemExit("No omni.ja found in packaged browser")
+
+          found = {"ru": False, "en-US": False}
+          examples = {"ru": None, "en-US": None}
+          for omni in omni_files:
+              with zipfile.ZipFile(omni) as zf:
+                  for name in zf.namelist():
+                      normalized = "/" + name.replace("\\", "/").lstrip("/")
+                      for locale in found:
+                          markers = (
+                              f"/localization/{locale}/",
+                              f"/chrome/{locale}/",
+                              f"/{locale}/locale/",
+                              f"/locale/{locale}/",
+                          )
+                          if any(marker in normalized for marker in markers):
+                              found[locale] = True
+                              examples[locale] = examples[locale] or f"{omni}:{name}"
+
+          print("packaged-ui-locales=" + ",".join(k for k, v in found.items() if v))
+          for locale, example in examples.items():
+              print(f"locale-evidence {locale}={example}")
+          missing = [locale for locale, present in found.items() if not present]
+          if missing:
+              raise SystemExit("Missing packaged UI locale resources: " + ", ".join(missing))
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Copy-Item -Force $matches[0].FullName cryptopro-packaged.xpi
+          "archive=$($archive.Name)" | Set-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "path=$($matches[0].FullName.Substring($extract.Length))" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "sha256=$packagedHash" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "ui_default=ru" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "ui_locales=ru,en-US" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          Get-Content cryptopro-package-evidence.txt
+
+      - name: Upload CryptoPro packaged browser
         if: always() && steps.package-release.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: r3dfox-gost-win64-release
+          name: r3dfox-cryptopro-mozilla-packaging-ru-en-US
           if-no-files-found: error
           compression-level: 0
           path: |
@@ -592,28 +677,20 @@ jobs:
             obj-gost-win64/dist/*.7z
             obj-gost-win64/dist/*.installer.exe
 
-      - name: Upload Win7 import audit
+      - name: Upload CryptoPro packaging evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: r3dfox-gost-win64-win7-import-audit
+          name: cryptopro-mozilla-packaging-evidence
           if-no-files-found: warn
+          retention-days: 30
           path: |
-            configure-win7.log
+            cryptopro-extension-selection.json
+            cryptopro-package-evidence.txt
+            cryptopro-packaged.xpi
             rust-win7-target-cfg.txt
             rust-std-vendor.log
             rust-std-vendor.stdout.log
             rust-std-vendor.stderr.log
             rust-std-vendor-added.txt
-            xul-win7-imports.txt
-            xul-win7-forbidden-imports.txt
-            xul-win7-audit-result.txt
-
-      - name: GATE - Reject known Win8+ imports after artifacts are uploaded
-        if: always() && steps.build-release.outcome == 'success'
-        shell: powershell
-        run: |
-          if (Test-Path 'xul-win7-forbidden-imports.txt') {
-            Get-Content 'xul-win7-forbidden-imports.txt'
-            throw 'Release package was produced for diagnosis, but the Win7 import gate failed.'
-          }
+            configure-win7.log

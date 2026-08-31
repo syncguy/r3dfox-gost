@@ -17,6 +17,8 @@ class GostSocketControl final : public CommonSocketControl {
 
   void SetFileDesc(PRFileDesc* aFd);
   void HandshakeSucceeded(uint16_t aCipherSuite, uint16_t aTlsVersion);
+  void ClientAuthCertificateRequested();
+  void ClientAuthCertificateSelected();
 
   NS_IMETHOD ProxyStartSSL() override;
   NS_IMETHOD StartTLS() override;

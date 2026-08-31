@@ -41,7 +41,9 @@ Current linker strategy:
 - no broad complete-YY-`kernel32.lib` interposition before Rust/gkrust;
 - preserve Firefox's `/MD` CRT model.
 
-Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` completed the full build/package and removed `GetSystemTimePreciseAsFileTime` from xul's direct imports. Its final red status came only from incorrectly classifying Vista-supported `GetQueuedCompletionStatusEx` as Win8+. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes that one false-positive policy entry without changing linker behavior.
+Run `32695496647`, job `97336702701`, commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` completed the full build/package and removed `GetSystemTimePreciseAsFileTime` from xul's direct imports. Its final red status came only from incorrectly classifying Vista-supported `GetQueuedCompletionStatusEx` as Win8+. Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removed that false-positive policy entry without changing linker behavior.
+
+The later exact coordinated Stage 2 source `860de8e38deed326b7fcd1c547e928c5b48c72a9` received a clean full-scale revalidation in run `32951903069`, attempt 2, job `98205801026`. The SSL object gate, narrow-YY full Firefox build, package, xul import audit, artifact uploads and final known-direct-Win8+-import rejection gate all passed. Browser artifact: `9613443984`; diagnostics artifact: `9613444775`. This is current full-xul build/package/direct-import evidence for the thunk workflow, not proof of real Windows 7 runtime or GOST TLS runtime.
 
 The xul audit has a meaningful ordinary/direct import parser. Direct imports are the current process-loader hard gate.
 
@@ -88,7 +90,7 @@ Passing evidence:
 
 It verifies the ordinary and `__imp_` COFF weak aliases, uses only the selected precise-time alias members plus the common YY implementation object, keeps a representative Rust raw-dylib `LockResource` positive control, and requires precise-time to disappear from the final PE imports without allowing the complete YY `kernel32.lib` into the final link.
 
-Passing this smoke is representative-link proof, not by itself Firefox/xul-scale or Windows 7 runtime proof. Run `32695496647` supplied the later xul-scale proof.
+Passing this smoke is representative-link proof, not by itself Firefox/xul-scale or Windows 7 runtime proof. Run `32695496647` supplied the later xul-scale proof, and run `32951903069` attempt 2 supplied the current clean full-scale revalidation.
 
 ## Forward VC-LTL / YY-Thunks Rust smoke
 
@@ -110,6 +112,44 @@ Starting with VC-LTL 5.3.1, VC-LTL no longer supplies YY-Thunks as an automatic 
 
 Do not conflate a canary dependency-version result with the full xul-scale linker/import result.
 
+## Isolated msvcr14x Win7 smoke
+
+Workflow file:
+
+`.github/workflows/msvcr14x-win7-smoke.yml`
+
+Role:
+
+This is the isolated CRT/UCRT compatibility smoke for `Chuyu-Team/msvcr14x`. It tests a normal `/MD` C++ object against the pinned msvcr14x import-library/runtime surface and audits the resulting PE for direct API-set and VCRUNTIME dependencies.
+
+It is not a Rust/YY proof and is not a full Firefox/xul proof. Its purpose is to establish that msvcr14x can replace the standard CRT/UCRT import-library surface while preserving `MD_DynamicRelease`.
+
+## msvcr14x Rust/YY coexistence smoke
+
+Workflow file:
+
+`.github/workflows/msvcr14x-rust-yy-coexistence-smoke.yml`
+
+Workflow name:
+
+`msvcr14x Rust YY coexistence smoke`
+
+Role:
+
+This is the closing representative-link proof for combining msvcr14x with modern Rust/libstd and the already-proven narrow YY-Thunks 1.2.2 strategy. It keeps an ordinary C++ `/MD` object, uses YY `synchronization.lib` plus the narrow ProcessPrng + precise-time provider, rejects complete YY `kernel32.lib` interposition, audits the final PE for direct API-set/VCRUNTIME/known Win8+ hard imports, and runs the resulting probe on the hosted Windows runner.
+
+Formal passing evidence:
+
+- run `32713958570`;
+- job `97391163925`;
+- commit `1abf867307ca56b97b7f2fb41e5e58e86ee08463`;
+- msvcr14x commit `6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384`;
+- YY-Thunks `1.2.2`;
+- Rust `nightly-2026-08-20`;
+- result: success.
+
+Passing this smoke closes the representative coexistence question only. It does not prove that msvcr14x integration scales through Firefox's full link or that the resulting browser runs on Windows 7. The next compatibility experiment belongs in the full Firefox/xul workflow line.
+
 ## Experimental Windows XP Rust/thunk smoke
 
 Workflow file:
@@ -126,20 +166,145 @@ This is an exploratory Windows XP compatibility workflow, separate from both the
 
 A successful build/run on a current GitHub-hosted Windows runner plus PE 5.01 headers is not proof that the executable runs on Windows XP. Real XP runtime execution remains a separate gate.
 
+## WinRT source-removal targeted x86 PoC
+
+Workflow file:
+
+`.github/workflows/winrt-source-poc-x86.yml`
+
+Workflow name:
+
+`WinRT source PoC x86`
+
+Role:
+
+This is the low-cost targeted validation workflow for the current source-level WinRT removal/fallback hypothesis on experiment branch `agent/winrt-source-poc`. It is deliberately **not** a full Firefox build. Its job is to establish the narrow proof chain before spending time on a full x86 `xul.dll` build:
+
+`source isolation -> configure/export prerequisites -> compile selected WinRT-related target objects -> inspect those objects for forbidden WinRT API references`.
+
+The source-isolation gate requires the legacy `OSKInputPaneManagerLegacy.cpp` path, excludes the WinRT `OSKInputPaneManager.cpp` path, and checks the current PoC source conditionals for `WindowsUIUtils.cpp` and `nsWindowsPackageManager.cpp`. The decisive compile gate targets only `widget/windows/target-objects` and `toolkit/system/windowsPackageManager/target-objects`. The decisive symbol gate scans the resulting selected objects and rejects references to:
+
+- `RoActivateInstance`;
+- `RoGetActivationFactory`;
+- `WindowsCompareStringOrdinal`;
+- `WindowsCreateString`;
+- `WindowsCreateStringReference`;
+- `WindowsDeleteString`;
+- `WindowsGetStringRawBuffer`.
+
+The inventory step runs with `if: always()` and is diagnostic only. A green inventory after an earlier failure is not a validation pass; if target compilation did not complete, the inventory is incomplete by construction.
+
+Current exact CI evidence is run `33242986136`, job `99075394860`, source `f6e87ba87919f999d2a3ec6c2b9ba103fea1d99e`. Source isolation, bootstrap and x86 configure succeeded, but `Build export prerequisites` failed. Therefore the target-object compile gate and no-WinRT-reference gate were skipped. This run is **INCONCLUSIVE**, not a source-removal validation pass.
+
+Current continuation point is precise: repair `Build export prerequisites`, then require both decisive gates to pass. Only after that should this compatibility line advance to a full x86 Firefox/xul build/package, final ordinary/delay-import audit, physical Windows 7 runtime, and separately physical Windows XP runtime.
+
+This workflow belongs only to the Windows compatibility line. It does not establish GOST TLS handshake behavior.
+
+## CryptoPro extension standalone smoke — historical proof
+
+Historical workflow file:
+
+`.github/workflows/cryptopro-extension-smoke.yml`
+
+Historical workflow name:
+
+`CryptoPro extension packaging smoke`
+
+Role:
+
+This was the low-cost standalone proof for `build/update-cryptopro-extension.py` and the committed CryptoPro fallback XPI without compiling Firefox. It covered fallback integrity, forced network failure, invalid-fallback hard failure, valid-candidate acceptance, malformed-candidate fallback, wrong-extension-ID fallback, the live CryptoPro endpoint, synthetic `distribution/extensions` staging, and final synthetic ZIP verification.
+
+Formal passing evidence:
+
+- run `32815118778`;
+- job `97701728235`;
+- code-under-test commit `2ad7025ca300613d39a227b9e7582a341260d648`;
+- evidence artifact `9551126137`;
+- result: success.
+
+The historical standalone workflow was removed by commit `628780ec29c1a72d572b33f51c543e88c2d884d5` after its updater/fallback contract was proven. Do not reinterpret that standalone success as proof of Mozilla `FINAL_TARGET_FILES` integration.
+
+## CryptoPro Mozilla packaging smoke
+
+Workflow file:
+
+`.github/workflows/cryptopro-mozilla-packaging-smoke.yml`
+
+Workflow name:
+
+`CryptoPro Mozilla packaging smoke`
+
+Role:
+
+This is the dedicated full-build integration/regression proof for the bundled CryptoPro CAdES Firefox extension. It is separate from the authoritative GOST runtime workflow and from the Windows Vista/7 thunk-rs compatibility workflow even though it deliberately reuses the build-critical path of the main GOST build.
+
+The workflow uses the main build's Windows runner model, MozillaBuild/pagefile setup, pinned MSSPI source, release mozconfig, pinned Rust build-std path, configure/export/SSL gates, full `mach build`, and `mach package`. It omits the unrelated Win7 PE import audit so an extension-packaging conclusion cannot be blocked or confused by the separate compatibility track.
+
+Extension-specific gates:
+
+- select a valid official XPI or committed fallback using `build/update-cryptopro-extension.py`;
+- copy only the selected XPI into the ephemeral checkout source path consumed by `r3dfox/moz.build`;
+- require the selected XPI in the real `obj-gost-win64/dist/bin/distribution/extensions` tree after the full build;
+- require exact SHA-256 and manifest ID equality against the selected candidate;
+- run real `mach package`;
+- extract the produced portable `.7z` or `.zip` and require exactly one matching XPI under `distribution/extensions` with the same SHA-256;
+- upload both the packaged browser and dedicated packaging evidence.
+
+Trigger policy:
+
+The workflow runs on `agent/gost-tls-poc` for changes to:
+
+- `r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi`;
+- `r3dfox/moz.build`;
+- `browser/installer/package-manifest.in`;
+- `.github/workflows/cryptopro-mozilla-packaging-smoke.yml`.
+
+It does not currently run on `build/update-cryptopro-extension.py`, `nsGostSSLIOLayer.cpp`, or either main full-build workflow YAML.
+
+First integration run:
+
+- run `32817910715`;
+- job `97709832302`;
+- source-under-test commit `686b7a1d11ff2ad2d4a7cc9907361c8a6f197560`;
+- result: failure at `GATE - Verify CryptoPro XPI in final portable archive`.
+
+The run proved the real Mozilla `FINAL_TARGET_FILES` integration through the `dist/bin` stage: the selected XPI reached `obj-gost-win64/dist/bin/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi` and passed the hash/manifest-ID checks. The full Firefox build and `mach package` succeeded. The final portable archive contained no matching XPI because `browser/installer/package-manifest.in` is a separate dist/bin-to-package staging allowlist and did not include the CryptoPro extension path for this r3dfox build configuration.
+
+Commit `95eb8c292ab430effd257b9c3f2e92aef27766a4` adds the exact CryptoPro XPI path to `browser/installer/package-manifest.in`.
+
+Formal passing revalidation:
+
+- run `32847887872`;
+- job `97801745453`;
+- code-under-test commit `17b8d9762b489ed8fc9c3a8e1595802065dd7188`;
+- evidence artifact `9569388324` (`cryptopro-mozilla-packaging-evidence`);
+- packaged-browser artifact `9569387758` (`r3dfox-cryptopro-mozilla-packaging`);
+- result: success.
+
+The exact passing run completed the updater/selection gate, full Firefox build, real `dist/bin` XPI verification, `mach package`, final portable-archive XPI verification, and both artifact uploads successfully. Therefore the real Mozilla portable-packaging integration is proven and the final-archive omission from run `32817910715` is closed.
+
+This workflow remains useful as focused regression coverage for extension packaging. Transfer into the two main full-browser workflows and clean-profile Firefox discovery/install/update behavior are separate follow-up tasks.
+
+Detailed design and current extension state are recorded in [`EXTENSIONS.md`](./EXTENSIONS.md).
+
 ## Current full-scale thunk evidence
 
-The significant completed full-scale result is:
+The current clean full-scale result is:
 
 - workflow: `GOST TLS PoC build - thunk-rs experiment`;
-- Actions run ID: `32695496647`;
-- job ID: `97336702701`;
-- commit SHA: `ae3d52f42b8b6b509c1263418bead8bb9324dd00`;
-- release artifact: `9512347999`;
-- diagnostics artifact: `9512349511`.
+- Actions run ID: `32951903069`;
+- run attempt: `2`;
+- job ID: `98205801026`;
+- source-under-test SHA: `860de8e38deed326b7fcd1c547e928c5b48c72a9`;
+- browser artifact: `9613443984` (`r3dfox-gost-win64-thunk-experiment`);
+- diagnostics artifact: `9613444775` (`r3dfox-gost-win64-thunk-diagnostics`);
+- result: success.
 
-The build/package/linker strategy succeeded. `GetSystemTimePreciseAsFileTime` is no longer a direct xul import. The red final status was a direct-gate policy false positive on Vista-supported `GetQueuedCompletionStatusEx`.
+The exact run passed the narrow YY/thunk-rs setup, `security/manager/ssl` compile gate, full Firefox/xul build, package, direct-import audit, artifact uploads and the final known direct Win8+ import rejection gate. It supersedes the cancelled attempt-1 job `98124948880` as build evidence for this exact source SHA.
 
-The corrective workflow commit is `e2a9c3bcbbdfade62a15a144da9117e249cc6305`. Conclusions from its next full build must be associated with that run's actual head SHA; later documentation-only commits on the branch do not change which source/workflow revision an already-created run tested.
+Historical full-scale result `32695496647`, job `97336702701`, SHA `ae3d52f42b8b6b509c1263418bead8bb9324dd00`, remains useful because it established the narrow strategy and exposed the `GetQueuedCompletionStatusEx` policy false positive. The current green run confirms the corrected direct-import gate at full Firefox/xul scale.
+
+This result does not prove the produced browser starts on real Windows 7, does not close the delay-load parser/runtime-path work, and does not prove GOST TLS runtime behavior. Those remain separate gates.
 
 ## Terminology rule
 
@@ -150,8 +315,15 @@ Keep these concepts separate:
 - `yy-thunks-processprng-smoke.yml` = representative narrow ProcessPrng closing proof;
 - `yy-thunks-precise-time-smoke.yml` = focused precise-time closing proof;
 - `yy-thunks-rust-smoke.yml` = forward VC-LTL / YY-Thunks Rust compatibility canary;
+- `msvcr14x-win7-smoke.yml` = isolated msvcr14x CRT/UCRT smoke;
+- `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
+- `winrt-source-poc-x86.yml` = targeted source-level WinRT removal/fallback x86 proof gate, not a full Firefox build;
+- `cryptopro-extension-smoke.yml` = historical standalone CryptoPro updater/fallback/staging/package proof;
+- `cryptopro-mozilla-packaging-smoke.yml` = dedicated real-Firefox CryptoPro packaging integration/regression proof;
 - `agent/gost-tls-poc` = active development branch;
+- `agent/winrt-source-poc` = experimental branch for source-level WinRT removal/fallback validation;
+- `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.
 
-Workflow role and Git branch role are independent. Do not infer that an experimental compatibility workflow is the main GOST build merely because it runs on the active development branch.
+Workflow role and Git branch role are independent. Do not infer that an experimental compatibility workflow is the main GOST build merely because it runs on an active development or experiment branch.

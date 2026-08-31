@@ -282,7 +282,11 @@
 
 ; r3dfox specific files.
 @RESPATH@/defaults/pref/local-settings.js
+@RESPATH@/defaults/pref/r3dfox-bundle.js
 @RESPATH@/distribution/policies.json
+@RESPATH@/distribution/extensions/gosuslugi@plugin.xpi
+@RESPATH@/distribution/extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi
+@RESPATH@/distribution/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi
 @RESPATH@/config.cfg
 
 # channel-prefs.js has been removed on macOS.

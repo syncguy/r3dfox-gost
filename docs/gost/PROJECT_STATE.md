@@ -1,323 +1,339 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-24
+Last updated: 2026-08-31
 
-This file is the current technical synthesis for the GOST TLS fork. For chronology and evidence from individual experiments, see [`TEST_LOG.md`](./TEST_LOG.md). For workflow roles, see [`WORKFLOWS.md`](./WORKFLOWS.md).
+This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture and import triage are in `XP_COMPATIBILITY_STRATEGY.md`.
 
-## Repository and branches
+## Repository / branch policy
 
 - Repository: `syncguy/r3dfox-gost`.
-- Default / active development branch: `agent/gost-tls-poc`.
-- Frozen baseline: `win-153` at `0d023eb0e3517dea36f2f134a9a25f872611c688` when protection was configured.
-- `win-153` is protected with restricted updates, restricted deletion, and blocked force-pushes. Fork syncing is disabled for that ruleset.
-- PR #1 historically has base `win-153`; that does **not** make `win-153` the active development branch.
+- Default / active branch: `agent/gost-tls-poc`.
+- Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
+- PR #1 historically targets `win-153`; it does not define the working branch.
+- Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer r3dfox baseline.
 
-## Version policy
+## Architecture
 
-The current r3dfox baseline is from the Firefox/r3dfox 153 line. Firefox upstream has moved to 154, but this project must not automatically migrate, rebase, or retarget to 154. That is a separate future decision requiring explicit user direction.
+Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication.
 
-## Project objective
+Current constraints and behavior:
 
-Add GOST TLS support to r3dfox while preserving the browser's normal TLS path.
+- allowlist: `R3DFOX_GOST_HOSTS`;
+- TLS 1.2 / HTTP/1.1 PoC path;
+- default GOST ciphers: `C100:C101:C102:FF85:0081`;
+- coordinated Firefox client-auth picker is default;
+- `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
+- explicit local certificate thumbprint selection remains diagnostic only;
+- `Session` is the GOST picker default;
+- a positive Session choice is process-local, reused for matching client-auth decisions in the running browser process, isolated from a different GOST mTLS host, and cleared by browser-process restart;
+- explicit `Once` remains available and uses the positive-only 5-second idle fanout lease; each successful reuse refreshes the idle expiry;
+- explicit client-certificate Cancel is attempt-local: it is consumed as a declined decision and is not stored as reusable negative state;
+- an unanswered picker abandoned by navigation/tab/load teardown remains unresolved and is removed through phase-0 lifecycle cleanup rather than being converted into Declined state;
+- client-certificate discovery from `CurrentUser\MY` is distinct from live private-key availability: a certificate can remain picker-discoverable while its CryptoPro private-key medium/container is unavailable;
+- if that medium is unavailable before first key acquisition, provider refusal fails only the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`; the positive Firefox Session decision remains intact and can be reused after the medium returns;
+- on the current CryptoPro/SSPI environment, removing the private-key medium **after** successful Session mTLS does not necessarily invalidate the already-acquired provider/credential context: a later fresh Treasury socket can still perform a new client-auth TLS exchange using the remembered Session decision;
+- long synchronous CryptoPro/provider key access currently runs on the shared Firefox Socket Thread: T9 measured a `74.742 s` provider wait with a responsive browser UI but zero Socket Thread `GostTLS` activity; queued `pay.gov.ru`/GIS GMP network work started immediately when provider Cancel returned, so global network starvation during provider UI is a confirmed concurrency limitation while coordinator/Session state remains safe;
+- detailed T10 picker presentation is confirmed usable in Russian: human-readable owner and issuer, correct Cyrillic and localized expiry, readable details, serial details-only, all `Once` / `Session` / `Permanent` choices visible, and `Session` visibly selected by default;
+- `Issued by` uses the human-facing issuer common name when available, with the full issuer DN only as fallback;
+- current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics are not yet implemented/proven.
 
-Design intent:
+Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
-- normal HTTPS continues through Firefox NSS;
-- only allowlisted hosts are redirected to a GOST-capable TLS transport backed by `deemru/msspi` and Windows SSPI/CryptoPro;
-- the first phase remains constrained to Windows, TLS 1.2, HTTP/1.1, and server authentication while transport and handshake behavior are stabilized.
+## Current authoritative GOST runtime browser
 
-The primary runtime test host is `fzs.roskazna.ru`.
+Session-default source/build:
 
-## GOST TLS runtime track
+- source-under-test `afbdad307f63e594d3715169d6e34235280dddaf` (`fix(gost): mark Session picker default in runtime logs`);
+- short SSL compile run `33073577249`, job `98521835147`, success;
+- authoritative main full build run `33073577269`, job `98521835354`, success;
+- release artifact `9652941006` (`r3dfox-gost-win64-release`);
+- Win7 import-audit artifact `9652941552`;
+- independent thunk-rs full build run `33073577260`, job `98521835116`, success; browser artifact `9652182123`, diagnostics `9652183604`.
 
-### Architecture
+Exact binary identity for main artifact `9652941006`:
 
-The PoC adds a parallel TLS path around the normal NSS socket path for explicitly selected hosts.
+- `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
+- `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
 
-Important pieces include:
+These hashes were independently checked against the official GitHub Actions artifact and match the local runtime preflight. Every subsequent GOST runtime conclusion must pass the mandatory binary/environment/profile preflight in `STAGE2_RUNTIME_TEST_PLAN.md`.
 
-- host allowlist selected by `R3DFOX_GOST_HOSTS`;
-- `GostTLSService` / socket-provider routing;
-- `GostSocketControl` implementing the TLS socket-control surface expected by Necko;
-- `nsGostSSLIOLayer.cpp`, which pushes a custom NSPR I/O layer;
-- MSSPI callbacks that read/write through the actual lower NSPR transport;
-- Windows SSPI/CryptoPro performing TLS/GOST handshake and record protection.
+## Confirmed GOST milestones
 
-Ordinary non-allowlisted HTTPS must remain on NSS.
+### Basic Treasury GOST HTTPS — COMPLETE
 
-For an ordinary HTTP proxy, Firefox/Necko owns proxy resolution, CONNECT generation, proxy authentication, response parsing, and retry behavior. The GOST layer must remain plaintext-transparent until Necko reports a successful tunnel by calling `nsITLSSocketControl::ProxyStartSSL()`. Only then may MSSPI start the origin TLS handshake inside the established CONNECT tunnel.
+- source `4887e07d847b1c3c2e13b491dcc85f50ddaa9804`;
+- main run `32710363486`, job `97380247020`, artifact `9518011746`.
 
-### MSSPI baseline
+Real Treasury HTTP CONNECT, GOST TLS 1.2 / `0xFF85`, protected HTTP application traffic and browser rendering are proven.
 
-Pinned MSSPI source commit:
+### Stage 1 explicit-selector Treasury mTLS — COMPLETE
 
-`f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`
+- source `f5d04896e17f91f58b6a137af823360f4718eb29`;
+- main run `32751967162`, job `97510763210`.
 
-The Firefox wrapper configures the client with the equivalent of:
+A locally designated client certificate can be loaded by MSSPI/CryptoPro and completes real Treasury GOST TLS 1.2 / `0xFF85` mutual TLS plus authenticated protected application traffic. The concrete certificate identifier remains private.
 
-- `msspi_set_client`;
-- TLS 1.2 via `msspi_set_version(..., 0x0303)`;
-- `msspi_set_hostname`;
-- `msspi_set_peerauth`.
+### Stage 2 coordinated-client-auth baseline — COMPLETE
 
-Starting with commit `850a2e54aa154c025a9af35ed351c92dfe96a3d1`, the default diagnostic GOST mode also calls `msspi_set_cipherlist` with:
+Runtime-proven source `ef1a7fdd442a0dd06946dbe4c904e1bf435634ea`, main run `33039013849`, job `98408139479`, artifact `9636591432` closed:
 
-`C100:C101:C102:FF85:0081`
+- F1 close/shutdown lifecycle;
+- F2 positive `Once` fanout and post-expiry scope boundary;
+- F3 generic GOST mTLS host scope;
+- GIS-G4 cross-host remembered-decision isolation;
+- explicit positive Session browser-process lifetime S1/S1-B/S1-C.
 
-`R3DFOX_GOST_CIPHERS=default` skips that explicit call and reproduces the MSSPI native cipher-list behavior. Any other non-empty value is passed as a custom explicit list.
+Do not repeat those historical tests on unchanged source merely for confirmation. Detailed captures and counts remain in the test logs and `DONE.md`.
 
-The A/B runtime capture from main-build run `32692411195` proves that this configuration switch really changes the ClientHello, but it does **not** yet prove which cipher list is required by `fzs.roskazna.ru`, because those ClientHello records were sent to the HTTP proxy rather than to the origin server.
+### Session-default exact-artifact regression SD1-SD6 — COMPLETE
 
-### Confirmed runtime behavior
+Exact source/run/artifact: `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-The earlier `caa420c25bcc2693137666b625e62a1b58fdcb0f` transport fix remains valid: the pushed GOST layer has a stable lower NSPR transport, nonblocking would-block handling works, and MSSPI can exchange bytes through that lower socket.
+The mandatory preflight passed with the exact hashes above and the baseline environment containing the five Treasury/GIS GMP GOST hosts, with diagnostic thumbprint/mode/cipher overrides cleared.
 
-The interpretation of the peer bytes from the earlier run has changed because run `32692411195` added exact TLS-buffer logging.
+Confirmed on the exact artifact:
 
-Authoritative A/B build and logs:
+- **SD1:** default picker choice resolves as Session (`remember=2`); one Treasury picker feeds successful TLS 1.2 / `0xFF85` mTLS and later matching requests use `scope=session` without a second picker;
+- **SD2:** same browser process continues using the Session decision across later matching requests/browser context without another picker;
+- **SD3:** after complete browser-process restart, the first matching Treasury request creates a fresh decision/picker; the prior Session state does not survive the process boundary;
+- **SD4:** explicit `Once` still creates short positive fanout leases and independent post-expiry attempts create fresh picker decisions/new lease generations rather than silently becoming Session;
+- **SD5:** an active Treasury Session decision does not leak to `portalgisgmp.cert.roskazna.ru`; GIS GMP receives its own fresh decision/picker and completes GOST mTLS independently;
+- **SD6:** user-visible picker presentation is confirmed correct: Session is visibly selected by default and `Issued by` is human-readable as intended.
 
-- workflow: `GOST TLS PoC build`;
-- Actions run: `32692411195`;
-- job: `97328339347`;
-- exact build commit: `08203bb0d7023b7186dc11e4d765f0349aadf076`;
-- CI result: success;
-- runtime host: `fzs.roskazna.ru` through the configured system HTTP proxy.
+All supplied SD1-SD5 captures contain zero `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, and `MSSPI_X509_LOOKUP`. Successful recorded GOST handshakes use TLS 1.2 / `0xFF85`, state `0x00000000`; completed mTLS proves real client private-key use.
 
-Forced GOST-list run:
+### T3 explicit Cancel / no certificate — COMPLETE
 
-- `msspi_set_cipherlist(..., "C100:C101:C102:FF85:0081")` succeeded;
-- MSSPI emitted a 122-byte TLS 1.2 ClientHello offering only `C100`, `C101`, `C102`, `FF85`, and `0081`;
-- the next 1038 bytes received from the lower socket begin with ASCII `HTTP/1.1 400 Bad Request` and identify `Via: 1.1 ASUGATE`, proxy address `10.138.1.254`, server `ASUGATE.ctikem.ru`, source `proxy`.
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-Native-default control run:
+Capture `T3 — explicit Cancel.zip` has SHA-256 `32c3e844e85c1997f57bc682d193c91c9fbcfa2c9b0dc91d939a9e82eeec293c`; inner log SHA-256 `d6174d335074904da2e6bbbddfe2b22e582a805292c81e518c72be8a85bfa38b`.
 
-- `R3DFOX_GOST_CIPHERS=default` skipped the explicit cipher call;
-- MSSPI emitted the previous 198-byte ClientHello with the broader native suite set plus the GOST suites;
-- the lower socket returned the same 1038-byte ASUGATE HTTP 400 response;
-- MSSPI then emitted `15 03 03 00 02 02 0A`, a TLS 1.2 fatal `unexpected_message` alert;
-- `msspi_connect` returned `SEC_E_INVALID_TOKEN` (`0x80090308`), followed later by the already-known secondary `0x0000054f` after MSSPI had entered `MSSPI_ERROR`.
+In one browser process (`Parent 1544`):
 
-Therefore the old description of those roughly 1039 bytes as a real server TLS handshake flight is superseded. The origin server had not yet received either ClientHello. SSPI was rejecting plaintext HTTP proxy error data as an invalid TLS token.
+- four deliberate picker Cancels resolve as `selected=0`, waiter removal `reason=declined-consume`, decision phase `2`;
+- no positive Session state or `Once` lease is created by a decline;
+- every subsequent attempt creates a fresh decision/picker rather than consuming sticky negative state;
+- a fifth picker left unanswered is removed after `30.276 s` from pending phase `0` by `close-pre`; closing callback re-entry and the later stale UI callback are safely rejected;
+- `Try again` creates fresh decision `6`, which resolves positively as `selected=1 remember=2`;
+- recovery then completes 12 Treasury TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1` and successful protected-cabinet authorization in the same process.
 
-### Current runtime blocker
+The four deliberate no-certificate attempts naturally produce current-attempt `selected=0`, `0x80090326`, and `0x0000054f` markers. They are **not** sticky-failure evidence: after positive decision `6` there are zero further `E/GostTLS` and zero further `selected=0` markers. Future negative tests must distinguish intentional per-attempt failure markers from unsolicited errors on recovery attempts.
 
-The current proven blocker is the Firefox HTTP-proxy lifecycle:
+### T4 involuntary tab/load Abort — COMPLETE
 
-```text
-Firefox intends to send CONNECT fzs.roskazna.ru:443
-        -> old GOST layer intercepted the first socket I/O
-        -> MSSPI started TLS immediately
-        -> TLS ClientHello was sent directly to ASUGATE
-        -> ASUGATE returned HTTP/1.1 400 Bad Request
-        -> SSPI consumed HTTP bytes as TLS and returned SEC_E_INVALID_TOKEN
-```
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-This means `SEC_E_INVALID_TOKEN` from the captured runs is not evidence that CryptoPro rejected a real `fzs.roskazna.ru` GOST handshake. The project has not yet observed the origin server's real ServerHello in the MSSPI path.
+Capture `T4 involuntary Abort.zip` has SHA-256 `bfa51cc1d45c35c8c94cae6a7eb8fc32c6490d30782cdb256a1aefb24078d2f1`; inner log SHA-256 `f921c42d5e7b0299a40f79a5a707d5da93990018fb535edf529aef94a3d82f65`.
 
-### Proxy-compatible implementation under test
+In one browser process (`Parent 6184`):
 
-Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` (`fix(gost): defer MSSPI until proxy tunnel`) implements the next runtime experiment without changing the Win7/toolchain line:
+- the first Treasury client-auth request creates `decision=1`, `browser_id=14`, and a picker at `03:43:37.496 UTC`;
+- closing that tab while the picker is unanswered removes the waiter after only `4.059 s` via `reason=close-pre`, removes decision `1` unresolved in phase `0`, rejects shutdown callback re-entry as `reason=closing`, and rejects the late picker callback as stale;
+- decision `1` has no resolution record, no `selected=0`, no `declined-consume`, and no phase `2`, proving the tab/load abandonment is observably distinct from T3 explicit Cancel;
+- the remaining tab in the same process uses `browser_id=15` and creates a fresh `decision=2` / picker at `03:43:54.093 UTC`;
+- decision `2` resolves positively at `03:44:04.399 UTC` as `selected=1 remember=2`;
+- recovery adds eight `scope=session` remembered hits and 9 successful Treasury TLS 1.2 / `0xFF85` mTLS handshakes with `client_cert_loaded=1` and successful personal-cabinet authorization.
 
-- reads resolved `nsIProxyInfo` supplied by Firefox rather than consulting Windows proxy settings independently;
-- for an ordinary `http` proxy, creates/configures MSSPI but starts the GOST layer with TLS inactive;
-- while TLS is inactive, `read`, `recv`, `write`, `send`, `available`, and `poll` pass transparently to the stored lower NSPR transport;
-- `GostSocketControl` now implements `ProxyStartSSL()` and `StartTLS()`;
-- those entry points only activate MSSPI TLS state; they do not synchronously force a handshake;
-- `DriveHandshake` refuses to enter MSSPI before TLS activation;
-- direct/non-HTTP-proxy behavior retains immediate TLS activation;
-- MSSPI shutdown is skipped when a proxy connection closes before TLS was ever activated.
+Whole T4 capture: two decisions, two picker requests, one positive decision resolution, zero `declined-consume`, zero `selected=0`, zero `E/GostTLS`, zero `0x80090326`, zero `0x0000054f`, and zero `MSSPI_X509_LOOKUP`.
 
-This commit is an implementation hypothesis until the existing main-workflow SSL compile gate and a runtime test both pass. Do not call the proxy blocker fixed merely because the source change exists.
+Together T3/T4 close the intended negative-decision split on the current artifact: explicit picker Cancel is Declined/phase `2`; involuntary navigation/tab/load abandonment remains unresolved phase `0` and is removed by lifecycle teardown. Neither path poisons later recovery.
 
-### Next runtime experiment
+### T5 post-login media-removal probe — METHODOLOGY FINDING; T5 DEFERRED
 
-Use the existing `.github/workflows/gost-poc-build.yml` main GOST build. Its `GATE - Compile security manager SSL target objects` is the first compile check for commit `4887e07d...`; only the run whose head SHA is exactly that commit (or a deliberately identified descendant containing the same source) is evidence for this change.
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-If the full build produces a runnable artifact, test it with the real system HTTP proxy and preserve the GOST log. The decisive expected sequence is:
+Capture `T5 — Session failure-boundary regression.zip` has SHA-256 `ede5279115bb6fb80ddae7f40df1c87918a226ffedf6f16979ea30220d218076`; inner log SHA-256 `c9d63066b298bb127ad01060dc3428bcc1171535bd348950d0a3c067040d79c4`.
 
-```text
-attached MSSPI GOST layer ... tlsActive=0 proxyType=http
-GostWrite/GostRead ... proxy plaintext ...
-ProxyStartSSL host=fzs.roskazna.ru
-GOST TLS activated ... after_proxy_tunnel=1
-TLSBUF direction=out ... ClientHello
-TLSBUF direction=in ... real TLS record from fzs.roskazna.ru
-```
+In one browser process (`Parent 644`), a normal positive Session decision is established and the initial Treasury flow completes. The user then makes the private-key medium unavailable and independently observes missing-container/provider-refusal behavior on the official CryptoPro CAdES demo. That CAdES/native CSP path is outside `GostTLS` transport logging, so the exact removal/provider-refusal event itself is external procedure evidence.
 
-The first high-value runtime gate is that the post-activation input must no longer begin with `HTTP/1.1 400 Bad Request`. Only after a real origin TLS response is captured can cipher selection, certificate messages, and any subsequent SSPI error be diagnosed meaningfully.
+The Treasury log nevertheless proves that post-login media removal does not invalidate the already-acquired MSSPI credential in this environment:
 
-## Windows Vista/7 build-compatibility track
+- the initial Treasury burst ends at `04:12:30.946 UTC`;
+- at `04:15:42.644 UTC`, `191.698 s` later, a fresh `lk-fzs.roskazna.ru` socket is created;
+- at `04:15:42.864`, the new socket receives a fresh client-certificate request, consumes `selected=1 scope=session`, and emits a `redacted=client-auth` TLS flight;
+- at `04:15:43.160`, that fresh connection completes TLS 1.2 / `0xFF85`, state `0x00000000`, `client_cert_loaded=1`;
+- whole capture contains 10 Treasury client-certificate requests, 9 Session remembered hits and 10 successful Treasury mTLS handshakes, with zero `E/GostTLS`, `selected=0`, `0x80090326`, `0x0000054f`, `MSSPI_X509_LOOKUP`, or `SEC_E_NO_CREDENTIALS`.
 
-This track is separate from the GOST TLS runtime handshake.
+This is stronger than an already-open HTTP/TLS session surviving: a later new socket performs a new client-auth TLS exchange successfully. The current interpretation is that CryptoPro/SSPI retains an already-acquired provider/private-key credential context after the medium is removed. That behavior is acceptable and should not be treated as a failure.
 
-### Retained constraints
+The capture therefore **does not pass or fail T5**. It invalidates post-login medium removal as the planned T5 fault injection. T5 is deferred until a safe deterministic way exists to invalidate an already-acquired provider credential inside the same browser process.
 
-- Firefox is normally built in the `/MD` dynamic CRT model.
-- Do not solve Win7 compatibility by forcing a static CRT into the existing Firefox `/MD` world.
-- The earlier static VC-LTL experiment exposed `/failifmismatch` conflicts such as `MD_DynamicRelease` versus `MT_StaticRelease` / `libcpmt.lib`.
-- A successful linker invocation is not enough; final PE imports and target-OS execution matter.
-- The complete YY-Thunks `kernel32.lib` must not be placed before Rust/gkrust as a broad interposition mechanism.
+### T7/T8 missing-medium/provider recovery — COMPLETE
 
-The retained negative full-build proof for broad YY `kernel32.lib` interposition is:
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-- run `32623108290`;
-- job `97162633898`;
-- commit `a73f18e823c083c970eea649ce305da648640e2f`;
-- failure: duplicate `LockResource` between `gkrust.lib` raw-dylib surface and YY `kernel32.lib`.
+Capture `T7-T8.zip` has SHA-256 `bd3fdf5bd73a2c7a6331235fe4f7bddb155698cdb6daaa5ef95f6fada1fae32c`; inner log SHA-256 `8692ca7043f256d9673767a01e368d935c3f6df664ed814424b0abbeacf971a7`.
 
-### Proven narrow ProcessPrng strategy
+In one browser process (`Parent 7056`, `browser_id=14`):
 
-Representative closing smoke:
+- with the key medium unavailable before first GOST key acquisition, Treasury candidate enumeration still reports one certificate from `CurrentUser\MY`;
+- exactly one Firefox decision/picker is created and resolves positive at `04:57:20.614 UTC` as `selected=1 remember=2`;
+- provider/container refusal then causes the current MSSPI attempt to fail at `04:57:22.379` with `0x8009030e` (`SEC_E_NO_CREDENTIALS`); there is no `selected=0`, `declined-consume`, or negative remembered decision;
+- a new Treasury attempt in the same process receives another CertificateRequest at `04:57:28.516` and reuses `selected=1 scope=session` without another picker;
+- after the medium is restored, the provider/key path emits the outbound client-auth flight at `04:57:55.829` and completes TLS 1.2 / `0xFF85` mTLS at `04:57:56.095`, state `0x00000000`, `client_cert_loaded=1`;
+- protected MSSPI application writes/reads resume immediately, and the capture finishes with 12 successful recovered Treasury mTLS handshakes and 12 Session remembered uses after the initial failed attempt.
 
-- run `32644291202`;
-- job `97207125757`;
-- commit `fd925b1780fa3470a2cfba743a7374f7d7e644d6`;
-- result: success.
+T7 is closed: discovery of a certificate identity from `MY` is independent of live private-key availability, and a missing-medium/provider refusal is attempt-local rather than sticky Firefox certificate state.
 
-The passing strategy uses YY-Thunks 1.2.2 `synchronization.lib` plus a physically narrow archive built from:
+T8 is closed: restoring the key medium allows the existing positive Session decision to recover in the same Firefox process, complete real Treasury GOST mTLS, and resume protected application traffic without another picker or browser restart.
 
-- `ProcessPrng.obj`;
-- `ProcessPrng.obi`;
-- `YY_Thunks_for_6.1.7600.0.obj`.
+### T9 long provider wait / Socket Thread starvation — CHARACTERIZED
 
-It preserves `/MD`, leaves the full YY `kernel32.lib` out of the final linker inputs, keeps `LockResource` as a normal KERNEL32 import, and removes `ProcessPrng` plus the selected Win8+ synchronization imports from the representative PE.
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-### First xul-scale result and precise-time blocker
+Capture `T9 — долгий provider wait.zip` has SHA-256 `2f06aeb4dae884cfd4b6f973bcce21de42dc092d907575a798b361e4f7c48bac`; inner log SHA-256 `25a32e6bcd1c1b01d08c6624a429315f2eddefd97e81021dbc990c4b18b7b264`.
 
-Full Firefox run:
+In one browser process (`Parent 788`, Treasury `browser_id=14`):
 
-- run `32647338452`;
-- job `97213486474`;
-- commit `0eb29ecccaa3d2a0762af17e458c42cf245410d7`.
+- Treasury client auth resolves positively as Session; the Socket Thread logs dialog completion at `05:36:46.482 UTC`;
+- synchronous provider/private-key access then produces no `GostTLS` event for `74.742 s`;
+- user observation confirms the browser UI remains responsive and can initiate new tabs/navigation during the wait;
+- provider Cancel returns at `05:38:01.224 UTC` as `0x8009030e` (`SEC_E_NO_CREDENTIALS`) without `selected=0` or `declined-consume`;
+- queued `pay.gov.ru` networking begins on the same timestamp and completes GOST TLS 1.2 / `0xFF85` at `05:38:01.515`, only `291 ms` later, with `client_cert_loaded=0`;
+- `portalgisgmp.login.roskazna.ru` begins at `05:38:01.586` and also completes normally;
+- later Treasury requests in the same process reuse `scope=session`, with 12 successful recovered TLS 1.2 / `0xFF85` mTLS handshakes.
 
-The build and package succeeded. The xul import audit showed the ProcessPrng/synchronization strategy had scaled far enough that the next hard direct blocker was:
+T9 therefore closes the long-wait measurement but reveals a concrete concurrency limitation: synchronous CryptoPro/provider key access occupies the shared Firefox Socket Thread, so other network work queues even while the browser UI/event loop remains responsive. Provider Cancel releases the queue immediately, and the long wait does not corrupt Session/coordinator state.
 
-`KERNEL32.dll!GetSystemTimePreciseAsFileTime`
+Whether this is materially worse than stock Firefox token/PIN/client-certificate behavior remains unproven; compare before redesigning MSSPI threading. If offloading is attempted, preserve NSPR/MSSPI state ownership, client-auth lifecycle/cancellation and proxy/CONNECT sequencing.
 
-That API requires Windows 8 and was therefore a real Windows 7 loader-hard blocker in that binary.
+### T10 detailed Russian picker presentation — COMPLETE
 
-### Precise-time closing smoke
+Exact source/run/artifact remains `afbdad307...` / run `33073577269` / job `98521835354` / artifact `9652941006`.
 
-Focused workflow result:
+T10 closes the full user-visible picker presentation beyond the earlier SD6 smoke. Sanitized user confirmation establishes that the owner/name is human-readable, `Issued by` is human-readable, Cyrillic renders correctly, expiry presentation is normal/localized, `Session` is visibly selected by default, `Once` / `Session` / `Permanent` are all visible, details are readable, and certificate serial is confined to details rather than the main candidate row. After the inspection, choosing `Session` still allows successful Treasury login.
 
-- run `32680494331`;
-- job `97296220325`;
-- commit `cdef097b1912f68232de13d5e41b1a84add466d6`;
-- workflow `YY-Thunks precise-time closing smoke`;
-- result: success on the first attempt.
+No screenshot or raw certificate identity is retained because those fields may contain sensitive identity data. T10 therefore closes presentation/UX only; it does not add new protocol claims beyond the already-proven current-artifact Treasury mTLS baseline and does not imply real `Permanent` persistence.
 
-The smoke proved the narrow provider can close `GetSystemTimePreciseAsFileTime` using exactly:
+## Immediate runtime / implementation order
 
-- `GetSystemTimePreciseAsFileTime.obj`;
-- `GetSystemTimePreciseAsFileTime.obi`;
-- `YY_Thunks_for_6.1.7600.0.obj`.
+1. **T6 — real Permanent semantics — NEXT IMPLEMENTATION.** Implement and prove persistence distinct from the current process-local non-Once store, including restart persistence and intended forget/change behavior.
+2. **T11/T12 — discovery boundary — NEXT RUNTIME.** Verify dynamic `CurrentUser\MY` re-enumeration and determine whether provider/removable-media-only identities are discoverable without browser restart or interactive provider UI during candidate enumeration.
+3. **T9 follow-up — provider-wait Socket Thread isolation.** Compare against stock Firefox synchronous token/PIN behavior, then decide whether a focused off-thread MSSPI/provider experiment is warranted. The current behavior is a known performance/concurrency limitation, not a coordinator corruption or handshake blocker.
+4. **T5 — Session failure-boundary regression — DEFERRED.** Resume only with a safe deterministic mechanism that actually invalidates an already-acquired provider/private-key credential in the live process; do not repeat post-login medium removal or invent an invasive synthetic invalidation merely to force the test.
+5. Continue candidate-policy and negative matrix.
+6. Complete mandatory fail-closed server-trust closure and final exact-build Treasury acceptance.
 
-It verified both ordinary and `__imp_` COFF weak aliases, did not expose the broad `LockResource`/`LoadLibraryExW` surface, and removed precise-time from the final representative PE imports without supplying the full YY `kernel32.lib`.
+Keep Firefox-picker timeout-source/poll-churn attribution separate from the now-characterized provider-wait Socket Thread blockage.
 
-A prior direct edit of the full workflow in commit `b3c3d3b00c6e4a76fbfaa615b9104828c26e78ba` corrupted embedded-Python newline literals and was not experimental proof. The malformed workflow surfaced as run `32692410607` at commit `08203bb0d7023b7186dc11e4d765f0349aadf076`, which GitHub rejected before creating a build job.
+## Mandatory server trust — OPEN
 
-### Current xul-scale result
+Positive `DriveHandshake verify ... ok=1 status=0x00000000` observations under the current verification path are useful diagnostics but do not close final server trust.
 
-The narrow ProcessPrng + precise-time strategy has now crossed the real Firefox/xul build boundary.
+Required final behavior:
 
-Actions result:
+- reject `verifyOk == 0`;
+- reject any nonzero verification status;
+- integrate Firefox temporary/permanent certificate overrides;
+- positive browser-session verification cache keyed by exact server identity;
+- prove valid Treasury hostname/chain succeeds;
+- prove wrong hostname and invalid/untrusted chain fail closed;
+- prove client private-key operations cannot occur before server trust.
 
-- run `32695496647`;
-- job `97336702701`;
-- exact commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00`;
-- release artifact `9512347999`;
-- diagnostics artifact `9512349511`.
+Do not use a production verification bypass.
 
-The following stages all passed:
+## Provider/private-key media evidence
 
-- narrow YY ProcessPrng + precise-time provider construction;
-- libxul linker patch;
-- configure/export/SSL target gates;
-- full release Firefox build;
-- package;
-- release artifact upload;
-- xul import-audit step;
-- diagnostics upload.
+Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, job `97789764275`, artifact `9567881847` first established the missing-media behavior historically. The current exact artifact now revalidates the important parts under coordinated Session-default client auth:
 
-Only the final policy gate failed.
+- a certificate can remain in `CurrentUser\MY` and be picker-discoverable while its CryptoPro private-key medium/container is unavailable;
+- `CERT_KEY_PROV_INFO_PROP_ID`/store presence is binding/discovery metadata, not proof of live key availability;
+- provider refusal before first key acquisition fails only the current attempt with `SEC_E_NO_CREDENTIALS`;
+- the positive Session decision survives that provider failure;
+- a later attempt recovers in the same process after the medium returns and completes real GOST mTLS/application traffic;
+- conversely, once a usable provider/credential context has already been acquired, later medium removal may not invalidate it, so that procedure is not a valid T5 fault injection;
+- a long provider/key-access wait can synchronously block the shared Firefox Socket Thread while leaving the browser UI responsive; cancellation immediately releases queued network work and does not poison the Session decision.
 
-The diagnostics prove that `GetSystemTimePreciseAsFileTime` is absent from the final xul direct imports. The previous hard blocker is therefore closed at full Firefox build/package scale. `ProcessPrng`, `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle`, and `GetOverlappedResultEx` are also absent from the checked direct-import set.
+## Windows compatibility — independent track
 
-The generated forbidden-direct file contains exactly:
+### Inherited x86 baseline
 
-`GetQueuedCompletionStatusEx`
+Official `Eclipse-Community/r3dfox` `v153.0.3` ships the 32-bit build with `--disable-sandbox`; issue `Eclipse-Community/r3dfox#11` records the intentional decision. Therefore a sandbox-enabled Win7/Vista x86 pass is not an XP prerequisite. The XP/x86 product path uses build-time sandbox disablement unless sandbox restoration is explicitly reprioritized as optional hardening. This inherited choice is now physically confirmed on Windows 7 x32 for the current XP-oriented full-browser artifact: build-time sandbox disablement removes the need for the `MOZ_DISABLE_CONTENT_SANDBOX=1` runtime workaround and avoids the prior restricted-sandbox notification while preserving normal browser operation.
 
-That API is genuinely a direct KERNEL32 import in this xul, but it is **not** a Windows-8-only API. Microsoft documents minimum supported client Windows Vista, so it is valid on Windows 7. The red final status of run `32695496647` is therefore a policy/harness false positive, not a new Win7 loader blocker.
+### Current authoritative full Firefox XP x32 import baseline
 
-Commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` removes only `GetQueuedCompletionStatusEx` from the Win8+ hard blacklist. It does not change the linker strategy.
+The current full-build compatibility baseline is:
 
-### Direct versus delay-load audit status
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `1635d28360ee35d47c1d8237bcf8f5864cc1144f`;
+- run `33310150314`, job `99253613546`;
+- workflow `GOST TLS PoC build XP x32`;
+- package artifact `9733280086`;
+- runtime artifact `9733280458`;
+- diagnostics artifact `9733280937`.
 
-The ordinary/direct import parser used in run `32695496647` is sufficient for the current hard-loader gate and is the basis for the precise-time closure conclusion.
+The full Firefox build, msvcr14x runtime staging, PE retargeting, package creation, runtime archive creation, and artifact uploads all succeeded. The Actions run is red only at the broad XP direct-import gate.
 
-The delay-load API parser is **not yet complete**. `dumpbin /imports` formats delay API rows differently from ordinary import rows. The workflow switches to a delay section and records delay DLL names, but the API regex in `ae3d52f4...` matches only the ordinary-import row shape. Therefore `xul-thunk-win7-delay-import-api-names.txt` is empty and must not be interpreted as proof that there are no delay-loaded APIs.
+Physical Windows 7 x32 runtime on this exact source/build is now confirmed: the browser starts and operates correctly with build-time `--disable-sandbox`, does not require `MOZ_DISABLE_CONTENT_SANDBOX=1`, and does not show the prior notification associated with runtime sandbox disabling. This is a Windows compatibility result only; it does not close the remaining physical-XP startup/import work or any GOST TLS runtime milestone.
 
-Re-parsing the retained raw import dump with the correct delay-row shape yields 504 unique delay API names. Relevant post-Win7 candidates include:
+The current curated gate reports 103 violation rows, 26 unique API names across 15 PEs. `xul.dll` contributes 19 API violations plus `bcrypt.dll`; `mozglue.dll` contributes 11 API violations plus `bcrypt.dll`.
 
-- `GetAutoRotationState`;
-- `GetPointerFrameTouchInfo`;
-- `GetPointerType`;
-- `CoIncrementMTAUsage`;
-- `RoActivateInstance`;
-- `RoGetActivationFactory`;
-- Windows Runtime string APIs.
+The old physical-XP artifact from run `33141004769` failed before UI startup on hard `KERNEL32!CloseThreadpoolWork`. In run `33310150314`, `CloseThreadpoolWork` is absent from both the normalized direct-import inventory and the raw per-PE import diagnostics. Therefore that specific import blocker is no longer expected in the current artifact, but physical XP execution is still required before runtime closure.
 
-These are delay-loaded in the inspected binary and therefore must be analyzed as runtime-path compatibility questions, not automatically promoted to process-loader blockers.
+### Current remediation policy
 
-Separate direct imports such as `api-ms-win-crt-*` belong to CRT/UCRT deployment analysis and must not be conflated with YY-Thunks symbol interposition.
+Do not treat the 26 current gate API names as a production YY backlog.
 
-### Windows 7 target-OS startup validation
+Caller/owner classification is now mandatory before implementation:
 
-The exact portable package from the full xul-scale experiment has now been executed on Windows 7.
+1. remove modern-only features/paths where XP has no useful equivalent;
+2. prefer XP-native source replacements where older APIs preserve the required operation;
+3. prefer one owned legacy backend when several imports belong to a common Firefox abstraction;
+4. use physically narrow YY only for unavoidable stable low-level gaps after caller analysis;
+5. solve separately linked DLLs at their own build/dependency boundary;
+6. use vetted source-available third-party compatibility boundaries where appropriate;
+7. reserve custom shims for the residual set.
 
-Validated build identity:
+The current `xul.dll` imports that require source/caller analysis before YY assignment include `CancelIoEx`, `CompareStringOrdinal`, `GetCurrentProcessorNumber`, `GetFileInformationByHandleEx`, `GetFinalPathNameByHandleW`, `GetLocaleInfoEx`, `LCIDToLocaleName`, `LocaleNameToLCID`, `GetTickCount64`, `SetFileInformationByHandle`, and `InitializeCriticalSectionEx`.
 
-- Actions run `32695496647`;
-- job `97336702701`;
-- commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00`;
-- release artifact `9512347999`;
-- package `r3dfox-v153.0.3.win64.portable.7z`;
-- package SHA-256 `534adf0777685f554f8948e19d84042b84520d9521a6f6084534c84c6558c08b`.
+The SRW/condition-variable family appears across `xul.dll`, `mozglue.dll`, the executables, and several other DLLs. Determine whether each occurrence belongs to Mozilla-owned abstractions, Rust/MSVC/toolchain code, or a separately linked dependency. An owned abstraction may justify one XP synchronization backend; unavoidable toolchain surfaces are strong narrow-YY candidates; separate DLLs require their own solution.
 
-Manual target-OS result on 2026-08-24: **the browser starts successfully on Windows 7**.
+Other feature/shipping PEs in the broad audit include `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, `d3dcompiler_47.dll`, and `gmp-clearkey`. A `xul.dll` linker change cannot rewrite their independent import tables. Test/developer/fake PEs (`gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, `xpcshell.exe`) must not automatically count as XP product blockers.
 
-This is the first direct runtime proof that the current narrow YY-Thunks full-Firefox build can get through the Windows 7 loader and normal browser startup. It is stronger than a clean import audit alone and closes the question of basic startup compatibility for this exact build.
+Focused `D3DCompiler_47.dll` replacement is now separately proven at source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`: the pinned legacy Firefox XP DLL is prepared and staged successfully, passes the retargeted legacy-D3DCompiler gate, and survives packaging under its dedicated post-package gate. The overall run still fails at the later broad XP PE-floor/direct-import audit, so the D3DCompiler staging/packaging hypothesis is closed but the broader XP import blocker remains open.
 
-The scope remains specific. Successful startup does not prove that every browser feature or every delay-loaded post-Win7 API path is safe on Windows 7, and it does not prove GOST TLS handshake success. Those are separate runtime-coverage questions.
+`bcrypt.dll` remains directly imported by both `xul.dll` and `mozglue.dll` and is an independent compatibility boundary.
 
-### Current next Win7 experiments
+### YY coverage smoke — capability proof only
 
-1. Obtain a formal full-build result with the corrected direct-import policy from commit `e2a9c3bcbbdfade62a15a144da9117e249cc6305` or the exact workflow descendant used by the next run. This is now CI/gate closure rather than a prerequisite for proving that the browser can start on Windows 7.
-2. Fix or replay the delay-load API parser against the retained raw dump before claiming complete delay-load coverage.
-3. Classify the actual delay-loaded post-Win7 APIs by whether Firefox guards those runtime paths on Windows 7.
-4. Exercise representative browser paths on Windows 7 beyond startup, especially ordinary browsing/networking and features associated with the identified delay-loaded imports.
-5. Keep any GOST TLS-on-Windows-7 test separate: bind its runtime log to the exact build run/SHA and evaluate the MSSPI/SSPI handshake independently from old-Windows loader compatibility.
+The representative XP x86 msvcr14x/Rust/YY workload at source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, remains physically proven on Windows XP SP3 x86.
 
-The forward `yy-thunks-rust-smoke.yml` canary may independently test newer VC-LTL releases such as 5.3.1. Do not conflate that canary's dependency-version investigation with the full xul linker strategy above.
+A later coverage smoke at source `39ce8453be32557dfb709bce8ee412c16f78a72f`, run `33316988353`, job `99272141403`, successfully selected all 26 current forbidden API names plus previously proven Rust/libstd entries into a physically narrow YY provider and passed its representative PE/import/runtime gates.
+
+This proves **technical YY coverage only**. It does not define production provider membership and does not authorize injecting the expanded set into the full Firefox build. Production YY membership must follow caller-level classification. Full YY `kernel32.lib` interposition remains prohibited.
+
+### WinRT direction
+
+The physical Win7 crash from source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, remains localized to `xul.dll` delay-loading the missing WinRT API-set and `RoGetActivationFactory`. Broad YY expansion for WinRT is retired. Source removal/fallback on `agent/winrt-source-poc` remains the primary architecture because WinRT has no XP meaning.
+
+### Immediate Windows compatibility order
+
+1. Use diagnostics `9733280937` for caller/owner classification of `xul.dll`, `mozglue.dll`, `r3dfox.exe`, and `plugin-container.exe`.
+2. Classify separately linked shipping/feature DLLs as required/optional and choose rebuild/legacy-version/replacement/disablement per component.
+3. Regenerate the broader stock-XP export comparison from the sandbox-disabled diagnostics; the old ~57/~73 estimates are no longer current planning counts.
+4. Prove the chosen XP-native fallbacks, owned backends, component changes, and final smallest YY provider in focused smokes before another multi-hour Firefox build.
+5. Rebuild and run the exact resulting artifact on physical XP. The old `CloseThreadpoolWork` import boundary has disappeared from the current PE inventory, so the next physical test should either pass that boundary or expose the next actual loader/runtime blocker.
+6. Keep GOST TLS on old Windows as a later separate exact-artifact milestone.
+
+Detailed rules and the component matrix are in `XP_COMPATIBILITY_STRATEGY.md`; exact evidence is in `TEST_LOG.md`; forward tasks are in `TODO.md`.
+
+## Bundled government-system extensions — independent track
+
+Current proven three-extension package checkpoint:
+
+- source `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
+- full packaging run `32976571122`, job `98202641607`;
+- packaged-browser artifact `9614275050`;
+- evidence artifact `9614275551`.
+
+The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled-state is proven for all three project extensions. Native-component behavior and version-to-version update behavior remain separate open work.
 
 ## Separation of conclusions
 
-Keep these statements distinct:
-
-- **Build success** means the selected source/toolchain combination compiled and packaged.
-- **Win7 direct-import success** means the current exact loader-hard blacklist is absent from ordinary imports; it is a static compatibility property.
-- **Win7 basic startup success** is now confirmed for the exact run `32695496647` / commit `ae3d52f42b8b6b509c1263418bead8bb9324dd00` portable build on a real Windows 7 system.
-- **Broader Win7 runtime compatibility** still requires representative feature exercise and guarded handling of relevant delay-loaded APIs/runtime dependencies.
-- **GOST transport success** means MSSPI can exchange bytes through the NSPR layer.
-- **GOST TLS success** requires the complete TLS handshake and usable HTTPS traffic.
-
-At present the lower transport path works, but the last runtime capture did not reach the origin server because MSSPI started before the HTTP CONNECT tunnel was established. Commit `4887e07d847b1c3c2e13b491dcc85f50ddaa9804` contains the proxy-lifecycle fix candidate and is awaiting compile/runtime validation.
-
-## Maintenance rule
-
-After each meaningful test:
-
-1. append the run/SHA, hypothesis, observation, and conclusion to `TEST_LOG.md`;
-2. update this file only if the current blocker, architecture, pinned dependency, confirmed behavior, or next experiment changed;
-3. mark speculative interpretations explicitly as hypotheses;
-4. never overwrite historical failures just because a later experiment superseded them.
+- Build success != GOST handshake success.
+- Coordinated runtime success != final server-trust closure.
+- `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
+- GOST runtime != Windows compatibility.
+- Extension packaging != extension runtime, GOST runtime, or old-Windows runtime.
+- Upstream r3dfox x86 shipping with `--disable-sandbox` defines the inherited compatibility baseline; a future sandbox restoration would be an additional security-hardening milestone, not a prerequisite for XP startup/browsing.
+- Documentation HEADs never replace the exact source-under-test SHA for a previously built/runtime-tested browser.
