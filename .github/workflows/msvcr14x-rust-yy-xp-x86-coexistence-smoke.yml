@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - agent/gost-tls-poc
+      - agent/msvcr14x-win7-smoke
     paths:
       - ".github/workflows/msvcr14x-rust-yy-xp-x86-coexistence-smoke.yml"
 
@@ -12,21 +12,34 @@ permissions:
   contents: read
 
 env:
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
   YY_THUNKS_VERSION: "1.2.2"
   YY_THUNKS_TARGET: "5.1.2600.0"
   WINDOWS_XP_SUBSYSTEM: "5.01"
+  RUST_TOOLCHAIN: "nightly-2026-08-20"
+  RUST_TARGET: "i686-pc-windows-msvc"
 
 jobs:
-  winrt-delay-smoke:
-    name: YY-Thunks WinRT delay-load closing smoke / x86
+  coexistence-smoke:
+    name: msvcr14x + Rust libstd + YY-Thunks / XP x86 floor
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 40
 
     steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
 
       - name: Prepare diagnostics
         shell: powershell
@@ -36,285 +49,547 @@ jobs:
           @(
             "repo=$env:GITHUB_REPOSITORY"
             "test_commit=$env:GITHUB_SHA"
+            "compatibility_target=Windows XP SP3 x86"
+            "pe_subsystem_min_version=$env:WINDOWS_XP_SUBSYSTEM"
+            "pe_machine=x86"
+            "msvcr14x_commit=$env:MSVCR14X_SHA"
             "yy_thunks_version=$env:YY_THUNKS_VERSION"
             "yy_thunks_target=$env:YY_THUNKS_TARGET"
+            "rust_toolchain=$env:RUST_TOOLCHAIN"
+            "rust_target=$env:RUST_TARGET"
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
+          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          rustc -Vv | Set-Content -Encoding utf8 diagnostics\rustc-version.txt
+
+      - name: Fetch and build pinned msvcr14x Release x86
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'msvcr14x'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git init $root
+          git -C $root remote add origin $env:MSVCR14X_REPO
+          git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
+          git -C $root checkout --detach FETCH_HEAD
+          git -C $root submodule update --init --recursive --depth 1
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $env:MSVCR14X_SHA) { throw "Unexpected msvcr14x commit: $actual" }
+
+          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86' -r "/bl:$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-release-x86.binlog"
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x build failed: $LASTEXITCODE" }
+
+          $required = @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')
+          $release = $null
+          $candidateDirs = @(Get-ChildItem -Path $root -Recurse -File -Filter 'ucrtbase.dll' |
+            ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)
+          foreach ($candidate in $candidateDirs) {
+            $missing = @($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) })
+            if ($missing.Count -gt 0) { continue }
+            $headers = (& dumpbin.exe /nologo /headers (Join-Path $candidate 'ucrtbase.dll') 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0 -and $headers -match '(?im)^\s*14C machine \(x86\)') {
+              $release = $candidate
+              break
+            }
+          }
+          if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
+
+          Get-ChildItem -LiteralPath $release -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
+            Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
+          "resolved_msvcr14x_release=$release" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
-          $asset = $release.assets | Where-Object { $_.name -eq 'YY-Thunks-Lib.zip' } | Select-Object -First 1
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
           if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
           $zip = Join-Path $env:RUNNER_TEMP $asset.name
           $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-package'
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           Expand-Archive -Path $zip -DestinationPath $root
-          $target = [regex]::Escape($env:YY_THUNKS_TARGET)
-          $dir = Get-ChildItem $root -Recurse -Directory | Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$target[\\/]x86$" } | Select-Object -First 1
-          if (-not $dir) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
-          $runtime = Join-Path $dir.FullName 'runtimeobject.lib'
-          $kernel = Join-Path $dir.FullName 'kernel32.lib'
-          if (-not (Test-Path $runtime) -or -not (Test-Path $kernel)) { throw 'Required YY libraries missing' }
-          "YY_RUNTIMEOBJECT_LIB=$runtime" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "YY_KERNEL32_LIB=$kernel" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "yy_lib_asset=$($asset.name) size=$($asset.size) digest=$($asset.digest)" | Add-Content diagnostics\identity.txt
 
-      - name: Build narrow YY WinRT provider
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch)) { throw 'Required YY XP x86 libraries are missing' }
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "resolved_yy_lib=$($yyLib.FullName)" | Add-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Build narrow YY XP provider
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $work = Join-Path $env:RUNNER_TEMP 'yy-winrt-delay-smoke'
+          $work = Join-Path $env:RUNNER_TEMP 'msvcr14x-rust-yy-xp-x86-smoke'
           $selected = Join-Path $work 'selected'
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
           New-Item -ItemType Directory -Force $selected | Out-Null
-          $runtimeMembers = @(& lib.exe /nologo /list $env:YY_RUNTIMEOBJECT_LIB 2>&1 | ForEach-Object { "$($_)".Trim() } | Where-Object { $_ } | Select-Object -Unique)
-          $kernelMembers = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$($_)".Trim() } | Where-Object { $_ } | Select-Object -Unique)
-          if (-not $runtimeMembers.Count -or -not $kernelMembers.Count) { throw 'Cannot enumerate YY libraries' }
-          $runtimeMembers | Set-Content -Encoding utf8 diagnostics\yy-runtimeobject-members.txt
 
-          function Extract-One([string]$archive, [string]$member, [string]$key) {
-            $dir = Join-Path $selected $key
+          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 kernel32.lib' }
+          $members | Set-Content -Encoding utf8 (Join-Path $work 'yy-kernel32-members.txt')
+
+          $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $wanted = @(
+            @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
+            @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
+            @{ Key='precise-direct'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obj$' },
+            @{ Key='precise-import'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obi$' },
+            @{ Key='flsalloc-direct'; Pattern='(?i)[\\/]_FlsAlloc@4\.obj$' },
+            @{ Key='flsalloc-import'; Pattern='(?i)[\\/]_FlsAlloc@4\.obi$' },
+            @{ Key='flsfree-direct'; Pattern='(?i)[\\/]_FlsFree@4\.obj$' },
+            @{ Key='flsfree-import'; Pattern='(?i)[\\/]_FlsFree@4\.obi$' },
+            @{ Key='flsset-direct'; Pattern='(?i)[\\/]_FlsSetValue@8\.obj$' },
+            @{ Key='flsset-import'; Pattern='(?i)[\\/]_FlsSetValue@8\.obi$' },
+            @{ Key='isfiber-direct'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obj$' },
+            @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
+            @{ Key='stackguarantee-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
+            @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='implementation'; Pattern=$implementationPattern }
+          )
+          $objects = @()
+          $memberMap = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $wanted) {
+            $matches = @($members | Where-Object { $_ -match $spec.Pattern })
+            if ($matches.Count -ne 1) { throw "Expected one $($spec.Key) member; found $($matches.Count)" }
+            $dir = Join-Path $selected $spec.Key
             New-Item -ItemType Directory -Force $dir | Out-Null
             Push-Location $dir
             try {
-              & lib.exe /nologo "/extract:$member" $archive | Out-Null
-              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $member" }
+              & lib.exe /nologo "/extract:$($matches[0])" $env:THUNK_YY_KERNEL32_LIB *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
             } finally { Pop-Location }
-            $file = Get-ChildItem $dir -File | Select-Object -First 1
-            if (-not $file) { throw "No extracted object for $key" }
+            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw "No extracted object for $($spec.Key)" }
             $dst = Join-Path $dir 'member.obj'
-            Copy-Item $file.FullName $dst -Force
-            return $dst
+            Copy-Item -Force $file.FullName $dst
+            (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String) | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
+            $objects += $dst
+            $memberMap.Add("$($spec.Key)|$($matches[0])")
           }
+          $memberMap | Set-Content -Encoding utf8 (Join-Path $work 'selected-members.txt')
 
-          $apis = @(
-            'RoActivateInstance','RoGetActivationFactory',
-            'WindowsCompareStringOrdinal','WindowsCreateString','WindowsCreateStringReference',
-            'WindowsDeleteString','WindowsGetStringRawBuffer'
-          )
-          $objects = [System.Collections.Generic.List[string]]::new()
-          $mapping = [System.Collections.Generic.List[string]]::new()
-          foreach ($api in $apis) {
-            foreach ($kind in @('obj','obi')) {
-              $pattern = '(?i)(?:^|[\\/])_' + [regex]::Escape($api) + '@[0-9]+\.' + $kind + '$'
-              $matches = @($runtimeMembers | Where-Object { $_ -match $pattern })
-              if ($matches.Count -ne 1) { throw "Expected one $api .$kind member; found $($matches.Count)" }
-              $objects.Add((Extract-One $env:YY_RUNTIMEOBJECT_LIB $matches[0] "$api-$kind"))
-              $mapping.Add("$api-$kind|runtimeobject.lib|$($matches[0])")
-            }
+          $narrow = Join-Path $work 'yy-xp-rust-provider.lib'
+          & lib.exe /nologo "/out:$narrow" @objects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) { throw 'Failed to build narrow YY XP x86 provider' }
+          $symbols = (& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1 | Out-String)
+          $symbols | Set-Content -Encoding utf8 (Join-Path $work 'narrow-provider-symbols.txt')
+          foreach ($required in @(
+            'YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime',
+            'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
+          )) {
+            if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
           }
-          $pattern = '(?i)(?:^|[\\/])YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
-          $implementation = @($kernelMembers | Where-Object { $_ -match $pattern })
-          if ($implementation.Count -ne 1) { throw "Expected one common YY implementation; found $($implementation.Count)" }
-          $implementationObj = Extract-One $env:YY_KERNEL32_LIB $implementation[0] 'implementation'
-          $objects.Add($implementationObj)
-          $mapping.Add("implementation|kernel32.lib|$($implementation[0])")
-          $mapping | Set-Content -Encoding utf8 diagnostics\yy-winrt-selected-members.txt
-          $implementationSymbols = (& dumpbin.exe /nologo /symbols $implementationObj 2>&1 | Out-String)
-          $implementationSymbols | Set-Content -Encoding utf8 diagnostics\yy-common-implementation-symbols.txt
-          @($implementationSymbols -split "`r?`n" | Where-Object { $_ -match '\bUNDEF\b' -and $_ -match '\bExternal\b' }) |
-            Set-Content -Encoding utf8 diagnostics\yy-common-implementation-undefined.txt
-
-          $provider = Join-Path $work 'yy-xp-winrt-provider.lib'
-          & lib.exe /nologo "/out:$provider" @($objects)
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to build narrow YY WinRT provider' }
-          $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
-          $symbols | Set-Content -Encoding utf8 diagnostics\yy-winrt-provider-symbols.txt
-          foreach ($api in $apis) {
-            if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Provider missing YY_Thunks_$api" }
+          foreach ($broad in @('LockResource','__imp_LockResource')) {
+            if ($symbols -match ('(?m)(?:^|\s)' + [regex]::Escape($broad) + '\s*$')) { throw "Narrow provider exposes broad symbol $broad" }
           }
-          if ($symbols.Contains('YY_Thunks_LockResource')) { throw 'Provider unexpectedly exposes unrelated LockResource thunk' }
-          "WINRT_WORK=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "YY_WINRT_PROVIDER=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "SMOKE_DIR=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "NARROW_YY_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Build synthetic WinRT import surfaces and probe
+      - name: Locate lld-link
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $lld = (Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source
-          if (-not $lld) { $lld = 'C:\Program Files\LLVM\bin\lld-link.exe' }
-          if (-not (Test-Path $lld)) { throw 'lld-link.exe not found' }
-          $dlltool = Join-Path (Split-Path $lld) 'llvm-dlltool.exe'
-          if (-not (Test-Path $dlltool)) { throw "llvm-dlltool.exe not found next to lld-link: $dlltool" }
+          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
+          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw "lld-link.exe not found: $lld" }
+          "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          & $lld --version | Set-Content -Encoding utf8 diagnostics\lld-version.txt
 
-          $winrtDef = Join-Path $env:WINRT_WORK 'winrt.def'
-          $stringDef = Join-Path $env:WINRT_WORK 'winrt-string.def'
+      - name: Compile ordinary C++ /MD STL helper
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'cpp-helper.cpp'
+          $obj = Join-Path $env:SMOKE_DIR 'cpp-helper.obj'
           @'
-          LIBRARY api-ms-win-core-winrt-l1-1-0.dll
-          EXPORTS
-            RoActivateInstance@8
-            RoGetActivationFactory@12
-          '@ | Set-Content -Encoding ascii $winrtDef
-          @'
-          LIBRARY api-ms-win-core-winrt-string-l1-1-0.dll
-          EXPORTS
-            WindowsCompareStringOrdinal@12
-            WindowsCreateString@12
-            WindowsCreateStringReference@16
-            WindowsDeleteString@4
-            WindowsGetStringRawBuffer@8
-          '@ | Set-Content -Encoding ascii $stringDef
-          $winrtLib = Join-Path $env:WINRT_WORK 'baseline-winrt.lib'
-          $stringLib = Join-Path $env:WINRT_WORK 'baseline-winrt-string.lib'
-          & $dlltool -k -m i386 -d $winrtDef -l $winrtLib 2>&1 | Tee-Object diagnostics\synthetic-winrt-lib.log
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $winrtLib)) { throw 'Cannot build WinRT import library' }
-          & $dlltool -k -m i386 -d $stringDef -l $stringLib 2>&1 | Tee-Object diagnostics\synthetic-winrt-string-lib.log
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stringLib)) { throw 'Cannot build WinRT string import library' }
-          $winrtSymbols = (& dumpbin.exe /nologo /linkermember:1 $winrtLib 2>&1 | Out-String)
-          $stringSymbols = (& dumpbin.exe /nologo /linkermember:1 $stringLib 2>&1 | Out-String)
-          $winrtSymbols | Set-Content -Encoding utf8 diagnostics\synthetic-winrt-symbols.txt
-          $stringSymbols | Set-Content -Encoding utf8 diagnostics\synthetic-winrt-string-symbols.txt
-          foreach ($symbol in @('_RoActivateInstance@8','__imp__RoActivateInstance@8','_RoGetActivationFactory@12','__imp__RoGetActivationFactory@12')) {
-            if ($winrtSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Synthetic WinRT lib missing $symbol" }
-          }
-          foreach ($symbol in @('_WindowsCompareStringOrdinal@12','__imp__WindowsCompareStringOrdinal@12','_WindowsCreateString@12','__imp__WindowsCreateString@12','_WindowsCreateStringReference@16','__imp__WindowsCreateStringReference@16','_WindowsDeleteString@4','__imp__WindowsDeleteString@4','_WindowsGetStringRawBuffer@8','__imp__WindowsGetStringRawBuffer@8')) {
-            if ($stringSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Synthetic WinRT string lib missing $symbol" }
-          }
-
-          $src = Join-Path $env:WINRT_WORK 'winrt-probe.cpp'
-          $obj = Join-Path $env:WINRT_WORK 'winrt-probe.obj'
-          @'
-          #define WIN32_LEAN_AND_MEAN
-          #include <windows.h>
-          #include <delayimp.h>
-          #include <roapi.h>
-          #include <winstring.h>
-          extern "C" FARPROC WINAPI __delayLoadHelper2(PCImgDelayDescr, FARPROC*) { return nullptr; }
-          // Link-only harness stubs: YY's common implementation references a few CRT helpers,
-          // but this smoke never executes the produced PE and must not pull a full CRT into imports.
-          extern "C" int __cdecl _purecall() { return 0; }
-          void __cdecl operator delete(void*) noexcept {}
-          extern "C" int __cdecl atexit(void (__cdecl*)(void)) { return 0; }
-          extern "C" __declspec(dllexport) HRESULT __stdcall winrt_probe() {
-            static const wchar_t kClassName[] = L"r3dfox.gost.yy.winrt.probe";
-            const UINT32 length = static_cast<UINT32>((sizeof(kClassName) / sizeof(kClassName[0])) - 1);
-            HSTRING value = nullptr;
-            HSTRING reference = nullptr;
-            HSTRING_HEADER header{};
-            UINT32 rawLength = 0;
-            INT32 comparison = 1;
-            IInspectable* instance = nullptr;
-            IID iid{};
-            void* factory = nullptr;
-            HRESULT result = WindowsCreateString(kClassName, length, &value);
-            result ^= WindowsCompareStringOrdinal(value, value, &comparison);
-            result ^= WindowsCreateStringReference(kClassName, length, &header, &reference);
-            result ^= RoActivateInstance(value, &instance);
-            result ^= RoGetActivationFactory(value, iid, &factory);
-            result ^= WindowsGetStringRawBuffer(value, &rawLength) != nullptr ? S_OK : S_FALSE;
-            result ^= WindowsDeleteString(reference);
-            result ^= WindowsDeleteString(value);
-            return result ^ static_cast<HRESULT>(rawLength) ^ comparison;
+          #include <string>
+          #include <vector>
+          extern "C" int cpp_probe() {
+              std::vector<std::string> v{"msvcr14x", "rust", "yy-xp-x86"};
+              return static_cast<int>(v.size());
           }
           '@ | Set-Content -Encoding utf8 $src
-          & cl.exe /nologo /c /O2 /GS- /GR- /Zl /std:c++20 $src "/Fo:$obj" 2>&1 | Tee-Object diagnostics\winrt-probe-compile.log
-          if ($LASTEXITCODE -ne 0) { throw 'WinRT probe compile failed' }
-          (& dumpbin.exe /nologo /symbols $obj 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\winrt-probe-symbols.txt
+          & cl.exe /nologo /c /MD /O2 /EHsc /std:c++20 $src "/Fo:$obj" 2>&1 | Tee-Object -FilePath diagnostics\cpp-helper-compile.log
+          if ($LASTEXITCODE -ne 0) { throw "C++ helper compile failed: $LASTEXITCODE" }
+          & dumpbin.exe /nologo /directives $obj 2>&1 | Set-Content -Encoding utf8 diagnostics\cpp-helper-directives.txt
+          $directives = Get-Content diagnostics\cpp-helper-directives.txt -Raw
+          if ($directives.IndexOf('RuntimeLibrary=MD_DynamicRelease', [System.StringComparison]::Ordinal) -lt 0) {
+            throw 'C++ helper is not MD_DynamicRelease'
+          }
+          "CPP_HELPER_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-          $stubAsm = Join-Path $env:WINRT_WORK 'harness-stubs.asm'
-          $stubObj = Join-Path $env:WINRT_WORK 'harness-stubs.obj'
+      - name: Build representative Rust archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'probe.rs'
+          $rlib = Join-Path $env:SMOKE_DIR 'libmsvcr14x_yy_xp_x86_probe.rlib'
           @'
-          .386
-          .model flat, C
-          .code
-          wcsrchr PROC
-            xor eax, eax
-            ret
-          wcsrchr ENDP
-          free PROC
-            ret
-          free ENDP
-          malloc PROC
-            xor eax, eax
-            ret
-          malloc ENDP
-          END
-          '@ | Set-Content -Encoding ascii $stubAsm
-          & ml.exe /nologo /c /coff "/Fo$stubObj" $stubAsm 2>&1 | Tee-Object diagnostics\harness-stubs-assemble.log
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $stubObj)) { throw 'Harness MASM stub compile failed' }
-          $stubSymbols = (& dumpbin.exe /nologo /symbols $stubObj 2>&1 | Out-String)
-          $stubSymbols | Set-Content -Encoding utf8 diagnostics\harness-stubs-symbols.txt
-          foreach ($symbol in @('_wcsrchr','_free','_malloc')) {
-            if ($stubSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Harness stub missing $symbol" }
+          use std::collections::hash_map::RandomState;
+          use std::ffi::c_void;
+          use std::hint::black_box;
+          use std::sync::{Arc, Condvar, Mutex, Once, RwLock};
+          use std::thread;
+          use std::time::Duration;
+
+          #[repr(C)]
+          struct FileTime { low: u32, high: u32 }
+
+          #[link(name = "kernel32", kind = "raw-dylib")]
+          unsafe extern "system" {
+              fn GetSystemTimePreciseAsFileTime(file_time: *mut FileTime);
           }
 
-          "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "BASELINE_WINRT_LIB=$winrtLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "BASELINE_WINRT_STRING_LIB=$stringLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "WINRT_PROBE_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "HARNESS_STUB_OBJ=$stubObj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          #[link(name = "kernel32", kind = "raw-dylib", import_name_type = "undecorated")]
+          unsafe extern "system" {
+              fn LockResource(hmem: *mut c_void) -> *mut c_void;
+          }
 
-      - name: GATE - Baseline reproduces both WinRT delay-import groups
+          #[inline(never)]
+          pub fn run_probe() {
+              black_box(RandomState::new());
+              static INIT: Once = Once::new();
+              INIT.call_once(|| black_box(()));
+              let rw = RwLock::new(1usize);
+              *rw.write().unwrap() += 1;
+              black_box(*rw.read().unwrap());
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let waiter_pair = Arc::clone(&pair);
+              let waiter = thread::spawn(move || {
+                  let (lock, cv) = &*waiter_pair;
+                  let guard = lock.lock().unwrap();
+                  let (_guard, _timeout) = cv.wait_timeout_while(guard, Duration::from_millis(1), |ready| !*ready).unwrap();
+              });
+              {
+                  let (lock, cv) = &*pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_all();
+              }
+              waiter.join().unwrap();
+              let mut ft = FileTime { low: 0, high: 0 };
+              unsafe { GetSystemTimePreciseAsFileTime(&mut ft); }
+              black_box((ft.low, ft.high));
+              black_box(LockResource as unsafe extern "system" fn(*mut c_void) -> *mut c_void);
+          }
+          '@ | Set-Content -Encoding utf8 $src
+          & rustc $src --crate-name msvcr14x_yy_xp_x86_probe --crate-type rlib --edition 2021 --target $env:RUST_TARGET -O -o $rlib
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $rlib)) { throw "Rust archive build failed: $LASTEXITCODE" }
+
+          $probeSymbols = (& dumpbin.exe /nologo /linkermember:1 $rlib 2>&1 | Out-String)
+          $probeSymbols | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'rust-probe-symbols.txt')
+          foreach ($required in @('LockResource','GetSystemTimePreciseAsFileTime')) {
+            if ($probeSymbols.IndexOf($required, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "Rust probe missing $required" }
+          }
+
+          $targetLibDir = (& rustc --print target-libdir --target $env:RUST_TARGET 2>&1 | Out-String).Trim()
+          $std = Get-ChildItem -Path $targetLibDir -File -Filter 'libstd-*.rlib' | Select-Object -First 1
+          if (-not $std) { throw 'Pinned Rust libstd not found' }
+          $stdSymbols = (& dumpbin.exe /nologo /linkermember:1 $std.FullName 2>&1 | Out-String)
+          $stdSymbols | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'rust-libstd-symbols.txt')
+          if ($stdSymbols.IndexOf('ProcessPrng', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw 'Pinned Rust libstd lacks ProcessPrng' }
+          if ($stdSymbols -notmatch '(?i)WaitOnAddress|WakeByAddressAll|WakeByAddressSingle') { throw 'Pinned Rust libstd lacks synchronization imports' }
+          "RUST_PROBE_RLIB=$rlib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Link one XP x86 coexistence candidate
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $dll = Join-Path $env:WINRT_WORK 'baseline-delay.dll'
-          $map = Join-Path $env:WINRT_WORK 'baseline-delay.map'
-          $args = @(
-            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',
-            "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
-            $env:WINRT_PROBE_OBJ,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,
-            '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
-          )
-          & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object diagnostics\baseline-delay-link.log
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $dll)) { throw 'Baseline delay-load link failed' }
-          $raw = (& dumpbin.exe /nologo /imports $dll 2>&1 | Out-String)
-          $raw | Set-Content -Encoding utf8 diagnostics\baseline-delay-imports.txt
-          foreach ($name in @(
-            'api-ms-win-core-winrt-l1-1-0.dll','api-ms-win-core-winrt-string-l1-1-0.dll',
-            'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal','WindowsCreateString',
-            'WindowsCreateStringReference','WindowsDeleteString','WindowsGetStringRawBuffer'
-          )) {
-            if ($raw.IndexOf($name,[System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "Baseline imports missing $name" }
+          $main = Join-Path $env:SMOKE_DIR 'main.rs'
+          $exe = Join-Path $env:SMOKE_DIR 'msvcr14x-rust-yy-xp-x86-smoke.exe'
+          $wrapper = Join-Path $env:SMOKE_DIR 'lld-msvcr14x-yy-xp-x86.cmd'
+          $linkLog = Join-Path $env:SMOKE_DIR 'final-link-command.txt'
+          $linkOutput = Join-Path $env:SMOKE_DIR 'final-link-output.txt'
+          $map = Join-Path $env:SMOKE_DIR 'final-link.map'
+          @'
+          extern crate msvcr14x_yy_xp_x86_probe;
+          unsafe extern "C" { fn cpp_probe() -> i32; }
+          fn main() {
+              msvcr14x_yy_xp_x86_probe::run_probe();
+              let n = unsafe { cpp_probe() };
+              assert_eq!(n, 3);
           }
-          Copy-Item $map diagnostics\baseline-delay.map -Force
+          '@ | Set-Content -Encoding utf8 $main
+          @"
+          @echo off
+          >"$linkLog" echo "$env:REAL_LLD_LINK" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:THUNK_YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:THUNK_YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $wrapper
 
-      - name: GATE - Narrow YY provider eliminates both WinRT delay-import groups
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $dll = Join-Path $env:WINRT_WORK 'thunked-winrt.dll'
-          $map = Join-Path $env:WINRT_WORK 'thunked-winrt.map'
-          $args = @(
-            '/nologo','/dll','/noentry','/nodefaultlib','/machine:x86','/safeseh:no','/guard:no',
-            "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM","/out:$dll","/map:$map",
-            $env:WINRT_PROBE_OBJ,$env:HARNESS_STUB_OBJ,$env:YY_WINRT_PROVIDER,$env:BASELINE_WINRT_LIB,$env:BASELINE_WINRT_STRING_LIB,'kernel32.lib','advapi32.lib','gdi32.lib','user32.lib','version.lib','ntdll.lib','oleaut32.lib','ole32.lib',
-            '/delayload:api-ms-win-core-winrt-l1-1-0.dll','/delayload:api-ms-win-core-winrt-string-l1-1-0.dll'
-          )
-          & $env:REAL_LLD_LINK @args 2>&1 | Tee-Object diagnostics\thunked-winrt-link.log
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $dll)) { throw 'Thunked WinRT link failed' }
-          $raw = (& dumpbin.exe /nologo /imports $dll 2>&1 | Out-String)
-          $raw | Set-Content -Encoding utf8 diagnostics\thunked-winrt-imports.txt
-          foreach ($target in @('api-ms-win-core-winrt-l1-1-0.dll','api-ms-win-core-winrt-string-l1-1-0.dll')) {
-            if ($raw.IndexOf($target,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Thunked PE still contains $target" }
-          }
+          $subsystemArg = "/subsystem:console,$env:WINDOWS_XP_SUBSYSTEM"
+          & rustc $main --edition 2021 --target $env:RUST_TARGET -O `
+            --extern "msvcr14x_yy_xp_x86_probe=$env:RUST_PROBE_RLIB" `
+            "-Clinker=$wrapper" `
+            "-Clink-arg=$env:CPP_HELPER_OBJ" `
+            "-Clink-arg=/map:$map" `
+            "-Clink-arg=$subsystemArg" `
+            -o $exe 2>&1 | Tee-Object -FilePath $linkOutput
+          if ($LASTEXITCODE -ne 0) { throw "XP x86 coexistence link failed: $LASTEXITCODE" }
+          if (-not (Test-Path $exe) -or -not (Test-Path $map)) { throw 'Final executable or map missing' }
+
           $mapText = Get-Content $map -Raw
-          foreach ($api in @(
-            'RoActivateInstance','RoGetActivationFactory','WindowsCompareStringOrdinal','WindowsCreateString',
-            'WindowsCreateStringReference','WindowsDeleteString','WindowsGetStringRawBuffer'
+          foreach ($required in @(
+            'YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime',
+            'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
           )) {
-            if ($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Map does not prove YY_Thunks_$api" }
+            if ($mapText.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Final link did not select $required" }
           }
-          Copy-Item $map diagnostics\thunked-winrt.map -Force
-          Copy-Item $dll diagnostics\thunked-winrt.dll -Force
+          $logged = Get-Content $linkLog -Raw
+          if ($logged.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY kernel32.lib reached final link command' }
+          if ($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB", [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY library directory reached final LIBPATH' }
+          "SMOKE_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Upload WinRT closing diagnostics
+      - name: Resolve XP x86 runtime dependency closure
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Get-DirectImportDlls([string]$binary, [string]$rawPath) {
+            $raw = @(& dumpbin.exe /nologo /imports $binary 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed for $binary" }
+            $raw | Set-Content -Encoding utf8 $rawPath
+            $dlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $mode = 'none'
+            foreach ($line in $raw) {
+              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
+              if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { [void]$dlls.Add($matches[1]) }
+            }
+            return $dlls
+          }
+
+          $bundle = Join-Path $env:SMOKE_DIR 'xp-x86-runtime'
+          $closureDiag = Join-Path $env:SMOKE_DIR 'runtime-closure-imports'
+          New-Item -ItemType Directory -Force $bundle,$closureDiag | Out-Null
+          Copy-Item -Force $env:SMOKE_EXE (Join-Path $bundle (Split-Path $env:SMOKE_EXE -Leaf))
+
+          $available = @{}
+          foreach ($dll in Get-ChildItem -LiteralPath $env:MSVCR14X_RELEASE -Filter '*.dll' -File) {
+            $available[$dll.Name.ToLowerInvariant()] = $dll.FullName
+          }
+
+          $queue = [System.Collections.Generic.Queue[object]]::new()
+          $queue.Enqueue([pscustomobject]@{ Name=(Split-Path $env:SMOKE_EXE -Leaf); Path=$env:SMOKE_EXE })
+          $runtime = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $rows = [System.Collections.Generic.List[string]]::new()
+
+          while ($queue.Count -gt 0) {
+            $binary = $queue.Dequeue()
+            $safe = $binary.Name -replace '[^A-Za-z0-9_.-]', '_'
+            $dlls = Get-DirectImportDlls $binary.Path (Join-Path $closureDiag "$safe.txt")
+            foreach ($name in @($dlls | Sort-Object)) {
+              $key = $name.ToLowerInvariant()
+              if (-not $available.ContainsKey($key)) { continue }
+              $rows.Add("$($binary.Name)|$name")
+              if (-not $runtime.Add($name)) { continue }
+              $src = $available[$key]
+              $dst = Join-Path $bundle $name
+              Copy-Item -Force $src $dst
+              $queue.Enqueue([pscustomobject]@{ Name=$name; Path=$dst })
+            }
+          }
+
+          foreach ($required in @('ucrtbase.dll','msvcp140.dll')) {
+            if (-not $runtime.Contains($required)) { throw "Required XP runtime dependency is absent from final closure: $required" }
+            if (-not (Test-Path (Join-Path $bundle $required))) { throw "Required XP runtime DLL was not bundled: $required" }
+          }
+
+          $rows | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'runtime-closure-edges.txt')
+          @($runtime | Sort-Object) | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'runtime-closure-dlls.txt')
+          Get-ChildItem -LiteralPath $bundle -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
+            Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'runtime-bundle-files.txt')
+          "RUNTIME_BUNDLE=$bundle" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: GATE - Require Windows XP x86 PE floor
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Get-PEInfo([string]$binary, [string]$rawPath) {
+            $headers = @(& dumpbin.exe /nologo /headers $binary 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed for $binary" }
+            $headers | Set-Content -Encoding utf8 $rawPath
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$binary is not PE x86 (machine 14C)" }
+            $line = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $line -or $line -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version for $binary" }
+            return [version]("$([int]$matches[1]).$([int]$matches[2])")
+          }
+
+          $diag = Join-Path $env:SMOKE_DIR 'pe-headers'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          $target = [version]'5.1'
+          $exes = @(Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.exe' -File)
+          if ($exes.Count -ne 1) { throw "Expected exactly one runtime EXE; found $($exes.Count)" }
+          $exe = $exes[0]
+          $final = Get-PEInfo $exe.FullName (Join-Path $diag 'final-exe.txt')
+          if ($final -ne $target) { throw "Final PE subsystem is $final; XP x86 requires exactly 5.01" }
+
+          $runtimeRows = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.dll' -File | Sort-Object Name) {
+            $safe = $dll.Name -replace '[^A-Za-z0-9_.-]', '_'
+            $v = Get-PEInfo $dll.FullName (Join-Path $diag "runtime-$safe.txt")
+            $runtimeRows.Add("$($dll.Name)|x86|$v")
+            if ($v -gt $target) { throw "$($dll.Name) requires subsystem $v, newer than XP x86 5.01" }
+          }
+          $runtimeRows | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'runtime-pe-versions.txt')
+
+      - name: GATE - Reject direct post-XP imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Normalize-ImportName([string]$name) {
+            if ($name -match '^_([A-Za-z][A-Za-z0-9_]*)@[0-9]+$') { return $matches[1] }
+            return $name
+          }
+
+          function Get-DirectImports([string]$binary, [string]$rawPath) {
+            $raw = @(& dumpbin.exe /nologo /imports $binary 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed for $binary" }
+            $raw | Set-Content -Encoding utf8 $rawPath
+            $dlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $apis = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $mode = 'none'
+            foreach ($line in $raw) {
+              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
+              if ($mode -ne 'direct') { continue }
+              if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { [void]$dlls.Add($matches[1]); continue }
+              $entry = $line.Trim()
+              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') { [void]$apis.Add((Normalize-ImportName $matches[1])) }
+            }
+            return @{ Dlls=$dlls; Apis=$apis }
+          }
+
+          $forbiddenDllPatterns = @(
+            '^(?i)(api-ms-win-|ext-ms-)',
+            '^(?i)KERNELBASE\.dll$',
+            '^(?i)BCRYPT(?:PRIMITIVES)?\.dll$',
+            '^(?i)COMBASE\.dll$',
+            '^(?i)NCRYPT\.dll$',
+            '^(?i)WEVTAPI\.dll$',
+            '^(?i)DWMAPI\.dll$',
+            '^(?i)SHCORE\.dll$',
+            '^(?i)PATHCCH\.dll$',
+            '^(?i)NORMALIZ\.dll$',
+            '^(?i)VCRUNTIME140(?:_1)?\.dll$'
+          )
+          $forbiddenApis = @(
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal',
+            'CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+            'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo',
+            'CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx',
+            'GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+            'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W',
+            'GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+            'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SetThreadStackGuarantee',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive',
+            'TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
+          )
+
+          $diag = Join-Path $env:SMOKE_DIR 'imports'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          $hits = [System.Collections.Generic.List[string]]::new()
+          $rows = [System.Collections.Generic.List[string]]::new()
+          $binaries = @(Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -File | Sort-Object Name)
+
+          foreach ($binary in $binaries) {
+            $safe = $binary.Name -replace '[^A-Za-z0-9_.-]', '_'
+            $imports = Get-DirectImports $binary.FullName (Join-Path $diag "$safe-raw.txt")
+            foreach ($dll in @($imports.Dlls | Sort-Object)) {
+              $rows.Add("$($binary.Name)|DLL|$dll")
+              foreach ($pattern in $forbiddenDllPatterns) {
+                if ($dll -match $pattern) { $hits.Add("$($binary.Name)|DLL|$dll"); break }
+              }
+            }
+            foreach ($api in @($imports.Apis | Sort-Object)) {
+              $rows.Add("$($binary.Name)|API|$api")
+              if ($forbiddenApis -contains $api) { $hits.Add("$($binary.Name)|API|$api") }
+            }
+
+            if ($binary.Extension -eq '.exe') {
+              if (-not $imports.Dlls.Contains('KERNEL32.dll')) { throw 'KERNEL32.dll control import missing' }
+              if (-not $imports.Dlls.Contains('ucrtbase.dll')) { throw 'ucrtbase.dll was not selected' }
+              if (-not $imports.Dlls.Contains('msvcp140.dll')) { throw 'msvcp140.dll was not selected for the /MD C++ helper' }
+              if (-not $imports.Apis.Contains('LockResource')) { throw 'LockResource positive control is absent' }
+            }
+          }
+
+          $rows | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'all-direct-imports.txt')
+          $hits | Sort-Object -Unique | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'xp-forbidden-direct-imports.txt')
+          if ($hits.Count -gt 0) { throw "Direct imports newer than Windows XP x86 survived; see xp-forbidden-direct-imports.txt" }
+
+      - name: Run coexistence probe on Windows 2022 runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exes = @(Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -Filter '*.exe' -File)
+          if ($exes.Count -ne 1) { throw "Expected exactly one runtime EXE; found $($exes.Count)" }
+          $exe = $exes[0]
+          Push-Location $env:RUNTIME_BUNDLE
+          try {
+            & $exe.FullName 2>&1 | Tee-Object -FilePath (Join-Path $env:SMOKE_DIR 'run-windows-2022.txt')
+            if ($LASTEXITCODE -ne 0) { throw "Probe execution failed on Windows 2022 runner: $LASTEXITCODE" }
+          } finally { Pop-Location }
+
+      - name: Upload XP x86 runtime bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: msvcr14x-rust-yy-xp-x86-runtime
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ env.RUNTIME_BUNDLE }}\msvcr14x-rust-yy-xp-x86-smoke.exe
+            ${{ env.RUNTIME_BUNDLE }}\ucrtbase.dll
+            ${{ env.RUNTIME_BUNDLE }}\msvcp140.dll
+
+      - name: Upload XP x86 coexistence diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yy-winrt-delay-smoke-diagnostics
-          path: diagnostics
+          name: msvcr14x-rust-yy-xp-x86-coexistence-diagnostics
           retention-days: 14
+          if-no-files-found: warn
+          path: |
+            diagnostics\**\*
+            ${{ runner.temp }}\msvcr14x-rust-yy-xp-x86-smoke\**\*
 
-      - name: Summary
-        if: always()
+      - name: GATE - Summarize XP x86 coexistence result
         shell: powershell
         run: |
-          "## YY-Thunks WinRT delay-load closing smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Baseline uses llvm-dlltool i386 stdcall import objects; thunked link adds only local link-only CRT helper stubs, including MASM _wcsrchr/_free/_malloc objects, plus XP-available system import libraries required by YY common code." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Passing candidate must select all seven YY_Thunks_* symbols and eliminate both observed xul WinRT delay-import groups." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- This is representative linker/import evidence only; physical Win7 remains the runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $ErrorActionPreference = 'Stop'
+          $hits = @(Get-Content -ErrorAction SilentlyContinue (Join-Path $env:SMOKE_DIR 'xp-forbidden-direct-imports.txt') | Where-Object { $_.Trim() })
+          if ($hits.Count -gt 0) { throw "Post-XP direct imports remain: $($hits -join ', ')" }
+          foreach ($required in @('ucrtbase.dll','msvcp140.dll')) {
+            if (-not (Test-Path (Join-Path $env:RUNTIME_BUNDLE $required))) { throw "Final runtime bundle is missing $required" }
+          }
+          "## msvcr14x + Rust + YY / XP x86 compatibility smoke: PASS" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Target floor: Windows XP SP3 x86 (PE subsystem 5.01, machine 14C)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks v$env:YY_THUNKS_VERSION target: $env:YY_THUNKS_TARGET/x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Final PE and the actual msvcr14x runtime dependency closure are x86 and require no subsystem newer than XP x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The XP test artifact bundles the probe with the selected compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- C++ helper remained MD_DynamicRelease." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Modern i686 Rust libstd ProcessPrng/synchronization/FLS surface linked through the XP-target YY provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- No direct API-set, VCRUNTIME140*.dll, selected post-XP DLL, or selected post-XP API imports survived in the final PE/runtime closure." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The executable ran on the Windows 2022 CI runner as a sanity check only; real Windows XP SP3 x86 execution remains the decisive runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
