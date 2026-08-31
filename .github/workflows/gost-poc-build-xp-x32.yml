@@ -242,6 +242,60 @@ jobs:
             Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
             Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
 
+      - name: GATE - Require proven XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbiddenApis = @(
+            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared',
+            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
+            'SleepConditionVariableSRW'
+          )
+          $forbiddenDllPatterns = @(
+            '^(?i)(api-ms-win-|ext-ms-)',
+            '^(?i)KERNELBASE\.dll$',
+            '^(?i)BCRYPT(?:PRIMITIVES)?\.dll$',
+            '^(?i)COMBASE\.dll$',
+            '^(?i)NCRYPT\.dll$',
+            '^(?i)VCRUNTIME140(?:_1)?\.dll$'
+          )
+          $report = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $path = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $path)) { throw "XP CRT contract missing runtime: $path" }
+
+            $headers = @(& dumpbin.exe /nologo /headers $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $path" }
+            $headers | Set-Content -Encoding utf8 (Join-Path 'diagnostics' "$dll-headers.txt")
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$dll is not x86 machine 14C" }
+            $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $dll" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$dll subsystem $version is newer than XP x86 5.01" }
+
+            $imports = @(& dumpbin.exe /nologo /imports $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $imports | Set-Content -Encoding utf8 (Join-Path 'diagnostics' "$dll-imports.txt")
+            $text = $imports -join "`n"
+            foreach ($api in $forbiddenApis) {
+              if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "$dll retains forbidden XP direct import $api" }
+            }
+            foreach ($line in $imports) {
+              if ($line -notmatch '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { continue }
+              $dep = $matches[1]
+              foreach ($pattern in $forbiddenDllPatterns) {
+                if ($dep -match $pattern) { throw "$dll retains forbidden XP dependency $dep" }
+              }
+            }
+
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            $report.Add("$dll|sha256=$hash|subsystem=$version|machine=x86")
+          }
+          $report | Set-Content -Encoding utf8 diagnostics\msvcr14x-xp-contract.txt
+
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
         run: |
@@ -682,7 +736,7 @@ jobs:
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD; its app-local runtime closure passed the pre-Firefox XP contract gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the narrow XP provider proven by the representative physical-XP smoke." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Runtime archive includes the Firefox dist/bin tree plus compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This proves full-build/link/import viability only. Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
