@@ -29,3 +29,28 @@ Physical Windows 7 x32 runtime observation supplied by the user for this exact b
 - normal Windows 7 x32 browser operation is observed with the sandbox-disabled build.
 
 Conclusion: **PASS for the intended Windows 7 x32 sandbox-disabled runtime baseline.** This confirms that build-time `--disable-sandbox` is the correct inherited x86 compatibility mode for the current XP-oriented artifact and removes the previous need for the `MOZ_DISABLE_CONTENT_SANDBOX=1` runtime workaround on Windows 7 x32. It does not close physical Windows XP startup/browsing, remaining XP PE-import work, or any GOST TLS runtime milestone.
+
+---
+
+## 2026-08-31 — legacy Firefox XP `D3DCompiler_47.dll` staging and packaging gates pass
+
+Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
+
+Exact source/build identity:
+
+- source-under-test `b77b22ef1e35564dfe76997d3d393d45ee697e49` on experiment branch `agent/winrt-source-poc`;
+- commit message `ci(xp): fix D3DCompiler subsystem gate`;
+- workflow `GOST TLS PoC build XP x32`;
+- Actions run `33349340069`, job `99359475336`;
+- run conclusion: `failure`.
+
+Observed gate results for the exact run:
+
+- `Prepare pinned legacy Firefox XP D3DCompiler_47` — **PASS**;
+- `Stage pinned legacy Firefox XP D3DCompiler_47` — **PASS**;
+- `GATE - Verify retargeted legacy D3DCompiler_47` — **PASS**;
+- `Package XP x32 experiment` — **PASS**;
+- `GATE - Verify legacy D3DCompiler_47 survived packaging` — **PASS**;
+- the later independent `GATE - Audit XP x32 PE floor and direct imports` — **FAIL**.
+
+Conclusion: **PASS for the D3DCompiler_47 replacement/staging/packaging experiment.** The pinned legacy Firefox XP `D3DCompiler_47.dll` is successfully prepared, staged into the built browser, survives the PE-retarget/package path, and is still present in the packaged result under the dedicated validation gates. The overall Actions run remains red because the subsequent broad XP PE-floor/direct-import audit still reports independent compatibility violations. Therefore this result closes only the `D3DCompiler_47.dll` packaging hypothesis; it does not make the full XP compatibility pipeline green, does not prove physical Windows XP runtime, and has no bearing on GOST TLS handshake status.
