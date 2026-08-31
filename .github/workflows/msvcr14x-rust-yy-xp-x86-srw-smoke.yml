@@ -82,8 +82,6 @@ jobs:
           }
           if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
           "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          Get-ChildItem -LiteralPath $release -File | Sort-Object Name | Select-Object Name,Length |
-            Format-Table -AutoSize | Out-String -Width 240 | Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
@@ -182,7 +180,6 @@ jobs:
             if (-not $file) { throw "No extracted object for $($spec.Key)" }
             $dst = Join-Path $dir 'member.obj'
             Copy-Item -Force $file.FullName $dst
-            (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String) | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
             $objects += $dst
             $memberMap.Add("$($spec.Key)|$($matches[0])")
           }
@@ -223,7 +220,6 @@ jobs:
           '@ | Set-Content -Encoding utf8 $src
           & cl.exe /nologo /c /MD /O2 /EHsc /std:c++20 $src "/Fo:$obj" 2>&1 | Tee-Object diagnostics\srw-helper-compile.log
           if ($LASTEXITCODE -ne 0) { throw 'SRW helper compile failed' }
-          & dumpbin.exe /nologo /directives $obj 2>&1 | Set-Content -Encoding utf8 diagnostics\srw-helper-directives.txt
           $symbols = (& dumpbin.exe /nologo /symbols $obj 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 diagnostics\srw-helper-symbols.txt
           foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
@@ -303,9 +299,16 @@ jobs:
             "-Clinker=$wrapper" `
             "-Clink-arg=$env:CPP_HELPER_OBJ" `
             "-Clink-arg=/map:$map" `
-            "-Clink-arg=/subsystem:console,$env:WINDOWS_XP_SUBSYSTEM" `
             -o $exe 2>&1 | Tee-Object diagnostics\final-link-output.txt
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe) -or -not (Test-Path $map)) { throw 'XP x86 coexistence link failed' }
+
+          $before = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
+          $before | Set-Content -Encoding utf8 diagnostics\headers-probe-before-retarget.txt
+          & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe 2>&1 | Tee-Object diagnostics\editbin-subsystem.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Explicit XP subsystem retarget failed' }
+          $after = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
+          $after | Set-Content -Encoding utf8 diagnostics\headers-probe-after-retarget.txt
+
           $mapText = Get-Content $map -Raw
           foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
             if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select YY_Thunks_$api" }
@@ -394,5 +397,6 @@ jobs:
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Required family: AcquireSRWLockExclusive, AcquireSRWLockShared, ReleaseSRWLockExclusive, ReleaseSRWLockShared, SleepConditionVariableSRW." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- The five weak aliases are selected from the physically narrow YY kernel32 provider; synchronization.lib remains only for the Rust WaitOnAddress family." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The five weak aliases are selected from a physically narrow YY kernel32 provider; synchronization.lib remains only for the Rust WaitOnAddress family." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The Rust-generated PE subsystem is explicitly retargeted to 5.01 after link and independently gated." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Passing final gates prove all five calls resolve through YY without surviving as direct XP-incompatible imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
