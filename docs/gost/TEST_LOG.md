@@ -90,3 +90,43 @@ Physical Windows XP A/B observation supplied by the user for the exact SRW probe
 2. Keeping the same SRW probe EXE but replacing only `msvcp140.dll` and `ucrtbase.dll` with the pair from the previously created `msvcr14x-rust-yy-xp-x86-smoke` makes the probe run successfully on physical XP.
 
 Conclusion: **PASS for the five-function SRW YY-Thunks mechanism; FAIL for the freshly produced CRT runtime bundle.** The same EXE succeeds or fails solely according to the app-local CRT pair, so the physical-XP failure is localized to the current `msvcp140.dll`/`ucrtbase.dll` runtime bundle rather than to the SRW thunk provider or the probe itself. The existing PE-floor gate correctly detects a real compatibility regression and must not be weakened. The next CRT experiment must restore/reproduce the provenance and build configuration of the previously proven XP-compatible `msvcp140.dll` + `ucrtbase.dll` pair and use that runtime contract for subsequent SRW/full-browser packaging work.
+
+---
+
+## 2026-08-31 — aligned msvcr14x restore/configuration reproduces an XP-compatible SRW runtime bundle
+
+Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
+
+Exact source/build identity:
+
+- source-under-test `b19ba4ff3eebd2f323743d92110241fc9d4ce399` on `agent/gost-tls-poc`;
+- commit message `ci(xp): align SRW msvcr14x build with proven XP smoke`;
+- workflow `msvcr14x Rust YY XP x86 SRW smoke`;
+- Actions run `33387080767`, job `99472017220`;
+- runtime artifact `9756275917` (`msvcr14x-rust-yy-xp-x86-srw-runtime`), artifact digest `sha256:f5708981117e84ec1815554cc08494b79960464ccffcbdc1d6a70a099a1962d0`;
+- diagnostics artifact `9756276724` (`msvcr14x-rust-yy-xp-x86-srw-diagnostics`), artifact digest `sha256:682755b5a1962c3ac44a9a19151f8e1faf6086805402b0ca61c32e6fccf87a05`;
+- run conclusion: **success**.
+
+The SRW workflow was aligned to the known-good XP coexistence build contract from run `33378796910` / job `99446194289` / source `08c3f6a45290c1632e7e87a69d1c269a93158e97`: msvcr14x is built with MSBuild restore (`-r`), binary logging, exact source-SHA validation, the same XP identity diagnostics, and the same `THUNK_YY_*` variable convention. The SRW-specific five-function thunk mechanism was otherwise preserved.
+
+Verified CI gates for run `33387080767`:
+
+- pinned msvcr14x Release x86 build — **PASS**;
+- five SRW weak aliases in YY `kernel32.lib` — **PASS**;
+- narrow YY XP provider including the SRW family — **PASS**;
+- representative C++ `/MD` + Rust link — **PASS**;
+- final PE rejects all five direct SRW imports — **PASS**;
+- XP runtime staging — **PASS**;
+- `GATE - Require XP x86 PE floor` — **PASS** for the complete runtime bundle;
+- hosted Windows 2022 execution — **PASS**.
+
+Independent inspection of runtime artifact `9756275917` confirms:
+
+- `msvcp140.dll`: 423936 bytes, SHA-256 `cb907a4663249753275b4c7afceffa684a7e25607fa1d217874906a24c31d55d`, PE subsystem 5.1;
+- `ucrtbase.dll`: 908800 bytes, SHA-256 `de0bd4b2152d9877a9f6e8ac05156bbd83fa7836e727f84bcfd9aa279be27906`, PE subsystem 5.1;
+- `msvcr14x-rust-yy-xp-x86-srw.exe`: SHA-256 `d211e7676bf970165f9f73a771fa486311637cd017f9c0d608eb2886e4a50094`, PE subsystem 5.1;
+- neither runtime DLL has direct imports of `FlsAlloc`, `FlsFree`, `FlsGetValue`, `FlsSetValue`, `AcquireSRWLock*`, `TryAcquireSRWLock*`, `ReleaseSRWLock*`, or `SleepConditionVariableSRW` in the inspected PE import tables.
+
+The new CRT DLL sizes match the previously proven XP-compatible pair from run `33378796910`, but their SHA-256 values differ, so this is not a byte-for-byte reproduction of the old DLLs. It is a reproduction of the required XP binary contract: x86, subsystem 5.1, and no hard imports of the XP-missing FLS/SRW APIs that caused the prior loader failure.
+
+Conclusion: **PASS and closes the fresh-CRT regression at representative SRW-smoke scale.** Aligning the SRW msvcr14x build with the proven restore/configuration contract restores an XP-compatible runtime closure while preserving the already-proven SRW YY-Thunks resolution. Because several build-contract details were aligned together, this experiment strongly implicates the previously missing MSBuild restore but does not isolate `-r` as the sole causal variable. Subsequent XP/full-browser work should treat this restored msvcr14x build contract, including restore, as mandatory and must keep the CRT PE/import gates intact. Physical Windows XP execution of this newly generated exact runtime bundle remains a separate runtime confirmation gate.
