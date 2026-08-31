@@ -84,7 +84,8 @@ At the start of every new technical chat, and again before making a technical ch
 5. Read `docs/gost/DONE.md` when the question concerns a completed milestone, closed blocker, already-proven baseline, or hypothesis that might otherwise be reopened.
 6. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs.
 7. If the question concerns a previous build, runtime test, regression, error, failed experiment, or discarded approach, read the relevant entry in the active `docs/gost/TEST_LOG.md` and, when necessary, the dated `docs/gost/TEST_LOG_*.md` volume containing that event.
-8. Prefer verified repository, code, workflow, run, and log state over conversational memory.
+8. If the question concerns Windows XP x86 building, staging, dependency remediation, PE imports, or physical-XP testing, read and follow `docs/gost/XP_BUILD_CONTRACT.md` before proposing or making changes.
+9. Prefer verified repository, code, workflow, run, and log state over conversational memory.
 
 Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any current or historical test-log volume without new evidence.
 
@@ -123,6 +124,16 @@ There are three independent project tracks. Evidence from one track must not be 
 
 A workflow may reuse infrastructure from another track without changing the meaning of its evidence. Use `docs/gost/WORKFLOWS.md` to determine each workflow's intended role.
 
+### Mandatory Windows XP x86 build contract
+- `docs/gost/XP_BUILD_CONTRACT.md` is authoritative for project-built/staged Windows XP x86 dependencies and full-build migration. New chats must read it before changing this track.
+- The current physically proven reference is source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`, Actions run `33387080767`, job `99472017220`, runtime artifact `9756275917`, successfully executed on a real Windows XP machine.
+- Preserve the proven pinned/restored msvcr14x Release x86 build procedure and its dependency provenance. Do not replace it with host Win7+ redistributables or an unrestored build.
+- Require x86 PE subsystem 5.01-or-lower and audit the complete app-local runtime closure for hard post-XP imports before accepting or staging a project-built dependency.
+- `editbin` PE subsystem retargeting is never sufficient evidence of XP compatibility. It may adjust a header only after the dependency/import closure is known to be XP-safe.
+- For dependencies built from source under project control, prefer removing modern API dependencies at their source/build/dependency boundary before adding YY-Thunks or custom shims.
+- Keep per-component gates fail-fast. Once a dependency family is brought under the XP contract, do not allow a later full build to regress it while working on unrelated remaining imports.
+- A new build-contract variant is not authoritative merely because CI is green; preserve focused evidence and obtain physical XP runtime confirmation before it supersedes the current reference.
+
 ### Sensitive certificate and test data
 - The repository is public. Treat all client-certificate, credential, and user-originated test data as sensitive by default.
 - NEVER commit or publish a complete client-certificate thumbprint/fingerprint, including full SHA-1, SHA-256, or other certificate hash values.
@@ -147,6 +158,7 @@ A workflow may reuse infrastructure from another track without changing the mean
 - `docs/gost/WORKFLOWS.md` — authoritative workflow-role map. Detailed run histories belong in the test logs, not here.
 - `docs/gost/TEST_LOG.md` — active append-oriented experiment/evidence log.
 - `docs/gost/TEST_LOG_*.md` — immutable dated historical evidence volumes.
+- `docs/gost/XP_BUILD_CONTRACT.md` — mandatory Windows XP x86 build/dependency contract and its physically proven reference.
 - Track-specific design documents such as `docs/gost/STAGE2_PLAN.md` and `docs/gost/EXTENSIONS.md` may contain detailed active plans/contracts for their subsystem; they do not replace `PROJECT_STATE.md`, `TODO.md`, `DONE.md`, or the test logs.
 
 ### Documentation maintenance
