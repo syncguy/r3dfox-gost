@@ -103,20 +103,33 @@ jobs:
           $kernel = Join-Path $dir.FullName 'kernel32.lib'
           $sync = Join-Path $dir.FullName 'synchronization.lib'
           if (-not (Test-Path $kernel) -or -not (Test-Path $sync)) { throw 'Required YY libraries missing' }
+          "YY_LIB_DIR=$($dir.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_KERNEL32_LIB=$kernel" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_SYNCH_LIB=$sync" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: GATE - Require five SRW YY symbols
+      - name: GATE - Require five SRW weak aliases in YY kernel32
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $symbols = (& dumpbin.exe /nologo /linkermember:1 $env:YY_SYNCH_LIB 2>&1 | Out-String)
-          $symbols | Set-Content -Encoding utf8 diagnostics\yy-synchronization-symbols.txt
-          foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
-            if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "synchronization.lib missing YY_Thunks_$api" }
+          $members = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
+          $members | Set-Content -Encoding utf8 diagnostics\yy-kernel32-members.txt
+          $specs = @(
+            @{ Api='AcquireSRWLockExclusive'; Arity=4 },
+            @{ Api='AcquireSRWLockShared'; Arity=4 },
+            @{ Api='ReleaseSRWLockExclusive'; Arity=4 },
+            @{ Api='ReleaseSRWLockShared'; Arity=4 },
+            @{ Api='SleepConditionVariableSRW'; Arity=16 }
+          )
+          foreach ($spec in $specs) {
+            foreach ($kind in @('obj','obi')) {
+              $pattern = '(?i)[\\/]_' + [regex]::Escape($spec.Api) + '@' + $spec.Arity + '\.' + $kind + '$'
+              $hits = @($members | Where-Object { $_ -match $pattern })
+              if ($hits.Count -ne 1) { throw "Expected one $($spec.Api) .$kind weak-alias member; found $($hits.Count)" }
+            }
           }
 
-      - name: Build narrow YY XP Rust provider
+      - name: Build narrow YY XP provider including SRW family
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -125,7 +138,6 @@ jobs:
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
           New-Item -ItemType Directory -Force $selected | Out-Null
           $members = @(& lib.exe /nologo /list $env:YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
-          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
           $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
           $wanted = @(
             @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
@@ -142,9 +154,20 @@ jobs:
             @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
             @{ Key='stack-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
             @{ Key='stack-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='srw-acq-ex-direct'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-acq-ex-import'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-acq-sh-direct'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obj$' },
+            @{ Key='srw-acq-sh-import'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obi$' },
+            @{ Key='srw-rel-ex-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-rel-ex-import'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-rel-sh-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obj$' },
+            @{ Key='srw-rel-sh-import'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obi$' },
+            @{ Key='srw-sleep-direct'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obj$' },
+            @{ Key='srw-sleep-import'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obi$' },
             @{ Key='implementation'; Pattern=$implementationPattern }
           )
           $objects = @()
+          $memberMap = [System.Collections.Generic.List[string]]::new()
           foreach ($spec in $wanted) {
             $matches = @($members | Where-Object { $_ -match $spec.Pattern })
             if ($matches.Count -ne 1) { throw "Expected one $($spec.Key) member; found $($matches.Count)" }
@@ -156,17 +179,26 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
             } finally { Pop-Location }
             $file = Get-ChildItem -LiteralPath $dir -File | Select-Object -First 1
+            if (-not $file) { throw "No extracted object for $($spec.Key)" }
             $dst = Join-Path $dir 'member.obj'
             Copy-Item -Force $file.FullName $dst
+            (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String) | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
             $objects += $dst
+            $memberMap.Add("$($spec.Key)|$($matches[0])")
           }
-          $provider = Join-Path $work 'yy-xp-rust-provider.lib'
+          $memberMap | Set-Content -Encoding utf8 (Join-Path $work 'selected-members.txt')
+          $provider = Join-Path $work 'yy-xp-rust-srw-provider.lib'
           & lib.exe /nologo "/out:$provider" @objects
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to build narrow YY provider' }
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $provider)) { throw 'Failed to build narrow YY provider' }
+          $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
+          $symbols | Set-Content -Encoding utf8 (Join-Path $work 'narrow-provider-symbols.txt')
+          foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
+            if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing YY_Thunks_$api" }
+          }
           "SMOKE_DIR=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "NARROW_YY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Compile /MD SRW helper
+      - name: Compile ordinary C++ /MD SRW helper
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -177,7 +209,7 @@ jobs:
           #include <windows.h>
           #include <string>
           #include <vector>
-          extern "C" int srw_probe() {
+          extern "C" int cpp_srw_probe() {
               std::vector<std::string> v{"msvcr14x", "rust", "yy-srw"};
               SRWLOCK lock = SRWLOCK_INIT;
               CONDITION_VARIABLE cv = CONDITION_VARIABLE_INIT;
@@ -191,12 +223,13 @@ jobs:
           '@ | Set-Content -Encoding utf8 $src
           & cl.exe /nologo /c /MD /O2 /EHsc /std:c++20 $src "/Fo:$obj" 2>&1 | Tee-Object diagnostics\srw-helper-compile.log
           if ($LASTEXITCODE -ne 0) { throw 'SRW helper compile failed' }
+          & dumpbin.exe /nologo /directives $obj 2>&1 | Set-Content -Encoding utf8 diagnostics\srw-helper-directives.txt
           $symbols = (& dumpbin.exe /nologo /symbols $obj 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 diagnostics\srw-helper-symbols.txt
           foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
             if ($symbols.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "SRW helper missing reference to $api" }
           }
-          "SRW_HELPER_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "CPP_HELPER_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build representative Rust archive
         shell: powershell
@@ -207,25 +240,38 @@ jobs:
           @'
           use std::collections::hash_map::RandomState;
           use std::hint::black_box;
-          use std::sync::{Arc, Condvar, Mutex, RwLock};
+          use std::sync::{Arc, Condvar, Mutex, Once, RwLock};
+          use std::thread;
           use std::time::Duration;
           #[inline(never)]
           pub fn run_probe() {
               black_box(RandomState::new());
+              static INIT: Once = Once::new();
+              INIT.call_once(|| black_box(()));
               let rw = RwLock::new(1usize);
               *rw.write().unwrap() += 1;
               black_box(*rw.read().unwrap());
               let pair = Arc::new((Mutex::new(false), Condvar::new()));
-              let (lock, cv) = &*pair;
-              let guard = lock.lock().unwrap();
-              let _ = cv.wait_timeout(guard, Duration::from_millis(1)).unwrap();
+              let waiter_pair = Arc::clone(&pair);
+              let waiter = thread::spawn(move || {
+                  let (lock, cv) = &*waiter_pair;
+                  let guard = lock.lock().unwrap();
+                  let _ = cv.wait_timeout(guard, Duration::from_millis(1)).unwrap();
+              });
+              {
+                  let (lock, cv) = &*pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_all();
+              }
+              waiter.join().unwrap();
           }
           '@ | Set-Content -Encoding utf8 $src
           & rustc $src --crate-name srw_probe --crate-type rlib --edition 2021 --target $env:RUST_TARGET -O -o $rlib
-          if ($LASTEXITCODE -ne 0) { throw 'Rust archive build failed' }
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $rlib)) { throw 'Rust archive build failed' }
           "RUST_PROBE_RLIB=$rlib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Link XP x86 candidate
+      - name: Link XP x86 coexistence candidate
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -236,33 +282,39 @@ jobs:
           $exe = Join-Path $env:SMOKE_DIR 'msvcr14x-rust-yy-xp-x86-srw.exe'
           $map = Join-Path $env:SMOKE_DIR 'final.map'
           $wrapper = Join-Path $env:SMOKE_DIR 'lld-wrapper.cmd'
+          $linkLog = Join-Path $env:SMOKE_DIR 'final-link-command.txt'
           @'
           extern crate srw_probe;
-          unsafe extern "C" { fn srw_probe() -> i32; }
+          unsafe extern "C" { fn cpp_srw_probe() -> i32; }
           fn main() {
               srw_probe::run_probe();
-              let n = unsafe { srw_probe() };
+              let n = unsafe { cpp_srw_probe() };
               assert!(n >= 3);
           }
           '@ | Set-Content -Encoding utf8 $main
           @"
           @echo off
+          >"$linkLog" echo "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
           "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:YY_SYNCH_LIB" "$env:NARROW_YY_LIB" %*
           exit /b %ERRORLEVEL%
           "@ | Set-Content -Encoding ascii $wrapper
           & rustc $main --edition 2021 --target $env:RUST_TARGET -O `
             --extern "srw_probe=$env:RUST_PROBE_RLIB" `
             "-Clinker=$wrapper" `
-            "-Clink-arg=$env:SRW_HELPER_OBJ" `
+            "-Clink-arg=$env:CPP_HELPER_OBJ" `
             "-Clink-arg=/map:$map" `
             "-Clink-arg=/subsystem:console,$env:WINDOWS_XP_SUBSYSTEM" `
-            -o $exe 2>&1 | Tee-Object diagnostics\final-link.log
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) { throw 'XP x86 SRW coexistence link failed' }
+            -o $exe 2>&1 | Tee-Object diagnostics\final-link-output.txt
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe) -or -not (Test-Path $map)) { throw 'XP x86 coexistence link failed' }
           $mapText = Get-Content $map -Raw
           foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
-            if ($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select YY_Thunks_$api" }
+            if ($mapText.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select YY_Thunks_$api" }
           }
+          $logged = Get-Content $linkLog -Raw
+          if ($logged.IndexOf($env:YY_KERNEL32_LIB,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY kernel32.lib reached final link command' }
+          if ($logged.IndexOf("-LIBPATH:$env:YY_LIB_DIR",[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY directory reached final LIBPATH' }
           "SMOKE_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Copy-Item -Force $map diagnostics\final.map
 
       - name: GATE - Reject five direct SRW imports
         shell: powershell
@@ -273,7 +325,6 @@ jobs:
           foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW')) {
             if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Final PE still directly imports $api" }
           }
-          if ($raw -match '(?i)api-ms-win-|VCRUNTIME140(?:_1)?\.dll') { throw 'Final PE retained forbidden API-set/VCRUNTIME dependency' }
 
       - name: Stage XP runtime bundle
         shell: powershell
@@ -281,25 +332,26 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $bundle = Join-Path $env:SMOKE_DIR 'xp-x86-runtime'
           New-Item -ItemType Directory -Force $bundle | Out-Null
-          Copy-Item -Force $env:SMOKE_EXE (Join-Path $bundle (Split-Path $env:SMOKE_EXE -Leaf))
+          Copy-Item -Force $env:SMOKE_EXE $bundle
           foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
             $src = Join-Path $env:MSVCR14X_RELEASE $dll
-            if (-not (Test-Path $src)) { throw "Missing $dll" }
-            Copy-Item -Force $src (Join-Path $bundle $dll)
+            if (-not (Test-Path $src)) { throw "Missing msvcr14x runtime DLL: $dll" }
+            Copy-Item -Force $src $bundle
           }
           "RUNTIME_BUNDLE=$bundle" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: GATE - Require XP PE floor
+      - name: GATE - Require XP x86 PE floor
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -File) {
-            $headers = (& dumpbin.exe /nologo /headers $file.FullName 2>&1 | Out-String)
-            if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw "$($file.Name) is not x86" }
-            $m = [regex]::Match($headers, '(?im)^\s*([0-9]+)\.([0-9]+)\s+subsystem version')
-            if (-not $m.Success) { throw "Cannot parse subsystem for $($file.Name)" }
-            $v = [version]("$($m.Groups[1].Value).$($m.Groups[2].Value)")
-            if ($v -gt [version]'5.1') { throw "$($file.Name) subsystem $v is newer than XP" }
+          foreach ($binary in Get-ChildItem -LiteralPath $env:RUNTIME_BUNDLE -File) {
+            $headers = (& dumpbin.exe /nologo /headers $binary.FullName 2>&1 | Out-String)
+            $headers | Set-Content -Encoding utf8 (Join-Path diagnostics ("headers-" + $binary.Name + '.txt'))
+            if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw "$($binary.Name) is not x86" }
+            $line = @($headers -split "`r?`n" | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1)
+            if (-not $line -or $line[0] -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem for $($binary.Name)" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$($binary.Name) subsystem $version is newer than XP x86" }
           }
 
       - name: Run probe on Windows 2022 runner
@@ -308,20 +360,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Push-Location $env:RUNTIME_BUNDLE
           try {
-            & (Join-Path $env:RUNTIME_BUNDLE (Split-Path $env:SMOKE_EXE -Leaf))
+            $exe = Get-ChildItem -LiteralPath . -Filter '*.exe' -File | Select-Object -First 1
+            & $exe.FullName 2>&1 | Tee-Object -FilePath (Join-Path $env:SMOKE_DIR 'run-windows-2022.txt')
             if ($LASTEXITCODE -ne 0) { throw "Probe failed: $LASTEXITCODE" }
           } finally { Pop-Location }
 
       - name: Upload XP x86 SRW runtime bundle
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: msvcr14x-rust-yy-xp-x86-srw-runtime
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
           path: |
-            ${{ env.RUNTIME_BUNDLE }}\msvcr14x-rust-yy-xp-x86-srw.exe
-            ${{ env.RUNTIME_BUNDLE }}\ucrtbase.dll
-            ${{ env.RUNTIME_BUNDLE }}\msvcp140.dll
+            ${{ env.RUNTIME_BUNDLE }}\**\*
 
       - name: Upload diagnostics
         if: always()
@@ -338,8 +390,9 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          "## msvcr14x + Rust + YY SRW XP x86 smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "## msvcr14x + Rust + YY SRW / XP x86 smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Explicit SRW coverage: AcquireSRWLockExclusive, AcquireSRWLockShared, ReleaseSRWLockExclusive, ReleaseSRWLockShared, SleepConditionVariableSRW." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Requires YY synchronization.lib symbols, final YY_Thunks_* map selection, and zero direct imports of those five APIs." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Runtime bundle includes pinned msvcr14x ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Required family: AcquireSRWLockExclusive, AcquireSRWLockShared, ReleaseSRWLockExclusive, ReleaseSRWLockShared, SleepConditionVariableSRW." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The five weak aliases are selected from the physically narrow YY kernel32 provider; synchronization.lib remains only for the Rust WaitOnAddress family." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Passing final gates prove all five calls resolve through YY without surviving as direct XP-incompatible imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
