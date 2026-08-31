@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture and import triage are in `XP_COMPATIBILITY_STRATEGY.md`.
 
@@ -248,7 +248,7 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 
 ### Inherited x86 baseline
 
-Official `Eclipse-Community/r3dfox` `v153.0.3` ships the 32-bit build with `--disable-sandbox`; issue `Eclipse-Community/r3dfox#11` records the intentional decision. Therefore a sandbox-enabled Win7/Vista x86 pass is not an XP prerequisite. The XP/x86 product path uses build-time sandbox disablement unless sandbox restoration is explicitly reprioritized as optional hardening.
+Official `Eclipse-Community/r3dfox` `v153.0.3` ships the 32-bit build with `--disable-sandbox`; issue `Eclipse-Community/r3dfox#11` records the intentional decision. Therefore a sandbox-enabled Win7/Vista x86 pass is not an XP prerequisite. The XP/x86 product path uses build-time sandbox disablement unless sandbox restoration is explicitly reprioritized as optional hardening. This inherited choice is now physically confirmed on Windows 7 x32 for the current XP-oriented full-browser artifact: build-time sandbox disablement removes the need for the `MOZ_DISABLE_CONTENT_SANDBOX=1` runtime workaround and avoids the prior restricted-sandbox notification while preserving normal browser operation.
 
 ### Current authoritative full Firefox XP x32 import baseline
 
@@ -263,6 +263,8 @@ The current full-build compatibility baseline is:
 - diagnostics artifact `9733280937`.
 
 The full Firefox build, msvcr14x runtime staging, PE retargeting, package creation, runtime archive creation, and artifact uploads all succeeded. The Actions run is red only at the broad XP direct-import gate.
+
+Physical Windows 7 x32 runtime on this exact source/build is now confirmed: the browser starts and operates correctly with build-time `--disable-sandbox`, does not require `MOZ_DISABLE_CONTENT_SANDBOX=1`, and does not show the prior notification associated with runtime sandbox disabling. This is a Windows compatibility result only; it does not close the remaining physical-XP startup/import work or any GOST TLS runtime milestone.
 
 The current curated gate reports 103 violation rows, 26 unique API names across 15 PEs. `xul.dll` contributes 19 API violations plus `bcrypt.dll`; `mozglue.dll` contributes 11 API violations plus `bcrypt.dll`.
 
