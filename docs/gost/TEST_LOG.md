@@ -42,6 +42,8 @@ Exact source/build identity:
 - commit message `ci(xp): fix D3DCompiler subsystem gate`;
 - workflow `GOST TLS PoC build XP x32`;
 - Actions run `33349340069`, job `99359475336`;
+- package artifact `9744739123` (`r3dfox-gost-xp-x32-package`);
+- runtime artifact `9744739656` (`r3dfox-gost-xp-x32-runtime`);
 - run conclusion: `failure`.
 
 Observed gate results for the exact run:
@@ -53,4 +55,6 @@ Observed gate results for the exact run:
 - `GATE - Verify legacy D3DCompiler_47 survived packaging` — **PASS**;
 - the later independent `GATE - Audit XP x32 PE floor and direct imports` — **FAIL**.
 
-Conclusion: **PASS for the D3DCompiler_47 replacement/staging/packaging experiment.** The pinned legacy Firefox XP `D3DCompiler_47.dll` is successfully prepared, staged into the built browser, survives the PE-retarget/package path, and is still present in the packaged result under the dedicated validation gates. The overall Actions run remains red because the subsequent broad XP PE-floor/direct-import audit still reports independent compatibility violations. Therefore this result closes only the `D3DCompiler_47.dll` packaging hypothesis; it does not make the full XP compatibility pipeline green, does not prove physical Windows XP runtime, and has no bearing on GOST TLS handshake status.
+Manual artifact inspection supplied by the user for the downloaded primary package confirms that the packaged `d3dcompiler_47.dll` reports version **`10.0.14393.33`**. This independently confirms that the intended legacy DLL, rather than the prior incompatible replacement, is present in the user-visible packaged artifact.
+
+Conclusion: **PASS for the D3DCompiler_47 replacement/staging/packaging experiment.** The pinned legacy Firefox XP `D3DCompiler_47.dll` is successfully prepared, staged into the built browser, survives the PE-retarget/package path, is still present in the packaged result under the dedicated validation gates, and the downloaded package is manually confirmed to contain version `10.0.14393.33`. The overall Actions run remains red because the subsequent broad XP PE-floor/direct-import audit still reports independent compatibility violations. Therefore this result closes only the `D3DCompiler_47.dll` packaging hypothesis; it does not make the full XP compatibility pipeline green, does not prove physical Windows XP runtime, and has no bearing on GOST TLS handshake status.
