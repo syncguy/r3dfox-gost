@@ -130,3 +130,26 @@ Independent inspection of runtime artifact `9756275917` confirms:
 The new CRT DLL sizes match the previously proven XP-compatible pair from run `33378796910`, but their SHA-256 values differ, so this is not a byte-for-byte reproduction of the old DLLs. It is a reproduction of the required XP binary contract: x86, subsystem 5.1, and no hard imports of the XP-missing FLS/SRW APIs that caused the prior loader failure.
 
 Conclusion: **PASS and closes the fresh-CRT regression at representative SRW-smoke scale.** Aligning the SRW msvcr14x build with the proven restore/configuration contract restores an XP-compatible runtime closure while preserving the already-proven SRW YY-Thunks resolution. Because several build-contract details were aligned together, this experiment strongly implicates the previously missing MSBuild restore but does not isolate `-r` as the sole causal variable. Subsequent XP/full-browser work should treat this restored msvcr14x build contract, including restore, as mandatory and must keep the CRT PE/import gates intact. Physical Windows XP execution of this newly generated exact runtime bundle remains a separate runtime confirmation gate.
+
+---
+
+## 2026-08-31 — exact restored SRW runtime bundle passes on physical Windows XP
+
+Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
+
+Exact source/build identity is unchanged from the immediately preceding CI experiment:
+
+- source-under-test `b19ba4ff3eebd2f323743d92110241fc9d4ce399` on `agent/gost-tls-poc`;
+- workflow `msvcr14x Rust YY XP x86 SRW smoke`;
+- Actions run `33387080767`, job `99472017220`;
+- runtime artifact `9756275917`, digest `sha256:f5708981117e84ec1815554cc08494b79960464ccffcbdc1d6a70a099a1962d0`;
+- CI conclusion: success.
+
+Physical Windows XP observation supplied by the user:
+
+- the runtime artifact produced by this exact new build was tested on a real Windows XP computer;
+- the artifact starts and executes successfully without substituting the older CRT DLL pair.
+
+This closes the remaining runtime-confirmation gap from the preceding CI-only result. The exact freshly generated CRT closure (`msvcp140.dll` + `ucrtbase.dll`) that passed the XP PE/import gates is therefore also physically usable on Windows XP in the representative C++ `/MD` + Rust libstd + narrow YY/SRW workload.
+
+Conclusion: **PHYSICAL XP PASS; current reference XP build contract established.** The restored/pinned msvcr14x build procedure plus XP PE/import closure gates is now both CI-proven and physically proven on Windows XP. The prior incompatible fresh-CRT result from run `33373236602` / job `99428838270` is superseded for build-contract purposes. This does not prove a full Firefox XP build or GOST TLS behavior. The next Windows-compatibility step is to apply this same contract to the full XP x32 workflow and then remove remaining post-XP dependencies component-by-component, beginning with project-built/staged libraries rather than masking them through PE-header retargeting or broad thunking.
