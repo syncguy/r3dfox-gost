@@ -153,3 +153,33 @@ Physical Windows XP observation supplied by the user:
 This closes the remaining runtime-confirmation gap from the preceding CI-only result. The exact freshly generated CRT closure (`msvcp140.dll` + `ucrtbase.dll`) that passed the XP PE/import gates is therefore also physically usable on Windows XP in the representative C++ `/MD` + Rust libstd + narrow YY/SRW workload.
 
 Conclusion: **PHYSICAL XP PASS; current reference XP build contract established.** The restored/pinned msvcr14x build procedure plus XP PE/import closure gates is now both CI-proven and physically proven on Windows XP. The prior incompatible fresh-CRT result from run `33373236602` / job `99428838270` is superseded for build-contract purposes. This does not prove a full Firefox XP build or GOST TLS behavior. The next Windows-compatibility step is to apply this same contract to the full XP x32 workflow and then remove remaining post-XP dependencies component-by-component, beginning with project-built/staged libraries rather than masking them through PE-header retargeting or broad thunking.
+
+---
+
+## 2026-08-31 — full XP x32 build packages, but CRT packaging and final direct-import closure remain broken
+
+Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
+
+Exact source/build identity:
+
+- source-under-test `99fac0b869c4c0a4638f4e076d77547d90e146cb` on experiment branch `agent/winrt-source-poc`;
+- workflow `GOST TLS PoC build XP x32`;
+- Actions run `33396056005`, job `99500729287`;
+- package artifact `9764345117` (`r3dfox-gost-xp-x32-package`);
+- diagnostics artifact `9764346755` (`r3dfox-gost-xp-x32-diagnostics`);
+- run conclusion: `failure`.
+
+The exact job completed the expensive Firefox build and package stages. It failed at the post-package gate that verifies the XP-compatible msvcr14x CRT survived portable packaging, so the later workflow step `GATE - Audit XP x32 PE floor and direct imports` did not execute. The red job therefore is not a compiler/build failure.
+
+Independent inspection of the exact package and diagnostics artifacts establishes the following:
+
+- the packaged `r3dfox.exe`, `mozglue.dll`, and `xul.dll` all have PE OS/subsystem floor 5.01; this confirms that the header retargeting path is active, but does not imply XP-safe dependency closure;
+- the package contains no app-local `vcruntime*.dll`, `msvcp*.dll`, `ucrtbase.dll`, or `api-ms-win-crt-*.dll`, while `r3dfox.exe` directly imports `VCRUNTIME140.dll` and `xul.dll` directly imports `msvcp140.dll`; therefore the proven XP-compatible CRT runtime closure did **not** survive final portable packaging and this is a hard loader blocker independently of the broad API audit;
+- `r3dfox.exe` has one current XP-audit violation: forbidden direct DLL import `VCRUNTIME140.dll`;
+- `mozglue.dll` has two current forbidden direct API imports: `GetTickCount64` and `InitializeCriticalSectionEx`;
+- `xul.dll` has 50 current violations under the workflow's curated XP contract: forbidden direct DLL import `BCRYPT.dll` plus 49 forbidden direct APIs;
+- those `xul.dll` API imports include SRW/condition-variable/threadpool/FLS families and specifically include `GetSystemTimePreciseAsFileTime`, `GetOverlappedResultEx`, `GetTickCount64`, `InitializeCriticalSectionEx`, `CancelIoEx`, `GetFileInformationByHandleEx`, `GetFinalPathNameByHandleW`, `GetLocaleInfoEx`, `LCIDToLocaleName`, `LocaleNameToLCID`, and `ProcessPrng`;
+- the diagnostics narrow YY provider contains thunk implementations/aliases for many of these names, including `GetSystemTimePreciseAsFileTime`, FLS, `GetTickCount64`, `InitializeCriticalSectionEx`, and `RoGetActivationFactory`, but the final packaged `xul.dll` still imports the APIs directly; provider membership therefore does not prove effective interposition in the full Firefox link;
+- packaged `d3dcompiler_47.dll` has no violations under the current curated forbidden DLL/API set. Its PE OS version remains 10.0 while subsystem is 5.01, so its dedicated legacy staging result remains a separate verified boundary rather than evidence about Firefox's own import closure.
+
+Conclusion: **FAIL for full-browser XP dependency/import closure; PASS for identifying the next concrete blockers.** The restored msvcr14x build contract is not yet correctly propagated through final Firefox packaging, and the final `xul.dll` still retains a large direct post-XP import surface despite the presence of a narrow YY provider. Header retargeting and provider symbol availability are therefore insufficient. The next compatibility work should first restore the proven app-local CRT pair into the final portable package and add a post-package CRT identity/import gate, then analyze why the full `xul.dll` link is not resolving the intended narrow YY aliases before adding any more thunk coverage. The broad PE audit should also be made to run or upload its inventory even when an earlier packaging gate fails, so subsequent full builds do not hide import evidence behind a separate gate failure.
