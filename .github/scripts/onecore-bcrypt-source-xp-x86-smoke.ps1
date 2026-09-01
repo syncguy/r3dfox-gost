@@ -34,49 +34,33 @@ if (-not $widlText.Contains($oldCall)) { throw 'Expected pinned One-Core WIDL mi
 $widlText = $widlText.Replace($oldCall, $newCall)
 Set-Content -Encoding ascii -Path $widlHeader -Value $widlText
 
+# Keep the upstream mbedtls MODULE target intact for provenance, but add a
+# private static target over exactly the same SOURCE list for bcrypt.dll.
+# Match CMake syntax, not whitespace/line-ending formatting.
 $mbedtlsCmake = Join-Path $src 'dll\3rdparty\mbedtls\CMakeLists.txt'
 $mbedtlsText = Get-Content -Raw $mbedtlsCmake
-$mbedtlsAnchor = @'
-add_library(mbedtls MODULE
-    ${SOURCE}
-    mbedtls.rc
-    ${CMAKE_CURRENT_BINARY_DIR}/mbedtls.def)
-'@
-$mbedtlsStatic = @'
-add_library(mbedtls_bcrypt STATIC ${SOURCE})
+$modulePattern = '(?m)^(?<indent>[ \t]*)add_library\(mbedtls[ \t]+MODULE\b'
+$moduleMatches = [regex]::Matches($mbedtlsText, $modulePattern)
+if ($moduleMatches.Count -ne 1) { throw "Expected exactly one One-Core mbedtls MODULE target, found $($moduleMatches.Count)" }
+$moduleStart = $moduleMatches[0].Index
+$staticLine = 'add_library(mbedtls_bcrypt STATIC ${SOURCE})' + [Environment]::NewLine + [Environment]::NewLine
+$mbedtlsText = $mbedtlsText.Insert($moduleStart, $staticLine)
 
-add_library(mbedtls MODULE
-    ${SOURCE}
-    mbedtls.rc
-    ${CMAKE_CURRENT_BINARY_DIR}/mbedtls.def)
-'@
-if (-not $mbedtlsText.Contains($mbedtlsAnchor)) { throw 'Expected One-Core mbedtls module target not found' }
-$mbedtlsText = $mbedtlsText.Replace($mbedtlsAnchor, $mbedtlsStatic)
-$compileAnchor = @'
-if(NOT MSVC)
-    target_compile_options(mbedtls PRIVATE -Wno-pointer-sign -Wno-unused-function)
-'@
-$compileReplacement = @'
-if(NOT MSVC)
-    target_compile_options(mbedtls_bcrypt PRIVATE -Wno-pointer-sign -Wno-unused-function)
-    target_compile_options(mbedtls PRIVATE -Wno-pointer-sign -Wno-unused-function)
-'@
-if (-not $mbedtlsText.Contains($compileAnchor)) { throw 'Expected One-Core mbedtls compile options not found' }
-$mbedtlsText = $mbedtlsText.Replace($compileAnchor, $compileReplacement)
+$compilePattern = '(?m)^(?<indent>[ \t]*)target_compile_options\(mbedtls[ \t]+PRIVATE[ \t]+-Wno-pointer-sign[ \t]+-Wno-unused-function\)[ \t]*$'
+$compileMatches = [regex]::Matches($mbedtlsText, $compilePattern)
+if ($compileMatches.Count -ne 1) { throw "Expected exactly one One-Core mbedtls GNU compile-options line, found $($compileMatches.Count)" }
+$compileReplacement = '${indent}target_compile_options(mbedtls_bcrypt PRIVATE -Wno-pointer-sign -Wno-unused-function)' + [Environment]::NewLine + '${indent}target_compile_options(mbedtls PRIVATE -Wno-pointer-sign -Wno-unused-function)'
+$mbedtlsText = [regex]::Replace($mbedtlsText, $compilePattern, $compileReplacement, 1)
 Set-Content -Encoding ascii -Path $mbedtlsCmake -Value $mbedtlsText
 
 $bcryptCmake = Join-Path $src 'dll\win32\bcrypt\CMakeLists.txt'
 $bcryptText = Get-Content -Raw $bcryptCmake
-$oldLink = @'
-target_link_libraries(bcrypt wine)
-add_importlibs(bcrypt mbedtls advapi32 msvcrt kernel32 ntdll)
-'@
-$newLink = @'
-target_link_libraries(bcrypt wine mbedtls_bcrypt)
-add_importlibs(bcrypt advapi32 msvcrt kernel32 ntdll)
-'@
-if (-not $bcryptText.Contains($oldLink)) { throw 'Expected One-Core bcrypt mbedtls import wiring not found' }
-$bcryptText = $bcryptText.Replace($oldLink, $newLink)
+$targetLinkPattern = '(?m)^target_link_libraries\(bcrypt[ \t]+wine\)[ \t]*$'
+$importPattern = '(?m)^add_importlibs\(bcrypt[ \t]+mbedtls[ \t]+advapi32[ \t]+msvcrt[ \t]+kernel32[ \t]+ntdll\)[ \t]*$'
+if ([regex]::Matches($bcryptText, $targetLinkPattern).Count -ne 1) { throw 'Expected One-Core bcrypt target_link_libraries wiring not found uniquely' }
+if ([regex]::Matches($bcryptText, $importPattern).Count -ne 1) { throw 'Expected One-Core bcrypt mbedtls import wiring not found uniquely' }
+$bcryptText = [regex]::Replace($bcryptText, $targetLinkPattern, 'target_link_libraries(bcrypt wine mbedtls_bcrypt)', 1)
+$bcryptText = [regex]::Replace($bcryptText, $importPattern, 'add_importlibs(bcrypt advapi32 msvcrt kernel32 ntdll)', 1)
 Set-Content -Encoding ascii -Path $bcryptCmake -Value $bcryptText
 
 @"
