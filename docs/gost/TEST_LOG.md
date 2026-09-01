@@ -8,6 +8,53 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-01 — focused One-Core-API `bcrypt.dll` XP x86 smoke defines exact closure; hosted exact-local load is blocked by Code Integrity
+
+Track: Windows XP x86 binary compatibility only. This experiment is independent of Firefox compilation, YY-Thunks synchronization work, and GOST TLS runtime/handshake behavior.
+
+Exact experiment identity:
+
+- source-under-test `9be3a933c3eac2defec24df4826fded48ead02f4` on `agent/gost-tls-poc`;
+- workflow `bcrypt XP x86 smoke`;
+- Actions run `33475562495`, job `99753970359`;
+- run/job conclusion: **failure**, because the exact-local hosted runtime criterion did not pass;
+- runtime artifact `9788031922` (`bcrypt-xp-x86-runtime`), digest `sha256:c0d60f0a0bc18acd09abb9138ea2769a36c3996e71c87018ccf4842abd9e0817`;
+- diagnostics artifact `9788032206` (`bcrypt-xp-x86-diagnostics`), digest `sha256:83685ec9aebb4987e95e42cff6c74f958a1c9252d06721383323e0ab5b200fbe`.
+
+Pinned upstream identity:
+
+- repository `shorthorn-project/One-Core-API-Binaries`;
+- immutable upstream commit `6c3b3b372d46dace7ba729dcd16b316b0acf664c`;
+- path `Packages/x86/Pack Installer/base/bcrypt.dll`;
+- Git blob `0b7d83ddbae62142ee6fca69208d77a8a5d3b0f7`;
+- size `279552` bytes;
+- SHA-256 `ada28a011cf08d9e10780fde09966899f5f40e08c4f5abb05eaa38dbc2f0cfc5`.
+
+Static PE audit:
+
+- `bcrypt.dll` is x86 (`0x14c`); PE operating-system/image/subsystem version fields are `6.00`;
+- direct DLL imports are `ADVAPI32.dll`, `KERNEL32.dll`, and `ntdll.dll`;
+- recursive local dependency closure therefore contains **only `bcrypt.dll`**; adjacent upstream `bcryptprimitives.dll` is not imported and is not part of the runtime bundle;
+- the current explicit XP hard-import audit found no obvious post-XP hard import in this closure;
+- all required exports are present: `BCryptOpenAlgorithmProvider`, `BCryptCloseAlgorithmProvider`, `BCryptGetProperty`, `BCryptCreateHash`, `BCryptHashData`, `BCryptFinishHash`, `BCryptDestroyHash`, and `BCryptGenRandom`;
+- DLL characteristics include `Check integrity`, while the PE Certificate Directory is zero and Authenticode inspection reports `NotSigned`.
+
+Probe/build evidence:
+
+- `bcrypt-dynamic.exe` and `bcrypt-linked.exe` both build as x86 with PE subsystem floor `5.01`;
+- the dynamic probe has no link-time `bcrypt.dll` import and explicitly calls `LoadLibraryW(L".\\bcrypt.dll")` plus `GetProcAddress`;
+- the linked probe has a normal IAT dependency on `bcrypt.dll` through `bcrypt.lib`;
+- the staged runtime archive contains exactly `bcrypt.dll`, both probes, `run-on-xp.cmd`, and `README-XP.md`; the staged `bcrypt.dll` retains SHA-256 `ada28a...0cfc5`.
+
+Hosted Windows Server 2022 runtime result:
+
+- exact-local dynamic load: `LOAD FAIL error=0x00000241`, `ExitCode=1`; decimal 577 is `ERROR_INVALID_IMAGE_HASH`; together with `Check integrity` plus no embedded signature, this is modern Windows Code Integrity refusal of the exact upstream image, not evidence of a missing dependency;
+- ordinary linked consumer: `LOAD PASS`, `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, `ExitCode=0`, but `MODULE PATH` is `C:\Windows\System32\bcrypt.dll`; modern Windows therefore satisfied the normal `bcrypt.dll` name with its system KnownDLL, so this success is only a consumer/build smoke and **does not execute the local One-Core bytes**.
+
+Conclusion: **CI FAIL by the intentionally strict hosted criterion; physical-XP viability remains OPEN.** Do not clear `Check integrity`, re-sign, retarget, or otherwise mutate the upstream DLL merely to make Windows Server 2022 load it, because that would cease to test the pinned candidate. The next decisive experiment is to run artifact `9788031922` unchanged on physical Windows XP SP3 x86 via `run-on-xp.cmd`. Only a successful physical-XP run of both probes can mark this One-Core-API `bcrypt.dll` candidate physically XP-verified.
+
+---
+
 ## 2026-09-01 — ten-API XP synchronization smoke passes and is transferred into the full XP x32 workflow
 
 Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
