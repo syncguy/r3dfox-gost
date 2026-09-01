@@ -2,108 +2,99 @@
 
 Last updated: 2026-09-01
 
-This document records the adopted remediation and current evidence for the Windows XP x86 `bcrypt.dll` dependency. It belongs to the Windows compatibility track only and is not GOST TLS handshake evidence.
+This document records the adopted remediation and exact evidence for the Windows XP x86 `bcrypt.dll` dependency. It belongs to the Windows compatibility track only and is not GOST TLS handshake evidence.
 
-## Decision
+## Status — CLOSED at focused dependency/runtime level
 
-The project continues to evaluate the XP-compatible `bcrypt.dll` supplied by `shorthorn-project/One-Core-API-Binaries` as the selected dependency-level remediation for the core-browser `bcrypt.dll` imports. This remains independent of the YY-Thunks synchronization provider.
+The missing stock-XP `bcrypt.dll` boundary is no longer an unresolved focused-runtime problem.
 
-The physical-XP probe on 2026-09-01 proved that `bcrypt.dll` cannot be treated as a single-file closure: its export table contains forwarded exports, including `BCryptCreateHash -> bcryptext.BCryptCreateHash`. The earlier static conclusion that the local closure contained only `bcrypt.dll` is superseded.
+The selected implementation is now the source-built One-Core-API variant from `shorthorn-project/One-Core-API-Source`, with its required source-built `mbedtls.dll` runtime dependency. The exact runtime closure has passed both hosted exact-local execution and physical Windows XP SP3 x86 execution.
 
-## Exact candidate identity
+This closes the focused `bcrypt.dll` dependency/runtime question. It does **not** prove that a complete Firefox build starts on XP, and it does not close the independent SRW/condition-variable or other remaining post-XP import work.
 
-The focused smoke pins the primary candidate to immutable upstream content rather than floating `master`:
+## Exact source/build identity
 
-- repository: `shorthorn-project/One-Core-API-Binaries`;
-- upstream commit: `6c3b3b372d46dace7ba729dcd16b316b0acf664c`;
-- primary path: `Packages/x86/Pack Installer/base/bcrypt.dll`;
-- Git blob: `0b7d83ddbae62142ee6fca69208d77a8a5d3b0f7`;
-- size: `279552` bytes;
-- SHA-256: `ada28a011cf08d9e10780fde09966899f5f40e08c4f5abb05eaa38dbc2f0cfc5`.
+Project source-under-test:
 
-Known forwarded dependency discovered by the physical-XP experiment and confirmed in the pinned upstream tree:
+- branch: `agent/gost-tls-poc`;
+- source-under-test: `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- workflow: `One-Core bcrypt source XP x86 smoke`;
+- Actions run `33493625367`;
+- job `99810642354`;
+- run/job conclusion: **success**.
 
-- path: `Packages/x86/Pack Installer/extensions/bcryptext.dll`;
-- Git blob: `5c638cc34aedfe6bebcb800e56b9a10d98670207`;
-- size: `10752` bytes.
+Pinned upstream source:
 
-`bcryptprimitives.dll` is present beside `bcrypt.dll` upstream, but it is not assumed to belong to the runtime closure unless the recursive import/forwarder audit discovers it transitively.
+- repository: `shorthorn-project/One-Core-API-Source`;
+- pinned source commit: `9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
+- bcrypt source: `dll/win32/bcrypt`;
+- mbedtls source: `dll/3rdparty/mbedtls`;
+- build environment: RosBE 2.1.6 i386.
 
-## Hosted focused-smoke baseline
+Pinned One-Core source contains one unrelated WIDL host-tool signature mismatch. The smoke applies only the documented one-line host-tool correction required to build the pinned tree. `dll/win32/bcrypt` and `dll/3rdparty/mbedtls` are not modified by that correction.
 
-Previous exact focused experiment:
+## Exact artifacts
 
-- source-under-test: `9be3a933c3eac2defec24df4826fded48ead02f4`;
-- workflow: `bcrypt XP x86 smoke`;
-- Actions run `33475562495`, job `99753970359`;
-- runtime artifact `9788031922`;
-- diagnostics artifact `9788032206`.
+- runtime artifact `9794971087` (`onecore-bcrypt-source-xp-x86-runtime`), digest `sha256:03627eb494b604d3a84a9473cad8c0928b13ec458c20cee9e63bfc0ca10d75f1`;
+- diagnostics artifact `9794971830` (`onecore-bcrypt-source-xp-x86-diagnostics`), digest `sha256:832563a5618d52f061fcc55efea463e618b4212aea12236ef7bf015cd39e93fe`.
 
-That experiment established the primary `bcrypt.dll` PE/import/export surface but its closure algorithm followed only the PE Import Table. It therefore missed export-forwarder dependencies and its `closure = bcrypt.dll only` conclusion is invalid.
+The runtime closure contains the source-built `bcrypt.dll`, source-built `mbedtls.dll`, and two independent consumers:
 
-A later hosted workflow run used source `b8608989aaa8e853fd0fc0de940ce6388007a695`, run `33477355118`, job `99759309370`, runtime artifact `9788642060`, diagnostics artifact `9788642478`. Its hosted result was green only because the known Windows Server 2022 `ERROR_INVALID_IMAGE_HASH (577)` exact-local limitation was classified as an expected hosted XFAIL while all other static/build/artifact gates passed. That run still inherited the incomplete import-only closure logic and therefore produced an incomplete physical-XP bundle.
+- `bcrypt-source-dynamic.exe` — no static `bcrypt.dll` import; exact local `LoadLibraryW(.\\bcrypt.dll)` plus `GetProcAddress`;
+- `bcrypt-source-linked.exe` — ordinary PE import of `bcrypt.dll`.
 
-## Physical Windows XP result — FAIL, forwarder closure incomplete
+Both consumers test the required BCrypt export surface, `BCryptGenRandom`, and SHA-256 of `abc`.
 
-A physical Windows XP x86 run of `run-on-xp.cmd` supplied by the user produced:
+## Dependency closure
+
+The source-built `bcrypt.dll` has a real runtime dependency on `mbedtls.dll`. That dependency is explicit in the One-Core build definition and is included in the artifact.
+
+The built `mbedtls.dll` resolves only to XP-era system DLLs (`advapi32.dll`, `kernel32.dll`, `msvcrt.dll` in the final PE) and the focused audit found no known forbidden post-XP hard import from the project's current XP gate set.
+
+The source-built closure therefore terminates as:
+
+`bcrypt.dll -> mbedtls.dll -> XP system DLLs`.
+
+This supersedes the earlier prebuilt-binary closure experiments involving export forwarders to `bcryptext.dll`. The prebuilt and source-built One-Core bcrypt implementations are distinct artifacts and must not be conflated.
+
+## Hosted exact-local result
+
+Run `33493625367` passes the hosted Windows Server 2022 runtime checks for the complete source-built closure. Unlike the earlier prebuilt binary, this source-built bcrypt does not hit the prebuilt image's Code Integrity refusal and executes the actual local library bytes.
+
+Both dynamic and linked consumers pass their RNG and SHA-256 checks in CI.
+
+## Physical Windows XP SP3 x86 result — PASS
+
+The user executed the exact runtime bundle from run `33493625367` on a physical Windows XP machine on 2026-09-01.
+
+Dynamic consumer result:
 
 ```text
-=== bcrypt dynamic local-load probe ===
-LOAD FAIL error=0x0000045A
-ExitCode=1
-
-=== bcrypt normal link-time consumer ===
-ExitCode=-1073741511
+LOAD PASS
+MODULE PATH: D:\2026\09\01\onecore-bcrypt-source-xp-x86-runtime\bcrypt.dll
+EXPORTS PASS
+RNG PASS
+SHA256 PASS
+DynamicExitCode=0
 ```
 
-The loader also displayed:
+Linked consumer result:
 
 ```text
-bcrypt-linked.exe - Entry Point Not Found
-The procedure entry point bcryptext.BCryptCreateHash could not be located in the dynamic link library bcrypt.dll.
+LOAD PASS
+MODULE PATH: D:\2026\09\01\onecore-bcrypt-source-xp-x86-runtime\bcrypt.dll
+EXPORTS PASS
+RNG PASS
+SHA256 PASS
+LinkedExitCode=0
 ```
 
-Interpretation:
+This is decisive focused physical-XP evidence that the source-built `bcrypt.dll + mbedtls.dll` closure loads and executes successfully through both explicit dynamic loading and normal loader/IAT resolution.
 
-- `0x45A` is `ERROR_DLL_INIT_FAILED`: the local `bcrypt.dll` was found but failed initialization on XP;
-- `-1073741511` is `0xC0000139` / `STATUS_ENTRYPOINT_NOT_FOUND`: the normal linked consumer fails in the loader before entering its test body;
-- `dumpbin /exports` for the pinned `bcrypt.dll` shows `BCryptCreateHash (forwarded to bcryptext.BCryptCreateHash)`;
-- therefore the old import-only dependency closure was incomplete, and the old runtime artifact cannot be accepted as a valid physical-XP test of the intended One-Core bcrypt stack.
+## Relationship to Firefox XP work
 
-Until the exact artifact identity of the user-run bundle is independently rebound by artifact ID/hash, treat the runtime-output identity as contextual rather than formal provenance. The technical forwarder conclusion itself is independently confirmed against the pinned candidate's export table.
+Historical broad Firefox audit source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`, run `33310150314`, job `99253613546`, reported direct `bcrypt.dll` dependencies in `xul.dll` and `mozglue.dll`.
 
-## Corrected closure experiment
+The focused bcrypt dependency implementation is now proven and may be transferred into the full XP x32 browser workflow with its exact source/provenance/import/package gates.
 
-Source `3dc50ea09dd84e9a5c5e47c171fb180eb1acac4f` changes the focused smoke to search both pinned One-Core roots used by this dependency family:
-
-- `Packages/x86/Pack Installer/base/`;
-- `Packages/x86/Pack Installer/extensions/`.
-
-The closure is now recursive over both:
-
-1. normal PE imports; and
-2. exported forwarders reported by `dumpbin /exports`.
-
-Forwarder targets are audited, hashed and staged like ordinary local dependencies. The first expected newly discovered member is `bcryptext.dll`; any further transitively required One-Core DLLs must also be included automatically.
-
-Actions run `33477914922` is the first run of this corrected closure logic. Its source-under-test is `3dc50ea09dd84e9a5c5e47c171fb180eb1acac4f`. Do not use its result as evidence until the run finishes and its exact artifacts are recorded.
-
-## Physical XP acceptance boundary
-
-The previous runtime artifacts are superseded for physical acceptance because they omit export-forwarder closure.
-
-The next decisive test is:
-
-1. wait for corrected run `33477914922` to finish;
-2. use its newly generated `bcrypt-xp-x86-runtime` artifact unchanged;
-3. copy the entire extracted directory to physical Windows XP SP3 x86;
-4. run `run-on-xp.cmd` from that directory;
-5. require both probes to return `ExitCode=0` and report `LOAD PASS`, `EXPORTS PASS`, `RNG PASS`, and `SHA256 PASS`.
-
-Do not mark the One-Core bcrypt replacement physically XP-verified until that corrected complete-closure artifact passes both probes on the real XP machine.
-
-## Relationship to the full-browser work
-
-Historical broad audit source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`, Actions run `33310150314`, job `99253613546`, reported direct `bcrypt.dll` dependencies in `xul.dll` and `mozglue.dll`. The One-Core candidate remains the selected remediation candidate for that DLL-level boundary, but its complete app-local dependency/forwarder closure must first pass focused physical-XP testing.
-
-This focused experiment neither builds Firefox nor changes the independent SRW/condition-variable/CRT/YY-Thunks line. Successful compilation or packaging elsewhere must not be confused with successful loading of the complete One-Core bcrypt stack on physical XP.
+That transfer is a separate integration experiment. A full browser can still fail on independent imports such as the SRW/condition-variable family or other post-XP APIs. Do not reinterpret this focused success as Firefox startup proof or GOST TLS proof.
