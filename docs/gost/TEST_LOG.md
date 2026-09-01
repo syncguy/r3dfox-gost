@@ -8,6 +8,38 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-01 — full Windows x64 Russian-first `ru + en-US` package passes all packaging gates
+
+Track: browser packaging / localization / bundled-extension integration. This result is not GOST TLS handshake evidence and is not yet runtime UI evidence.
+
+Exact source/build identity:
+
+- source-under-test `37846488e281b4c3a2df46e949b4f970a7343ed3` on `agent/gost-tls-poc`;
+- commit message `ci(localization): verify Russian UI inside omni.ja`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- Actions run `33403654068`, job `99525795309`;
+- run/job conclusion: **success**;
+- packaged-browser artifact `9768056691` (`r3dfox-cryptopro-mozilla-packaging-ru-en-US`), digest `sha256:29c6c09dfe61fa0fe51cad4a97f9235c71fe02b5bcd7530104cafafa8da40b9c`;
+- packaging-evidence artifact `9768057338` (`cryptopro-mozilla-packaging-evidence`), digest `sha256:9e88560db20a36f77311203453927d2c0232b6d80ef3ee5150eb7d187674a591`.
+
+Verified CI stages for this exact run:
+
+- packaging-only Russian UI default configuration — **PASS**;
+- CryptoPro XPI selection and working-tree staging — **PASS**;
+- full release browser build — **PASS**;
+- CryptoPro XPI presence/hash validation in real `dist/bin` — **PASS**;
+- `mach package` — **PASS**;
+- `mach package-multi-locale --locales ru` — **PASS**;
+- final portable-archive gate for CryptoPro XPI plus `ru` and `en-US` resources — **PASS**;
+- final packaged `defaults/pref/r3dfox-bundle.js` check inside `omni.ja` — **PASS**;
+- packaged-browser and evidence artifact uploads — **PASS**.
+
+The predecessor run `33076347741`, job `98531418338`, source `07c7c48419ca39952a57a53967c1bcabaa8384c1` had already built and packaged successfully but was marked failed by an incorrect final gate that searched for loose `defaults\pref\r3dfox-bundle.js`. Artifact inspection established that Firefox packages this file inside `r3dfox/omni.ja` as `defaults/pref/r3dfox-bundle.js`, alongside both `localization/ru/...` and `localization/en-US/...`. Source `37846488...` corrected the gate to inspect the real `omni.ja` layout; run `33403654068` then passed the complete workflow.
+
+Conclusion: **PACKAGING PASS and current Russian-first full-build checkpoint.** The project now has a complete Windows x64 portable package in which CI proves the Russian default preference is packaged in `omni.ja`, both `ru` and `en-US` UI resources are present, and the selected CryptoPro extension survives into the final portable archive. Runtime UI behavior remains open until the exact artifact is launched and manually checked for first-start Russian UI, language switching/fallback, and general UI correctness. This packaging result must not be interpreted as GOST TLS runtime, extension-native-component runtime, or old-Windows compatibility evidence.
+
+---
+
 ## 2026-08-31 — sandbox-disabled XP x32 artifact runs correctly on physical Windows 7 x32
 
 Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
