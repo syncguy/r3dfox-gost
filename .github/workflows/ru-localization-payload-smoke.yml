@@ -1,0 +1,173 @@
+name: Russian localization payload smoke
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/ru-localization-payload-smoke.yml"
+      - "browser/locales/**"
+      - "toolkit/locales/**"
+      - "python/mozbuild/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ru-l10n-payload:
+    name: Linux / Firefox 153 ru langpack payload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      MOZCONFIG: ${{ github.workspace }}/.mozconfig-ru-l10n-smoke
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      L10N_BASE: ${{ runner.temp }}/firefox-l10n
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Checkout current unified Firefox Russian localization
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/mozilla-l10n/firefox-l10n.git "$L10N_BASE"
+          git -C "$L10N_BASE" sparse-checkout set ru
+          git -C "$L10N_BASE" rev-parse HEAD | tee ru-l10n-source-sha.txt
+          test -s "$L10N_BASE/ru/browser/browser/browser.ftl"
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path(__import__('os').environ['L10N_BASE']) / 'ru'
+          ftl = list(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          cyr = [p for p in nonempty if any('\u0400' <= ch <= '\u04ff' for ch in p.read_text(encoding='utf-8', errors='ignore'))]
+          print(f'ru source: ftl={len(ftl)} nonempty={len(nonempty)} cyrillic={len(cyr)}')
+          if len(ftl) < 1000:
+              raise SystemExit('Russian source tree unexpectedly small')
+          if len(nonempty) < int(len(ftl) * 0.95):
+              raise SystemExit('Russian source tree has too many empty Fluent files')
+          if len(cyr) < 500:
+              raise SystemExit('Russian source tree has too few Cyrillic Fluent files')
+          PY
+
+      - name: Write minimal localization mozconfig
+        shell: bash
+        run: |
+          cat > "$MOZCONFIG" <<EOF
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-ru-l10n-smoke
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-tests
+          ac_add_options --with-l10n-base=$L10N_BASE
+          EOF
+          cat "$MOZCONFIG"
+
+      - name: Bootstrap build environment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ./mach --no-interactive bootstrap --application-choice=browser --no-system-changes
+
+      - name: Configure localization object directory
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ./mach configure
+
+      - name: Build Russian language pack only
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ./mach build langpack-ru
+
+      - name: GATE - Russian langpack contains real Fluent payload
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import re
+          import zipfile
+
+          obj = Path('obj-ru-l10n-smoke')
+          xpis = sorted(obj.rglob('*ru*.xpi'), key=lambda p: p.stat().st_mtime, reverse=True)
+          if not xpis:
+              raise SystemExit('No Russian langpack XPI was produced')
+          xpi = xpis[0]
+          print(f'XPI={xpi}')
+
+          with zipfile.ZipFile(xpi) as z:
+              infos = [i for i in z.infolist() if i.filename.endswith('.ftl')]
+              ru_infos = [i for i in infos if '/ru/' in f'/{i.filename}' or i.filename.startswith('localization/ru/')]
+              candidates = ru_infos or infos
+              nonempty = [i for i in candidates if i.file_size > 0]
+              zero = [i for i in candidates if i.file_size == 0]
+              cyr = []
+              for i in nonempty:
+                  text = z.read(i).decode('utf-8', errors='ignore')
+                  if re.search('[А-Яа-яЁё]', text):
+                      cyr.append(i)
+
+              sample_names = [
+                  i.filename for i in nonempty
+                  if i.filename.endswith('browser/browser.ftl')
+                  or i.filename.endswith('preferences/preferences.ftl')
+                  or i.filename.endswith('netError.ftl')
+              ]
+              print(f'langpack Fluent: total={len(candidates)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+              print('representative=' + json.dumps(sample_names[:20], ensure_ascii=False))
+
+              if len(candidates) < 100:
+                  raise SystemExit('Langpack contains too few Fluent resources')
+              if len(nonempty) < int(len(candidates) * 0.90):
+                  raise SystemExit('Russian langpack Fluent payload is mostly empty')
+              if len(cyr) < 50:
+                  raise SystemExit('Russian langpack contains too few Cyrillic Fluent resources')
+              if not sample_names:
+                  raise SystemExit('No representative browser/preferences/error Fluent resource found')
+
+          Path('ru-l10n-payload-summary.txt').write_text(
+              f'source_sha={Path("ru-l10n-source-sha.txt").read_text().strip()}\n'
+              f'xpi={xpi}\n'
+              f'ftl_total={len(candidates)}\n'
+              f'ftl_nonempty={len(nonempty)}\n'
+              f'ftl_zero={len(zero)}\n'
+              f'ftl_cyrillic={len(cyr)}\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload localization smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ru-localization-payload-smoke-evidence
+          path: |
+            ru-l10n-source-sha.txt
+            ru-l10n-payload-summary.txt
+            obj-ru-l10n-smoke/dist/**/*.xpi
+          if-no-files-found: warn
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Russian localization payload smoke'
+            echo
+            echo 'Purpose: prove the Firefox 153 localization merge path can consume a real Russian l10n source tree without a full browser build.'
+            echo
+            echo '- Source browser commit: `${{ github.sha }}`'
+            if test -f ru-l10n-source-sha.txt; then echo "- firefox-l10n source: `$(cat ru-l10n-source-sha.txt)`"; fi
+            if test -f ru-l10n-payload-summary.txt; then
+              echo '```text'
+              cat ru-l10n-payload-summary.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
