@@ -497,11 +497,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
-          if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+          $patchNormalized = $patch.Replace('\\', '/')
+          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\\', '/')
+          if ($patchNormalized.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
           }
           foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
-            if ($patch.IndexOf($required, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            $requiredNormalized = $required.Replace('\\', '/')
+            if ($patchNormalized.IndexOf($requiredNormalized, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
               throw "Expected compatibility linker input missing from generated patch: $required"
             }
           }
