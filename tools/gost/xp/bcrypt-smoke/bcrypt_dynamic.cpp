@@ -17,13 +17,14 @@ typedef NTSTATUS (WINAPI *PFN_Rng)(BCRYPT_ALG_HANDLE, PUCHAR, ULONG, ULONG);
 static HANDLE gOut;
 static void out(const char* s) { DWORD n=0,len=0; while(s[len]) ++len; WriteFile(gOut,s,len,&n,0); }
 static void outw(LPCWSTR s){ char b[1024]; int n=WideCharToMultiByte(CP_UTF8,0,s,-1,b,sizeof(b),0,0); if(n>1){ DWORD w=0; WriteFile(gOut,b,n-1,&w,0); } }
+static void outhex(DWORD v){ char b[11]={'0','x','0','0','0','0','0','0','0','0',0}; const char* h="0123456789ABCDEF"; for(int i=0;i<8;i++){ b[9-i]=h[v&0xF]; v>>=4; } out(b); }
 static bool ok(NTSTATUS s){ return s >= 0; }
 static int fail(const char* s){ out(s); return 1; }
 
 extern "C" void __cdecl mainCRTStartup(void) {
   gOut=GetStdHandle(STD_OUTPUT_HANDLE);
   HMODULE m=LoadLibraryW(L".\\bcrypt.dll");
-  if(!m) ExitProcess(fail("LOAD FAIL\r\n"));
+  if(!m) { DWORD e=GetLastError(); out("LOAD FAIL error="); outhex(e); out("\r\n"); ExitProcess(1); }
   out("LOAD PASS\r\n"); WCHAR modulePath[1024]; DWORD moduleLen=GetModuleFileNameW(m,modulePath,1024); if(moduleLen){ out("MODULE PATH: "); outw(modulePath); out("\r\n"); }
   PFN_Open Open=(PFN_Open)GetProcAddress(m,"BCryptOpenAlgorithmProvider");
   PFN_Close Close=(PFN_Close)GetProcAddress(m,"BCryptCloseAlgorithmProvider");
