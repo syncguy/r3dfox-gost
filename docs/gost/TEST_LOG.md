@@ -8,6 +8,28 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-01 — full XP x32 synchronization transfer run 33477985342 stopped by a path-normalization false negative
+
+Track: Windows XP x86 binary compatibility only; this is not GOST TLS runtime/handshake evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `1a6e0939bde5a9d601d7abca6a09f5ad33879ce6`;
+- workflow `GOST TLS PoC build XP x32`;
+- Actions run `33477985342`, job `99761172519`;
+- run/job conclusion: **failure** at step 21, `Patch core browser linkers for XP x86 compatibility layer`.
+
+Observation: the generated `xp-x32-core-linker-patch.diff` was structurally correct. It injected the narrow provider into `r3dfox.exe`, `plugin-container.exe`, and `mozglue.dll`, and injected `synchronization.lib` plus the same narrow provider into the `xul.dll` link. The run stopped only in the post-patch sanity check with `Expected compatibility linker input missing from generated patch`.
+
+Root cause: the attempted PowerShell normalization used `.Replace('\\', '/')`. PowerShell does not use backslash as a string escape, so that expression searches for two consecutive backslashes while the environment paths contain single Windows separators. The generated diff already contains forward slashes. This produced a false-negative string comparison and does **not** disprove the ten-API linker architecture.
+
+Correction: full-workflow commit `1d3060bd186fe29e2ad17f85f3e573bfd9d74305` changes all three sanity-check normalizations to regex `-replace '\\', '/'`, which matches one literal Windows backslash. A new full run was dispatched from descendant source `d2f15ee8f0cef8112855c4306014865e422319d3`: run `33479649627`, job `99766203250`. The next decisive points remain step 21 passing and, after the Firefox build, step 28 `GATE - Reject core browser synchronization direct imports`.
+
+Status: **false-negative gate defect characterized and corrected; full Firefox ten-API integration remains unproven until run 33479649627 reaches the post-build synchronization import gate.**
+
+---
+
 ## 2026-09-01 — focused One-Core-API `bcrypt.dll` XP x86 smoke defines exact closure; hosted exact-local load is blocked by Code Integrity
 
 Track: Windows XP x86 binary compatibility only. This experiment is independent of Firefox compilation, YY-Thunks synchronization work, and GOST TLS runtime/handshake behavior.
