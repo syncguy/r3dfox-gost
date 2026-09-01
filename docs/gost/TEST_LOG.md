@@ -8,6 +8,66 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-01 — single-DLL source-built One-Core bcrypt with embedded mbedTLS passes CI; physical XP confirmation pending
+
+Track: Windows XP x86 binary compatibility only. This is not GOST TLS runtime/handshake evidence and does not close the independent SRW/condition-variable or remaining post-XP browser-import work.
+
+Exact project identity:
+
+- branch `agent/gost-tls-poc`;
+- source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- workflow `One-Core bcrypt source XP x86 smoke`;
+- Actions run `33513084915`;
+- job `99873297193`;
+- run/job conclusion: **success**.
+
+Pinned upstream source/build identity:
+
+- repository `shorthorn-project/One-Core-API-Source`;
+- pinned upstream source commit `9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
+- build environment RosBE 2.1.6 i386;
+- successful two-DLL physical-XP baseline remains project source `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`, run `33493625367`, job `99810642354`;
+- the smoke keeps the same one-line unrelated WIDL host-tool correction as the proven baseline;
+- `bcrypt` and mbedTLS C implementations remain unmodified; the experiment changes only build composition/compile context.
+
+Architecture under test:
+
+- the pinned active mbedTLS C modules are compiled directly as private sources of `bcrypt.dll`;
+- the `mbedtls` import-library dependency is removed from the bcrypt target;
+- the embedded mbedTLS source files receive `-U__WINESRC__` so they retain the compile semantics of the previously successful standalone mbedTLS target while `bcrypt_main.c` keeps its normal bcrypt/Wine compile context;
+- runtime goal is a single deployable DLL: `bcrypt.dll` with no runtime `mbedtls.dll` dependency.
+
+The previous run `33511801331`, job `99869030264`, source `ef0050d5ded758acae1694a0e1b619830f440d37`, reached real compilation but failed in embedded `entropy_poll.c` because the mbedTLS sources inherited bcrypt's `__WINESRC__`, causing ReactOS/Wine headers to prohibit unsuffixed `CryptAcquireContext`. The source-under-test `a30a701...` corrects only that compile-context mismatch.
+
+Observed CI result:
+
+- all embedded mbedTLS C objects compile successfully inside the bcrypt target;
+- final link completes as `dll\\win32\\bcrypt\\bcrypt.dll`;
+- the PE/import gate passes, including the explicit requirement that final `bcrypt.dll` does **not** import `mbedtls.dll` and contains no currently gated forbidden post-XP hard imports;
+- required BCrypt exports remain present;
+- exact-local dynamic consumer loads the staged local DLL and passes:
+
+```text
+LOAD PASS
+MODULE PATH: D:\\a\\r3dfox-gost\\r3dfox-gost\\artifacts\\onecore-bcrypt-source-xp-x86\\runtime\\bcrypt.dll
+EXPORTS PASS
+RNG PASS
+SHA256 PASS
+```
+
+- the linked consumer also passes exports/RNG/SHA256 on hosted Windows Server 2022, but its module path is `C:\\Windows\\System32\\bcrypt.dll`; therefore that hosted linked result is affected by Windows KnownDLL resolution and is **not** proof that the linked consumer executed the staged local bcrypt on the hosted runner.
+
+Artifacts:
+
+- runtime artifact `9802703271` (`onecore-bcrypt-source-xp-x86-runtime`), digest `sha256:e6ea796ef5f7dfb67e346630cd6432c9659e6d90d39ce90b8f44a1b3632edc8f`;
+- diagnostics artifact `9802704126` (`onecore-bcrypt-source-xp-x86-diagnostics`), digest `sha256:d989ce72af60185cb16b0ff99d156ed39170beab00055e776b881ee2cc54e6de`.
+
+Conclusion: **CI PASS / preferred single-DLL candidate / PHYSICAL XP PENDING.** The experiment proves that the One-Core bcrypt implementation can be built as one `bcrypt.dll` with the mbedTLS C implementation embedded and without a runtime `mbedtls.dll` dependency, while retaining the required BCrypt ABI and passing exact-local hosted dynamic RNG/SHA-256 execution. It does not yet supersede the physically proven two-DLL closure from run `33493625367` because the exact new runtime artifact has not yet been executed on Windows XP through both dynamic and linked consumers.
+
+Next experiment: extract runtime artifact `9802703271` unchanged on physical Windows XP SP3 x86, run `run-on-xp.cmd`, require both consumers to report the local artifact path plus `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS` and exit code `0`. If that succeeds, adopt the single-DLL closure as the selected bcrypt contract for transfer into the full XP x32 Firefox package and demote the two-DLL `bcrypt.dll + mbedtls.dll` closure to historical fallback/baseline evidence.
+
+---
+
 ## 2026-09-01 — source-built One-Core bcrypt closure passes CI and physical Windows XP through dynamic and linked consumers
 
 Track: Windows XP x86 binary compatibility only. This is not GOST TLS runtime/handshake evidence and does not close the independent SRW/condition-variable or remaining post-XP browser-import work.
