@@ -826,7 +826,7 @@ jobs:
                       print('(none)')
                   reps = [
                       n for n in ru_ftl
-                      if n.endswith('browser/browser/browser.ftl')
+                      if n.endswith('browser/browser.ftl')
                       or n.endswith('browser/preferences/preferences.ftl')
                       or n.endswith('toolkit/neterror/netError.ftl')
                   ]
@@ -852,7 +852,7 @@ jobs:
                   if role == 'root' and not any(n.endswith('toolkit/neterror/netError.ftl') for n in reps):
                       raise SystemExit('Final root omni missing substantive Russian netError.ftl')
                   if role == 'browser' and not (
-                      any(n.endswith('browser/browser/browser.ftl') for n in reps)
+                      any(n.endswith('browser/browser.ftl') for n in reps)
                       and any(n.endswith('browser/preferences/preferences.ftl') for n in reps)
                   ):
                       raise SystemExit('Final browser omni missing substantive Russian browser/preferences resources')
