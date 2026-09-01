@@ -30,7 +30,7 @@ Until a newer physically proven result explicitly supersedes this reference, eve
 7. **Keep diagnostics sufficient to reproduce provenance.** Record source commit, toolchain identity, restored dependency configuration, resolved output directory, PE headers, direct imports, SHA-256 hashes, and the exact staged files for each controlled runtime closure.
 8. **Do not weaken a failing gate to obtain a green build.** A build/package success is only a build result. Physical XP runtime remains a separate acceptance gate, and GOST TLS remains a separate project track.
 
-## Adopted source-built `bcrypt.dll` remediation — PHYSICALLY PROVEN
+## Adopted source-built `bcrypt.dll` remediation — SINGLE-DLL / PHYSICALLY PROVEN
 
 The project no longer treats the missing stock-XP `bcrypt.dll` dependency as an unresolved focused dependency/runtime blocker.
 
@@ -38,25 +38,50 @@ The adopted implementation is built from pinned One-Core source rather than take
 
 - upstream repository: `shorthorn-project/One-Core-API-Source`;
 - pinned upstream source commit: `9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
-- source components: `dll/win32/bcrypt` and `dll/3rdparty/mbedtls`;
+- source components: `dll/win32/bcrypt` plus the pinned active C modules from `dll/3rdparty/mbedtls`;
 - build environment: RosBE 2.1.6 i386;
-- project source-under-test: `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- project source-under-test: `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
 - workflow: `One-Core bcrypt source XP x86 smoke`;
-- Actions run `33493625367`, job `99810642354`, success;
-- runtime artifact `9794971087`, digest `sha256:03627eb494b604d3a84a9473cad8c0928b13ec458c20cee9e63bfc0ca10d75f1`;
-- diagnostics artifact `9794971830`, digest `sha256:832563a5618d52f061fcc55efea463e618b4212aea12236ef7bf015cd39e93fe`.
+- Actions run `33513084915`, job `99873297193`, success;
+- runtime artifact `9802703271`, digest `sha256:e6ea796ef5f7dfb67e346630cd6432c9659e6d90d39ce90b8f44a1b3632edc8f`;
+- diagnostics artifact `9802704126`, digest `sha256:d989ce72af60185cb16b0ff99d156ed39170beab00055e776b881ee2cc54e6de`.
 
-The exact app-local source-built closure is:
+The adopted runtime closure is a single deployable DLL:
 
-`bcrypt.dll -> mbedtls.dll -> XP system DLLs`.
+`bcrypt.dll -> XP system DLLs`
 
-The focused gate audits both project-built DLLs and both consumer executables for PE floor and known post-XP hard imports. The runtime bundle contains two independent consumers: an exact-local dynamic `LoadLibrary/GetProcAddress` probe and a normal link-time `bcrypt.dll` consumer.
+with the required mbedTLS C implementation compiled directly into `bcrypt.dll`; there is no runtime `mbedtls.dll` dependency.
 
-On physical Windows XP SP3 x86, the user ran the exact runtime bundle from run `33493625367`; both consumers loaded the local source-built `bcrypt.dll`, reported `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, and returned exit code `0`.
+Build-composition requirements for this exact contract:
 
-Therefore the source-built bcrypt closure satisfies the physical-runtime requirement of this contract at focused dependency scale. It supersedes the earlier prebuilt One-Core candidate experiments for the implementation choice. The earlier prebuilt forwarder/Code-Integrity behavior remains historical evidence only and must not be mixed with this source-built closure.
+- use the pinned active mbedTLS C source set proven by the smoke;
+- compile those C sources directly as private sources of the bcrypt target;
+- do not link the separate `mbedtls` DLL/import-library target into bcrypt;
+- preserve normal bcrypt/Wine compile context for `bcrypt_main.c`;
+- apply `-U__WINESRC__` to the embedded mbedTLS C sources so their compile semantics match the standalone mbedTLS target that previously built successfully;
+- do not patch bcrypt or mbedTLS C implementation source merely to force the build.
 
-Full-browser adoption is still a separate integration step: stage this proven `bcrypt.dll + mbedtls.dll` closure into the XP x32 Firefox build/package, preserve its provenance/import/package gates, and then test the resulting exact browser artifact on physical XP. Independent SRW/condition-variable and other post-XP imports remain separate blockers.
+The focused gate audits the resulting single `bcrypt.dll` and both consumer executables for PE floor and known post-XP hard imports, requires the final DLL not to import `mbedtls.dll`, and verifies the required BCrypt export surface.
+
+On physical Windows XP SP3 x86 (`Microsoft Windows XP [Version 5.1.2600]`), the user ran exact runtime artifact `9802703271`. The extracted runtime directory contained only one DLL, `bcrypt.dll` (`520704` bytes), and no `mbedtls.dll`. Both consumers loaded the app-local `bcrypt.dll`, reported `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, and returned exit code `0` through both exact-local dynamic loading and ordinary linked/IAT resolution.
+
+Physical-file identity recorded by the user for the proven DLL:
+
+- size: `520704` bytes;
+- SHA-1: `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`.
+
+Therefore the single-DLL source-built bcrypt closure satisfies the physical-runtime requirement of this contract at focused dependency scale and is the selected implementation for full-browser transfer.
+
+The earlier physically proven two-DLL source-built closure remains historical fallback/baseline evidence:
+
+- source `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- run `33493625367`, job `99810642354`;
+- runtime artifact `9794971087`;
+- closure `bcrypt.dll -> mbedtls.dll -> XP system DLLs`.
+
+It is no longer the selected packaging contract. The earlier prebuilt forwarder/Code-Integrity experiments remain historical evidence only and must not be mixed with either source-built closure.
+
+Full-browser adoption is still a separate integration step: reproduce this exact single-DLL source/build composition in the XP x32 Firefox workflow, stage only the resulting `bcrypt.dll`, preserve provenance/import/package-survival gates, and test the resulting exact browser artifact on physical XP. Independent SRW/condition-variable and other post-XP imports remain separate blockers.
 
 Detailed status is recorded in `XP_BCRYPT_STATUS.md`.
 

@@ -125,37 +125,42 @@ The ten-API synchronization capability smoke is also green at representative-lin
 
 This is capability proof only; full Firefox link consumption remains a separate gate.
 
-## Source-built One-Core bcrypt closure — FOCUSED RUNTIME CLOSED; single-DLL candidate CI-green
+## Source-built One-Core bcrypt closure — SINGLE-DLL / PHYSICALLY PROVEN / SELECTED
 
-The stock-XP missing `bcrypt.dll` boundary is no longer an unresolved focused dependency/runtime problem.
+The stock-XP missing `bcrypt.dll` boundary is closed at focused dependency/runtime level.
 
-The last **physically proven** implementation remains:
+Selected implementation:
 
-- project source-under-test `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- project source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
 - workflow `One-Core bcrypt source XP x86 smoke`;
-- run `33493625367`, job `99810642354`, success;
+- run `33513084915`, job `99873297193`, success;
 - pinned upstream source `shorthorn-project/One-Core-API-Source@9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
 - build environment RosBE 2.1.6 i386;
-- runtime artifact `9794971087`, digest `sha256:03627eb494b604d3a84a9473cad8c0928b13ec458c20cee9e63bfc0ca10d75f1`;
-- diagnostics artifact `9794971830`, digest `sha256:832563a5618d52f061fcc55efea463e618b4212aea12236ef7bf015cd39e93fe`;
-- exact runtime closure `bcrypt.dll -> mbedtls.dll -> XP-era system DLLs`.
-
-Physical Windows XP SP3 x86 execution supplied by the user passes both independent consumers against the local source-built `bcrypt.dll`: dynamic `LoadLibrary/GetProcAddress` and ordinary linked/IAT paths both report exports/RNG/SHA-256 PASS with exit code 0.
-
-A **preferred single-DLL candidate** now passes CI:
-
-- source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
-- run `33513084915`, job `99873297193`, success;
 - runtime artifact `9802703271`, digest `sha256:e6ea796ef5f7dfb67e346630cd6432c9659e6d90d39ce90b8f44a1b3632edc8f`;
 - diagnostics artifact `9802704126`, digest `sha256:d989ce72af60185cb16b0ff99d156ed39170beab00055e776b881ee2cc54e6de`.
 
-This candidate compiles the pinned active mbedTLS C modules directly into `bcrypt.dll`, removes the runtime `mbedtls` import-library dependency, and preserves the required BCrypt ABI. The mbedTLS implementation sources remain unmodified; their per-source compile context explicitly undefines `__WINESRC__`, matching the important semantic difference of the previously successful standalone mbedTLS target while `bcrypt_main.c` remains in its normal bcrypt/Wine context.
+The pinned active mbedTLS C modules are compiled directly into `bcrypt.dll`; the separate runtime `mbedtls.dll` dependency is removed. Embedded mbedTLS sources use `-U__WINESRC__` to preserve the compile semantics of the previously successful standalone mbedTLS target, while `bcrypt_main.c` remains in its normal bcrypt/Wine context. The bcrypt and mbedTLS C implementation sources themselves remain unmodified.
 
-CI proves that the final single `bcrypt.dll` links, does not import `mbedtls.dll`, passes the current XP forbidden-import gate, retains the required BCrypt exports, and passes exact-local dynamic exports/RNG/SHA-256 execution against the staged local DLL. The hosted linked consumer reports `C:\Windows\System32\bcrypt.dll` because Windows Server 2022 resolves that linked name through the system KnownDLL path; therefore the hosted linked pass is not evidence that the staged local candidate executed through IAT resolution.
+CI proves that the final single `bcrypt.dll` links, does not import `mbedtls.dll`, passes the current XP forbidden-import gate, retains the required BCrypt exports, and passes exact-local hosted dynamic exports/RNG/SHA-256 execution against the staged local DLL.
 
-**Immediate bcrypt next step:** run exact runtime artifact `9802703271` unchanged on physical Windows XP SP3 x86. Require both dynamic and linked consumers to report the local artifact path plus exports/RNG/SHA-256 PASS and exit code 0. If that passes, the single-DLL build becomes the selected Firefox integration contract and the two-DLL closure is retained only as the physically proven historical baseline/fallback. Until then, do not claim the single-DLL candidate is physically proven.
+Physical Windows XP SP3 x86 (`Microsoft Windows XP [Version 5.1.2600]`) now closes the runtime boundary for the exact artifact. The extracted runtime directory contains exactly five files and only one DLL, `bcrypt.dll` (`520704` bytes); there is no `mbedtls.dll`. Both independent consumers load the same app-local path `D:\2026\09\01\onecore-bcrypt-source-xp-x86-runtime\bcrypt.dll` and report `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, with `DynamicExitCode=0` and `LinkedExitCode=0`. User-recorded SHA-1 for the proven `bcrypt.dll` is `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`.
 
-The earlier prebuilt One-Core `Check integrity`, `ERROR_INVALID_IMAGE_HASH`, `bcryptext` forwarder and `DLL_INIT_FAILED` experiments remain historical diagnostics only and must not be mixed with the source-built closure.
+Therefore the selected focused runtime closure is one deployable app-local DLL:
+
+`bcrypt.dll -> XP-era system DLLs`
+
+with the required mbedTLS implementation embedded into the DLL itself.
+
+The earlier physically proven two-DLL source-built closure remains historical fallback/baseline evidence:
+
+- source `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- run `33493625367`, job `99810642354`;
+- runtime artifact `9794971087`;
+- closure `bcrypt.dll -> mbedtls.dll -> XP-era system DLLs`.
+
+It is no longer the selected packaging contract. Earlier prebuilt One-Core `Check integrity`, `ERROR_INVALID_IMAGE_HASH`, `bcryptext` forwarder and `DLL_INIT_FAILED` experiments remain historical diagnostics only and must not be mixed with either source-built closure.
+
+**Next bcrypt work is integration, not research:** reproduce this exact single-DLL source/build/provenance contract in the full XP x32 Firefox workflow, stage only the resulting `bcrypt.dll`, retain PE/import and package-survival gates, and test the resulting exact browser artifact on physical XP.
 
 Detailed status: `XP_BCRYPT_STATUS.md`.
 
@@ -179,7 +184,7 @@ Current full-browser work order:
 
 1. prove the ten-API synchronization aliases are actually consumed by all four core Firefox PEs in a full build;
 2. keep the physically proven msvcr14x runtime/package contract green;
-3. physically validate single-DLL bcrypt artifact `9802703271`; if it passes, transfer that one-DLL contract into the full package, otherwise retain the proven `bcrypt.dll + mbedtls.dll` closure;
+3. transfer the physically proven single-DLL bcrypt contract from source `a30a701...` / run `33513084915` into the full package and require package survival;
 4. regenerate the surviving broad import inventory after those already-proven families are removed;
 5. remediate remaining Firefox-owned and separately linked component imports at their source/build/dependency boundary where practical;
 6. test the exact resulting package on physical XP for startup and ordinary browsing;
@@ -237,7 +242,7 @@ Current localization blocker: repair Gate D to validate the actual final `omni.j
 - `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
 - Focused XP dependency runtime success != full Firefox XP startup.
 - Source-built bcrypt physical-XP success != synchronization/import closure.
-- Single-DLL bcrypt CI success != physical-XP runtime proof until exact artifact `9802703271` passes both consumers on XP.
+- Single-DLL bcrypt physical-XP success proves only the focused app-local bcrypt dependency/runtime contract, not Firefox startup.
 - GOST runtime != Windows compatibility.
 - Extension/localization packaging != extension runtime, UI runtime, GOST runtime, or old-Windows runtime.
 - Documentation HEADs never replace the exact source-under-test SHA for a previously built or runtime-tested artifact.
