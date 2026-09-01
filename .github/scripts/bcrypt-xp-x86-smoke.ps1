@@ -34,23 +34,32 @@ $headers = @{ 'User-Agent' = 'r3dfox-gost-bcrypt-xp-smoke' }
 $treeApi = "https://api.github.com/repos/$env:ONECORE_REPO/git/trees/$env:ONECORE_COMMIT`?recursive=1"
 $treeResponse = Invoke-RestMethod -Headers $headers -Uri $treeApi
 if (-not $treeResponse.tree) { throw 'Pinned upstream Git tree is empty' }
-$prefix = "$env:ONECORE_BASE_PATH/"
+$sourcePrefixes = @(
+  "$env:ONECORE_BASE_PATH/",
+  'Packages/x86/Pack Installer/extensions/'
+)
 $byName = @{}
 foreach ($entry in $treeResponse.tree) {
-  if ($entry.type -ne 'blob' -or -not $entry.path.StartsWith($prefix, [System.StringComparison]::Ordinal)) { continue }
-  $relative = $entry.path.Substring($prefix.Length)
-  if ($relative.Contains('/')) { continue }
-  $name = $relative
-  $download = "https://raw.githubusercontent.com/$env:ONECORE_REPO/$env:ONECORE_COMMIT/$($entry.path)"
-  $byName[$name.ToLowerInvariant()] = [pscustomobject]@{
-    name = $name
-    path = $entry.path
-    sha = $entry.sha
-    size = [int64]$entry.size
-    download_url = $download
+  if ($entry.type -ne 'blob') { continue }
+  foreach ($prefix in $sourcePrefixes) {
+    if (-not $entry.path.StartsWith($prefix, [System.StringComparison]::Ordinal)) { continue }
+    $relative = $entry.path.Substring($prefix.Length)
+    if ($relative.Contains('/')) { break }
+    $name = $relative
+    $download = "https://raw.githubusercontent.com/$env:ONECORE_REPO/$env:ONECORE_COMMIT/$($entry.path)"
+    $key = $name.ToLowerInvariant()
+    if ($byName.ContainsKey($key)) { throw "Duplicate One-Core candidate basename across searched roots: $name" }
+    $byName[$key] = [pscustomobject]@{
+      name = $name
+      path = $entry.path
+      sha = $entry.sha
+      size = [int64]$entry.size
+      download_url = $download
+    }
+    break
   }
 }
-if (-not $byName.ContainsKey('bcrypt.dll')) { throw 'Pinned upstream directory does not contain bcrypt.dll' }
+if (-not $byName.ContainsKey('bcrypt.dll')) { throw 'Pinned upstream roots do not contain bcrypt.dll' }
 $bcryptMeta = $byName['bcrypt.dll']
 if ($bcryptMeta.sha -ne $env:BCRYPT_BLOB_SHA1) { throw "bcrypt Git blob changed: $($bcryptMeta.sha)" }
 if ([int64]$bcryptMeta.size -ne [int64]$env:BCRYPT_SIZE) { throw "bcrypt size changed: $($bcryptMeta.size)" }
@@ -80,11 +89,12 @@ $closure = [System.Collections.Generic.List[string]]::new()
 $summary = [System.Collections.Generic.List[string]]::new()
 $hashes = [System.Collections.Generic.List[string]]::new()
 $violations = [System.Collections.Generic.List[string]]::new()
+$forwarders = [System.Collections.Generic.List[string]]::new()
 while ($queue.Count -gt 0) {
   $name = $queue.Dequeue().ToLowerInvariant()
   if ($seen.ContainsKey($name)) { continue }
   $seen[$name] = $true
-  if (-not $byName.ContainsKey($name)) { throw "Required local dependency is absent from pinned upstream directory: $name" }
+  if (-not $byName.ContainsKey($name)) { throw "Required local dependency is absent from pinned upstream roots: $name" }
   $meta = $byName[$name]
   $dst = Join-Path $env:GITHUB_WORKSPACE ("onecore\" + $meta.name)
   Invoke-WebRequest -Headers $headers -Uri $meta.download_url -OutFile $dst
@@ -111,12 +121,27 @@ while ($queue.Count -gt 0) {
 
   $modules = @([regex]::Matches($importsOut,'(?im)^\s*([A-Za-z0-9_.-]+\.(?:dll|drv))\s*$') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
   foreach ($dep in $modules) {
-    $summary.Add("$($meta.name) -> $dep")
+    $summary.Add("$($meta.name) -> import:$dep")
     if ($dep -match $obviousPostXpModules) { $violations.Add("$($meta.name): obvious post-XP module import $dep"); continue }
     if ($xpSystemSet.ContainsKey($dep)) { continue }
     if ($byName.ContainsKey($dep)) { if(-not $seen.ContainsKey($dep)){ $queue.Enqueue($dep) }; continue }
     $violations.Add("$($meta.name): unresolved non-XP-system dependency $dep")
   }
+
+  $forwarded = @([regex]::Matches($exportsOut,'(?im)forwarded to\s+([A-Za-z0-9_.-]+)\.([A-Za-z0-9_@$?]+)') | ForEach-Object {
+    [pscustomobject]@{ module = $_.Groups[1].Value.ToLowerInvariant(); symbol = $_.Groups[2].Value }
+  })
+  foreach ($fwd in $forwarded) {
+    $dep = $fwd.module
+    if (-not $dep.EndsWith('.dll')) { $dep += '.dll' }
+    $forwarders.Add("$($meta.name) -> $dep!$($fwd.symbol)")
+    $summary.Add("$($meta.name) -> forwarder:$dep!$($fwd.symbol)")
+    if ($dep -match $obviousPostXpModules) { $violations.Add("$($meta.name): obvious post-XP forwarder module $dep"); continue }
+    if ($xpSystemSet.ContainsKey($dep)) { continue }
+    if ($byName.ContainsKey($dep)) { if(-not $seen.ContainsKey($dep)){ $queue.Enqueue($dep) }; continue }
+    $violations.Add("$($meta.name): unresolved export-forwarder dependency $dep!$($fwd.symbol)")
+  }
+
   foreach ($apiName in $obviousPostXpApis) {
     if ($importsOut -match "(?im)^\s*[0-9A-F]+\s+$([regex]::Escape($apiName))\s*$") {
       $violations.Add("$($meta.name): obvious post-XP hard import $apiName")
@@ -126,11 +151,12 @@ while ($queue.Count -gt 0) {
 $closure | Set-Content -Encoding utf8 diagnostics\dependency-closure-local-files.txt
 $summary | Set-Content -Encoding utf8 diagnostics\dependency-closure.txt
 $hashes | Set-Content -Encoding utf8 diagnostics\hashes-and-provenance.txt
+$forwarders | Set-Content -Encoding utf8 diagnostics\export-forwarders.txt
 if ($violations.Count -gt 0) {
   $violations | Set-Content -Encoding utf8 diagnostics\xp-obvious-import-violations.txt
   throw "One-Core dependency closure has $($violations.Count) obvious XP compatibility violation(s)"
 }
-'No obvious post-XP hard imports found in the pinned local closure.' | Set-Content -Encoding utf8 diagnostics\xp-obvious-import-violations.txt
+'No obvious post-XP hard imports or unresolved forwarders found in the pinned local closure.' | Set-Content -Encoding utf8 diagnostics\xp-obvious-import-violations.txt
 
 $exports = Get-Content -Raw diagnostics\bcrypt.dll.exports.txt
 $required = @(
