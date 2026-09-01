@@ -15,28 +15,55 @@ env:
   YY_THUNKS_VERSION: "1.2.2"
   YY_THUNKS_TARGET: "5.1.2600.0"
   WINDOWS_XP_SUBSYSTEM: "5.01"
+  EVIDENCE_RUN: "33479649627"
+  EVIDENCE_JOB: "99766203250"
+  EVIDENCE_SHA: "d2f15ee8f0cef8112855c4306014865e422319d3"
 
 jobs:
   kernel32-cluster-smoke:
     name: Core post-XP API cluster / XP x86
     runs-on: windows-2022
-    timeout-minutes: 40
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout test branch
-        uses: actions/checkout@v4
-
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
 
-      - name: Prepare diagnostics
+      - name: Prepare diagnostics and candidate inventory
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force diagnostics | Out-Null
           New-Item -ItemType Directory -Force runtime | Out-Null
+          @(
+            'CreateWaitableTimerExA',
+            'GetTickCount64',
+            'InitializeCriticalSectionEx',
+            'CompareStringOrdinal',
+            'GetCurrentProcessorNumber',
+            'GetFileInformationByHandleEx',
+            'GetFinalPathNameByHandleW',
+            'GetLocaleInfoEx',
+            'LCIDToLocaleName',
+            'LocaleNameToLCID',
+            'SetFileInformationByHandle',
+            'CancelIoEx',
+            'CreateWaitableTimerExW',
+            'CancelSynchronousIo',
+            'GetDynamicTimeZoneInformation',
+            'GetProcessIdOfThread',
+            'GetQueuedCompletionStatusEx',
+            'GetThreadId',
+            'GetTimeZoneInformationForYear',
+            'GetUserPreferredUILanguages',
+            'InitOnceBeginInitialize',
+            'InitOnceComplete',
+            'QueryFullProcessImageNameW',
+            'QueryProcessCycleTime',
+            'QueryThreadCycleTime'
+          ) | Set-Content -Encoding ascii diagnostics\requested-apis.txt
           @(
             "repo=$env:GITHUB_REPOSITORY"
             "test_commit=$env:GITHUB_SHA"
@@ -45,10 +72,14 @@ jobs:
             "pe_machine=x86"
             "yy_thunks_version=$env:YY_THUNKS_VERSION"
             "yy_thunks_target=$env:YY_THUNKS_TARGET"
-            "apis=CreateWaitableTimerExA,GetTickCount64,InitializeCriticalSectionEx,CompareStringOrdinal,GetCurrentProcessorNumber,GetFileInformationByHandleEx,GetFinalPathNameByHandleW,GetLocaleInfoEx,LCIDToLocaleName,LocaleNameToLCID,SetFileInformationByHandle,CancelIoEx"
+            "inventory_evidence_run=$env:EVIDENCE_RUN"
+            "inventory_evidence_job=$env:EVIDENCE_JOB"
+            "inventory_evidence_sha=$env:EVIDENCE_SHA"
+            'evidence_scope=core PEs r3dfox.exe,plugin-container.exe,xul.dll,mozglue.dll; exact sync-import-gate diagnostics plus physical-XP CreateWaitableTimerExA blocker'
+            'proof_level=YY capability + hosted runner only; physical XP remains pending'
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
-          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
-          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          (& cl.exe /nologo /? 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\cl-version.txt
+          (& link.exe /nologo /? 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\link-version.txt
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
@@ -62,20 +93,67 @@ jobs:
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           Expand-Archive -Path $zip -DestinationPath $root
-
           $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
           $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
             Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
             Select-Object -First 1
           if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
-
           $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
           if (-not (Test-Path $kernel32)) { throw 'YY XP x86 kernel32.lib is missing' }
           "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Get-FileHash -Algorithm SHA256 $kernel32 | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\yy-kernel32-sha256.txt
 
-      - name: Build narrow YY core API cluster provider
+      - name: Inventory YY KERNEL32 capability without early failure
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 kernel32.lib' }
+          $members | Set-Content -Encoding utf8 diagnostics\yy-kernel32-members.txt
+          $apis = Get-Content diagnostics\requested-apis.txt | Where-Object { $_ }
+          $report = [System.Collections.Generic.List[string]]::new()
+          $report.Add('API`tDirectMember`tImportMember`tDecoratedSymbol`tStackBytes`tYYSymbol`tProviderCapability')
+          $capable = [System.Collections.Generic.List[string]]::new()
+          foreach ($api in $apis) {
+            $escaped = [regex]::Escape($api)
+            $directMatches = @($members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@(\d+)\.obj$" })
+            $importMatches = @($members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@(\d+)\.obi$" })
+            $direct = if ($directMatches.Count -eq 1) { $directMatches[0] } else { '' }
+            $import = if ($importMatches.Count -eq 1) { $importMatches[0] } else { '' }
+            $decorated = ''
+            $stack = ''
+            $yy = 'false'
+            $capability = 'missing'
+            if ($direct) {
+              if ($direct -match "(?i)[\\/](_${escaped}@(\d+))\.obj$") {
+                $decorated = $matches[1]
+                $stack = $matches[2]
+              }
+              $tmp = Join-Path $env:RUNNER_TEMP ("yy-inventory-" + $api)
+              New-Item -ItemType Directory -Force $tmp | Out-Null
+              Push-Location $tmp
+              try {
+                & lib.exe /nologo "/extract:$direct" $env:THUNK_YY_KERNEL32_LIB *> extract.log
+                $obj = Get-ChildItem -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+                if ($obj) {
+                  $sym = (& dumpbin.exe /nologo /symbols $obj.FullName 2>&1 | Out-String)
+                  if ($sym.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -ge 0) { $yy = 'true' }
+                }
+              } finally { Pop-Location }
+            }
+            if ($direct -and $import -and $decorated -and $yy -eq 'true') {
+              $capability = 'capable'
+              $capable.Add($api)
+            }
+            $report.Add("$api`t$direct`t$import`t$decorated`t$stack`t$yy`t$capability")
+          }
+          $report | Set-Content -Encoding utf8 diagnostics\yy-capability.tsv
+          $capable | Set-Content -Encoding ascii diagnostics\capable-apis.txt
+          $report | ForEach-Object { Write-Host $_ }
+          if ($capable.Count -eq 0) { throw 'YY capability inventory completed but no requested API is usable' }
+
+      - name: Build physically narrow YY provider
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -83,71 +161,71 @@ jobs:
           $selected = Join-Path $work 'selected'
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
           New-Item -ItemType Directory -Force $selected | Out-Null
-
-          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
-          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 kernel32.lib' }
-          $members | Set-Content -Encoding utf8 diagnostics\yy-kernel32-members.txt
-
-          $apis = @(
-            @{ Name='CreateWaitableTimerExA'; Decorated='_CreateWaitableTimerExA@16' },
-            @{ Name='GetTickCount64'; Decorated='_GetTickCount64@0' },
-            @{ Name='InitializeCriticalSectionEx'; Decorated='_InitializeCriticalSectionEx@12' },
-            @{ Name='CompareStringOrdinal'; Decorated='_CompareStringOrdinal@20' },
-            @{ Name='GetCurrentProcessorNumber'; Decorated='_GetCurrentProcessorNumber@0' },
-            @{ Name='GetFileInformationByHandleEx'; Decorated='_GetFileInformationByHandleEx@16' },
-            @{ Name='GetFinalPathNameByHandleW'; Decorated='_GetFinalPathNameByHandleW@16' },
-            @{ Name='GetLocaleInfoEx'; Decorated='_GetLocaleInfoEx@16' },
-            @{ Name='LCIDToLocaleName'; Decorated='_LCIDToLocaleName@16' },
-            @{ Name='LocaleNameToLCID'; Decorated='_LocaleNameToLCID@8' },
-            @{ Name='SetFileInformationByHandle'; Decorated='_SetFileInformationByHandle@16' },
-            @{ Name='CancelIoEx'; Decorated='_CancelIoEx@8' }
-          )
-
-          $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
-          $wanted = [System.Collections.Generic.List[object]]::new()
-          foreach ($api in $apis) {
-            $escaped = [regex]::Escape($api.Decorated)
-            $wanted.Add([pscustomobject]@{ Key="$($api.Name)-direct"; Pattern="(?i)[\\/]$escaped\.obj$" })
-            $wanted.Add([pscustomobject]@{ Key="$($api.Name)-import"; Pattern="(?i)[\\/]$escaped\.obi$" })
-          }
-          $wanted.Add([pscustomobject]@{ Key='implementation'; Pattern=$implementationPattern })
-
+          $members = Get-Content diagnostics\yy-kernel32-members.txt | Where-Object { $_ }
+          $capable = Get-Content diagnostics\capable-apis.txt | Where-Object { $_ }
           $objects = @()
           $memberMap = [System.Collections.Generic.List[string]]::new()
-          foreach ($spec in $wanted) {
-            $matches = @($members | Where-Object { $_ -match $spec.Pattern })
-            if ($matches.Count -ne 1) { throw "Expected one $($spec.Key) member; found $($matches.Count)" }
-            $dir = Join-Path $selected $spec.Key
-            New-Item -ItemType Directory -Force $dir | Out-Null
-            Push-Location $dir
-            try {
-              & lib.exe /nologo "/extract:$($matches[0])" $env:THUNK_YY_KERNEL32_LIB *> extract.log
-              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
-            } finally { Pop-Location }
-            $file = Get-ChildItem -LiteralPath $dir -File |
-              Where-Object { $_.Name -ne 'extract.log' } |
-              Sort-Object Length -Descending | Select-Object -First 1
-            if (-not $file) { throw "No extracted object for $($spec.Key)" }
-            $dst = Join-Path $dir 'member.obj'
-            Copy-Item -Force $file.FullName $dst
-            (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String) |
-              Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
-            $objects += $dst
-            $memberMap.Add("$($spec.Key)|$($matches[0])")
+          foreach ($api in $capable) {
+            $escaped = [regex]::Escape($api)
+            foreach ($kind in @('obj','obi')) {
+              $matches = @($members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@\d+\.$kind$" })
+              if ($matches.Count -ne 1) { throw "Expected one $api $kind member; found $($matches.Count)" }
+              $key = "$api-$kind"
+              $dir = Join-Path $selected $key
+              New-Item -ItemType Directory -Force $dir | Out-Null
+              Push-Location $dir
+              try {
+                & lib.exe /nologo "/extract:$($matches[0])" $env:THUNK_YY_KERNEL32_LIB *> extract.log
+                if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
+              } finally { Pop-Location }
+              $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+              if (-not $file) { throw "No extracted object for $key" }
+              $dst = Join-Path $dir 'member.obj'
+              Copy-Item -Force $file.FullName $dst
+              $objects += $dst
+              $memberMap.Add("$key|$($matches[0])")
+            }
           }
+          $implMatches = @($members | Where-Object { $_ -match ('(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$') })
+          if ($implMatches.Count -ne 1) { throw "Expected one common implementation member; found $($implMatches.Count)" }
+          $implDir = Join-Path $selected 'implementation'
+          New-Item -ItemType Directory -Force $implDir | Out-Null
+          Push-Location $implDir
+          try {
+            & lib.exe /nologo "/extract:$($implMatches[0])" $env:THUNK_YY_KERNEL32_LIB *> extract.log
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to extract common YY implementation' }
+          } finally { Pop-Location }
+          $implObj = Get-ChildItem -LiteralPath $implDir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+          $implDst = Join-Path $implDir 'member.obj'
+          Copy-Item -Force $implObj.FullName $implDst
+          $objects += $implDst
+          $memberMap.Add("implementation|$($implMatches[0])")
           $memberMap | Set-Content -Encoding utf8 diagnostics\selected-members.txt
-
           $narrow = Join-Path $work 'yy-xp-core-kernel32-cluster.lib'
           & lib.exe /nologo "/out:$narrow" @objects
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) { throw 'Failed to build narrow YY XP core cluster provider' }
+          (& lib.exe /nologo /list $narrow 2>&1) | Set-Content -Encoding utf8 diagnostics\narrow-provider-members.txt
           $symbols = (& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 diagnostics\narrow-provider-symbols.txt
-          foreach ($api in $apis) {
-            $required = "YY_Thunks_$($api.Name)"
-            if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
+          foreach ($api in $capable) {
+            if ($symbols.IndexOf("YY_Thunks_$api", [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing YY_Thunks_$api" }
           }
+          $actualMemberCount = @(& lib.exe /nologo /list $narrow 2>&1 | Where-Object { "$_".Trim() }).Count
+          $expectedMax = (2 * $capable.Count) + 1
+          if ($actualMemberCount -gt $expectedMax) { throw "Narrow provider member count $actualMemberCount exceeds expected $expectedMax" }
           "NARROW_YY_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Generate capability header
+        shell: powershell
+        run: |
+          $all = Get-Content diagnostics\requested-apis.txt | Where-Object { $_ }
+          $capable = @(Get-Content diagnostics\capable-apis.txt | Where-Object { $_ })
+          $lines = [System.Collections.Generic.List[string]]::new()
+          foreach ($api in $all) {
+            $value = if ($capable -contains $api) { 1 } else { 0 }
+            $lines.Add("#define HAVE_$api $value")
+          }
+          $lines | Set-Content -Encoding ascii capability.h
 
       - name: Build no-CRT XP x86 functional probe
         shell: powershell
@@ -157,80 +235,199 @@ jobs:
           #define WIN32_LEAN_AND_MEAN
           #define _WIN32_WINNT 0x0601
           #include <windows.h>
+          #include "capability.h"
 
+          static LONG failures = 0;
           static HANDLE out_handle(void) { return GetStdHandle(STD_OUTPUT_HANDLE); }
-          static void say(const char* text, DWORD len) {
-            DWORD written = 0;
-            WriteFile(out_handle(), text, len, &written, 0);
-          }
+          static void say(const char* text, DWORD len) { DWORD written = 0; WriteFile(out_handle(), text, len, &written, 0); }
           #define SAY(x) say(x, (DWORD)(sizeof(x) - 1))
-          static void fail(const char* label, DWORD len) {
-            SAY("FAIL "); say(label, len); SAY("\r\n"); ExitProcess(1);
+          #define PASS(api) do { SAY(#api ": PASS\r\n"); } while (0)
+          #define FAIL(api) do { SAY(#api ": FAIL\r\n"); InterlockedIncrement(&failures); } while (0)
+          #define SKIP(api) do { SAY(#api ": SKIP (YY capability missing)\r\n"); } while (0)
+
+          #if HAVE_CreateWaitableTimerExA
+          static BOOL timer_test_a(void) {
+            HANDLE h = CreateWaitableTimerExA(0, 0, 0, TIMER_ALL_ACCESS);
+            if (!h) return FALSE;
+            LARGE_INTEGER due; due.QuadPart = -100000LL;
+            BOOL ok = SetWaitableTimer(h, &due, 0, 0, 0, FALSE);
+            DWORD wr = ok ? WaitForSingleObject(h, 2000) : WAIT_FAILED;
+            CloseHandle(h);
+            return ok && wr == WAIT_OBJECT_0;
           }
-          #define REQUIRE(c, name) do { if (!(c)) fail(name, (DWORD)(sizeof(name) - 1)); else { SAY("PASS "); SAY(name); SAY("\r\n"); } } while (0)
+          #endif
+          #if HAVE_CreateWaitableTimerExW
+          static BOOL timer_test_w(void) {
+            HANDLE h = CreateWaitableTimerExW(0, 0, 0, TIMER_ALL_ACCESS);
+            if (!h) return FALSE;
+            LARGE_INTEGER due; due.QuadPart = -100000LL;
+            BOOL ok = SetWaitableTimer(h, &due, 0, 0, 0, FALSE);
+            DWORD wr = ok ? WaitForSingleObject(h, 2000) : WAIT_FAILED;
+            CloseHandle(h);
+            return ok && wr == WAIT_OBJECT_0;
+          }
+          #endif
 
           extern "C" __declspec(noreturn) void __stdcall EntryPoint(void) {
-            ULONGLONG ticks = GetTickCount64();
-            (void)ticks;
-            SAY("PASS GetTickCount64\r\n");
-
-            DWORD cpu = GetCurrentProcessorNumber();
-            (void)cpu;
-            SAY("PASS GetCurrentProcessorNumber\r\n");
-
-            REQUIRE(CompareStringOrdinal(L"abc", 3, L"abc", 3, TRUE) == CSTR_EQUAL, "CompareStringOrdinal");
-
-            CRITICAL_SECTION cs;
-            REQUIRE(InitializeCriticalSectionEx(&cs, 0, 0) != FALSE, "InitializeCriticalSectionEx");
-            EnterCriticalSection(&cs);
-            LeaveCriticalSection(&cs);
-            DeleteCriticalSection(&cs);
-
-            HANDLE timer = CreateWaitableTimerExA(0, 0, 0, TIMER_ALL_ACCESS);
-            REQUIRE(timer != 0, "CreateWaitableTimerExA");
-            CloseHandle(timer);
-
-            WCHAR localeName[LOCALE_NAME_MAX_LENGTH];
-            int localeNameLen = LCIDToLocaleName(GetUserDefaultLCID(), localeName, LOCALE_NAME_MAX_LENGTH, 0);
-            REQUIRE(localeNameLen > 0, "LCIDToLocaleName");
-            REQUIRE(LocaleNameToLCID(localeName, 0) != 0, "LocaleNameToLCID");
-            WCHAR localeValue[128];
-            REQUIRE(GetLocaleInfoEx(localeName, LOCALE_SLANGUAGE, localeValue, 128) > 0, "GetLocaleInfoEx");
+          #if HAVE_CreateWaitableTimerExA
+            if (timer_test_a()) PASS(CreateWaitableTimerExA); else FAIL(CreateWaitableTimerExA);
+          #else
+            SKIP(CreateWaitableTimerExA);
+          #endif
+          #if HAVE_GetTickCount64
+            (void)GetTickCount64(); PASS(GetTickCount64);
+          #else
+            SKIP(GetTickCount64);
+          #endif
+          #if HAVE_InitializeCriticalSectionEx
+            { CRITICAL_SECTION cs; if (InitializeCriticalSectionEx(&cs,0,0)) { EnterCriticalSection(&cs); LeaveCriticalSection(&cs); DeleteCriticalSection(&cs); PASS(InitializeCriticalSectionEx); } else FAIL(InitializeCriticalSectionEx); }
+          #else
+            SKIP(InitializeCriticalSectionEx);
+          #endif
+          #if HAVE_CompareStringOrdinal
+            if (CompareStringOrdinal(L"abc",3,L"abc",3,TRUE)==CSTR_EQUAL) PASS(CompareStringOrdinal); else FAIL(CompareStringOrdinal);
+          #else
+            SKIP(CompareStringOrdinal);
+          #endif
+          #if HAVE_GetCurrentProcessorNumber
+            (void)GetCurrentProcessorNumber(); PASS(GetCurrentProcessorNumber);
+          #else
+            SKIP(GetCurrentProcessorNumber);
+          #endif
 
             WCHAR tempPath[MAX_PATH];
             DWORD pathLen = GetTempPathW(MAX_PATH, tempPath);
-            REQUIRE(pathLen > 0 && pathLen < MAX_PATH - 32, "GetTempPathW-control");
             const WCHAR suffix[] = L"r3dfox-yy-xp-cluster.tmp";
-            DWORD i = 0;
-            for (; i < pathLen; ++i) { }
-            for (DWORD j = 0; suffix[j] && i + 1 < MAX_PATH; ++j) tempPath[i++] = suffix[j];
-            tempPath[i] = 0;
+            DWORD i = pathLen;
+            if (!pathLen || pathLen >= MAX_PATH - 32) { SAY("control-temp-file: FAIL\r\n"); InterlockedIncrement(&failures); }
+            else {
+              for (DWORD j=0; suffix[j] && i+1<MAX_PATH; ++j) tempPath[i++]=suffix[j];
+              tempPath[i]=0;
+              HANDLE file = CreateFileW(tempPath, GENERIC_READ|GENERIC_WRITE|FILE_WRITE_ATTRIBUTES,
+                FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL|FILE_FLAG_DELETE_ON_CLOSE, 0);
+              if (file == INVALID_HANDLE_VALUE) { SAY("control-temp-file: FAIL\r\n"); InterlockedIncrement(&failures); }
+              else {
+          #if HAVE_GetFileInformationByHandleEx
+                { FILE_BASIC_INFO bi; if (GetFileInformationByHandleEx(file,FileBasicInfo,&bi,sizeof(bi))) PASS(GetFileInformationByHandleEx); else FAIL(GetFileInformationByHandleEx); }
+          #else
+                SKIP(GetFileInformationByHandleEx);
+          #endif
+          #if HAVE_SetFileInformationByHandle
+                #if HAVE_GetFileInformationByHandleEx
+                { FILE_BASIC_INFO bi; if (GetFileInformationByHandleEx(file,FileBasicInfo,&bi,sizeof(bi)) && SetFileInformationByHandle(file,FileBasicInfo,&bi,sizeof(bi))) PASS(SetFileInformationByHandle); else FAIL(SetFileInformationByHandle); }
+                #else
+                SAY("SetFileInformationByHandle: SKIP (safe setup capability missing)\r\n");
+                #endif
+          #else
+                SKIP(SetFileInformationByHandle);
+          #endif
+          #if HAVE_GetFinalPathNameByHandleW
+                { WCHAR fp[512]; DWORD n=GetFinalPathNameByHandleW(file,fp,512,FILE_NAME_NORMALIZED); if (n>0 && n<512) PASS(GetFinalPathNameByHandleW); else FAIL(GetFinalPathNameByHandleW); }
+          #else
+                SKIP(GetFinalPathNameByHandleW);
+          #endif
+          #if HAVE_CancelIoEx
+                { SetLastError(ERROR_SUCCESS); BOOL r=CancelIoEx(file,0); DWORD e=GetLastError(); if (r || e==ERROR_NOT_FOUND || e==ERROR_SUCCESS) PASS(CancelIoEx); else FAIL(CancelIoEx); }
+          #else
+                SKIP(CancelIoEx);
+          #endif
+                CloseHandle(file);
+              }
+            }
 
-            HANDLE file = CreateFileW(tempPath,
-              GENERIC_READ | GENERIC_WRITE | FILE_WRITE_ATTRIBUTES,
-              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-              0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, 0);
-            REQUIRE(file != INVALID_HANDLE_VALUE, "CreateFileW-control");
+          #if HAVE_LCIDToLocaleName
+            WCHAR localeName[LOCALE_NAME_MAX_LENGTH]; int localeNameLen=LCIDToLocaleName(GetUserDefaultLCID(),localeName,LOCALE_NAME_MAX_LENGTH,0); if (localeNameLen>0) PASS(LCIDToLocaleName); else FAIL(LCIDToLocaleName);
+          #else
+            WCHAR localeName[LOCALE_NAME_MAX_LENGTH]; localeName[0]=L'e'; localeName[1]=L'n'; localeName[2]=L'-'; localeName[3]=L'U'; localeName[4]=L'S'; localeName[5]=0; SKIP(LCIDToLocaleName);
+          #endif
+          #if HAVE_LocaleNameToLCID
+            if (LocaleNameToLCID(localeName,0)!=0) PASS(LocaleNameToLCID); else FAIL(LocaleNameToLCID);
+          #else
+            SKIP(LocaleNameToLCID);
+          #endif
+          #if HAVE_GetLocaleInfoEx
+            { WCHAR value[128]; if (GetLocaleInfoEx(localeName,LOCALE_SLANGUAGE,value,128)>0) PASS(GetLocaleInfoEx); else FAIL(GetLocaleInfoEx); }
+          #else
+            SKIP(GetLocaleInfoEx);
+          #endif
 
-            FILE_BASIC_INFO basicInfo;
-            REQUIRE(GetFileInformationByHandleEx(file, FileBasicInfo, &basicInfo, sizeof(basicInfo)) != FALSE,
-                    "GetFileInformationByHandleEx");
-            REQUIRE(SetFileInformationByHandle(file, FileBasicInfo, &basicInfo, sizeof(basicInfo)) != FALSE,
-                    "SetFileInformationByHandle");
+          #if HAVE_CreateWaitableTimerExW
+            if (timer_test_w()) PASS(CreateWaitableTimerExW); else FAIL(CreateWaitableTimerExW);
+          #else
+            SKIP(CreateWaitableTimerExW);
+          #endif
+          #if HAVE_CancelSynchronousIo
+            { SetLastError(ERROR_SUCCESS); BOOL r=CancelSynchronousIo(GetCurrentThread()); DWORD e=GetLastError(); if (r || e==ERROR_NOT_FOUND) PASS(CancelSynchronousIo); else FAIL(CancelSynchronousIo); }
+          #else
+            SKIP(CancelSynchronousIo);
+          #endif
+          #if HAVE_GetDynamicTimeZoneInformation
+            { DYNAMIC_TIME_ZONE_INFORMATION dtzi; if (GetDynamicTimeZoneInformation(&dtzi)!=TIME_ZONE_ID_INVALID) PASS(GetDynamicTimeZoneInformation); else FAIL(GetDynamicTimeZoneInformation); }
+          #else
+            SKIP(GetDynamicTimeZoneInformation);
+          #endif
+          #if HAVE_GetProcessIdOfThread
+            if (GetProcessIdOfThread(GetCurrentThread())==GetCurrentProcessId()) PASS(GetProcessIdOfThread); else FAIL(GetProcessIdOfThread);
+          #else
+            SKIP(GetProcessIdOfThread);
+          #endif
+          #if HAVE_GetQueuedCompletionStatusEx
+            { HANDLE cp=CreateIoCompletionPort(INVALID_HANDLE_VALUE,0,0,1); if (!cp) FAIL(GetQueuedCompletionStatusEx); else { OVERLAPPED_ENTRY entry; ULONG removed=0; SetLastError(ERROR_SUCCESS); BOOL r=GetQueuedCompletionStatusEx(cp,&entry,1,&removed,0,FALSE); DWORD e=GetLastError(); if ((!r && e==WAIT_TIMEOUT) || (r && removed==0)) PASS(GetQueuedCompletionStatusEx); else FAIL(GetQueuedCompletionStatusEx); CloseHandle(cp); } }
+          #else
+            SKIP(GetQueuedCompletionStatusEx);
+          #endif
+          #if HAVE_GetThreadId
+            if (GetThreadId(GetCurrentThread())==GetCurrentThreadId()) PASS(GetThreadId); else FAIL(GetThreadId);
+          #else
+            SKIP(GetThreadId);
+          #endif
+          #if HAVE_GetUserPreferredUILanguages
+            { ULONG count=0; ULONG chars=0; SetLastError(ERROR_SUCCESS); BOOL r=GetUserPreferredUILanguages(MUI_LANGUAGE_NAME,&count,0,&chars); if (r && chars>0) PASS(GetUserPreferredUILanguages); else FAIL(GetUserPreferredUILanguages); }
+          #else
+            SKIP(GetUserPreferredUILanguages);
+          #endif
+          #if HAVE_InitOnceBeginInitialize && HAVE_InitOnceComplete
+            { INIT_ONCE once=INIT_ONCE_STATIC_INIT; BOOL pending=FALSE; PVOID context=0; if (InitOnceBeginInitialize(&once,0,&pending,&context) && pending) { PASS(InitOnceBeginInitialize); if (InitOnceComplete(&once,0,0)) PASS(InitOnceComplete); else FAIL(InitOnceComplete); } else { FAIL(InitOnceBeginInitialize); FAIL(InitOnceComplete); } }
+          #else
+            #if HAVE_InitOnceBeginInitialize
+              SAY("InitOnceBeginInitialize: SKIP (paired capability missing)\r\n");
+            #else
+              SKIP(InitOnceBeginInitialize);
+            #endif
+            #if HAVE_InitOnceComplete
+              SAY("InitOnceComplete: SKIP (paired capability missing)\r\n");
+            #else
+              SKIP(InitOnceComplete);
+            #endif
+          #endif
+          #if HAVE_QueryFullProcessImageNameW
+            { WCHAR path[512]; DWORD n=512; if (QueryFullProcessImageNameW(GetCurrentProcess(),0,path,&n) && n>0) PASS(QueryFullProcessImageNameW); else FAIL(QueryFullProcessImageNameW); }
+          #else
+            SKIP(QueryFullProcessImageNameW);
+          #endif
+          #if HAVE_QueryProcessCycleTime
+            { ULONG64 cycles=0; if (QueryProcessCycleTime(GetCurrentProcess(),&cycles)) PASS(QueryProcessCycleTime); else FAIL(QueryProcessCycleTime); }
+          #else
+            SKIP(QueryProcessCycleTime);
+          #endif
+          #if HAVE_QueryThreadCycleTime
+            { ULONG64 cycles=0; if (QueryThreadCycleTime(GetCurrentThread(),&cycles)) PASS(QueryThreadCycleTime); else FAIL(QueryThreadCycleTime); }
+          #else
+            SKIP(QueryThreadCycleTime);
+          #endif
+          #if HAVE_GetTimeZoneInformationForYear
+            #if HAVE_GetDynamicTimeZoneInformation
+              { SYSTEMTIME st; GetSystemTime(&st); DYNAMIC_TIME_ZONE_INFORMATION dtzi; TIME_ZONE_INFORMATION tzi; if (GetDynamicTimeZoneInformation(&dtzi)!=TIME_ZONE_ID_INVALID && GetTimeZoneInformationForYear(st.wYear,&dtzi,&tzi)) PASS(GetTimeZoneInformationForYear); else FAIL(GetTimeZoneInformationForYear); }
+            #else
+              SAY("GetTimeZoneInformationForYear: SKIP (setup capability missing)\r\n");
+            #endif
+          #else
+            SKIP(GetTimeZoneInformationForYear);
+          #endif
 
-            WCHAR finalPath[512];
-            REQUIRE(GetFinalPathNameByHandleW(file, finalPath, 512, FILE_NAME_NORMALIZED) > 0,
-                    "GetFinalPathNameByHandleW");
-
-            SetLastError(ERROR_SUCCESS);
-            BOOL cancelResult = CancelIoEx(file, 0);
-            DWORD cancelError = GetLastError();
-            REQUIRE(cancelResult != FALSE || cancelError == ERROR_NOT_FOUND || cancelError == ERROR_SUCCESS,
-                    "CancelIoEx");
-
-            CloseHandle(file);
-            SAY("ALL PASS\r\n");
-            ExitProcess(0);
+            if (failures == 0) { SAY("Overall: PASS\r\n"); SAY("ExitCode=0\r\n"); ExitProcess(0); }
+            SAY("Overall: FAIL\r\n"); SAY("ExitCode=1\r\n"); ExitProcess(1);
           }
           '@ | Set-Content -Encoding ascii probe.cpp
 
@@ -238,35 +435,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & link.exe /nologo /machine:x86 /subsystem:console,$env:WINDOWS_XP_SUBSYSTEM /entry:_EntryPoint@0 /nodefaultlib /dynamicbase:no /nxcompat:no /out:runtime\xp-core-kernel32-cluster.exe probe.obj "/wholearchive:$env:NARROW_YY_LIB" kernel32.lib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
           & dumpbin.exe /nologo /headers runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-headers.txt
           & dumpbin.exe /nologo /imports runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-imports.txt
           & dumpbin.exe /nologo /dependents runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-dependents.txt
-          Get-FileHash -Algorithm SHA256 runtime\xp-core-kernel32-cluster.exe | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
 
-      - name: GATE - Reject clustered post-XP direct imports
+      - name: GATE - PE contract and no clustered post-XP direct imports
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $exe = 'runtime\xp-core-kernel32-cluster.exe'
           $headers = @(& dumpbin.exe /nologo /headers $exe 2>&1)
+          if (-not ($headers | Where-Object { $_ -match '(?i)machine \(x86\)' })) { throw 'Probe is not x86' }
           $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
           if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw 'Cannot parse probe subsystem version' }
-          $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
-          if ($version -gt [version]'5.1') { throw "Probe subsystem $version is newer than XP x86 5.01" }
-
-          $imports = @(& dumpbin.exe /nologo /imports $exe 2>&1)
-          $text = $imports -join "`n"
-          $apis = @(
-            'CreateWaitableTimerExA','GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal',
-            'GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
-            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx'
-          )
-          foreach ($api in $apis) {
+          if ([version]("$([int]$matches[1]).$([int]$matches[2])") -gt [version]'5.1') { throw "Probe subsystem is newer than XP x86 5.01" }
+          $text = (@(& dumpbin.exe /nologo /imports $exe 2>&1) -join "`n")
+          $capable = Get-Content diagnostics\capable-apis.txt | Where-Object { $_ }
+          foreach ($api in $capable) {
             if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "Probe retains forbidden direct import $api" }
           }
-          foreach ($forbiddenDll in @('api-ms-win-','ext-ms-','KERNELBASE.dll','VCRUNTIME140.dll','ucrtbase.dll')) {
-            if ($text.IndexOf($forbiddenDll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Probe retains forbidden dependency $forbiddenDll" }
+          foreach ($forbiddenDll in @('api-ms-win-','ext-ms-','KERNELBASE.dll','VCRUNTIME140.dll','ucrtbase.dll','bcrypt.dll')) {
+            if ($text.IndexOf($forbiddenDll,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Probe retains forbidden dependency $forbiddenDll" }
           }
           'cluster_import_gate=PASS' | Set-Content -Encoding ascii diagnostics\cluster-import-gate.txt
 
@@ -277,18 +466,38 @@ jobs:
           & .\runtime\xp-core-kernel32-cluster.exe | Tee-Object -FilePath diagnostics\hosted-run.txt
           if ($LASTEXITCODE -ne 0) { throw "Hosted probe failed with exit code $LASTEXITCODE" }
 
-      - name: Write physical XP instructions
+      - name: Build physical XP runtime bundle
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           @'
-          Physical Windows XP SP3 x86 acceptance:
-          1. Extract the artifact without adding system DLLs.
-          2. Run xp-core-kernel32-cluster.exe from cmd.exe.
-          3. Expected final line: ALL PASS
-          4. Record: echo ExitCode=%ERRORLEVEL%
-          5. Expected exit code: 0
-          6. Record SHA-256 or SHA-1 of the exact EXE tested.
+          @echo off
+          echo XP x86 core KERNEL32 cluster runtime probe
+          xp-core-kernel32-cluster.exe
+          set EC=%ERRORLEVEL%
+          echo DriverExitCode=%EC%
+          exit /b %EC%
+          '@ | Set-Content -Encoding ascii runtime\run-xp-cluster.cmd
+          @'
+          Physical Windows XP SP3 x86 acceptance
+          =======================================
+          Evidence source for candidate selection: run 33479649627 / job 99766203250 / d2f15ee8f0cef8112855c4306014865e422319d3.
+          This artifact is capability/runtime characterization only. It is NOT a production remediation decision.
+
+          1. Extract this artifact on physical Windows XP SP3 x86.
+          2. Run: run-xp-cluster.cmd
+          3. Preserve the complete stdout.
+          4. Expected successful tail: Overall: PASS / ExitCode=0 / DriverExitCode=0.
+          5. SKIP means YY-Thunks 1.2.2 did not provide the narrow provider contract for that API (or a paired setup capability was missing).
+          6. Physical-XP proof is established only by this physical run, never by the hosted CI result.
           '@ | Set-Content -Encoding ascii runtime\README-XP.txt
+          Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
+          $manifest = Get-ChildItem runtime -File | ForEach-Object {
+            $h = Get-FileHash -Algorithm SHA256 $_.FullName
+            "$($h.Hash.ToLowerInvariant())  $($_.Name)"
+          }
+          $manifest | Set-Content -Encoding ascii runtime\SHA256SUMS.txt
+          Get-FileHash -Algorithm SHA256 runtime\xp-core-kernel32-cluster.exe | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
 
       - name: Upload XP x86 cluster runtime
         uses: actions/upload-artifact@v4
