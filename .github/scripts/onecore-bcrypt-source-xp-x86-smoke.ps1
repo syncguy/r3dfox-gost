@@ -79,8 +79,16 @@ ninja bcrypt
 exit /b %errorlevel%
 "@ | Set-Content -Encoding ascii $buildCmd
 
-& cmd.exe /d /c $buildCmd *>&1 | Tee-Object -FilePath (Join-Path $diag 'build.log')
-if ($LASTEXITCODE -ne 0) { throw "One-Core bcrypt build failed with $LASTEXITCODE" }
+$oldErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+  & cmd.exe /d /c $buildCmd *>&1 | Tee-Object -FilePath (Join-Path $diag 'build.log')
+  $buildExit = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $oldErrorActionPreference
+}
+"exit_code=$buildExit" | Set-Content -Encoding ascii (Join-Path $diag 'build-exit-code.txt')
+if ($buildExit -ne 0) { throw "One-Core bcrypt build failed with $buildExit" }
 
 $candidates = @(Get-ChildItem $out -Recurse -Filter bcrypt.dll -File)
 if ($candidates.Count -eq 0) { throw 'Built bcrypt.dll not found' }
