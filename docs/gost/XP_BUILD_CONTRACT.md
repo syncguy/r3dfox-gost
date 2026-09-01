@@ -68,9 +68,34 @@ On physical Windows XP SP3 x86 (`Microsoft Windows XP [Version 5.1.2600]`), the 
 Physical-file identity recorded by the user for the proven DLL:
 
 - size: `520704` bytes;
-- SHA-1: `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`.
+- SHA-1: `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`;
+- SHA-256: `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
 
 Therefore the single-DLL source-built bcrypt closure satisfies the physical-runtime requirement of this contract at focused dependency scale and is the selected implementation for full-browser transfer.
+
+### Canonical reusable binary distribution
+
+The exact physically proven binary is published as a raw GitHub Release asset in this repository so full Firefox builds and experiment branches do not need to rebuild One-Core on every run:
+
+- tag `xp-bcrypt-v1`;
+- tag target `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- release `XP bcrypt primitive v1`, release ID `380563342`, prerelease/technical distribution;
+- release asset ID `539647946`;
+- asset name `bcrypt.dll`;
+- asset size `520704` bytes;
+- asset digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
+
+Publication was performed by source `76225fcf95e4e484f0cec30c8e25a235119b0256`, workflow run `33518189052`, job `99890447193`. That publisher source is infrastructure identity only; it does not replace `a30a701...` as the source-under-test for the binary.
+
+Consumption contract for full/browser workflows and other branches:
+
+1. obtain `bcrypt.dll` from release tag `xp-bcrypt-v1` (an Actions cache may be used only as an acceleration layer);
+2. require exact SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193` and size `520704` before staging;
+3. on cache miss, download the canonical release asset; **do not silently rebuild One-Core** inside the heavy Firefox workflow;
+4. stage only `bcrypt.dll`; no `mbedtls.dll` belongs to the selected runtime closure;
+5. preserve PE/import and post-package survival gates after staging.
+
+The focused One-Core smoke remains the build/provenance path for producing a future replacement. A replacement must receive a new tag/version and physical XP proof before it supersedes `xp-bcrypt-v1`.
 
 The earlier physically proven two-DLL source-built closure remains historical fallback/baseline evidence:
 
@@ -81,7 +106,7 @@ The earlier physically proven two-DLL source-built closure remains historical fa
 
 It is no longer the selected packaging contract. The earlier prebuilt forwarder/Code-Integrity experiments remain historical evidence only and must not be mixed with either source-built closure.
 
-Full-browser adoption is still a separate integration step: reproduce this exact single-DLL source/build composition in the XP x32 Firefox workflow, stage only the resulting `bcrypt.dll`, preserve provenance/import/package-survival gates, and test the resulting exact browser artifact on physical XP. Independent SRW/condition-variable and other post-XP imports remain separate blockers.
+Full-browser adoption is still a separate integration step: consume the exact `xp-bcrypt-v1` raw release asset, verify its fixed SHA-256/size, stage only `bcrypt.dll`, preserve provenance/import/package-survival gates, and test the resulting exact browser artifact on physical XP. Independent SRW/condition-variable and other post-XP imports remain separate blockers.
 
 Detailed status is recorded in `XP_BCRYPT_STATUS.md`.
 
