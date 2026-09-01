@@ -25,6 +25,15 @@ jobs:
       - name: Checkout project smoke harness
         uses: actions/checkout@v4
 
+      - name: Normalize source checkout line endings
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config --global core.autocrlf false
+          $script = '.\.github\scripts\onecore-bcrypt-source-xp-x86-smoke.ps1'
+          $text = (Get-Content -Raw $script).Replace("`r`n", "`n")
+          [System.IO.File]::WriteAllText((Resolve-Path $script), $text, [System.Text.UTF8Encoding]::new($false))
+
       - name: Enable x86 MSVC tools for probe and PE audit
         uses: ilammy/msvc-dev-cmd@v1
         with:
