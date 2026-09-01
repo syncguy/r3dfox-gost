@@ -1,0 +1,46 @@
+name: "One-shot correct XP path normalization"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - .github/workflows/_xp-correct-path-normalization.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_BRANCH: agent/winrt-source-poc
+    steps:
+      - name: Materialize corrected workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='.github/workflows/gost-poc-build-xp-x32.yml'
+          temp='tmp/gost-poc-build-xp-x32.path-normalization-corrected.yml'
+          gh api "repos/$GITHUB_REPOSITORY/contents/$target?ref=$TARGET_BRANCH" > /tmp/file.json
+          python3 - <<'PY'
+          import base64, json
+          obj=json.load(open('/tmp/file.json'))
+          text=base64.b64decode(obj['content']).decode('utf-8')
+          replacements=[
+            ("          $patchNormalized = $patch.Replace('\\\\', '/')\n", "          $patchNormalized = $patch -replace '\\\\', '/'\n"),
+            ("          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\\\\', '/')\n", "          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB -replace '\\\\', '/'\n"),
+            ("            $requiredNormalized = $required.Replace('\\\\', '/')\n", "            $requiredNormalized = $required -replace '\\\\', '/'\n"),
+          ]
+          for old,new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one occurrence of {old!r}, got {text.count(old)}')
+              text=text.replace(old,new,1)
+          open('/tmp/patched.yml','w',encoding='utf-8',newline='').write(text)
+          PY
+          content=$(base64 -w0 /tmp/patched.yml)
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$temp" \
+            -f message='ci(xp): materialize corrected path normalization' \
+            -f branch="$TARGET_BRANCH" \
+            -f content="$content" >/dev/null
