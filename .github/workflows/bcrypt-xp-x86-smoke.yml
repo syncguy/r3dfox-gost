@@ -41,17 +41,44 @@ jobs:
           $script = Join-Path $env:RUNNER_TEMP 'bcrypt-xp-x86-smoke.ps1'
           $url = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/.github/scripts/bcrypt-xp-x86-smoke.ps1"
           Invoke-WebRequest -Uri $url -OutFile $script
-          $text = Get-Content -Raw $script
-          $text = $text.Replace('$name:', '$($name):')
-          Set-Content -Encoding utf8 -LiteralPath $script -Value $text
           & $script
 
+      - name: Capture exact bcrypt integrity diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not (Test-Path runtime\bcrypt.dll)) { exit 0 }
+          Get-AuthenticodeSignature runtime\bcrypt.dll | Format-List * | Out-String -Width 4096 | Set-Content -Encoding utf8 diagnostics\bcrypt-authenticode.txt
+          cmd /c "where signtool > diagnostics\signtool-path.txt 2>&1 & signtool verify /pa /v runtime\bcrypt.dll > diagnostics\signtool-verify.txt 2>&1 & echo ExitCode=%%ERRORLEVEL%%>> diagnostics\signtool-verify.txt & exit /b 0"
+          $headers = Get-Content -Raw diagnostics\bcrypt.dll.headers.txt
+          @(
+            "check_integrity=$($headers -match '(?im)^\s*Check integrity\s*$')"
+            "certificate_directory_zero=$($headers -match '(?im)^\s*0 \[\s*0\] RVA \[size\] of Certificates Directory')"
+          ) | Set-Content -Encoding utf8 diagnostics\bcrypt-integrity-summary.txt
+
+      - name: Capture normal linked consumer result even after dynamic failure
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not (Test-Path runtime\bcrypt-linked.exe)) { exit 0 }
+          Push-Location runtime
+          try {
+            & .\bcrypt-linked.exe 2>&1 | Tee-Object ..\diagnostics\hosted-linked.txt
+            $rc = $LASTEXITCODE
+          } finally { Pop-Location }
+          "ExitCode=$rc" | Add-Content -Encoding utf8 diagnostics\hosted-linked.txt
+          Write-Host "linked diagnostic ExitCode=$rc"
+          exit 0
+
       - name: Upload physical-XP runtime artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bcrypt-xp-x86-runtime
           path: runtime/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Upload diagnostics artifact
