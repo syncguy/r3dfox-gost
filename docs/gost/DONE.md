@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-08-29
+Last updated: 2026-09-01
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -212,6 +212,23 @@ Sanitized user confirmation closes the detailed Russian picker UX beyond SD6: ow
 No raw screenshot or certificate identity is retained. T10 closes presentation only; it does not prove or imply real `Permanent` persistence, which remains T6.
 
 ## Windows compatibility
+
+### Source-built One-Core bcrypt + mbedtls XP x86 runtime closure — COMPLETE
+
+Exact focused source/runtime evidence:
+
+- branch `agent/gost-tls-poc`;
+- project source-under-test `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- pinned upstream `shorthorn-project/One-Core-API-Source` commit `9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
+- workflow `One-Core bcrypt source XP x86 smoke`;
+- Actions run `33493625367`, job `99810642354`;
+- runtime artifact `9794971087`, digest `sha256:03627eb494b604d3a84a9473cad8c0928b13ec458c20cee9e63bfc0ca10d75f1`;
+- diagnostics artifact `9794971830`, digest `sha256:832563a5618d52f061fcc55efea463e618b4212aea12236ef7bf015cd39e93fe`;
+- CI result: success.
+
+The exact source-built runtime closure is `bcrypt.dll -> mbedtls.dll -> XP system DLLs`. The artifact includes an exact-local dynamic consumer and an ordinary linked consumer. On physical Windows XP SP3 x86, both load the local source-built `bcrypt.dll`, report `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, and exit with code `0`.
+
+This closes the focused bcrypt implementation/runtime problem and supersedes the earlier prebuilt One-Core bcrypt candidate as the selected implementation. It does not close full Firefox startup: transfer into the full XP x32 package and the independent SRW/condition-variable/other post-XP browser imports remain separate work.
 
 ### YY-Thunks WinRT expansion as the primary blocker strategy — RETIRED
 
