@@ -33,9 +33,38 @@ $rosbeHash = (Get-FileHash $rosbeInstaller -Algorithm SHA256).Hash.ToLowerInvari
 
 New-Item -ItemType Directory -Force -Path $rosbe | Out-Null
 $install = Start-Process -FilePath $rosbeInstaller -ArgumentList '/S',("/D=$rosbe") -Wait -PassThru
+"exit_code=$($install.ExitCode)`nrequested_dir=$rosbe" | Set-Content -Encoding ascii (Join-Path $diag 'rosbe-install.txt')
 if ($install.ExitCode -ne 0) { throw "RosBE installer failed with $($install.ExitCode)" }
-$rosbeCmd = Get-ChildItem $rosbe -Recurse -Filter RosBE.cmd -File | Select-Object -First 1
-if (-not $rosbeCmd) { throw 'RosBE.cmd not found after RosBE 2.1.6 install' }
+
+$searchRoots = New-Object System.Collections.Generic.List[string]
+$fixedRoots = @(
+  $rosbe,
+  (Join-Path $env:SystemDrive 'RosBE'),
+  (Join-Path $env:SystemDrive 'RosBE-2.1.6')
+)
+if ($env:ProgramFiles) { $fixedRoots += (Join-Path $env:ProgramFiles 'RosBE') }
+if (${env:ProgramFiles(x86)}) { $fixedRoots += (Join-Path ${env:ProgramFiles(x86)} 'RosBE') }
+foreach ($root in $fixedRoots) {
+  if ($root -and (Test-Path $root) -and -not $searchRoots.Contains($root)) { $searchRoots.Add($root) }
+}
+Get-ChildItem ($env:SystemDrive + '\') -Directory -Filter 'RosBE*' -ErrorAction SilentlyContinue | ForEach-Object {
+  if (-not $searchRoots.Contains($_.FullName)) { $searchRoots.Add($_.FullName) }
+}
+$searchRoots | Set-Content -Encoding utf8 (Join-Path $diag 'rosbe-search-roots.txt')
+
+$rosbeCmd = $null
+foreach ($root in $searchRoots) {
+  $candidate = Get-ChildItem $root -Recurse -Filter RosBE.cmd -File -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($candidate) { $rosbeCmd = $candidate; break }
+}
+if (-not $rosbeCmd) {
+  Get-ChildItem ($env:SystemDrive + '\') -Directory -ErrorAction SilentlyContinue |
+    Select-Object FullName,LastWriteTimeUtc |
+    Format-Table -AutoSize |
+    Out-String |
+    Set-Content -Encoding utf8 (Join-Path $diag 'system-drive-root-after-rosbe-install.txt')
+  throw 'RosBE.cmd not found after RosBE 2.1.6 install; see diagnostics for discovered install roots'
+}
 $rosbeCmd.FullName | Set-Content -Encoding ascii (Join-Path $diag 'rosbe-command.txt')
 
 $buildCmd = Join-Path $WorkRoot 'build-onecore-bcrypt.cmd'
