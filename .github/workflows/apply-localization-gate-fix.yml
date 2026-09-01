@@ -1,0 +1,55 @@
+name: Apply localization gate repair
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/apply-localization-gate-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Repair final localization/package gate
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('.github/workflows/cryptopro-mozilla-packaging-smoke.yml')
+          text = path.read_text(encoding='utf-8')
+          marker = '      - name: GATE D - Verify CryptoPro XPI and substantive ru/en-US UI in final portable archive\n'
+          head, sep, tail = text.partition(marker)
+          if not sep:
+              raise SystemExit('Gate D marker not found')
+
+          old = "n.endswith('browser/browser/browser.ftl')"
+          if tail.count(old) != 2:
+              raise SystemExit(f'Expected exactly two bad final browser.ftl predicates, found {tail.count(old)}')
+          tail = tail.replace(old, "n.endswith('browser/browser.ftl')")
+
+          anchor = '          $expectedSuffix = "\\distribution\\extensions\\$env:EXTENSION_ID.xpi"\n'
+          if tail.count(anchor) != 1:
+              raise SystemExit(f'Expected one packaged-extension anchor, found {tail.count(anchor)}')
+          extension_gate = '''          $requiredBundledExtensions = @(\n            'gosuslugi@plugin.xpi',\n            'pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi',\n            "$env:EXTENSION_ID.xpi"\n          )\n          foreach ($requiredXpi in $requiredBundledExtensions) {\n            $requiredSuffix = "\\distribution\\extensions\\$requiredXpi"\n            $requiredMatches = @(Get-ChildItem $extract -Recurse -File -Filter $requiredXpi |\n              Where-Object { $_.FullName.EndsWith($requiredSuffix, [System.StringComparison]::OrdinalIgnoreCase) })\n            if ($requiredMatches.Count -ne 1) {\n              throw "Expected exactly one packaged bundled extension $requiredXpi; found $($requiredMatches.Count)."\n            }\n            Write-Host "Bundled extension present: $requiredXpi"\n          }\n\n'''
+          tail = tail.replace(anchor, extension_gate + anchor)
+          path.write_text(head + sep + tail, encoding='utf-8', newline='\n')
+
+      - name: Commit repair and remove one-shot helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/apply-localization-gate-fix.yml
+          git add .github/workflows/cryptopro-mozilla-packaging-smoke.yml
+          git diff --cached --check
+          git diff --cached
+          git commit -m "ci(localization): fix final package gate"
+          git push origin HEAD:agent/gost-tls-poc
