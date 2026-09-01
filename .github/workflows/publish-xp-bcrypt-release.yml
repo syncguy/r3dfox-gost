@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'ci(xp): publish bcrypt release v1'
+    if: "${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'ci(xp): publish bcrypt release v1' }}"
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
