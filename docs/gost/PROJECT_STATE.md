@@ -143,13 +143,17 @@ The pinned active mbedTLS C modules are compiled directly into `bcrypt.dll`; the
 
 CI proves that the final single `bcrypt.dll` links, does not import `mbedtls.dll`, passes the current XP forbidden-import gate, retains the required BCrypt exports, and passes exact-local hosted dynamic exports/RNG/SHA-256 execution against the staged local DLL.
 
-Physical Windows XP SP3 x86 (`Microsoft Windows XP [Version 5.1.2600]`) now closes the runtime boundary for the exact artifact. The extracted runtime directory contains exactly five files and only one DLL, `bcrypt.dll` (`520704` bytes); there is no `mbedtls.dll`. Both independent consumers load the same app-local path `D:\2026\09\01\onecore-bcrypt-source-xp-x86-runtime\bcrypt.dll` and report `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, with `DynamicExitCode=0` and `LinkedExitCode=0`. User-recorded SHA-1 for the proven `bcrypt.dll` is `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`.
+Physical Windows XP SP3 x86 (`Microsoft Windows XP [Version 5.1.2600]`) now closes the runtime boundary for the exact artifact. The extracted runtime directory contains exactly five files and only one DLL, `bcrypt.dll` (`520704` bytes); there is no `mbedtls.dll`. Both independent consumers load the same app-local path `D:\2026\09\01\onecore-bcrypt-source-xp-x86-runtime\bcrypt.dll` and report `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, with `DynamicExitCode=0` and `LinkedExitCode=0`. User-recorded SHA-1 for the proven `bcrypt.dll` is `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`; SHA-256 is `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
 
 Therefore the selected focused runtime closure is one deployable app-local DLL:
 
 `bcrypt.dll -> XP-era system DLLs`
 
 with the required mbedTLS implementation embedded into the DLL itself.
+
+The exact proven DLL is now also published for cross-branch reuse as technical prerelease/tag `xp-bcrypt-v1` in this repository. The tag points directly to source-under-test `a30a701...`; release ID `380563342` contains one raw asset `bcrypt.dll` (asset ID `539647946`, size `520704`, digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`). Publication workflow run `33518189052`, job `99890447193`, source `76225fcf95e4e484f0cec30c8e25a235119b0256` passed download, exact binary verification and raw asset publication. This publisher SHA is infrastructure identity only and is not the binary source-under-test.
+
+For heavy Firefox builds, this Release asset is the canonical reusable input. An Actions cache may accelerate access, but cache miss must fall back to downloading `xp-bcrypt-v1` and verifying exact SHA-256/size; heavy workflows must not silently rebuild One-Core. Stage only `bcrypt.dll` and retain PE/import/package-survival gates.
 
 The earlier physically proven two-DLL source-built closure remains historical fallback/baseline evidence:
 
@@ -160,7 +164,7 @@ The earlier physically proven two-DLL source-built closure remains historical fa
 
 It is no longer the selected packaging contract. Earlier prebuilt One-Core `Check integrity`, `ERROR_INVALID_IMAGE_HASH`, `bcryptext` forwarder and `DLL_INIT_FAILED` experiments remain historical diagnostics only and must not be mixed with either source-built closure.
 
-**Next bcrypt work is integration, not research:** reproduce this exact single-DLL source/build/provenance contract in the full XP x32 Firefox workflow, stage only the resulting `bcrypt.dll`, retain PE/import and package-survival gates, and test the resulting exact browser artifact on physical XP.
+**Next bcrypt work is integration, not research:** update the full XP x32 Firefox workflow to consume the raw `xp-bcrypt-v1` release asset, require exact SHA-256/size before staging, stage only `bcrypt.dll`, retain PE/import and package-survival gates, and test the resulting exact browser artifact on physical XP.
 
 Detailed status: `XP_BCRYPT_STATUS.md`.
 
@@ -184,7 +188,7 @@ Current full-browser work order:
 
 1. prove the ten-API synchronization aliases are actually consumed by all four core Firefox PEs in a full build;
 2. keep the physically proven msvcr14x runtime/package contract green;
-3. transfer the physically proven single-DLL bcrypt contract from source `a30a701...` / run `33513084915` into the full package and require package survival;
+3. consume the physically proven raw `xp-bcrypt-v1` release asset in the full package, verify exact SHA-256/size, stage only `bcrypt.dll`, and require package survival;
 4. regenerate the surviving broad import inventory after those already-proven families are removed;
 5. remediate remaining Firefox-owned and separately linked component imports at their source/build/dependency boundary where practical;
 6. test the exact resulting package on physical XP for startup and ordinary browsing;
