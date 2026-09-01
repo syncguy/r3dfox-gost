@@ -41,6 +41,9 @@ jobs:
           $script = Join-Path $env:RUNNER_TEMP 'bcrypt-xp-x86-smoke.ps1'
           $url = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/.github/scripts/bcrypt-xp-x86-smoke.ps1"
           Invoke-WebRequest -Uri $url -OutFile $script
+          $text = Get-Content -Raw $script
+          $text = $text.Replace('$name:', '$($name):')
+          Set-Content -Encoding utf8 -LiteralPath $script -Value $text
           & $script
 
       - name: Upload physical-XP runtime artifact
