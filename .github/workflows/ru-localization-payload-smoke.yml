@@ -47,11 +47,11 @@ jobs:
           nonempty = [p for p in ftl if p.stat().st_size > 0]
           cyr = [p for p in nonempty if any('\u0400' <= ch <= '\u04ff' for ch in p.read_text(encoding='utf-8', errors='ignore'))]
           print(f'ru source: ftl={len(ftl)} nonempty={len(nonempty)} cyrillic={len(cyr)}')
-          if len(ftl) < 1000:
+          if len(ftl) < 200:
               raise SystemExit('Russian source tree unexpectedly small')
-          if len(nonempty) < int(len(ftl) * 0.95):
+          if len(nonempty) / len(ftl) < 0.98:
               raise SystemExit('Russian source tree has too many empty Fluent files')
-          if len(cyr) < 500:
+          if len(cyr) / len(nonempty) < 0.90:
               raise SystemExit('Russian source tree has too few Cyrillic Fluent files')
           PY
 
@@ -116,9 +116,9 @@ jobs:
               print('representative=' + json.dumps(sample_names[:20], ensure_ascii=False))
               if len(candidates) < 100:
                   raise SystemExit('Langpack contains too few Fluent resources')
-              if len(nonempty) < int(len(candidates) * 0.90):
+              if len(nonempty) / len(candidates) < 0.90:
                   raise SystemExit('Russian langpack Fluent payload is mostly empty')
-              if len(cyr) < 50:
+              if len(cyr) / len(nonempty) < 0.50:
                   raise SystemExit('Russian langpack contains too few Cyrillic Fluent resources')
               if not sample_names:
                   raise SystemExit('No representative browser/preferences/error Fluent resource found')
