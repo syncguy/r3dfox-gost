@@ -30,22 +30,35 @@ Until a newer physically proven result explicitly supersedes this reference, eve
 7. **Keep diagnostics sufficient to reproduce provenance.** Record source commit, toolchain identity, restored dependency configuration, resolved output directory, PE headers, direct imports, SHA-256 hashes, and the exact staged files for each controlled runtime closure.
 8. **Do not weaken a failing gate to obtain a green build.** A build/package success is only a build result. Physical XP runtime remains a separate acceptance gate, and GOST TLS remains a separate project track.
 
-## Adopted `bcrypt.dll` remediation
+## Adopted source-built `bcrypt.dll` remediation — PHYSICALLY PROVEN
 
-The project no longer treats the missing stock-XP `bcrypt.dll` dependency as an unresolved architectural blocker.
+The project no longer treats the missing stock-XP `bcrypt.dll` dependency as an unresolved focused dependency/runtime blocker.
 
-The user selected an XP-compatible `bcrypt.dll` from the `shorthorn-project/One-Core-API-Binaries` project as the compatibility implementation for this dependency:
+The adopted implementation is built from pinned One-Core source rather than taken as an opaque prebuilt binary:
 
-- upstream repository: `https://github.com/shorthorn-project/One-Core-API-Binaries`;
-- upstream branch used as the source location: `master`;
-- remediation class: vetted third-party XP compatibility implementation / staged dependency replacement;
-- intended scope: satisfy the direct `bcrypt.dll` dependency reported for core browser PEs such as `xul.dll` and `mozglue.dll` on stock Windows XP.
+- upstream repository: `shorthorn-project/One-Core-API-Source`;
+- pinned upstream source commit: `9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
+- source components: `dll/win32/bcrypt` and `dll/3rdparty/mbedtls`;
+- build environment: RosBE 2.1.6 i386;
+- project source-under-test: `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
+- workflow: `One-Core bcrypt source XP x86 smoke`;
+- Actions run `33493625367`, job `99810642354`, success;
+- runtime artifact `9794971087`, digest `sha256:03627eb494b604d3a84a9473cad8c0928b13ec458c20cee9e63bfc0ca10d75f1`;
+- diagnostics artifact `9794971830`, digest `sha256:832563a5618d52f061fcc55efea463e618b4212aea12236ef7bf015cd39e93fe`.
 
-This decision is independent of the SRW/condition-variable work and must not be counted as one of the remaining post-XP API imports. The remaining API inventory should therefore be discussed separately from the already-selected `bcrypt.dll` dependency remediation.
+The exact app-local source-built closure is:
 
-For reproducible CI/package adoption, the exact `bcrypt.dll` binary that is staged must still be pinned by upstream path/revision or immutable artifact identity, SHA-256, PE subsystem/import closure, required export surface, license/provenance record, package-survival gate, and physical-XP runtime evidence. Those reproducibility checks refine the adopted solution; they do not reopen the architectural decision to use the One-Core-API implementation.
+`bcrypt.dll -> mbedtls.dll -> XP system DLLs`.
 
-Detailed status and provenance expectations are recorded in `XP_BCRYPT_STATUS.md`.
+The focused gate audits both project-built DLLs and both consumer executables for PE floor and known post-XP hard imports. The runtime bundle contains two independent consumers: an exact-local dynamic `LoadLibrary/GetProcAddress` probe and a normal link-time `bcrypt.dll` consumer.
+
+On physical Windows XP SP3 x86, the user ran the exact runtime bundle from run `33493625367`; both consumers loaded the local source-built `bcrypt.dll`, reported `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, and returned exit code `0`.
+
+Therefore the source-built bcrypt closure satisfies the physical-runtime requirement of this contract at focused dependency scale. It supersedes the earlier prebuilt One-Core candidate experiments for the implementation choice. The earlier prebuilt forwarder/Code-Integrity behavior remains historical evidence only and must not be mixed with this source-built closure.
+
+Full-browser adoption is still a separate integration step: stage this proven `bcrypt.dll + mbedtls.dll` closure into the XP x32 Firefox build/package, preserve its provenance/import/package gates, and then test the resulting exact browser artifact on physical XP. Independent SRW/condition-variable and other post-XP imports remain separate blockers.
+
+Detailed status is recorded in `XP_BCRYPT_STATUS.md`.
 
 ## Full-build migration rule
 
