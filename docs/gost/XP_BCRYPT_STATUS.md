@@ -6,79 +6,104 @@ This document records the adopted remediation and current evidence for the Windo
 
 ## Decision
 
-The project continues to use the XP-compatible `bcrypt.dll` supplied by `shorthorn-project/One-Core-API-Binaries` as the selected dependency-level remediation for the core-browser `bcrypt.dll` imports. This remains independent of the YY-Thunks synchronization provider.
+The project continues to evaluate the XP-compatible `bcrypt.dll` supplied by `shorthorn-project/One-Core-API-Binaries` as the selected dependency-level remediation for the core-browser `bcrypt.dll` imports. This remains independent of the YY-Thunks synchronization provider.
+
+The physical-XP probe on 2026-09-01 proved that `bcrypt.dll` cannot be treated as a single-file closure: its export table contains forwarded exports, including `BCryptCreateHash -> bcryptext.BCryptCreateHash`. The earlier static conclusion that the local closure contained only `bcrypt.dll` is superseded.
 
 ## Exact candidate identity
 
-The focused smoke pins the candidate to immutable upstream content rather than floating `master`:
+The focused smoke pins the primary candidate to immutable upstream content rather than floating `master`:
 
 - repository: `shorthorn-project/One-Core-API-Binaries`;
 - upstream commit: `6c3b3b372d46dace7ba729dcd16b316b0acf664c`;
-- path: `Packages/x86/Pack Installer/base/bcrypt.dll`;
+- primary path: `Packages/x86/Pack Installer/base/bcrypt.dll`;
 - Git blob: `0b7d83ddbae62142ee6fca69208d77a8a5d3b0f7`;
 - size: `279552` bytes;
 - SHA-256: `ada28a011cf08d9e10780fde09966899f5f40e08c4f5abb05eaa38dbc2f0cfc5`.
 
-`bcryptprimitives.dll` is present beside the candidate upstream, but the recursive PE import audit does not include it in the dependency closure.
+Known forwarded dependency discovered by the physical-XP experiment and confirmed in the pinned upstream tree:
 
-## Focused smoke evidence
+- path: `Packages/x86/Pack Installer/extensions/bcryptext.dll`;
+- Git blob: `5c638cc34aedfe6bebcb800e56b9a10d98670207`;
+- size: `10752` bytes.
 
-Current exact focused experiment:
+`bcryptprimitives.dll` is present beside `bcrypt.dll` upstream, but it is not assumed to belong to the runtime closure unless the recursive import/forwarder audit discovers it transitively.
+
+## Hosted focused-smoke baseline
+
+Previous exact focused experiment:
 
 - source-under-test: `9be3a933c3eac2defec24df4826fded48ead02f4`;
 - workflow: `bcrypt XP x86 smoke`;
 - Actions run `33475562495`, job `99753970359`;
-- runtime artifact `9788031922`, digest `sha256:c0d60f0a0bc18acd09abb9138ea2769a36c3996e71c87018ccf4842abd9e0817`;
-- diagnostics artifact `9788032206`, digest `sha256:83685ec9aebb4987e95e42cff6c74f958a1c9252d06721383323e0ab5b200fbe`;
-- CI conclusion: **failure**, specifically because the exact-local hosted runtime probe cannot load the unmodified candidate on Windows Server 2022.
+- runtime artifact `9788031922`;
+- diagnostics artifact `9788032206`.
 
-Static surface established by this run:
+That experiment established the primary `bcrypt.dll` PE/import/export surface but its closure algorithm followed only the PE Import Table. It therefore missed export-forwarder dependencies and its `closure = bcrypt.dll only` conclusion is invalid.
 
-- machine: x86 (`0x14c`);
-- PE operating-system/image/subsystem version: `6.00`;
-- direct DLL imports: `ADVAPI32.dll`, `KERNEL32.dll`, `ntdll.dll`;
-- recursive local closure: **`bcrypt.dll` only**;
-- current explicit XP hard-import audit: no obvious post-XP hard imports detected in that closure;
-- required BCrypt exports all present: `BCryptOpenAlgorithmProvider`, `BCryptCloseAlgorithmProvider`, `BCryptGetProperty`, `BCryptCreateHash`, `BCryptHashData`, `BCryptFinishHash`, `BCryptDestroyHash`, `BCryptGenRandom`;
-- DLL characteristics contain `Check integrity`; Certificate Directory is zero; Authenticode status is `NotSigned`.
+A later hosted workflow run used source `b8608989aaa8e853fd0fc0de940ce6388007a695`, run `33477355118`, job `99759309370`, runtime artifact `9788642060`, diagnostics artifact `9788642478`. Its hosted result was green only because the known Windows Server 2022 `ERROR_INVALID_IMAGE_HASH (577)` exact-local limitation was classified as an expected hosted XFAIL while all other static/build/artifact gates passed. That run still inherited the incomplete import-only closure logic and therefore produced an incomplete physical-XP bundle.
 
-Both focused x86 consumer probes build with PE subsystem floor `5.01`. `bcrypt-dynamic.exe` has no link-time bcrypt dependency and explicitly requests `.\bcrypt.dll`; `bcrypt-linked.exe` is an ordinary `bcrypt.lib` consumer with a normal `bcrypt.dll` IAT import.
+## Physical Windows XP result — FAIL, forwarder closure incomplete
 
-## Hosted-runner limitation
-
-On the exact run, the dynamic local-load probe returns:
+A physical Windows XP x86 run of `run-on-xp.cmd` supplied by the user produced:
 
 ```text
-LOAD FAIL error=0x00000241
+=== bcrypt dynamic local-load probe ===
+LOAD FAIL error=0x0000045A
 ExitCode=1
+
+=== bcrypt normal link-time consumer ===
+ExitCode=-1073741511
 ```
 
-`0x241` / 577 is `ERROR_INVALID_IMAGE_HASH`. Given the exact image's `Check integrity` characteristic and absence of an embedded signature, current Windows Server 2022 refuses the exact local upstream image under modern Code Integrity. This hosted failure must not be treated as physical-XP evidence and must not be worked around by mutating the candidate bytes.
-
-The ordinary linked probe passes its functional RNG/SHA-256 test on the hosted runner, but records:
+The loader also displayed:
 
 ```text
-MODULE PATH: C:\Windows\System32\bcrypt.dll
+bcrypt-linked.exe - Entry Point Not Found
+The procedure entry point bcryptext.BCryptCreateHash could not be located in the dynamic link library bcrypt.dll.
 ```
 
-Thus modern Windows resolves the normal `bcrypt.dll` dependency to its system copy. That result proves the linked probe itself is a valid ordinary consumer; it does **not** validate the local One-Core-API implementation.
+Interpretation:
+
+- `0x45A` is `ERROR_DLL_INIT_FAILED`: the local `bcrypt.dll` was found but failed initialization on XP;
+- `-1073741511` is `0xC0000139` / `STATUS_ENTRYPOINT_NOT_FOUND`: the normal linked consumer fails in the loader before entering its test body;
+- `dumpbin /exports` for the pinned `bcrypt.dll` shows `BCryptCreateHash (forwarded to bcryptext.BCryptCreateHash)`;
+- therefore the old import-only dependency closure was incomplete, and the old runtime artifact cannot be accepted as a valid physical-XP test of the intended One-Core bcrypt stack.
+
+Until the exact artifact identity of the user-run bundle is independently rebound by artifact ID/hash, treat the runtime-output identity as contextual rather than formal provenance. The technical forwarder conclusion itself is independently confirmed against the pinned candidate's export table.
+
+## Corrected closure experiment
+
+Source `3dc50ea09dd84e9a5c5e47c171fb180eb1acac4f` changes the focused smoke to search both pinned One-Core roots used by this dependency family:
+
+- `Packages/x86/Pack Installer/base/`;
+- `Packages/x86/Pack Installer/extensions/`.
+
+The closure is now recursive over both:
+
+1. normal PE imports; and
+2. exported forwarders reported by `dumpbin /exports`.
+
+Forwarder targets are audited, hashed and staged like ordinary local dependencies. The first expected newly discovered member is `bcryptext.dll`; any further transitively required One-Core DLLs must also be included automatically.
+
+Actions run `33477914922` is the first run of this corrected closure logic. Its source-under-test is `3dc50ea09dd84e9a5c5e47c171fb180eb1acac4f`. Do not use its result as evidence until the run finishes and its exact artifacts are recorded.
 
 ## Physical XP acceptance boundary
 
-Artifact `9788031922` is the current physical Windows XP SP3 x86 test bundle. It contains exactly:
+The previous runtime artifacts are superseded for physical acceptance because they omit export-forwarder closure.
 
-- `bcrypt.dll` — 279552 bytes, SHA-256 `ada28a011cf08d9e10780fde09966899f5f40e08c4f5abb05eaa38dbc2f0cfc5`;
-- `bcrypt-dynamic.exe` — SHA-256 `851994bc485f850660a4a7409d224b1490a2ef46d64342b58ab2317d14a6bc37`;
-- `bcrypt-linked.exe` — SHA-256 `c9e0fc9d316da3286be9c2ca839ba1cd26f07979710825ffd69c1de514f4da57`;
-- `run-on-xp.cmd`;
-- `README-XP.md`.
+The next decisive test is:
 
-The candidate is **not physically XP-verified yet**. The next decisive step is to copy this archive unchanged to physical Windows XP SP3 x86 and run `run-on-xp.cmd`. Both probes must return `ExitCode=0`; the functional output must include `LOAD PASS`, `EXPORTS PASS`, `RNG PASS`, and `SHA256 PASS`.
+1. wait for corrected run `33477914922` to finish;
+2. use its newly generated `bcrypt-xp-x86-runtime` artifact unchanged;
+3. copy the entire extracted directory to physical Windows XP SP3 x86;
+4. run `run-on-xp.cmd` from that directory;
+5. require both probes to return `ExitCode=0` and report `LOAD PASS`, `EXPORTS PASS`, `RNG PASS`, and `SHA256 PASS`.
 
-Do not call the replacement fully accepted for XP runtime until that exact physical test succeeds.
+Do not mark the One-Core bcrypt replacement physically XP-verified until that corrected complete-closure artifact passes both probes on the real XP machine.
 
 ## Relationship to the full-browser work
 
-Historical broad audit source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`, Actions run `33310150314`, job `99253613546`, reported direct `bcrypt.dll` dependencies in `xul.dll` and `mozglue.dll`. The One-Core candidate remains the selected remediation for that DLL-level boundary.
+Historical broad audit source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`, Actions run `33310150314`, job `99253613546`, reported direct `bcrypt.dll` dependencies in `xul.dll` and `mozglue.dll`. The One-Core candidate remains the selected remediation candidate for that DLL-level boundary, but its complete app-local dependency/forwarder closure must first pass focused physical-XP testing.
 
-This focused experiment neither builds Firefox nor changes the independent SRW/condition-variable/CRT/YY-Thunks line. Successful compilation or packaging elsewhere must not be confused with successful loading of this exact `bcrypt.dll` on physical XP.
+This focused experiment neither builds Firefox nor changes the independent SRW/condition-variable/CRT/YY-Thunks line. Successful compilation or packaging elsewhere must not be confused with successful loading of the complete One-Core bcrypt stack on physical XP.
