@@ -5,32 +5,30 @@ on:
     branches:
       - agent/winrt-source-poc
     paths:
-      - ".github/workflows/xp-x32-fix-path-normalization.yml"
+      - .github/workflows/xp-x32-fix-path-normalization.yml
 
 permissions:
-  contents: write
   actions: write
+  contents: write
 
 jobs:
   fix-and-dispatch:
-    runs-on: windows-2022
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_BRANCH: agent/winrt-source-poc
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/winrt-source-poc
-          fetch-depth: 1
-
-      - name: Normalize linker sanity-check paths and dispatch full build
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Normalize linker sanity-check paths
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $path = '.github\workflows\gost-poc-build-xp-x32.yml'
-          $text = [System.IO.File]::ReadAllText($path)
-          $old = @'
-          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
+          set -euo pipefail
+          target='.github/workflows/gost-poc-build-xp-x32.yml'
+          gh api "repos/$GITHUB_REPOSITORY/contents/$target?ref=$TARGET_BRANCH" > /tmp/file.json
+          python3 - <<'PY'
+          import base64, json
+          obj = json.load(open('/tmp/file.json', encoding='utf-8'))
+          text = base64.b64decode(obj['content']).decode('utf-8')
+          old = '''          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
           if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
           }
@@ -39,47 +37,49 @@ jobs:
               throw "Expected compatibility linker input missing from generated patch: $required"
             }
           }
-'@
-          $new = @'
-          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
-          $patchNormalized = $patch.Replace('\', '/')
-          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\', '/')
+'''
+          new = '''          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
+          $patchNormalized = $patch.Replace('\\', '/')
+          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\\', '/')
           if ($patchNormalized.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
           }
           foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
-            $requiredNormalized = $required.Replace('\', '/')
+            $requiredNormalized = $required.Replace('\\', '/')
             if ($patchNormalized.IndexOf($requiredNormalized, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
               throw "Expected compatibility linker input missing from generated patch: $required"
             }
           }
-'@
-          if (-not $text.Contains($old)) {
-            if ($text.Contains($new)) { throw 'Path normalization fix is already present; refusing ambiguous one-shot edit.' }
-            throw 'Expected linker sanity-check block was not found exactly.'
-          }
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText($path, $text.Replace($old, $new), $utf8NoBom)
-          git diff --check -- $path
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff -- $path
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one unnormalized sanity-check block, got {text.count(old)}')
+          patched = text.replace(old, new, 1)
+          open('/tmp/patched.yml', 'w', encoding='utf-8', newline='').write(patched)
+          open('/tmp/sha.txt', 'w').write(obj['sha'])
+          PY
+          content=$(base64 -w0 /tmp/patched.yml)
+          sha=$(cat /tmp/sha.txt)
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$target" \
+            -f message='ci(xp): normalize linker sanity-check paths' \
+            -f branch="$TARGET_BRANCH" \
+            -f sha="$sha" \
+            -f content="$content" >/dev/null
 
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- $path
-          git commit -m 'ci(xp): normalize linker sanity-check paths'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git push origin HEAD:agent/winrt-source-poc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $sha = (git rev-parse HEAD).Trim()
-          Write-Host "FIX_COMMIT_SHA=$sha"
+      - name: Dispatch XP x32 workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run gost-poc-build-xp-x32.yml --ref "$TARGET_BRANCH"
 
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = 'application/vnd.github+json'
-            'X-GitHub-Api-Version' = '2022-11-28'
-          }
-          $body = @{ ref = 'agent/winrt-source-poc' } | ConvertTo-Json -Compress
-          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/gost-poc-build-xp-x32.yml/dispatches"
-          Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body
-          Write-Host "DISPATCHED_SHA=$sha"
+      - name: Remove one-shot helper
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='.github/workflows/xp-x32-fix-path-normalization.yml'
+          info=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$TARGET_BRANCH")
+          sha=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' <<<"$info")
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/contents/$path" \
+            -f message='ci: remove one-shot XP path normalization helper' \
+            -f branch="$TARGET_BRANCH" \
+            -f sha="$sha" >/dev/null
