@@ -80,6 +80,7 @@ jobs:
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
           (& cl.exe /nologo /? 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\cl-version.txt
           (& link.exe /nologo /? 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          $LASTEXITCODE = 0
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
@@ -412,7 +413,8 @@ jobs:
             SKIP(QueryProcessCycleTime);
           #endif
           #if HAVE_QueryThreadCycleTime
-            { ULONG64 cycles=0; if (QueryThreadCycleTime(GetCurrentThread(),&cycles)) PASS(QueryThreadCycleTime); else FAIL(QueryThreadCycleTime); }
+            { ULONG64 cycles=0; if (QueryThreadCycleTime(GetCurrentThread(),&cycles)) PASS(QueryThreadCycleTime); else FAIL(QueryThreadCycleTime);
+            }
           #else
             SKIP(QueryThreadCycleTime);
           #endif
@@ -438,6 +440,7 @@ jobs:
           & dumpbin.exe /nologo /headers runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-headers.txt
           & dumpbin.exe /nologo /imports runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-imports.txt
           & dumpbin.exe /nologo /dependents runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-dependents.txt
+          $LASTEXITCODE = 0
 
       - name: GATE - PE contract and no clustered post-XP direct imports
         shell: powershell
