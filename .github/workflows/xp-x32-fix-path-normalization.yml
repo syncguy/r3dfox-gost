@@ -1,4 +1,4 @@
-name: "XP x32 one-shot path normalization fix"
+name: "One-shot materialize XP path-normalized workflow"
 
 on:
   push:
@@ -8,78 +8,52 @@ on:
       - .github/workflows/xp-x32-fix-path-normalization.yml
 
 permissions:
-  actions: write
   contents: write
 
 jobs:
-  fix-and-dispatch:
+  materialize:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET_BRANCH: agent/winrt-source-poc
     steps:
-      - name: Normalize linker sanity-check paths
+      - name: Materialize path-normalized workflow
         shell: bash
         run: |
           set -euo pipefail
           target='.github/workflows/gost-poc-build-xp-x32.yml'
+          temp='tmp/gost-poc-build-xp-x32.path-normalized.yml'
           gh api "repos/$GITHUB_REPOSITORY/contents/$target?ref=$TARGET_BRANCH" > /tmp/file.json
           python3 - <<'PY'
           import base64, json
-          obj = json.load(open('/tmp/file.json', encoding='utf-8'))
-          text = base64.b64decode(obj['content']).decode('utf-8')
-          old = '''          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
-          if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
-          }
-          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
-            if ($patch.IndexOf($required, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-              throw "Expected compatibility linker input missing from generated patch: $required"
-            }
-          }
-'''
-          new = '''          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
-          $patchNormalized = $patch.Replace('\\', '/')
-          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\\', '/')
-          if ($patchNormalized.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
-          }
-          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
-            $requiredNormalized = $required.Replace('\\', '/')
-            if ($patchNormalized.IndexOf($requiredNormalized, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-              throw "Expected compatibility linker input missing from generated patch: $required"
-            }
-          }
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one unnormalized sanity-check block, got {text.count(old)}')
-          patched = text.replace(old, new, 1)
-          open('/tmp/patched.yml', 'w', encoding='utf-8', newline='').write(patched)
-          open('/tmp/sha.txt', 'w').write(obj['sha'])
+          obj=json.load(open('/tmp/file.json'))
+          text=base64.b64decode(obj['content']).decode('utf-8')
+          replacements=[
+            (
+              "          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw\n",
+              "          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw\n          $patchNormalized = $patch.Replace('\\\\', '/')\n          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\\\\', '/')\n",
+            ),
+            (
+              "          if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {\n",
+              "          if ($patchNormalized.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {\n",
+            ),
+            (
+              "          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {\n",
+              "          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {\n            $requiredNormalized = $required.Replace('\\\\', '/')\n",
+            ),
+            (
+              "            if ($patch.IndexOf($required, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {\n",
+              "            if ($patchNormalized.IndexOf($requiredNormalized, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {\n",
+            ),
+          ]
+          for old,new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one occurrence of {old!r}, got {text.count(old)}')
+              text=text.replace(old,new,1)
+          open('/tmp/patched.yml','w',encoding='utf-8',newline='').write(text)
           PY
           content=$(base64 -w0 /tmp/patched.yml)
-          sha=$(cat /tmp/sha.txt)
-          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$target" \
-            -f message='ci(xp): normalize linker sanity-check paths' \
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$temp" \
+            -f message='ci(xp): materialize path-normalized workflow' \
             -f branch="$TARGET_BRANCH" \
-            -f sha="$sha" \
             -f content="$content" >/dev/null
-
-      - name: Dispatch XP x32 workflow
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh workflow run gost-poc-build-xp-x32.yml --ref "$TARGET_BRANCH"
-
-      - name: Remove one-shot helper
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          path='.github/workflows/xp-x32-fix-path-normalization.yml'
-          info=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$TARGET_BRANCH")
-          sha=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' <<<"$info")
-          gh api --method DELETE "repos/$GITHUB_REPOSITORY/contents/$path" \
-            -f message='ci: remove one-shot XP path normalization helper' \
-            -f branch="$TARGET_BRANCH" \
-            -f sha="$sha" >/dev/null
