@@ -248,41 +248,71 @@ Earlier source `5e8c8821b93a31ae92f07853f1fa2b20bd7b168e`, run `32844083378`, jo
 
 ### Physically proven XP x86 dependency build contract
 
-The current authoritative dependency-build reference is source `b19ba4ff3eebd2f323743d92110241fc9d4ce399` on `agent/gost-tls-poc`, Actions run `33387080767`, job `99472017220`, runtime artifact `9756275917`. The focused `msvcr14x + Rust libstd + YY-Thunks / XP x86 SRW` workflow is green, its app-local `ucrtbase.dll` and `msvcp140.dll` are x86 PE subsystem 5.1 and do not retain the FLS/SRW hard imports that caused the earlier regression, and the exact newly generated runtime artifact has now been executed successfully on a real Windows XP computer.
+The physically proven dependency/runtime reference remains source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`, run `33387080767`, job `99472017220`, runtime artifact `9756275917`. Its restored/pinned msvcr14x x86 runtime closure is PE subsystem 5.1, avoids the FLS/SRW hard imports that caused the earlier fresh-CRT regression, and the exact runtime artifact was executed successfully on physical Windows XP.
 
-This physically closes the fresh-CRT regression from run `33373236602` / job `99428838270` / source `89b236ad3289fcb9dc65b4bcabdf39d41f7f3be7`. That older build produced a Win7+ CRT closure and failed on XP at `KERNEL32!FlsGetValue`. The current contract is not defined as “`-r` alone fixes XP”; it is the complete pinned/restored build and verified runtime-closure contract documented in `XP_BUILD_CONTRACT.md`.
+The synchronization capability proof has since been expanded from five APIs to ten:
 
-The default-branch full XP workflow now uses the same pinned/restored msvcr14x build path and includes a fail-fast `GATE - Require proven XP x86 msvcr14x runtime contract` before the expensive Firefox build. It checks the app-local CRT closure for x86/XP PE floor, known FLS/SRW hard imports and forbidden modern DLL dependencies, and records hashes/headers/imports in diagnostics. This is the first dependency family migrated from “retarget later and inspect globally” to “build XP-compatible, prove locally, then stage”. The next full run must prove this gate on its own exact source SHA before the resulting broad import inventory becomes the new planning baseline.
+- source-under-test `d65b464c74caadace97995f07a4919363c41a0ea` on `agent/gost-tls-poc`;
+- workflow `msvcr14x Rust YY XP x86 SRW smoke`;
+- run `33470957048`, job `99740439208`, **success**;
+- runtime artifact `9786702687`, digest `sha256:6b931856c9e4e31b067b5684d3c49fd9028c2c9aaf7f2566be79c910ad353571`;
+- diagnostics artifact `9786703244`, digest `sha256:57c67a45a30b94a854f00e358c528c1ffe4129dc7dc615de19c1ed725e89c530`.
+
+The proven ten-API set is `AcquireSRWLockExclusive`, `AcquireSRWLockShared`, `ReleaseSRWLockExclusive`, `ReleaseSRWLockShared`, `InitializeSRWLock`, `InitializeConditionVariable`, `SleepConditionVariableCS`, `SleepConditionVariableSRW`, `WakeAllConditionVariable`, and `WakeConditionVariable`. The focused smoke directly references all ten from ordinary C++ `/MD`, selects all ten `YY_Thunks_*` implementations in the final linker map, rejects all ten final direct imports, passes the XP PE-floor gate, and runs on the hosted Windows runner.
+
+This is a **capability proof**, not yet a full-Firefox proof. `InitializeCriticalSectionEx` remains separately classified for XP-native/source fallback analysis. Full YY `kernel32.lib` interposition remains prohibited.
+
+### Current full Firefox XP x32 blocker and exact artifact
+
+The current exact full-browser failure evidence is:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `99fac0b869c4c0a4638f4e076d77547d90e146cb`;
+- run `33396056005`, job `99500729287`;
+- workflow `GOST TLS PoC build XP x32`;
+- package artifact `9764345117`;
+- diagnostics artifact `9764346755`;
+- run conclusion: failure after successful build/package at the post-package msvcr14x CRT-survival gate.
+
+The user-tested physical-XP files are exactly the package artifact files: `r3dfox.exe` SHA-1 `562195fb0dfb9b6032069fd050ee8995efe74e62` and `xul.dll` SHA-1 `194184fd716ec9d916230fed087da4ea2c5ba28f`. Physical XP fails at `KERNEL32!AcquireSRWLockExclusive`; this is a real import failure, not a wrong-download incident.
+
+The failed full workflow exposed two independent integration defects:
+
+1. its narrow YY provider omitted the already-proven SRW members, so provider availability in a focused smoke never reached the actual Firefox link;
+2. the compatibility linker input was injected only into libxul, even though `r3dfox.exe`, `mozglue.dll`, and `plugin-container.exe` are separately linked and can retain their own direct synchronization imports.
+
+The run also proved an independent packaging blocker: the portable package did not retain the app-local XP-compatible CRT closure (`ucrtbase.dll` / `msvcp140.dll`), and a later broad import audit never executed because that earlier CRT-survival gate failed. Therefore successful compilation, PE-header retargeting or package creation did not imply XP loader compatibility.
+
+### Ten-API transfer prepared for the next full build
+
+The proven synchronization mechanism has now been transferred to the full XP x32 workflow lineage used by run `33396056005`:
+
+- branch `agent/winrt-source-poc`;
+- transfer commit `8d76efba59fd7d4c04df3f0d3fe82e1c4e08a3ce`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`.
+
+The transfer:
+
+- extracts the direct/import YY members for all ten synchronization APIs into the existing physically narrow provider;
+- verifies every required `YY_Thunks_*` symbol before the expensive Firefox build;
+- retains the invariant that full YY `kernel32.lib` never reaches final browser links;
+- injects the narrow provider at the separate link boundaries for `xul.dll`, `r3dfox.exe`, `mozglue.dll`, and `plugin-container.exe`;
+- adds `GATE - Reject core browser synchronization direct imports` immediately after the Firefox build and before CRT staging, legacy D3DCompiler staging, PE retargeting and package/CRT-survival gates;
+- uploads per-PE synchronization import evidence even if a later independent packaging gate fails.
+
+Therefore the active synchronization blocker is no longer whether YY-Thunks can cover the family. The blocker is whether the exact full Firefox links at transfer commit `8d76efba...` (or an explicitly identified descendant) actually consume those aliases so that all four core PEs pass the new ten-API import gate.
+
+The CRT portable-packaging defect from run `33396056005` remains a separate subsequent blocker. It must not be conflated with synchronization interposition.
 
 ### Inherited x86 baseline
 
-Official `Eclipse-Community/r3dfox` `v153.0.3` ships the 32-bit build with `--disable-sandbox`; issue `Eclipse-Community/r3dfox#11` records the intentional decision. Therefore a sandbox-enabled Win7/Vista x86 pass is not an XP prerequisite. The XP/x86 product path uses build-time sandbox disablement unless sandbox restoration is explicitly reprioritized as optional hardening. This inherited choice is now physically confirmed on Windows 7 x32 for the current XP-oriented full-browser artifact: build-time sandbox disablement removes the need for the `MOZ_DISABLE_CONTENT_SANDBOX=1` runtime workaround and avoids the prior restricted-sandbox notification while preserving normal browser operation.
-
-### Current authoritative full Firefox XP x32 import baseline
-
-The current full-build compatibility baseline is:
-
-- experiment branch `agent/winrt-source-poc`;
-- source-under-test `1635d28360ee35d47c1d8237bcf8f5864cc1144f`;
-- run `33310150314`, job `99253613546`;
-- workflow `GOST TLS PoC build XP x32`;
-- package artifact `9733280086`;
-- runtime artifact `9733280458`;
-- diagnostics artifact `9733280937`.
-
-The full Firefox build, msvcr14x runtime staging, PE retargeting, package creation, runtime archive creation, and artifact uploads all succeeded. The Actions run is red only at the broad XP direct-import gate.
-
-Physical Windows 7 x32 runtime on this exact source/build is now confirmed: the browser starts and operates correctly with build-time `--disable-sandbox`, does not require `MOZ_DISABLE_CONTENT_SANDBOX=1`, and does not show the prior notification associated with runtime sandbox disabling. This is a Windows compatibility result only; it does not close the remaining physical-XP startup/import work or any GOST TLS runtime milestone.
-
-The current curated gate reports 103 violation rows, 26 unique API names across 15 PEs. `xul.dll` contributes 19 API violations plus `bcrypt.dll`; `mozglue.dll` contributes 11 API violations plus `bcrypt.dll`.
-
-The old physical-XP artifact from run `33141004769` failed before UI startup on hard `KERNEL32!CloseThreadpoolWork`. In run `33310150314`, `CloseThreadpoolWork` is absent from both the normalized direct-import inventory and the raw per-PE import diagnostics. Therefore that specific import blocker is no longer expected in the current artifact, but physical XP execution is still required before runtime closure.
+Official `Eclipse-Community/r3dfox` `v153.0.3` ships the 32-bit build with `--disable-sandbox`; issue `Eclipse-Community/r3dfox#11` records the intentional decision. Therefore a sandbox-enabled Win7/Vista x86 pass is not an XP prerequisite. The XP/x86 product path uses build-time sandbox disablement unless sandbox restoration is explicitly reprioritized as optional hardening. This inherited choice is physically confirmed on Windows 7 x32 for the XP-oriented full-browser artifact: build-time sandbox disablement removes the need for the `MOZ_DISABLE_CONTENT_SANDBOX=1` runtime workaround and avoids the prior restricted-sandbox notification while preserving normal browser operation.
 
 ### Current remediation policy
 
-Do not treat the 26 current gate API names as a production YY backlog.
+Do not treat the broad XP import inventory as a production YY backlog.
 
-Caller/owner classification is now mandatory before implementation:
+Caller/owner classification remains mandatory before implementation:
 
 1. for project-built or pinned-source dependencies under our control, first remove post-XP dependencies at their source/build/dependency boundary and keep a dedicated fail-fast contract gate;
 2. remove modern-only features/paths where XP has no useful equivalent;
@@ -297,21 +327,19 @@ PE subsystem retargeting is explicitly **header-only remediation**. It can corre
 
 The current `xul.dll` imports that require source/caller analysis before YY assignment include `CancelIoEx`, `CompareStringOrdinal`, `GetCurrentProcessorNumber`, `GetFileInformationByHandleEx`, `GetFinalPathNameByHandleW`, `GetLocaleInfoEx`, `LCIDToLocaleName`, `LocaleNameToLCID`, `GetTickCount64`, `SetFileInformationByHandle`, and `InitializeCriticalSectionEx`.
 
-The SRW/condition-variable family appears across `xul.dll`, `mozglue.dll`, the executables, and several other DLLs. Determine whether each occurrence belongs to Mozilla-owned abstractions, Rust/MSVC/toolchain code, or a separately linked dependency. An owned abstraction may justify one XP synchronization backend; unavoidable toolchain surfaces are strong narrow-YY candidates; separate DLLs require their own solution. The msvcr14x CRT-side FLS/SRW regression is now owned by the mandatory XP build contract and must not reappear in later full builds.
+Other feature/shipping PEs in the broad audit include `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, `d3dcompiler_47.dll`, and `gmp-clearkey`. A core-browser linker change cannot rewrite their independent import tables. Test/developer/fake PEs (`gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, `xpcshell.exe`) must not automatically count as XP product blockers.
 
-Other feature/shipping PEs in the broad audit include `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, `d3dcompiler_47.dll`, and `gmp-clearkey`. A `xul.dll` linker change cannot rewrite their independent import tables. Test/developer/fake PEs (`gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, `xpcshell.exe`) must not automatically count as XP product blockers.
+Focused `D3DCompiler_47.dll` replacement is separately proven at source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`: the pinned legacy Firefox XP DLL is prepared and staged successfully, passes the retargeted legacy-D3DCompiler gate, and survives packaging under its dedicated post-package gate. The overall run still failed later at the broad XP audit, so the D3DCompiler boundary is closed independently of the synchronization/CRT work.
 
-Focused `D3DCompiler_47.dll` replacement is now separately proven at source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`: the pinned legacy Firefox XP DLL is prepared and staged successfully, passes the retargeted legacy-D3DCompiler gate, and survives packaging under its dedicated post-package gate. The overall run still fails at the later broad XP PE-floor/direct-import audit, so the D3DCompiler staging/packaging hypothesis is closed but the broader XP import blocker remains open.
-
-`bcrypt.dll` remains directly imported by both `xul.dll` and `mozglue.dll` and is an independent compatibility boundary.
+`bcrypt.dll` remains directly imported by core browser PEs and is an independent compatibility boundary.
 
 ### YY coverage smoke — capability proof only
 
 The representative XP x86 msvcr14x/Rust/YY workload at source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, remains physically proven on Windows XP SP3 x86.
 
-A later coverage smoke at source `39ce8453be32557dfb709bce8ee412c16f78a72f`, run `33316988353`, job `99272141403`, successfully selected all 26 current forbidden API names plus previously proven Rust/libstd entries into a physically narrow YY provider and passed its representative PE/import/runtime gates.
+A later broad coverage smoke at source `39ce8453be32557dfb709bce8ee412c16f78a72f`, run `33316988353`, job `99272141403`, successfully selected all 26 then-current forbidden API names plus previously proven Rust/libstd entries into a physically narrow YY provider and passed its representative PE/import/runtime gates.
 
-This proves **technical YY coverage only**. It does not define production provider membership and does not authorize injecting the expanded set into the full Firefox build. Production YY membership must follow caller-level classification. Full YY `kernel32.lib` interposition remains prohibited.
+This proves **technical YY coverage only**. It does not define production provider membership. The ten synchronization APIs are now separately justified by focused evidence and observed core-browser imports; other broad inventory members still require caller-level classification.
 
 ### WinRT direction
 
@@ -319,15 +347,15 @@ The physical Win7 crash from source `982d6529a707c6feecad97c725feed8a3cd21c81`, 
 
 ### Immediate Windows compatibility order
 
-1. Run the current default-branch full XP workflow and require the new pre-Firefox msvcr14x XP contract gate to pass; bind the result to exact run/job/SHA.
-2. Use that contract-compliant full-build diagnostics to regenerate the surviving component/import baseline; do not continue planning from CRT violations that the new build contract has already removed.
-3. For each remaining project-built/Firefox-owned dependency family, identify its owner and remove post-XP dependencies at source/build/backend level where practical, then add a focused fail-fast gate before moving on.
-4. Classify separately linked shipping/feature DLLs as required/optional and choose rebuild/legacy-version/replacement/disablement per component.
-5. Keep YY physically narrow and use it only after caller/owner classification proves a residual low-level gap is unavoidable.
+1. Run the full XP x32 workflow from exact transfer commit `8d76efba59fd7d4c04df3f0d3fe82e1c4e08a3ce` or an explicitly identified descendant containing the same transfer.
+2. Require the new early ten-API synchronization gate to pass for `r3dfox.exe`, `xul.dll`, `mozglue.dll`, and `plugin-container.exe`. If it fails, diagnose the specific PE/link boundary before touching packaging or broad API coverage.
+3. If synchronization passes, continue to the independent staged/portable CRT identity gate and fix the known portable-package CRT closure if it remains red.
+4. Regenerate the surviving broad PE/import inventory only after the synchronization and CRT boundaries are separately proven; do not plan from violations already removed by those contracts.
+5. Continue component-by-component source/backend/dependency remediation for the remaining core and separately linked shipping PEs.
 6. Rebuild and run the exact resulting artifact on physical XP; only then close full-browser startup/browsing.
 7. Keep GOST TLS on old Windows as a later separate exact-artifact milestone.
 
-Detailed rules and the component matrix are in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory build contract is in `XP_BUILD_CONTRACT.md`; exact evidence is in `TEST_LOG.md`; forward tasks are in `TODO.md`.
+Detailed synchronization evidence is in `XP_SYNC_IMPORT_STATUS.md`; general rules and the component matrix are in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory dependency contract is in `XP_BUILD_CONTRACT.md`; exact experiments are in `TEST_LOG.md`.
 
 ## Bundled government-system extensions / localization — independent track
 
@@ -352,7 +380,7 @@ That artifact is **not** a functional Russian-UI success. Exact-artifact runtime
 
 Therefore locale negotiation and `default.locale` are not the primary localization blocker. The old directory-existence gate was too weak: it proved locale registration/path presence, not real translated payload.
 
-A focused Firefox 153 l10n merge smoke now establishes the upstream half of the path:
+A focused Firefox 153 l10n merge smoke establishes the upstream half of the path:
 
 - source-under-test `91328ba86f050a7b64a5f344726548d22e599648` on `agent/gost-tls-poc`;
 - workflow `Russian localization payload smoke`;
