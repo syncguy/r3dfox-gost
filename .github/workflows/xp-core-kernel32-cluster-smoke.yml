@@ -1,0 +1,305 @@
+name: XP x86 core KERNEL32 cluster smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/xp-core-kernel32-cluster-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+
+jobs:
+  kernel32-cluster-smoke:
+    name: Core post-XP API cluster / XP x86
+    runs-on: windows-2022
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare diagnostics
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          New-Item -ItemType Directory -Force runtime | Out-Null
+          @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "test_commit=$env:GITHUB_SHA"
+            "compatibility_target=Windows XP SP3 x86"
+            "pe_subsystem_min_version=$env:WINDOWS_XP_SUBSYSTEM"
+            "pe_machine=x86"
+            "yy_thunks_version=$env:YY_THUNKS_VERSION"
+            "yy_thunks_target=$env:YY_THUNKS_TARGET"
+            "apis=CreateWaitableTimerExA,GetTickCount64,InitializeCriticalSectionEx,CompareStringOrdinal,GetCurrentProcessorNumber,GetFileInformationByHandleEx,GetFinalPathNameByHandleW,GetLocaleInfoEx,LCIDToLocaleName,LocaleNameToLCID,SetFileInformationByHandle,CancelIoEx"
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
+          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-xp-x86-cluster'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          if (-not (Test-Path $kernel32)) { throw 'YY XP x86 kernel32.lib is missing' }
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Get-FileHash -Algorithm SHA256 $kernel32 | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\yy-kernel32-sha256.txt
+
+      - name: Build narrow YY core API cluster provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:RUNNER_TEMP 'xp-core-kernel32-cluster'
+          $selected = Join-Path $work 'selected'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $selected | Out-Null
+
+          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 kernel32.lib' }
+          $members | Set-Content -Encoding utf8 diagnostics\yy-kernel32-members.txt
+
+          $apis = @(
+            @{ Name='CreateWaitableTimerExA'; Decorated='_CreateWaitableTimerExA@16' },
+            @{ Name='GetTickCount64'; Decorated='_GetTickCount64@0' },
+            @{ Name='InitializeCriticalSectionEx'; Decorated='_InitializeCriticalSectionEx@12' },
+            @{ Name='CompareStringOrdinal'; Decorated='_CompareStringOrdinal@20' },
+            @{ Name='GetCurrentProcessorNumber'; Decorated='_GetCurrentProcessorNumber@0' },
+            @{ Name='GetFileInformationByHandleEx'; Decorated='_GetFileInformationByHandleEx@16' },
+            @{ Name='GetFinalPathNameByHandleW'; Decorated='_GetFinalPathNameByHandleW@16' },
+            @{ Name='GetLocaleInfoEx'; Decorated='_GetLocaleInfoEx@16' },
+            @{ Name='LCIDToLocaleName'; Decorated='_LCIDToLocaleName@16' },
+            @{ Name='LocaleNameToLCID'; Decorated='_LocaleNameToLCID@8' },
+            @{ Name='SetFileInformationByHandle'; Decorated='_SetFileInformationByHandle@16' },
+            @{ Name='CancelIoEx'; Decorated='_CancelIoEx@8' }
+          )
+
+          $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $wanted = [System.Collections.Generic.List[object]]::new()
+          foreach ($api in $apis) {
+            $escaped = [regex]::Escape($api.Decorated)
+            $wanted.Add([pscustomobject]@{ Key="$($api.Name)-direct"; Pattern="(?i)[\\/]$escaped\.obj$" })
+            $wanted.Add([pscustomobject]@{ Key="$($api.Name)-import"; Pattern="(?i)[\\/]$escaped\.obi$" })
+          }
+          $wanted.Add([pscustomobject]@{ Key='implementation'; Pattern=$implementationPattern })
+
+          $objects = @()
+          $memberMap = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $wanted) {
+            $matches = @($members | Where-Object { $_ -match $spec.Pattern })
+            if ($matches.Count -ne 1) { throw "Expected one $($spec.Key) member; found $($matches.Count)" }
+            $dir = Join-Path $selected $spec.Key
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$($matches[0])" $env:THUNK_YY_KERNEL32_LIB *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File |
+              Where-Object { $_.Name -ne 'extract.log' } |
+              Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw "No extracted object for $($spec.Key)" }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String) |
+              Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
+            $objects += $dst
+            $memberMap.Add("$($spec.Key)|$($matches[0])")
+          }
+          $memberMap | Set-Content -Encoding utf8 diagnostics\selected-members.txt
+
+          $narrow = Join-Path $work 'yy-xp-core-kernel32-cluster.lib'
+          & lib.exe /nologo "/out:$narrow" @objects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) { throw 'Failed to build narrow YY XP core cluster provider' }
+          $symbols = (& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1 | Out-String)
+          $symbols | Set-Content -Encoding utf8 diagnostics\narrow-provider-symbols.txt
+          foreach ($api in $apis) {
+            $required = "YY_Thunks_$($api.Name)"
+            if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
+          }
+          "NARROW_YY_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build no-CRT XP x86 functional probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #define _WIN32_WINNT 0x0601
+          #include <windows.h>
+
+          static HANDLE out_handle(void) { return GetStdHandle(STD_OUTPUT_HANDLE); }
+          static void say(const char* text, DWORD len) {
+            DWORD written = 0;
+            WriteFile(out_handle(), text, len, &written, 0);
+          }
+          #define SAY(x) say(x, (DWORD)(sizeof(x) - 1))
+          static void fail(const char* label, DWORD len) {
+            SAY("FAIL "); say(label, len); SAY("\r\n"); ExitProcess(1);
+          }
+          #define REQUIRE(c, name) do { if (!(c)) fail(name, (DWORD)(sizeof(name) - 1)); else { SAY("PASS "); SAY(name); SAY("\r\n"); } } while (0)
+
+          extern "C" __declspec(noreturn) void __stdcall EntryPoint(void) {
+            ULONGLONG ticks = GetTickCount64();
+            (void)ticks;
+            SAY("PASS GetTickCount64\r\n");
+
+            DWORD cpu = GetCurrentProcessorNumber();
+            (void)cpu;
+            SAY("PASS GetCurrentProcessorNumber\r\n");
+
+            REQUIRE(CompareStringOrdinal(L"abc", 3, L"abc", 3, TRUE) == CSTR_EQUAL, "CompareStringOrdinal");
+
+            CRITICAL_SECTION cs;
+            REQUIRE(InitializeCriticalSectionEx(&cs, 0, 0) != FALSE, "InitializeCriticalSectionEx");
+            EnterCriticalSection(&cs);
+            LeaveCriticalSection(&cs);
+            DeleteCriticalSection(&cs);
+
+            HANDLE timer = CreateWaitableTimerExA(0, 0, 0, TIMER_ALL_ACCESS);
+            REQUIRE(timer != 0, "CreateWaitableTimerExA");
+            CloseHandle(timer);
+
+            WCHAR localeName[LOCALE_NAME_MAX_LENGTH];
+            int localeNameLen = LCIDToLocaleName(GetUserDefaultLCID(), localeName, LOCALE_NAME_MAX_LENGTH, 0);
+            REQUIRE(localeNameLen > 0, "LCIDToLocaleName");
+            REQUIRE(LocaleNameToLCID(localeName, 0) != 0, "LocaleNameToLCID");
+            WCHAR localeValue[128];
+            REQUIRE(GetLocaleInfoEx(localeName, LOCALE_SLANGUAGE, localeValue, 128) > 0, "GetLocaleInfoEx");
+
+            WCHAR tempPath[MAX_PATH];
+            DWORD pathLen = GetTempPathW(MAX_PATH, tempPath);
+            REQUIRE(pathLen > 0 && pathLen < MAX_PATH - 32, "GetTempPathW-control");
+            const WCHAR suffix[] = L"r3dfox-yy-xp-cluster.tmp";
+            DWORD i = 0;
+            for (; i < pathLen; ++i) { }
+            for (DWORD j = 0; suffix[j] && i + 1 < MAX_PATH; ++j) tempPath[i++] = suffix[j];
+            tempPath[i] = 0;
+
+            HANDLE file = CreateFileW(tempPath,
+              GENERIC_READ | GENERIC_WRITE | FILE_WRITE_ATTRIBUTES,
+              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+              0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, 0);
+            REQUIRE(file != INVALID_HANDLE_VALUE, "CreateFileW-control");
+
+            FILE_BASIC_INFO basicInfo;
+            REQUIRE(GetFileInformationByHandleEx(file, FileBasicInfo, &basicInfo, sizeof(basicInfo)) != FALSE,
+                    "GetFileInformationByHandleEx");
+            REQUIRE(SetFileInformationByHandle(file, FileBasicInfo, &basicInfo, sizeof(basicInfo)) != FALSE,
+                    "SetFileInformationByHandle");
+
+            WCHAR finalPath[512];
+            REQUIRE(GetFinalPathNameByHandleW(file, finalPath, 512, FILE_NAME_NORMALIZED) > 0,
+                    "GetFinalPathNameByHandleW");
+
+            SetLastError(ERROR_SUCCESS);
+            BOOL cancelResult = CancelIoEx(file, 0);
+            DWORD cancelError = GetLastError();
+            REQUIRE(cancelResult != FALSE || cancelError == ERROR_NOT_FOUND || cancelError == ERROR_SUCCESS,
+                    "CancelIoEx");
+
+            CloseHandle(file);
+            SAY("ALL PASS\r\n");
+            ExitProcess(0);
+          }
+          '@ | Set-Content -Encoding ascii probe.cpp
+
+          & cl.exe /nologo /c /O2 /GS- /Zl /EHsc- /GR- /D_WIN32_WINNT=0x0601 probe.cpp /Foprobe.obj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & link.exe /nologo /machine:x86 /subsystem:console,$env:WINDOWS_XP_SUBSYSTEM /entry:_EntryPoint@0 /nodefaultlib /dynamicbase:no /nxcompat:no /out:runtime\xp-core-kernel32-cluster.exe probe.obj "/wholearchive:$env:NARROW_YY_LIB" kernel32.lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          & dumpbin.exe /nologo /headers runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-headers.txt
+          & dumpbin.exe /nologo /imports runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-imports.txt
+          & dumpbin.exe /nologo /dependents runtime\xp-core-kernel32-cluster.exe 2>&1 | Set-Content -Encoding utf8 diagnostics\probe-dependents.txt
+          Get-FileHash -Algorithm SHA256 runtime\xp-core-kernel32-cluster.exe | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
+
+      - name: GATE - Reject clustered post-XP direct imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'runtime\xp-core-kernel32-cluster.exe'
+          $headers = @(& dumpbin.exe /nologo /headers $exe 2>&1)
+          $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+          if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw 'Cannot parse probe subsystem version' }
+          $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+          if ($version -gt [version]'5.1') { throw "Probe subsystem $version is newer than XP x86 5.01" }
+
+          $imports = @(& dumpbin.exe /nologo /imports $exe 2>&1)
+          $text = $imports -join "`n"
+          $apis = @(
+            'CreateWaitableTimerExA','GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal',
+            'GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
+            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx'
+          )
+          foreach ($api in $apis) {
+            if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "Probe retains forbidden direct import $api" }
+          }
+          foreach ($forbiddenDll in @('api-ms-win-','ext-ms-','KERNELBASE.dll','VCRUNTIME140.dll','ucrtbase.dll')) {
+            if ($text.IndexOf($forbiddenDll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Probe retains forbidden dependency $forbiddenDll" }
+          }
+          'cluster_import_gate=PASS' | Set-Content -Encoding ascii diagnostics\cluster-import-gate.txt
+
+      - name: Run probe on hosted Windows runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\runtime\xp-core-kernel32-cluster.exe | Tee-Object -FilePath diagnostics\hosted-run.txt
+          if ($LASTEXITCODE -ne 0) { throw "Hosted probe failed with exit code $LASTEXITCODE" }
+
+      - name: Write physical XP instructions
+        shell: powershell
+        run: |
+          @'
+          Physical Windows XP SP3 x86 acceptance:
+          1. Extract the artifact without adding system DLLs.
+          2. Run xp-core-kernel32-cluster.exe from cmd.exe.
+          3. Expected final line: ALL PASS
+          4. Record: echo ExitCode=%ERRORLEVEL%
+          5. Expected exit code: 0
+          6. Record SHA-256 or SHA-1 of the exact EXE tested.
+          '@ | Set-Content -Encoding ascii runtime\README-XP.txt
+
+      - name: Upload XP x86 cluster runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-core-kernel32-cluster-runtime
+          path: runtime
+          if-no-files-found: error
+
+      - name: Upload XP x86 cluster diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-core-kernel32-cluster-diagnostics
+          path: diagnostics
+          if-no-files-found: error
