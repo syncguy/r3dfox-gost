@@ -161,7 +161,8 @@ Historical broad baseline:
 
 - experiment branch `agent/winrt-source-poc`;
 - source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`;
-- run `33310150314`, job `99253613546`;
+- run `33310150314`;
+- job `99253613546`;
 - runtime artifact `9733280458`;
 - diagnostics artifact `9733280937`;
 - broad gate: 103 rows, 26 unique forbidden APIs across 15 PEs; `xul.dll` and `mozglue.dll` directly import `bcrypt.dll` in that baseline.
@@ -198,20 +199,32 @@ Current proven three-extension package checkpoint:
 
 The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled state is proven for all three. Native-component functionality and version-to-version update behavior remain separate work.
 
-## Russian localization — current blocker
+## Russian localization — package content proven, final gate repair pending
 
-Full Windows x64 package source `37846488e281b4c3a2df46e949b4f970a7343ed3`, run `33403654068`, job `99525795309`, packaged artifact `9768056691` is packaging-green but not a functional Russian-UI pass: most packaged Russian Fluent resources in root/browser `omni.ja` are zero-length.
+Historical full Windows x64 package source `37846488e281b4c3a2df46e949b4f970a7343ed3`, run `33403654068`, job `99525795309`, packaged artifact `9768056691` was packaging-green but not a functional Russian-UI pass because most packaged Russian Fluent resources in root/browser `omni.ja` were zero-length.
 
-Focused Firefox 153 l10n merge proof:
+Focused Firefox 153 l10n merge proof remains:
 
 - source `91328ba86f050a7b64a5f344726548d22e599648`;
 - run `33468459359`, job `99733112273`, success;
 - `firefox-l10n` SHA `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`;
 - evidence artifact `9785719216`.
 
-The source Russian tree and standard Firefox 153 merge primitive produce populated Fluent resources; therefore the localization blocker is downstream in full Windows multi-locale package/repack integration, not the upstream Russian source or merge primitive.
+The latest full integration run advances the boundary substantially:
 
-Next localization experiment: feed the proven l10n source into the full packaging workflow through the normal l10n-base mechanism and gate root/browser `omni.ja` for zero-length counts plus representative Cyrillic content before another runtime UI test.
+- source-under-test `e4f9f775d82ff14a75708e11043211e7259eed9b`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- Actions run `33489331410`, job `99796818515`;
+- packaged-browser artifact `9798517225`;
+- run conclusion: failure only at final Gate D.
+
+The pinned Russian source checkout, packaging-only Russian default, full release build, CryptoPro `dist/bin` gate, production `ru` merge gate, and `ru + en-US` multi-locale packaging all passed. The production merge contains `217` RU FTL files (`216` non-empty, `215` with Cyrillic); prepackage staging contains substantive root and browser resources (`98/99` and `129/129` non-empty respectively).
+
+Independent inspection of the exact final portable artifact proves that substantive Russian UI resources survive packaging: browser `omni.ja` contains `129` RU FTL with zero zero-length files and `118` containing Cyrillic; root `omni.ja` contains `99` RU FTL with one zero-length file and `96` containing Cyrillic. Representative `browser.ftl`, `preferences.ftl`, and `netError.ftl` are substantive; the package requests Russian by default and declares exact `ru,en-US` multilocale content.
+
+The red Gate D is therefore a **CI false negative**, not a localization-content failure. The production merge path for the representative browser resource is `browser/browser/browser.ftl`, while final `browser/omni.ja` normalizes it to `localization/ru/browser/browser.ftl`. Gate D still tests the former suffix and incorrectly reports the packaged browser resource as missing.
+
+Current localization blocker: repair Gate D to validate the actual final `omni.ja` path while retaining the zero-length, Cyrillic, en-US-difference, Russian-default and `ru,en-US` checks. After that gate is green on a new exact source/run, perform a clean-profile runtime Russian-UI verification. The current packaging evidence does not by itself prove runtime UI behavior.
 
 # Separation of conclusions
 
