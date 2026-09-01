@@ -72,6 +72,11 @@ $buildCmd = Join-Path $WorkRoot 'build-onecore-bcrypt.cmd'
 @echo on
 call "$($rosbeCmd.FullName)"
 if errorlevel 1 exit /b %errorlevel%
+set "PATH=%PATH:C:\mingw64\bin;=%"
+set "PATH=%PATH:;C:\mingw64\bin=%"
+where cc
+where gcc
+where cmake
 cd /d "$out"
 call "$src\configure.cmd" -DENABLE_ROSTESTS=0
 if errorlevel 1 exit /b %errorlevel%
