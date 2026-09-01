@@ -1,0 +1,85 @@
+name: "XP x32 one-shot path normalization fix"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-x32-fix-path-normalization.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix-and-dispatch:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/winrt-source-poc
+          fetch-depth: 1
+
+      - name: Normalize linker sanity-check paths and dispatch full build
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = '.github\workflows\gost-poc-build-xp-x32.yml'
+          $text = [System.IO.File]::ReadAllText($path)
+          $old = @'
+          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
+          if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
+          }
+          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
+            if ($patch.IndexOf($required, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+              throw "Expected compatibility linker input missing from generated patch: $required"
+            }
+          }
+'@
+          $new = @'
+          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
+          $patchNormalized = $patch.Replace('\', '/')
+          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\', '/')
+          if ($patchNormalized.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
+          }
+          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
+            $requiredNormalized = $required.Replace('\', '/')
+            if ($patchNormalized.IndexOf($requiredNormalized, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+              throw "Expected compatibility linker input missing from generated patch: $required"
+            }
+          }
+'@
+          if (-not $text.Contains($old)) {
+            if ($text.Contains($new)) { throw 'Path normalization fix is already present; refusing ambiguous one-shot edit.' }
+            throw 'Expected linker sanity-check block was not found exactly.'
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $text.Replace($old, $new), $utf8NoBom)
+          git diff --check -- $path
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff -- $path
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $path
+          git commit -m 'ci(xp): normalize linker sanity-check paths'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin HEAD:agent/winrt-source-poc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $sha = (git rev-parse HEAD).Trim()
+          Write-Host "FIX_COMMIT_SHA=$sha"
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $body = @{ ref = 'agent/winrt-source-poc' } | ConvertTo-Json -Compress
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/gost-poc-build-xp-x32.yml/dispatches"
+          Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body
+          Write-Host "DISPATCHED_SHA=$sha"
