@@ -31,13 +31,24 @@ foreach ($rel in @(
 }
 
 $headers = @{ 'User-Agent' = 'r3dfox-gost-bcrypt-xp-smoke' }
-$escapedPath = ($env:ONECORE_BASE_PATH -replace ' ', '%20')
-$api = "https://api.github.com/repos/$env:ONECORE_REPO/contents/$escapedPath`?ref=$env:ONECORE_COMMIT"
-$listing = @(Invoke-RestMethod -Headers $headers -Uri $api)
-if ($listing.Count -eq 0) { throw 'One-Core base directory listing is empty' }
+$treeApi = "https://api.github.com/repos/$env:ONECORE_REPO/git/trees/$env:ONECORE_COMMIT`?recursive=1"
+$treeResponse = Invoke-RestMethod -Headers $headers -Uri $treeApi
+if (-not $treeResponse.tree) { throw 'Pinned upstream Git tree is empty' }
+$prefix = "$env:ONECORE_BASE_PATH/"
 $byName = @{}
-foreach ($item in $listing) {
-  if ($item.type -eq 'file') { $byName[$item.name.ToLowerInvariant()] = $item }
+foreach ($entry in $treeResponse.tree) {
+  if ($entry.type -ne 'blob' -or -not $entry.path.StartsWith($prefix, [System.StringComparison]::Ordinal)) { continue }
+  $relative = $entry.path.Substring($prefix.Length)
+  if ($relative.Contains('/')) { continue }
+  $name = $relative
+  $download = "https://raw.githubusercontent.com/$env:ONECORE_REPO/$env:ONECORE_COMMIT/$($entry.path)"
+  $byName[$name.ToLowerInvariant()] = [pscustomobject]@{
+    name = $name
+    path = $entry.path
+    sha = $entry.sha
+    size = [int64]$entry.size
+    download_url = $download
+  }
 }
 if (-not $byName.ContainsKey('bcrypt.dll')) { throw 'Pinned upstream directory does not contain bcrypt.dll' }
 $bcryptMeta = $byName['bcrypt.dll']
@@ -78,11 +89,11 @@ while ($queue.Count -gt 0) {
   $dst = Join-Path $env:GITHUB_WORKSPACE ("onecore\" + $meta.name)
   Invoke-WebRequest -Headers $headers -Uri $meta.download_url -OutFile $dst
   $size = (Get-Item -LiteralPath $dst).Length
-  if ($size -ne [int64]$meta.size) { throw "Size mismatch for $name: $size vs $($meta.size)" }
+  if ($size -ne [int64]$meta.size) { throw "Size mismatch for $($name): $size vs $($meta.size)" }
   $blob = (& git hash-object --no-filters -- $dst).Trim()
-  if ($LASTEXITCODE -ne 0 -or $blob -ne $meta.sha) { throw "Git blob mismatch for $name: $blob vs $($meta.sha)" }
+  if ($LASTEXITCODE -ne 0 -or $blob -ne $meta.sha) { throw "Git blob mismatch for $($name): $blob vs $($meta.sha)" }
   $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash.ToLowerInvariant()
-  $hashes.Add("$($meta.name)|size=$size|git_blob=$blob|sha256=$sha256|upstream_commit=$env:ONECORE_COMMIT|path=$env:ONECORE_BASE_PATH/$($meta.name)")
+  $hashes.Add("$($meta.name)|size=$size|git_blob=$blob|sha256=$sha256|upstream_commit=$env:ONECORE_COMMIT|path=$($meta.path)")
   $closure.Add($meta.name)
 
   $headersOut = (& dumpbin.exe /nologo /headers $dst 2>&1 | Out-String -Width 4096)
