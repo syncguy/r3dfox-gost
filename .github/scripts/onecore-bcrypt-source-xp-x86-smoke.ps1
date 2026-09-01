@@ -70,9 +70,6 @@ foreach ($root in $roots) {
 if (-not $rosbeCmd) { throw 'RosBE.cmd not found after RosBE 2.1.6 install' }
 $rosbeCmd.FullName | Set-Content -Encoding ascii (Join-Path $diag 'rosbe-command.txt')
 
-$linkedSource = Join-Path $RepoRoot 'tools\gost\xp\bcrypt-smoke\bcrypt_linked.cpp'
-$linkedObj = Join-Path $WorkRoot 'bcrypt-source-linked.o'
-$linkedExe = Join-Path $runtime 'bcrypt-source-linked.exe'
 $buildCmd = Join-Path $WorkRoot 'build-onecore-bcrypt.cmd'
 @"
 @echo on
@@ -82,16 +79,11 @@ set "PATH=%PATH:C:\mingw64\bin;=%"
 set "PATH=%PATH:;C:\mingw64\bin=%"
 where cc
 where gcc
-where g++
 where cmake
 cd /d "$out"
 call "$src\configure.cmd" -DENABLE_ROSTESTS=0
 if errorlevel 1 exit /b %errorlevel%
 ninja mbedtls bcrypt
-if errorlevel 1 exit /b %errorlevel%
-g++ -c -O2 -fno-exceptions -fno-rtti -o "$linkedObj" "$linkedSource"
-if errorlevel 1 exit /b %errorlevel%
-g++ -nostdlib -Wl,--entry,_mainCRTStartup -Wl,--subsystem,console -Wl,--major-subsystem-version,5 -Wl,--minor-subsystem-version,1 -o "$linkedExe" "$linkedObj" "$out\dll\win32\bcrypt\libbcrypt.a" -lkernel32
 exit /b %errorlevel%
 "@ | Set-Content -Encoding ascii $buildCmd
 
@@ -103,7 +95,6 @@ try {
 } finally { $ErrorActionPreference = $oldEap }
 "exit_code=$buildExit" | Set-Content -Encoding ascii (Join-Path $diag 'build-exit-code.txt')
 if ($buildExit -ne 0) { throw "One-Core bcrypt build failed with $buildExit" }
-if (-not (Test-Path $linkedExe)) { throw 'Source bcrypt linked consumer was not produced' }
 
 function Find-BuiltDll([string]$name) {
   $items = @(Get-ChildItem $out -Recurse -Filter $name -File)
@@ -113,7 +104,7 @@ function Find-BuiltDll([string]$name) {
 
 $bcrypt = Find-BuiltDll 'bcrypt.dll'
 $mbedtls = Find-BuiltDll 'mbedtls.dll'
-"bcrypt=$($bcrypt.FullName)`nmbedtls=$($mbedtls.FullName)`nlinked_importlib=$out\dll\win32\bcrypt\libbcrypt.a" | Set-Content -Encoding ascii (Join-Path $diag 'runtime-closure-build-paths.txt')
+"bcrypt=$($bcrypt.FullName)`nmbedtls=$($mbedtls.FullName)" | Set-Content -Encoding ascii (Join-Path $diag 'runtime-closure-build-paths.txt')
 Copy-Item $bcrypt.FullName (Join-Path $runtime 'bcrypt.dll')
 Copy-Item $mbedtls.FullName (Join-Path $runtime 'mbedtls.dll')
 
@@ -149,12 +140,26 @@ foreach ($name in $requiredExports) {
 }
 if (-not ($bcryptAudit.Imports -match '\bmbedtls\.dll\b')) { throw 'Expected bcrypt -> mbedtls.dll runtime dependency not found' }
 
+# Build both XP consumers with the already-configured x86 MSVC toolchain. The
+# linked consumer uses the SDK import library only as a link-time description of
+# bcrypt.dll. At runtime the executable is staged beside and must load the
+# source-built bcrypt.dll + mbedtls.dll closure from this artifact.
 $dynamicSource = Join-Path $RepoRoot 'tools\gost\xp\bcrypt-smoke\bcrypt_dynamic.cpp'
+$linkedSource = Join-Path $RepoRoot 'tools\gost\xp\bcrypt-smoke\bcrypt_linked.cpp'
+$dynamicObj = Join-Path $WorkRoot 'bcrypt-source-dynamic.obj'
+$linkedObj = Join-Path $WorkRoot 'bcrypt-source-linked.obj'
 $dynamicExe = Join-Path $runtime 'bcrypt-source-dynamic.exe'
-& cl.exe /nologo /c /O2 /GS- /GR- /EHsc- /Fo"$WorkRoot\bcrypt-source-dynamic.obj" $dynamicSource
+$linkedExe = Join-Path $runtime 'bcrypt-source-linked.exe'
+
+& cl.exe /nologo /c /O2 /GS- /GR- /EHsc- /Fo$dynamicObj $dynamicSource
 if ($LASTEXITCODE -ne 0) { throw 'bcrypt source dynamic probe compile failed' }
-& link.exe /nologo /OUT:$dynamicExe /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /NODEFAULTLIB "$WorkRoot\bcrypt-source-dynamic.obj" kernel32.lib
+& link.exe /nologo /OUT:$dynamicExe /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /NODEFAULTLIB $dynamicObj kernel32.lib
 if ($LASTEXITCODE -ne 0) { throw 'bcrypt source dynamic probe link failed' }
+
+& cl.exe /nologo /c /O2 /GS- /GR- /EHsc- /Fo$linkedObj $linkedSource
+if ($LASTEXITCODE -ne 0) { throw 'bcrypt source linked probe compile failed' }
+& link.exe /nologo /OUT:$linkedExe /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /NODEFAULTLIB $linkedObj bcrypt.lib kernel32.lib
+if ($LASTEXITCODE -ne 0) { throw 'bcrypt source linked probe link failed' }
 
 $dynamicHeaders = & dumpbin /headers $dynamicExe 2>&1
 $dynamicImports = & dumpbin /imports $dynamicExe 2>&1
@@ -196,14 +201,16 @@ Physical XP test:
 2. Keep bcrypt.dll and mbedtls.dll beside both probe EXEs.
 3. Run run-on-xp.cmd and record complete output.
 
-Dynamic probe contract:
+Dynamic probe:
 - no bcrypt.dll static import;
 - LoadLibraryW(.\\bcrypt.dll) + GetProcAddress;
 - BCryptGenRandom;
 - SHA-256('abc').
 
-Linked probe contract:
-- ordinary PE import of bcrypt.dll through One-Core-generated libbcrypt.a;
+Linked probe:
+- ordinary PE import of bcrypt.dll;
+- linked using the Windows SDK bcrypt import library only to encode the DLL/API import contract;
+- runtime resolution must use the source-built bcrypt.dll staged beside the EXE;
 - BCryptGenRandom;
 - SHA-256('abc').
 
