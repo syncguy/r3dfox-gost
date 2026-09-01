@@ -1,0 +1,39 @@
+name: "One-shot dispatch corrected XP x32 build"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - .github/workflows/_xp-dispatch-corrected-once.yml
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch XP x32 workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/gost-poc-build-xp-x32.yml/dispatches" \
+            -f ref='agent/winrt-source-poc'
+
+      - name: Remove one-shot dispatcher
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='.github/workflows/_xp-dispatch-corrected-once.yml'
+          info=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=agent/winrt-source-poc")
+          sha=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' <<<"$info")
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/contents/$path" \
+            -f message='ci: remove corrected XP dispatcher' \
+            -f branch='agent/winrt-source-poc' \
+            -f sha="$sha" >/dev/null
