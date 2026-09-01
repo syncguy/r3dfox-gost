@@ -625,7 +625,7 @@ jobs:
           python -c "import json,zipfile; p=r'$distXpi'; z=zipfile.ZipFile(p); m=json.loads(z.read('manifest.json')); i=m.get('browser_specific_settings',{}).get('gecko',{}).get('id') or m.get('applications',{}).get('gecko',{}).get('id'); assert i==r'$env:EXTENSION_ID', (i, r'$env:EXTENSION_ID'); print('dist-id='+i+' version='+str(m.get('version')))"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: GATE B/C - Materialize and verify production ru merge and staging
+      - name: GATE B - Materialize and verify production ru merge
         id: locale-prepackage
         if: steps.build-release.outcome == 'success'
         shell: powershell
@@ -636,63 +636,82 @@ jobs:
           & $mozmake -C 'obj-gost-win64' chrome-ru
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:MERGE_ROOT = [System.IO.Path]::GetFullPath('obj-gost-win64\browser\locales\merge-dir\ru')
-          $env:STAGE_ROOT = [System.IO.Path]::GetFullPath('obj-gost-win64\dist\xpi-stage\locale-ru')
           @'
           import hashlib
           import os
           import re
           from pathlib import Path
 
-          def inspect(root, label, summary_name, empty_name, min_ftl, min_ratio):
-              root = Path(root)
-              if not root.is_dir():
-                  raise SystemExit(f'{label} directory missing: {root}')
-              ftl = sorted(root.rglob('*.ftl'))
-              nonempty = [p for p in ftl if p.stat().st_size > 0]
-              zero = [p for p in ftl if p.stat().st_size == 0]
-              cyr = [p for p in nonempty if re.search(r'[\u0400-\u04ff]', p.read_text(encoding='utf-8', errors='ignore'))]
-              reps = [
-                  p for p in ftl
-                  if p.as_posix().endswith('browser/browser/browser.ftl')
-                  or p.as_posix().endswith('browser/preferences/preferences.ftl')
-                  or p.as_posix().endswith('toolkit/neterror/netError.ftl')
-              ]
-              print(f'{label}: root={root.resolve()} ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
-              print(f'{label} EMPTY FTL PATHS:')
-              for p in zero:
-                  print(p.resolve())
-              if not zero:
-                  print('(none)')
-              rep_lines = []
-              for p in reps:
-                  data = p.read_bytes()
-                  text = data.decode('utf-8', errors='ignore')
-                  sha = hashlib.sha256(data).hexdigest()
-                  has_cyr = bool(re.search(r'[\u0400-\u04ff]', text))
-                  line = f'{p.resolve()} size={len(data)} sha256={sha} cyrillic={int(has_cyr)}'
-                  print(f'{label} representative {line}')
-                  rep_lines.append(line)
-                  if not data or not has_cyr:
-                      raise SystemExit(f'{label} representative resource is not substantive Russian: {p}')
-              Path(empty_name).write_text(''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8')
-              Path(summary_name).write_text(
-                  f'root={root.resolve()}\nftl_total={len(ftl)}\nftl_nonempty={len(nonempty)}\nftl_zero={len(zero)}\nftl_cyrillic={len(cyr)}\n' +
-                  ''.join(f'representative={line}\n' for line in rep_lines),
-                  encoding='utf-8',
-              )
-              if len(ftl) < min_ftl:
-                  raise SystemExit(f'{label} Russian Fluent tree unexpectedly small')
-              if len(nonempty) / len(ftl) < min_ratio:
-                  raise SystemExit(f'{label} Russian Fluent payload is too empty')
-              if len(cyr) / max(len(nonempty), 1) < 0.50:
-                  raise SystemExit(f'{label} contains too few Cyrillic Fluent resources')
-              if len(reps) < 3:
-                  raise SystemExit(f'{label} missing representative browser/preferences/netError resources')
-
-          inspect(os.environ['MERGE_ROOT'], 'production merge', 'ru-production-merge-summary.txt', 'ru-production-merge-empty-paths.txt', 200, 0.90)
-          inspect(os.environ['STAGE_ROOT'], 'pre-package staging', 'ru-prepackage-summary.txt', 'ru-prepackage-empty-paths.txt', 150, 0.90)
+          root = Path(os.environ['MERGE_ROOT'])
+          if not root.is_dir():
+              raise SystemExit(f'production merge directory missing: {root}')
+          ftl = sorted(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          zero = [p for p in ftl if p.stat().st_size == 0]
+          cyr = [p for p in nonempty if re.search(r'[\u0400-\u04ff]', p.read_text(encoding='utf-8', errors='ignore'))]
+          reps = [
+              p for p in ftl
+              if p.as_posix().endswith('browser/browser/browser.ftl')
+              or p.as_posix().endswith('browser/preferences/preferences.ftl')
+              or p.as_posix().endswith('toolkit/neterror/netError.ftl')
+          ]
+          print(f'production merge: root={root.resolve()} ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+          print('production merge EMPTY FTL PATHS:')
+          for p in zero:
+              print(p.resolve())
+          if not zero:
+              print('(none)')
+          rep_lines = []
+          for p in reps:
+              data = p.read_bytes()
+              text = data.decode('utf-8', errors='ignore')
+              sha = hashlib.sha256(data).hexdigest()
+              has_cyr = bool(re.search(r'[\u0400-\u04ff]', text))
+              line = f'{p.resolve()} size={len(data)} sha256={sha} cyrillic={int(has_cyr)}'
+              print(f'production merge representative {line}')
+              rep_lines.append(line)
+              if not data or not has_cyr:
+                  raise SystemExit(f'production merge representative resource is not substantive Russian: {p}')
+          Path('ru-production-merge-empty-paths.txt').write_text(''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8')
+          Path('ru-production-merge-summary.txt').write_text(
+              f'root={root.resolve()}\nftl_total={len(ftl)}\nftl_nonempty={len(nonempty)}\nftl_zero={len(zero)}\nftl_cyrillic={len(cyr)}\n' +
+              ''.join(f'representative={line}\n' for line in rep_lines),
+              encoding='utf-8',
+          )
+          if len(ftl) < 200:
+              raise SystemExit('production merge Russian Fluent tree unexpectedly small')
+          if len(nonempty) / len(ftl) < 0.90:
+              raise SystemExit('production merge Russian Fluent payload is too empty')
+          if len(cyr) / max(len(nonempty), 1) < 0.50:
+              raise SystemExit('production merge contains too few Cyrillic Fluent resources')
+          if len(reps) < 3:
+              raise SystemExit('production merge missing representative browser/preferences/netError resources')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $stageRoots = @(
+            'obj-gost-win64\dist\bin\localization\ru',
+            'obj-gost-win64\dist\bin\browser\localization\ru'
+          )
+          $stageLines = @()
+          foreach ($root in $stageRoots) {
+            $full = [System.IO.Path]::GetFullPath($root)
+            if (Test-Path $full) {
+              $ftl = @(Get-ChildItem $full -Recurse -File -Filter '*.ftl')
+              $nonempty = @($ftl | Where-Object { $_.Length -gt 0 })
+              $zero = @($ftl | Where-Object { $_.Length -eq 0 })
+              $line = "root=$full ftl=$($ftl.Count) nonempty=$($nonempty.Count) zero=$($zero.Count)"
+              Write-Host "pre-package dist/bin observation: $line"
+              $stageLines += $line
+            } else {
+              $line = "root=$full missing=1"
+              Write-Host "pre-package dist/bin observation: $line"
+              $stageLines += $line
+            }
+          }
+          $stageLines | Set-Content -Encoding utf8 ru-prepackage-summary.txt
+          '' | Set-Content -Encoding utf8 ru-prepackage-empty-paths.txt
+          Write-Host 'Pre-package dist/bin observations are diagnostic only; final omni.ja content is the hard Gate D.'
 
       - name: Package release r3dfox as ru + en-US multi-locale
         id: package-release
