@@ -34,32 +34,33 @@ if (-not $widlText.Contains($oldCall)) { throw 'Expected pinned One-Core WIDL mi
 $widlText = $widlText.Replace($oldCall, $newCall)
 Set-Content -Encoding ascii -Path $widlHeader -Value $widlText
 
-# Keep the upstream mbedtls MODULE target intact for provenance, but add a
-# private static target over exactly the same SOURCE list for bcrypt.dll.
-# Match CMake syntax, not whitespace/line-ending formatting.
 $mbedtlsCmake = Join-Path $src 'dll\3rdparty\mbedtls\CMakeLists.txt'
 $mbedtlsText = Get-Content -Raw $mbedtlsCmake
-$modulePattern = '(?m)^(?<indent>[ \t]*)add_library\(mbedtls[ \t]+MODULE\b'
-$moduleMatches = [regex]::Matches($mbedtlsText, $modulePattern)
-if ($moduleMatches.Count -ne 1) { throw "Expected exactly one One-Core mbedtls MODULE target, found $($moduleMatches.Count)" }
-$moduleStart = $moduleMatches[0].Index
-$staticLine = 'add_library(mbedtls_bcrypt STATIC ${SOURCE})' + [Environment]::NewLine + [Environment]::NewLine
-$mbedtlsText = $mbedtlsText.Insert($moduleStart, $staticLine)
-
-$compilePattern = '(?m)^(?<indent>[ \t]*)target_compile_options\(mbedtls[ \t]+PRIVATE[ \t]+-Wno-pointer-sign[ \t]+-Wno-unused-function\)[ \t]*$'
-$compileMatches = [regex]::Matches($mbedtlsText, $compilePattern)
-if ($compileMatches.Count -ne 1) { throw "Expected exactly one One-Core mbedtls GNU compile-options line, found $($compileMatches.Count)" }
-$compileReplacement = '${indent}target_compile_options(mbedtls_bcrypt PRIVATE -Wno-pointer-sign -Wno-unused-function)' + [Environment]::NewLine + '${indent}target_compile_options(mbedtls PRIVATE -Wno-pointer-sign -Wno-unused-function)'
-$mbedtlsText = [regex]::Replace($mbedtlsText, $compilePattern, $compileReplacement, 1)
-Set-Content -Encoding ascii -Path $mbedtlsCmake -Value $mbedtlsText
+$mbedtlsSources = @([regex]::Matches($mbedtlsText, '(?m)^[ \t]*([A-Za-z0-9_./+-]+\.c)[ \t]*$') | ForEach-Object { $_.Groups[1].Value })
+if ($mbedtlsSources.Count -lt 10) { throw "Unexpectedly small active mbedtls source list: $($mbedtlsSources.Count)" }
+$mbedtlsSources | Set-Content -Encoding ascii (Join-Path $diag 'embedded-mbedtls-sources.txt')
 
 $bcryptCmake = Join-Path $src 'dll\win32\bcrypt\CMakeLists.txt'
 $bcryptText = Get-Content -Raw $bcryptCmake
-$targetLinkPattern = '(?m)^target_link_libraries\(bcrypt[ \t]+wine\)[ \t]*$'
+$moduleTypePattern = '(?m)^set_module_type\(bcrypt[ \t]+win32dll\)[ \t]*$'
 $importPattern = '(?m)^add_importlibs\(bcrypt[ \t]+mbedtls[ \t]+advapi32[ \t]+msvcrt[ \t]+kernel32[ \t]+ntdll\)[ \t]*$'
-if ([regex]::Matches($bcryptText, $targetLinkPattern).Count -ne 1) { throw 'Expected One-Core bcrypt target_link_libraries wiring not found uniquely' }
+if ([regex]::Matches($bcryptText, $moduleTypePattern).Count -ne 1) { throw 'Expected One-Core bcrypt module type line not found uniquely' }
 if ([regex]::Matches($bcryptText, $importPattern).Count -ne 1) { throw 'Expected One-Core bcrypt mbedtls import wiring not found uniquely' }
-$bcryptText = [regex]::Replace($bcryptText, $targetLinkPattern, 'target_link_libraries(bcrypt wine mbedtls_bcrypt)', 1)
+
+$embedLines = @('target_sources(bcrypt PRIVATE')
+foreach ($name in $mbedtlsSources) {
+  $embedLines += ('    ${REACTOS_SOURCE_DIR}/dll/3rdparty/mbedtls/' + $name)
+}
+$embedLines += @(
+  ')',
+  'target_include_directories(bcrypt PRIVATE',
+  '    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/libs',
+  '    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/zlib',
+  ')',
+  'target_compile_definitions(bcrypt PRIVATE MINGW_HAS_SECURE_API CRTDLL)'
+)
+$embedBlock = $embedLines -join [Environment]::NewLine
+$bcryptText = [regex]::Replace($bcryptText, $moduleTypePattern, ('$0' + [Environment]::NewLine + $embedBlock), 1)
 $bcryptText = [regex]::Replace($bcryptText, $importPattern, 'add_importlibs(bcrypt advapi32 msvcrt kernel32 ntdll)', 1)
 Set-Content -Encoding ascii -Path $bcryptCmake -Value $bcryptText
 
@@ -68,10 +69,12 @@ source_sha=$sourceCommit
 widl_fix=remove trailing NULL from one mismatched format_namespace host-tool call
 bcrypt_implementation_modified=no
 mbedtls_implementation_modified=no
-linkage_change=compile the existing mbedtls SOURCE list into static target mbedtls_bcrypt and link that target into bcrypt.dll
+mbedtls_cmake_modified=no
+linkage_change=compile the active mbedtls C source list directly as private sources of bcrypt.dll; remove only the mbedtls import-library dependency
 runtime_goal=bcrypt.dll only; no mbedtls.dll dependency
+embedded_source_count=$($mbedtlsSources.Count)
 "@ | Set-Content -Encoding ascii (Join-Path $diag 'onecore-source-build-adjustments.txt')
-& git -C $src diff -- sdk/tools/widl/header.c dll/3rdparty/mbedtls/CMakeLists.txt dll/win32/bcrypt/CMakeLists.txt | Set-Content -Encoding utf8 (Join-Path $diag 'onecore-source-build-adjustments.diff')
+& git -C $src diff -- sdk/tools/widl/header.c dll/win32/bcrypt/CMakeLists.txt | Set-Content -Encoding utf8 (Join-Path $diag 'onecore-source-build-adjustments.diff')
 
 & curl.exe -L --fail --retry 3 -o $rosbeInstaller $rosbeUrl
 if ($LASTEXITCODE -ne 0) { throw 'RosBE download failed' }
@@ -145,7 +148,7 @@ $exports | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.exports.txt')
 foreach ($name in $forbidden) {
   if ($imports -match "\b$([regex]::Escape($name))\b") { throw "Post-XP hard import found in bcrypt.dll: $name" }
 }
-if ($imports -match '(?i)\bmbedtls\.dll\b') { throw 'Static bcrypt build still imports mbedtls.dll' }
+if ($imports -match '(?i)\bmbedtls\.dll\b') { throw 'Embedded-source bcrypt build still imports mbedtls.dll' }
 
 $requiredExports = @(
   'BCryptOpenAlgorithmProvider','BCryptCloseAlgorithmProvider','BCryptGetProperty',
@@ -190,22 +193,22 @@ foreach ($name in $forbidden) {
 @echo off
 setlocal
 cd /d "%~dp0"
-echo === One-Core source-built static-mbedtls bcrypt dynamic probe ===
+echo === One-Core source-built embedded-mbedtls bcrypt dynamic probe ===
 bcrypt-source-dynamic.exe
 echo DynamicExitCode=%ERRORLEVEL%
 echo.
-echo === One-Core source-built static-mbedtls bcrypt linked probe ===
+echo === One-Core source-built embedded-mbedtls bcrypt linked probe ===
 bcrypt-source-linked.exe
 echo LinkedExitCode=%ERRORLEVEL%
 '@ | Set-Content -Encoding ascii (Join-Path $runtime 'run-on-xp.cmd')
 
 @"
-One-Core-API source-built bcrypt XP x86 static-mbedtls smoke
+One-Core-API source-built bcrypt XP x86 embedded-mbedtls smoke
 Source repository: shorthorn-project/One-Core-API-Source
 Pinned source commit: $sourceCommit
-Source components: dll/win32/bcrypt + dll/3rdparty/mbedtls compiled into bcrypt.dll
+Source components: dll/win32/bcrypt plus the active C source list from dll/3rdparty/mbedtls, compiled directly into bcrypt.dll
 Build environment: RosBE 2.1.6 i386
-Build adjustments: one-line WIDL host-tool repair plus linkage-only CMake change; bcrypt and mbedtls C implementations remain unmodified.
+Build adjustments: one-line WIDL host-tool repair plus bcrypt CMake wiring only; bcrypt and mbedtls C implementations and mbedtls CMake remain unmodified.
 
 Runtime closure requirement:
 - bcrypt.dll is the only staged DLL;
@@ -236,5 +239,5 @@ try {
   & .\bcrypt-source-linked.exe *>&1 | Tee-Object -FilePath (Join-Path $diag 'hosted-linked-runtime.txt')
   $linkedExit = $LASTEXITCODE
 } finally { Pop-Location }
-if ($dynamicExit -ne 0) { throw "Hosted exact-local static-mbedtls bcrypt dynamic probe failed with $dynamicExit" }
-if ($linkedExit -ne 0) { throw "Hosted static-mbedtls bcrypt linked probe failed with $linkedExit" }
+if ($dynamicExit -ne 0) { throw "Hosted exact-local embedded-mbedtls bcrypt dynamic probe failed with $dynamicExit" }
+if ($linkedExit -ne 0) { throw "Hosted embedded-mbedtls bcrypt linked probe failed with $linkedExit" }
