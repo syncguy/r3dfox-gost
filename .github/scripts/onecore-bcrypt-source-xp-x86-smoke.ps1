@@ -26,25 +26,23 @@ $actual = (& git -C $src rev-parse HEAD).Trim()
 if ($actual -ne $sourceCommit) { throw "Unexpected One-Core source SHA: $actual" }
 $actual | Set-Content -Encoding ascii (Join-Path $diag 'onecore-source-sha.txt')
 
-# The pinned One-Core commit has one obvious internal WIDL mismatch in the
-# normal sdk/tools/widl tree: header.c calls format_namespace with the newer
-# five-argument signature, while widltypes.h and typetree.c in that same tree
-# declare/implement the older four-argument signature. Keep the normal WIDL
-# tree and repair only that call. Do not touch dll/win32/bcrypt.
+# Pinned One-Core has one internal WIDL mismatch in the normal sdk/tools/widl
+# tree: header.c calls the newer 5-argument format_namespace API while its own
+# widltypes.h/typetree.c declare and implement the 4-argument API. Repair only
+# that host-tool call. dll/win32/bcrypt and dll/3rdparty/mbedtls stay untouched.
 $widlHeader = Join-Path $src 'sdk\tools\widl\header.c'
 $widlText = Get-Content -Raw $widlHeader
 $oldCall = 'format_namespace(type->namespace, "", "_", type->name, NULL)'
 $newCall = 'format_namespace(type->namespace, "", "_", type->name)'
-if (-not $widlText.Contains($oldCall)) {
-  throw 'Expected pinned One-Core WIDL format_namespace mismatch not found'
-}
+if (-not $widlText.Contains($oldCall)) { throw 'Expected pinned One-Core WIDL mismatch not found' }
 $widlText = $widlText.Replace($oldCall, $newCall)
 Set-Content -Encoding ascii -Path $widlHeader -Value $widlText
 @"
 source_sha=$sourceCommit
 reason=sdk/tools/widl/header.c uses 5 args while widltypes.h and typetree.c define 4-arg format_namespace
-change=sdk/tools/widl/header.c: remove trailing NULL from format_namespace call in format_apicontract_macro
+change=remove trailing NULL from format_namespace call in format_apicontract_macro
 bcrypt_implementation_modified=no
+mbedtls_implementation_modified=no
 "@ | Set-Content -Encoding ascii (Join-Path $diag 'onecore-widl-source-fix.txt')
 & git -C $src diff -- sdk/tools/widl/header.c | Set-Content -Encoding utf8 (Join-Path $diag 'onecore-widl-source-fix.diff')
 
@@ -58,35 +56,18 @@ $install = Start-Process -FilePath $rosbeInstaller -ArgumentList '/S',("/D=$rosb
 "exit_code=$($install.ExitCode)`nrequested_dir=$rosbe" | Set-Content -Encoding ascii (Join-Path $diag 'rosbe-install.txt')
 if ($install.ExitCode -ne 0) { throw "RosBE installer failed with $($install.ExitCode)" }
 
-$searchRoots = New-Object System.Collections.Generic.List[string]
-$fixedRoots = @(
-  $rosbe,
-  (Join-Path $env:SystemDrive 'RosBE'),
-  (Join-Path $env:SystemDrive 'RosBE-2.1.6')
-)
-if ($env:ProgramFiles) { $fixedRoots += (Join-Path $env:ProgramFiles 'RosBE') }
-if (${env:ProgramFiles(x86)}) { $fixedRoots += (Join-Path ${env:ProgramFiles(x86)} 'RosBE') }
-foreach ($root in $fixedRoots) {
-  if ($root -and (Test-Path $root) -and -not $searchRoots.Contains($root)) { $searchRoots.Add($root) }
-}
-Get-ChildItem ($env:SystemDrive + '\') -Directory -Filter 'RosBE*' -ErrorAction SilentlyContinue | ForEach-Object {
-  if (-not $searchRoots.Contains($_.FullName)) { $searchRoots.Add($_.FullName) }
-}
-$searchRoots | Set-Content -Encoding utf8 (Join-Path $diag 'rosbe-search-roots.txt')
-
+$roots = @($rosbe,(Join-Path $env:SystemDrive 'RosBE'),(Join-Path $env:SystemDrive 'RosBE-2.1.6'))
+if ($env:ProgramFiles) { $roots += (Join-Path $env:ProgramFiles 'RosBE') }
+if (${env:ProgramFiles(x86)}) { $roots += (Join-Path ${env:ProgramFiles(x86)} 'RosBE') }
+$roots += @(Get-ChildItem ($env:SystemDrive + '\') -Directory -Filter 'RosBE*' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+$roots = @($roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique)
+$roots | Set-Content -Encoding utf8 (Join-Path $diag 'rosbe-search-roots.txt')
 $rosbeCmd = $null
-foreach ($root in $searchRoots) {
+foreach ($root in $roots) {
   $candidate = Get-ChildItem $root -Recurse -Filter RosBE.cmd -File -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($candidate) { $rosbeCmd = $candidate; break }
 }
-if (-not $rosbeCmd) {
-  Get-ChildItem ($env:SystemDrive + '\') -Directory -ErrorAction SilentlyContinue |
-    Select-Object FullName,LastWriteTimeUtc |
-    Format-Table -AutoSize |
-    Out-String |
-    Set-Content -Encoding utf8 (Join-Path $diag 'system-drive-root-after-rosbe-install.txt')
-  throw 'RosBE.cmd not found after RosBE 2.1.6 install; see diagnostics for discovered install roots'
-}
+if (-not $rosbeCmd) { throw 'RosBE.cmd not found after RosBE 2.1.6 install' }
 $rosbeCmd.FullName | Set-Content -Encoding ascii (Join-Path $diag 'rosbe-command.txt')
 
 $buildCmd = Join-Path $WorkRoot 'build-onecore-bcrypt.cmd'
@@ -102,41 +83,30 @@ where cmake
 cd /d "$out"
 call "$src\configure.cmd" -DENABLE_ROSTESTS=0
 if errorlevel 1 exit /b %errorlevel%
-ninja bcrypt
+ninja mbedtls bcrypt
 exit /b %errorlevel%
 "@ | Set-Content -Encoding ascii $buildCmd
 
-$oldErrorActionPreference = $ErrorActionPreference
+$oldEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
   & cmd.exe /d /c $buildCmd *>&1 | Tee-Object -FilePath (Join-Path $diag 'build.log')
   $buildExit = $LASTEXITCODE
-} finally {
-  $ErrorActionPreference = $oldErrorActionPreference
-}
+} finally { $ErrorActionPreference = $oldEap }
 "exit_code=$buildExit" | Set-Content -Encoding ascii (Join-Path $diag 'build-exit-code.txt')
 if ($buildExit -ne 0) { throw "One-Core bcrypt build failed with $buildExit" }
 
-$candidates = @(Get-ChildItem $out -Recurse -Filter bcrypt.dll -File)
-if ($candidates.Count -eq 0) { throw 'Built bcrypt.dll not found' }
-$bcrypt = $candidates | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-$bcrypt.FullName | Set-Content -Encoding ascii (Join-Path $diag 'bcrypt-build-path.txt')
-Copy-Item $bcrypt.FullName (Join-Path $runtime 'bcrypt.dll')
-
-$headers = & dumpbin /headers $bcrypt.FullName 2>&1
-$imports = & dumpbin /imports $bcrypt.FullName 2>&1
-$exports = & dumpbin /exports $bcrypt.FullName 2>&1
-$headers | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.headers.txt')
-$imports | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.imports.txt')
-$exports | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.exports.txt')
-
-$requiredExports = @(
-  'BCryptOpenAlgorithmProvider','BCryptCloseAlgorithmProvider','BCryptGetProperty',
-  'BCryptCreateHash','BCryptHashData','BCryptFinishHash','BCryptDestroyHash','BCryptGenRandom'
-)
-foreach ($name in $requiredExports) {
-  if (-not ($exports -match "\b$([regex]::Escape($name))\b")) { throw "Required export missing: $name" }
+function Find-BuiltDll([string]$name) {
+  $items = @(Get-ChildItem $out -Recurse -Filter $name -File)
+  if ($items.Count -eq 0) { throw "Built $name not found" }
+  return ($items | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
 }
+
+$bcrypt = Find-BuiltDll 'bcrypt.dll'
+$mbedtls = Find-BuiltDll 'mbedtls.dll'
+"bcrypt=$($bcrypt.FullName)`nmbedtls=$($mbedtls.FullName)" | Set-Content -Encoding ascii (Join-Path $diag 'runtime-closure-build-paths.txt')
+Copy-Item $bcrypt.FullName (Join-Path $runtime 'bcrypt.dll')
+Copy-Item $mbedtls.FullName (Join-Path $runtime 'mbedtls.dll')
 
 $forbidden = @(
   'AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared',
@@ -144,9 +114,31 @@ $forbidden = @(
   'WakeAllConditionVariable','WakeConditionVariable','InitializeCriticalSectionEx',
   'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue','GetTickCount64','GetSystemTimePreciseAsFileTime'
 )
-foreach ($name in $forbidden) {
-  if ($imports -match "\b$([regex]::Escape($name))\b") { throw "Post-XP hard import found in built bcrypt.dll: $name" }
+
+function Audit-Dll([System.IO.FileInfo]$dll,[string]$stem) {
+  $headers = & dumpbin /headers $dll.FullName 2>&1
+  $imports = & dumpbin /imports $dll.FullName 2>&1
+  $exports = & dumpbin /exports $dll.FullName 2>&1
+  $headers | Set-Content -Encoding utf8 (Join-Path $diag "$stem.headers.txt")
+  $imports | Set-Content -Encoding utf8 (Join-Path $diag "$stem.imports.txt")
+  $exports | Set-Content -Encoding utf8 (Join-Path $diag "$stem.exports.txt")
+  foreach ($name in $forbidden) {
+    if ($imports -match "\b$([regex]::Escape($name))\b") { throw "Post-XP hard import found in $($dll.Name): $name" }
+  }
+  return @{ Headers=$headers; Imports=$imports; Exports=$exports }
 }
+
+$bcryptAudit = Audit-Dll $bcrypt 'bcrypt'
+$mbedtlsAudit = Audit-Dll $mbedtls 'mbedtls'
+
+$requiredExports = @(
+  'BCryptOpenAlgorithmProvider','BCryptCloseAlgorithmProvider','BCryptGetProperty',
+  'BCryptCreateHash','BCryptHashData','BCryptFinishHash','BCryptDestroyHash','BCryptGenRandom'
+)
+foreach ($name in $requiredExports) {
+  if (-not ($bcryptAudit.Exports -match "\b$([regex]::Escape($name))\b")) { throw "Required bcrypt export missing: $name" }
+}
+if (-not ($bcryptAudit.Imports -match '\bmbedtls\.dll\b')) { throw 'Expected bcrypt -> mbedtls.dll runtime dependency not found' }
 
 $probeSource = Join-Path $RepoRoot 'tools\gost\xp\bcrypt-smoke\bcrypt_dynamic.cpp'
 $probe = Join-Path $runtime 'bcrypt-source-dynamic.exe'
@@ -154,7 +146,6 @@ $probe = Join-Path $runtime 'bcrypt-source-dynamic.exe'
 if ($LASTEXITCODE -ne 0) { throw 'bcrypt source dynamic probe compile failed' }
 & link.exe /nologo /OUT:$probe /ENTRY:mainCRTStartup /SUBSYSTEM:CONSOLE,5.01 /NODEFAULTLIB "$WorkRoot\bcrypt-source-dynamic.obj" kernel32.lib
 if ($LASTEXITCODE -ne 0) { throw 'bcrypt source dynamic probe link failed' }
-
 & dumpbin /headers $probe | Set-Content -Encoding utf8 (Join-Path $diag 'probe.headers.txt')
 & dumpbin /imports $probe | Set-Content -Encoding utf8 (Join-Path $diag 'probe.imports.txt')
 
@@ -162,7 +153,7 @@ if ($LASTEXITCODE -ne 0) { throw 'bcrypt source dynamic probe link failed' }
 @echo off
 setlocal
 cd /d "%~dp0"
-echo === One-Core source-built bcrypt dynamic probe ===
+echo === One-Core source-built bcrypt + mbedtls dynamic probe ===
 bcrypt-source-dynamic.exe
 echo ExitCode=%ERRORLEVEL%
 '@ | Set-Content -Encoding ascii (Join-Path $runtime 'run-on-xp.cmd')
@@ -171,14 +162,14 @@ echo ExitCode=%ERRORLEVEL%
 One-Core-API source-built bcrypt XP x86 smoke
 Source repository: shorthorn-project/One-Core-API-Source
 Pinned source commit: $sourceCommit
-Source component: dll/win32/bcrypt
+Source components: dll/win32/bcrypt + dll/3rdparty/mbedtls
 Build environment: RosBE 2.1.6 i386
-Build-tree correction: one-line WIDL host-tool signature repair; dll/win32/bcrypt remains unmodified.
+Build-tree correction: one-line WIDL host-tool signature repair only; bcrypt and mbedtls sources remain unmodified.
 
 Physical XP test:
-1. Extract this entire artifact unchanged on Windows XP SP3 x86.
-2. Run run-on-xp.cmd.
-3. Record the complete console output.
+1. Extract the entire artifact unchanged on Windows XP SP3 x86.
+2. Keep bcrypt.dll and mbedtls.dll beside bcrypt-source-dynamic.exe.
+3. Run run-on-xp.cmd and record complete output.
 
 Acceptance markers:
 LOAD PASS
@@ -198,4 +189,4 @@ try {
   & .\bcrypt-source-dynamic.exe *>&1 | Tee-Object -FilePath (Join-Path $diag 'hosted-runtime.txt')
   $hostedExit = $LASTEXITCODE
 } finally { Pop-Location }
-if ($hostedExit -ne 0) { throw "Hosted exact-local source-built bcrypt probe failed with $hostedExit" }
+if ($hostedExit -ne 0) { throw "Hosted exact-local source-built bcrypt closure probe failed with $hostedExit" }
