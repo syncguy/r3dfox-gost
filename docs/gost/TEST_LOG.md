@@ -8,6 +8,39 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-01 — physically proven single-DLL bcrypt published as reusable raw release asset
+
+Track: Windows XP x86 dependency distribution/integration only. This does not add new bcrypt runtime evidence and is not GOST TLS handshake evidence.
+
+Binary identity remains the already physically proven implementation:
+
+- binary source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- source-build workflow run `33513084915`, job `99873297193`;
+- runtime artifact `9802703271`;
+- `bcrypt.dll` size `520704` bytes;
+- SHA-1 `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`;
+- SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`;
+- physical Windows XP 5.1.2600 dynamic + linked/IAT PASS already recorded below.
+
+Publication identity is separate from binary source identity:
+
+- publication workflow source `76225fcf95e4e484f0cec30c8e25a235119b0256`;
+- publication workflow `Publish proven XP bcrypt release`;
+- Actions run `33518189052`;
+- job `99890447193`;
+- conclusion **success**;
+- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- technical prerelease ID `380563342`, title `XP bcrypt primitive v1`;
+- raw release asset ID `539647946`, name `bcrypt.dll`, size `520704`, GitHub digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
+
+The publication job passed these boundaries in order: reject an existing tag/release, download exact runtime artifact `9802703271`, verify the exact proven DLL identity, and publish the raw DLL directly as the release asset. The DLL is not wrapped in ZIP/7z. GitHub still exposes its automatic source archives for the tag, but those are unrelated to the binary asset.
+
+The first bootstrap push for the temporary publisher, source `e6b5690e9524cbf40586392a3e402758a769b3ac`, produced run `33518088668` with no jobs because of a workflow YAML validation error. This was publisher-harness failure only. Source `76225fc...` corrected the YAML and publication then passed. The one-shot publisher workflow was removed after success by commit `14e47fe0bed8e6acf0948dca3cdedf7a4c9cdf5b` so it does not remain as a permanent Actions workflow.
+
+Conclusion: **PASS / reusable binary distribution established.** `xp-bcrypt-v1` is now the canonical cross-branch binary input for the selected physically proven bcrypt primitive. Heavy Firefox workflows should consume this release asset, verify exact SHA-256 and size, and stage only `bcrypt.dll`. Actions cache may be layered in front as an accelerator, but cache miss must download the canonical release asset rather than silently rebuilding One-Core. Future bcrypt replacements require a new version/tag and fresh physical-XP proof before superseding `xp-bcrypt-v1`.
+
+---
+
 ## 2026-09-01 — single-DLL source-built One-Core bcrypt with embedded mbedTLS passes physical Windows XP through dynamic and linked consumers
 
 Track: Windows XP x86 binary compatibility only. This is not GOST TLS runtime/handshake evidence and does not close the independent SRW/condition-variable or remaining post-XP browser-import work.
