@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 This file is the authoritative current technical synthesis. Detailed evidence is in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; the restart-safe runtime sequence is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP branch is in `STAGE2_GIS_GMP.md`; the primary source-level WinRT-removal experiment is documented in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture and import triage are in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory XP x86 dependency/build contract is in `XP_BUILD_CONTRACT.md`.
 
@@ -329,7 +329,7 @@ The physical Win7 crash from source `982d6529a707c6feecad97c725feed8a3cd21c81`, 
 
 Detailed rules and the component matrix are in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory build contract is in `XP_BUILD_CONTRACT.md`; exact evidence is in `TEST_LOG.md`; forward tasks are in `TODO.md`.
 
-## Bundled government-system extensions — independent track
+## Bundled government-system extensions / localization — independent track
 
 Current proven three-extension package checkpoint:
 
@@ -338,7 +338,19 @@ Current proven three-extension package checkpoint:
 - packaged-browser artifact `9614275050`;
 - evidence artifact `9614275551`.
 
-The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled-state is proven for all three project extensions. Native-component behavior and version-to-version update behavior remain separate open work.
+That portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled-state is proven for all three project extensions. Native-component behavior and version-to-version update behavior remain separate open work.
+
+Current Russian-first full-browser packaging checkpoint:
+
+- source-under-test `37846488e281b4c3a2df46e949b4f970a7343ed3` on `agent/gost-tls-poc`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- run `33403654068`, job `99525795309`, **success**;
+- packaged-browser artifact `9768056691` (`r3dfox-cryptopro-mozilla-packaging-ru-en-US`), digest `sha256:29c6c09dfe61fa0fe51cad4a97f9235c71fe02b5bcd7530104cafafa8da40b9c`;
+- evidence artifact `9768057338`, digest `sha256:9e88560db20a36f77311203453927d2c0232b6d80ef3ee5150eb7d187674a591`.
+
+For this exact build, the full release build, CryptoPro XPI staging/final-package hash gate, `mach package`, `mach package-multi-locale --locales ru`, and final portable archive verification all pass. The final gate proves that `defaults/pref/r3dfox-bundle.js` is present inside packaged `omni.ja` with `pref("intl.locale.requested", "ru");`, and that both `ru` and `en-US` UI resources are present. This supersedes the false-negative packaging result from run `33076347741` / job `98531418338`, whose only failure was an incorrect gate expecting `r3dfox-bundle.js` as a loose file rather than inside `omni.ja`.
+
+**Current boundary:** Russian-first multi-locale packaging is proven; actual first-start Russian UI, language switching/fallback, and general UI behavior of artifact `9768056691` remain runtime tests. Do not promote the packaging result to runtime UI success until those checks are completed. This checkpoint also does not prove CryptoPro native-component behavior, GOST TLS runtime, or old-Windows runtime compatibility.
 
 ## Separation of conclusions
 
@@ -346,6 +358,6 @@ The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlug
 - Coordinated runtime success != final server-trust closure.
 - `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
 - GOST runtime != Windows compatibility.
-- Extension packaging != extension runtime, GOST runtime, or old-Windows runtime.
+- Extension/localization packaging != extension runtime, UI runtime, GOST runtime, or old-Windows runtime.
 - Upstream r3dfox x86 shipping with `--disable-sandbox` defines the inherited compatibility baseline; a future sandbox restoration would be an additional security-hardening milestone, not a prerequisite for XP startup/browsing.
 - Documentation HEADs never replace the exact source-under-test SHA for a previously built/runtime-tested browser.
