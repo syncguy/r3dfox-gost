@@ -101,7 +101,13 @@ $embedLines = @('target_sources(bcrypt PRIVATE')
 foreach ($name in $mbedtlsSources) {
   $embedLines += ('    ${REACTOS_SOURCE_DIR}/dll/3rdparty/mbedtls/' + $name)
 }
+$embedLines += ')'
+$embedLines += 'set_source_files_properties('
+foreach ($name in $mbedtlsSources) {
+  $embedLines += ('    ${REACTOS_SOURCE_DIR}/dll/3rdparty/mbedtls/' + $name)
+}
 $embedLines += @(
+  '    PROPERTIES COMPILE_FLAGS "-U__WINESRC__"',
   ')',
   'target_include_directories(bcrypt PRIVATE',
   '    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/libs',
@@ -127,6 +133,7 @@ bcrypt_implementation_modified=no
 mbedtls_implementation_modified=no
 mbedtls_cmake_modified=no
 linkage_change=compile the pinned active mbedtls C modules directly as private sources of bcrypt.dll and remove only the mbedtls import-library dependency
+mbedtls_compile_context=unset __WINESRC__ for embedded mbedtls sources so they retain the successful standalone mbedtls target Win32 A/W macro behavior
 runtime_goal=bcrypt.dll only; no mbedtls.dll dependency
 embedded_source_count=$($mbedtlsSources.Count)
 "@ | Set-Content -Encoding ascii (Join-Path $diag 'onecore-source-build-adjustments.txt')
@@ -265,7 +272,7 @@ Pinned source commit: $sourceCommit
 Successful two-DLL baseline project source: fdd4d4dac5a7d9611ec71975ae800437f45c47dd
 Source components: dll/win32/bcrypt plus the pinned active C modules from dll/3rdparty/mbedtls, compiled directly into bcrypt.dll
 Build environment: RosBE 2.1.6 i386
-Build adjustments: the same one-line WIDL host-tool repair as the successful baseline plus bcrypt CMake composition only; bcrypt and mbedtls C implementations and mbedtls CMake remain unmodified.
+Build adjustments: the same one-line WIDL host-tool repair as the successful baseline plus bcrypt CMake composition only; bcrypt and mbedtls C implementations and mbedtls CMake remain unmodified. Embedded mbedtls source files explicitly unset __WINESRC__ to retain their proven standalone compile context.
 
 Runtime closure requirement:
 - bcrypt.dll is the only staged DLL;
