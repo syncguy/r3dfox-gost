@@ -30,6 +30,23 @@ Until a newer physically proven result explicitly supersedes this reference, eve
 7. **Keep diagnostics sufficient to reproduce provenance.** Record source commit, toolchain identity, restored dependency configuration, resolved output directory, PE headers, direct imports, SHA-256 hashes, and the exact staged files for each controlled runtime closure.
 8. **Do not weaken a failing gate to obtain a green build.** A build/package success is only a build result. Physical XP runtime remains a separate acceptance gate, and GOST TLS remains a separate project track.
 
+## Adopted `bcrypt.dll` remediation
+
+The project no longer treats the missing stock-XP `bcrypt.dll` dependency as an unresolved architectural blocker.
+
+The user selected an XP-compatible `bcrypt.dll` from the `shorthorn-project/One-Core-API-Binaries` project as the compatibility implementation for this dependency:
+
+- upstream repository: `https://github.com/shorthorn-project/One-Core-API-Binaries`;
+- upstream branch used as the source location: `master`;
+- remediation class: vetted third-party XP compatibility implementation / staged dependency replacement;
+- intended scope: satisfy the direct `bcrypt.dll` dependency reported for core browser PEs such as `xul.dll` and `mozglue.dll` on stock Windows XP.
+
+This decision is independent of the SRW/condition-variable work and must not be counted as one of the remaining post-XP API imports. The remaining API inventory should therefore be discussed separately from the already-selected `bcrypt.dll` dependency remediation.
+
+For reproducible CI/package adoption, the exact `bcrypt.dll` binary that is staged must still be pinned by upstream path/revision or immutable artifact identity, SHA-256, PE subsystem/import closure, required export surface, license/provenance record, package-survival gate, and physical-XP runtime evidence. Those reproducibility checks refine the adopted solution; they do not reopen the architectural decision to use the One-Core-API implementation.
+
+Detailed status and provenance expectations are recorded in `XP_BCRYPT_STATUS.md`.
+
 ## Full-build migration rule
 
 The full XP x32 workflow must use the same msvcr14x build procedure as the physically proven focused smoke and must gate the CRT closure before the expensive Firefox build proceeds. Once a self-built dependency family is brought under this contract, later full-build work should keep that family green and move to the next remaining owner/component reported by the broad final PE/import audit.
