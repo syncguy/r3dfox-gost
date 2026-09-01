@@ -557,12 +557,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $envOutput | Set-Content -Encoding utf8 configure-environment.json
           $json = ($envOutput -join "`n") | ConvertFrom-Json
-          $configured = [string]$json.substs.L10NBASEDIR
-          $expected = [System.IO.Path]::GetFullPath($env:L10N_BASE)
-          Write-Host "configured L10NBASEDIR=$configured"
-          Write-Host "expected L10NBASEDIR=$expected"
-          if ([System.IO.Path]::GetFullPath($configured) -ne $expected) {
-            throw "Configure L10NBASEDIR mismatch: expected $expected got $configured"
+          $expectedArg = '--with-l10n-base=' + $env:L10N_BASE.Replace('\', '/')
+          $configureArgs = @($json.mozconfig.configure_args)
+          Write-Host "expected l10n configure arg=$expectedArg"
+          Write-Host "configured args contain l10n base=$($configureArgs -contains $expectedArg)"
+          if ($configureArgs -notcontains $expectedArg) {
+            throw "mach environment did not retain the pinned l10n configure argument: $expectedArg"
+          }
+          if ($joined -notmatch [regex]::Escape($expectedArg)) {
+            throw "mach configure output did not consume the pinned l10n configure argument: $expectedArg"
           }
 
       - name: Build export prerequisites
