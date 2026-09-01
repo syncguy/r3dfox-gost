@@ -34,6 +34,8 @@ jobs:
           arch: x86
 
       - name: Run pinned bcrypt audit and probes
+        id: audit
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -57,7 +59,7 @@ jobs:
             "certificate_directory_zero=$($headers -match '(?im)^\s*0 \[\s*0\] RVA \[size\] of Certificates Directory')"
           ) | Set-Content -Encoding utf8 diagnostics\bcrypt-integrity-summary.txt
 
-      - name: Capture normal linked consumer result even after dynamic failure
+      - name: Capture normal linked consumer result
         if: always()
         shell: powershell
         run: |
@@ -72,13 +74,64 @@ jobs:
           Write-Host "linked diagnostic ExitCode=$rc"
           exit 0
 
+      - name: GATE - classify hosted runtime result
+        if: always()
+        shell: powershell
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path runtime\bcrypt.dll) -or
+              -not (Test-Path runtime\bcrypt-dynamic.exe) -or
+              -not (Test-Path runtime\bcrypt-linked.exe)) {
+            throw 'Runtime bundle was not fully staged; this is not an expected hosted limitation.'
+          }
+
+          if ($env:AUDIT_OUTCOME -eq 'success') {
+            Write-Host 'Hosted exact-local probe passed normally.'
+          } else {
+            if (-not (Test-Path diagnostics\hosted-dynamic.txt)) {
+              throw 'Audit failed before hosted dynamic execution.'
+            }
+            $dynamic = Get-Content -Raw diagnostics\hosted-dynamic.txt
+            if ($dynamic -notmatch 'LOAD FAIL error=0x00000241') {
+              throw 'Audit failed for a reason other than the known Windows 2022 ERROR_INVALID_IMAGE_HASH limitation.'
+            }
+            if (-not (Test-Path diagnostics\bcrypt-integrity-summary.txt)) {
+              throw 'Integrity diagnostics are missing.'
+            }
+            $integrity = Get-Content -Raw diagnostics\bcrypt-integrity-summary.txt
+            if ($integrity -notmatch 'check_integrity=True' -or $integrity -notmatch 'certificate_directory_zero=True') {
+              throw 'Expected Check integrity / unsigned-image evidence is not present.'
+            }
+            Write-Host 'HOSTED DYNAMIC XFAIL: exact upstream bcrypt.dll rejected with ERROR_INVALID_IMAGE_HASH (577) under Windows 2022 Code Integrity.'
+          }
+
+          if (-not (Test-Path diagnostics\hosted-linked.txt)) {
+            throw 'Linked-consumer hosted diagnostics are missing.'
+          }
+          $linked = Get-Content -Raw diagnostics\hosted-linked.txt
+          if ($linked -notmatch 'ExitCode=0' -or
+              $linked -notmatch 'LOAD PASS' -or
+              $linked -notmatch 'EXPORTS PASS' -or
+              $linked -notmatch 'RNG PASS' -or
+              $linked -notmatch 'SHA256 PASS') {
+            throw 'Normal linked consumer did not pass its hosted functional smoke.'
+          }
+          @(
+            'Hosted Windows execution is diagnostic only, not physical Windows XP evidence.'
+            'ERROR_INVALID_IMAGE_HASH (577) is accepted only for the exact-local dynamic probe when Check integrity is set and the image has no certificate directory.'
+            'The linked consumer may resolve the OS KnownDLL bcrypt.dll on modern Windows; MODULE PATH is recorded and must not be treated as validation of the One-Core bytes.'
+            'Physical Windows XP SP3 x86 validation must use the runtime artifact unchanged.'
+          ) | Set-Content -Encoding utf8 diagnostics\hosted-runtime-caveat.txt
+
       - name: Upload physical-XP runtime artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bcrypt-xp-x86-runtime
           path: runtime/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload diagnostics artifact
