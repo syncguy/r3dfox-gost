@@ -270,9 +270,11 @@ jobs:
           $forbiddenApis = @(
             'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
             'AcquireSRWLockExclusive','AcquireSRWLockShared',
-            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared',
             'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
-            'SleepConditionVariableSRW'
+            'InitializeSRWLock','InitializeConditionVariable',
+            'SleepConditionVariableCS','SleepConditionVariableSRW',
+            'WakeAllConditionVariable','WakeConditionVariable',
+            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared'
           )
           $forbiddenDllPatterns = @(
             '^(?i)(api-ms-win-|ext-ms-)',
@@ -373,6 +375,26 @@ jobs:
             @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
             @{ Key='stackguarantee-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
             @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='srw-acq-ex-direct'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-acq-ex-import'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-acq-sh-direct'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obj$' },
+            @{ Key='srw-acq-sh-import'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obi$' },
+            @{ Key='srw-rel-ex-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-rel-ex-import'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-rel-sh-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obj$' },
+            @{ Key='srw-rel-sh-import'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obi$' },
+            @{ Key='srw-init-direct'; Pattern='(?i)[\\/]_InitializeSRWLock@4\.obj$' },
+            @{ Key='srw-init-import'; Pattern='(?i)[\\/]_InitializeSRWLock@4\.obi$' },
+            @{ Key='cv-init-direct'; Pattern='(?i)[\\/]_InitializeConditionVariable@4\.obj$' },
+            @{ Key='cv-init-import'; Pattern='(?i)[\\/]_InitializeConditionVariable@4\.obi$' },
+            @{ Key='cv-sleep-cs-direct'; Pattern='(?i)[\\/]_SleepConditionVariableCS@12\.obj$' },
+            @{ Key='cv-sleep-cs-import'; Pattern='(?i)[\\/]_SleepConditionVariableCS@12\.obi$' },
+            @{ Key='cv-sleep-srw-direct'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obj$' },
+            @{ Key='cv-sleep-srw-import'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obi$' },
+            @{ Key='cv-wake-all-direct'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obj$' },
+            @{ Key='cv-wake-all-import'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obi$' },
+            @{ Key='cv-wake-one-direct'; Pattern='(?i)[\\/]_WakeConditionVariable@4\.obj$' },
+            @{ Key='cv-wake-one-import'; Pattern='(?i)[\\/]_WakeConditionVariable@4\.obi$' },
             @{ Key='implementation'; Pattern=$implementationPattern }
           )
 
@@ -409,7 +431,12 @@ jobs:
           foreach ($required in @(
             'YY_Thunks_ProcessPrng','YY_Thunks_GetSystemTimePreciseAsFileTime',
             'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
-            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee',
+            'YY_Thunks_AcquireSRWLockExclusive','YY_Thunks_AcquireSRWLockShared',
+            'YY_Thunks_ReleaseSRWLockExclusive','YY_Thunks_ReleaseSRWLockShared',
+            'YY_Thunks_InitializeSRWLock','YY_Thunks_InitializeConditionVariable',
+            'YY_Thunks_SleepConditionVariableCS','YY_Thunks_SleepConditionVariableSRW',
+            'YY_Thunks_WakeAllConditionVariable','YY_Thunks_WakeConditionVariable'
           )) {
             if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
           }
@@ -419,7 +446,7 @@ jobs:
 
           "NARROW_YY_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Patch libxul linker for XP x86 compatibility layer
+      - name: Patch core browser linkers for XP x86 compatibility layer
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -427,27 +454,56 @@ jobs:
           import os
           from pathlib import Path
 
-          path = Path("toolkit/library/moz.build")
-          text = path.read_text(encoding="utf-8")
-          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n'
-          if text.count(anchor) != 1:
-              raise SystemExit(f"Expected exactly one libxul clang-cl LDFLAGS anchor, found {text.count(anchor)}")
-
           msvcr = os.environ["MSVCR14X_RELEASE"].replace("\\", "/")
           yy_synch = os.environ["THUNK_YY_SYNCH_LIB"].replace("\\", "/")
           narrow = os.environ["NARROW_YY_LIB"].replace("\\", "/")
-          replacement = anchor + f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{msvcr}",\n            "{yy_synch}",\n            "{narrow}",\n            "-VERBOSE",\n        ]\n'''
-          path.write_text(text.replace(anchor, replacement, 1), encoding="utf-8", newline="\n")
+
+          def patch_once(path_name, anchor, addition):
+              path = Path(path_name)
+              text = path.read_text(encoding="utf-8")
+              if text.count(anchor) != 1:
+                  raise SystemExit(f"Expected exactly one linker anchor in {path_name}, found {text.count(anchor)}")
+              path.write_text(text.replace(anchor, anchor + addition, 1), encoding="utf-8", newline="\n")
+
+          patch_once(
+              "toolkit/library/moz.build",
+              '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n',
+              f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{msvcr}",\n            "{yy_synch}",\n            "{narrow}",\n            "-VERBOSE",\n        ]\n''',
+          )
+
+          patch_once(
+              "browser/app/moz.build",
+              'if CONFIG["CC_TYPE"] == "clang-cl":\n    # Always enter a Windows program through wmain, whether or not we\'re\n    # a console application.\n    WIN32_EXE_LDFLAGS += ["-ENTRY:wmainCRTStartup"]\n',
+              f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += ["{narrow}"]\n''',
+          )
+
+          patch_once(
+              "ipc/app/moz.build",
+              'if CONFIG["CC_TYPE"] == "clang-cl":\n    # Always enter a Windows program through wmain, whether or not we\'re\n    # a console application.\n    WIN32_EXE_LDFLAGS += ["-ENTRY:wmainCRTStartup"]\n',
+              f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += ["{narrow}"]\n''',
+          )
+
+          patch_once(
+              "mozglue/build/moz.build",
+              '    DELAYLOAD_DLLS += [\n        "advapi32.dll",\n        "crypt32.dll",\n        "dbghelp.dll",\n        "oleaut32.dll",\n        "ole32.dll",\n        "user32.dll",\n        "version.dll",\n        "winmm.dll",\n    ]\n',
+              f'''\n    LDFLAGS += ["{narrow}"]\n''',
+          )
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          git diff -- toolkit\library\moz.build | Tee-Object -FilePath xp-x32-libxul-patch.diff
-          git diff --check -- toolkit/library/moz.build
+          git diff -- toolkit/library/moz.build browser/app/moz.build ipc/app/moz.build mozglue/build/moz.build |
+            Tee-Object -FilePath xp-x32-core-linker-patch.diff
+          git diff --check -- toolkit/library/moz.build browser/app/moz.build ipc/app/moz.build mozglue/build/moz.build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $patch = Get-Content xp-x32-libxul-patch.diff -Raw
+          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
           if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY kernel32.lib was injected into libxul link'
+            throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
+          }
+          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
+            if ($patch.IndexOf($required, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+              throw "Expected compatibility linker input missing from generated patch: $required"
+            }
           }
 
       - name: Write XP x32 mozconfig
@@ -549,9 +605,44 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: GATE - Reject core browser synchronization direct imports
+        id: sync-import-gate
+        if: steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-sync-import-gate'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          $apis = @(
+            'AcquireSRWLockExclusive','AcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
+            'InitializeSRWLock','InitializeConditionVariable',
+            'SleepConditionVariableCS','SleepConditionVariableSRW',
+            'WakeAllConditionVariable','WakeConditionVariable'
+          )
+          $targets = @('r3dfox.exe','xul.dll','mozglue.dll','plugin-container.exe')
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($name in $targets) {
+            $path = Join-Path $bin $name
+            if (-not (Test-Path $path)) { throw "Core browser PE missing for synchronization gate: $path" }
+            $raw = (& dumpbin.exe /nologo /imports $path 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $raw | Set-Content -Encoding utf8 (Join-Path $diag "$name-imports.txt")
+            foreach ($api in $apis) {
+              if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $hits.Add("$name|$api")
+              }
+            }
+          }
+          $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-sync-imports.txt')
+          if ($hits.Count -gt 0) {
+            throw 'Core browser synchronization imports survived the proven ten-API YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
+          }
+
       - name: Stage msvcr14x XP runtime DLLs
         id: stage-runtime
-        if: steps.build-release.outcome == 'success'
+        if: steps.sync-import-gate.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -871,10 +962,11 @@ jobs:
           if-no-files-found: warn
           path: |
             configure-xp-x32.log
-            xp-x32-libxul-patch.diff
+            xp-x32-core-linker-patch.diff
             xp-x32-retargeted-pe.txt
             xp-x32-direct-imports.txt
             xp-x32-forbidden-direct-imports.txt
+            xp-x32-sync-import-gate/**
             xp-x32-import-audit/**
             diagnostics/**
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
@@ -888,6 +980,7 @@ jobs:
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the narrow XP provider proven by the representative physical-XP smoke." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the physically narrow ten-API SRW/condition-variable provider proven by run 33470957048." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Core browser synchronization imports are fail-fast gated immediately after the Firefox build, before CRT/D3D/package gates." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Portable package and runtime archive include the verified XP-compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This proves full-build/link/import viability only. Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
