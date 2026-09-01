@@ -340,17 +340,31 @@ Current proven three-extension package checkpoint:
 
 That portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled-state is proven for all three project extensions. Native-component behavior and version-to-version update behavior remain separate open work.
 
-Current Russian-first full-browser packaging checkpoint:
+### Russian-first localization — current state
 
-- source-under-test `37846488e281b4c3a2df46e949b4f970a7343ed3` on `agent/gost-tls-poc`;
-- workflow `CryptoPro Mozilla packaging smoke`;
-- run `33403654068`, job `99525795309`, **success**;
-- packaged-browser artifact `9768056691` (`r3dfox-cryptopro-mozilla-packaging-ru-en-US`), digest `sha256:29c6c09dfe61fa0fe51cad4a97f9235c71fe02b5bcd7530104cafafa8da40b9c`;
-- evidence artifact `9768057338`, digest `sha256:9e88560db20a36f77311203453927d2c0232b6d80ef3ee5150eb7d187674a591`.
+The previous full Windows x64 package checkpoint is source `37846488e281b4c3a2df46e949b4f970a7343ed3`, workflow `CryptoPro Mozilla packaging smoke`, run `33403654068`, job `99525795309`, packaged-browser artifact `9768056691`, evidence artifact `9768057338`. The workflow itself is green and proves the build/package mechanics, CryptoPro extension survival, `mach package`, `mach package-multi-locale --locales ru`, `intl.locale.requested=ru`, and registration of both `ru` and `en-US`.
 
-For this exact build, the full release build, CryptoPro XPI staging/final-package hash gate, `mach package`, `mach package-multi-locale --locales ru`, and final portable archive verification all pass. The final gate proves that `defaults/pref/r3dfox-bundle.js` is present inside packaged `omni.ja` with `pref("intl.locale.requested", "ru");`, and that both `ru` and `en-US` UI resources are present. This supersedes the false-negative packaging result from run `33076347741` / job `98531418338`, whose only failure was an incorrect gate expecting `r3dfox-bundle.js` as a loose file rather than inside `omni.ja`.
+That artifact is **not** a functional Russian-UI success. Exact-artifact runtime on Windows 7 x64 remains English on a clean profile/restart despite `Requested Locales=["ru"]`, `Available Locales=["ru","en-US"]`, and `App Locales=["ru","en-US"]`. Manually changing packaged `omni.ja!/default.locale` from `en-US` to `ru` does not change the visible UI. Artifact inspection explains why:
 
-**Current boundary:** Russian-first multi-locale packaging is proven; actual first-start Russian UI, language switching/fallback, and general UI behavior of artifact `9768056691` remain runtime tests. Do not promote the packaging result to runtime UI success until those checks are completed. This checkpoint also does not prove CryptoPro native-component behavior, GOST TLS runtime, or old-Windows runtime compatibility.
+- root `omni.ja`: 100 Russian localization files, 97 zero-length;
+- `browser/omni.ja`: 129 Russian localization files, 119 zero-length;
+- corresponding en-US resources are populated.
+
+Therefore locale negotiation and `default.locale` are not the primary localization blocker. The old directory-existence gate was too weak: it proved locale registration/path presence, not real translated payload.
+
+A focused Firefox 153 l10n merge smoke now establishes the upstream half of the path:
+
+- source-under-test `91328ba86f050a7b64a5f344726548d22e599648` on `agent/gost-tls-poc`;
+- workflow `Russian localization payload smoke`;
+- run `33468459359`, job `99733112273`, **success**;
+- `firefox-l10n` source SHA `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`;
+- evidence artifact `9785719216`, digest `sha256:e8cac1213a8bf7ffd39357f62673f0d1f20649866e8a3986d042ecfa97583d78`.
+
+For that exact run, the source `ru` tree contains 245 Fluent files, all 245 non-empty and 244 containing Cyrillic. The exact Firefox 153 `moz.l10n.bin.build` merge produces 217 Fluent files, 216 non-empty and 215 containing Cyrillic. The one zero-length merged file is `.l10n/merge-dir/ru/toolkit/toolkit/about/aboutConfig.ftl`; representative browser, preferences, and netError resources are populated. This does not reproduce the mass-empty packaged-artifact failure.
+
+**Current localization conclusion:** real Russian l10n source input is available and the standard Firefox 153 merge primitive works. The active blocker has moved downstream to full Windows multi-locale package/repack integration. The next experiment is to feed the proven l10n input into `cryptopro-mozilla-packaging-smoke.yml` through the normal l10n-base mechanism, record the exact l10n SHA, and hard-gate both root and browser `omni.ja` on zero-length counts/paths plus representative non-empty Cyrillic content. Only after that full-package gate passes should another clean-profile Russian UI runtime test be accepted. A primary `AB_CD=ru` build is not justified unless the correctly supplied en-US-base + l10n repack still fails.
+
+Detailed localization evidence and the exact empty-file path are in `LOCALIZATION_RU_EN_US_FINDING_2026-09-01.md` and `TEST_LOG.md`.
 
 ## Separation of conclusions
 
