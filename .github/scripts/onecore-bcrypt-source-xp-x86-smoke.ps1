@@ -26,26 +26,27 @@ $actual = (& git -C $src rev-parse HEAD).Trim()
 if ($actual -ne $sourceCommit) { throw "Unexpected One-Core source SHA: $actual" }
 $actual | Set-Content -Encoding ascii (Join-Path $diag 'onecore-source-sha.txt')
 
-# The pinned One-Core commit contains two WIDL trees. sdk/tools/widl has a partially
-# updated header.c that calls the 5-argument format_namespace API while its own
-# widltypes.h/typetree.c still expose the older 4-argument API. The sibling
-# sdk/tools/widl_ tree is internally consistent and already defines the same
-# host-tool target name (widl). Use that existing upstream tree rather than
-# patching WIDL implementation code.
-$toolsCmake = Join-Path $src 'sdk\tools\CMakeLists.txt'
-$toolsCmakeText = Get-Content -Raw $toolsCmake
-if ($toolsCmakeText -notmatch 'add_subdirectory\(widl\)') {
-  throw 'Expected add_subdirectory(widl) not found in pinned One-Core source'
+# The pinned One-Core commit has one obvious internal WIDL mismatch in the
+# normal sdk/tools/widl tree: header.c calls format_namespace with the newer
+# five-argument signature, while widltypes.h and typetree.c in that same tree
+# declare/implement the older four-argument signature. Keep the normal WIDL
+# tree and repair only that call. Do not touch dll/win32/bcrypt.
+$widlHeader = Join-Path $src 'sdk\tools\widl\header.c'
+$widlText = Get-Content -Raw $widlHeader
+$oldCall = 'format_namespace(type->namespace, "", "_", type->name, NULL)'
+$newCall = 'format_namespace(type->namespace, "", "_", type->name)'
+if (-not $widlText.Contains($oldCall)) {
+  throw 'Expected pinned One-Core WIDL format_namespace mismatch not found'
 }
-$toolsCmakeText = $toolsCmakeText -replace 'add_subdirectory\(widl\)', 'add_subdirectory(widl_)'
-Set-Content -Encoding ascii -Path $toolsCmake -Value $toolsCmakeText
+$widlText = $widlText.Replace($oldCall, $newCall)
+Set-Content -Encoding ascii -Path $widlHeader -Value $widlText
 @"
 source_sha=$sourceCommit
-reason=pinned source contains inconsistent sdk/tools/widl and consistent sibling sdk/tools/widl_
-change=sdk/tools/CMakeLists.txt: add_subdirectory(widl) -> add_subdirectory(widl_)
-implementation_files_modified=no
-"@ | Set-Content -Encoding ascii (Join-Path $diag 'onecore-widl-wiring.txt')
-& git -C $src diff -- sdk/tools/CMakeLists.txt | Set-Content -Encoding utf8 (Join-Path $diag 'onecore-widl-wiring.diff')
+reason=sdk/tools/widl/header.c uses 5 args while widltypes.h and typetree.c define 4-arg format_namespace
+change=sdk/tools/widl/header.c: remove trailing NULL from format_namespace call in format_apicontract_macro
+bcrypt_implementation_modified=no
+"@ | Set-Content -Encoding ascii (Join-Path $diag 'onecore-widl-source-fix.txt')
+& git -C $src diff -- sdk/tools/widl/header.c | Set-Content -Encoding utf8 (Join-Path $diag 'onecore-widl-source-fix.diff')
 
 & curl.exe -L --fail --retry 3 -o $rosbeInstaller $rosbeUrl
 if ($LASTEXITCODE -ne 0) { throw 'RosBE download failed' }
@@ -172,7 +173,7 @@ Source repository: shorthorn-project/One-Core-API-Source
 Pinned source commit: $sourceCommit
 Source component: dll/win32/bcrypt
 Build environment: RosBE 2.1.6 i386
-Build-tree correction: use the existing consistent sdk/tools/widl_ host-tool tree from the same pinned source commit.
+Build-tree correction: one-line WIDL host-tool signature repair; dll/win32/bcrypt remains unmodified.
 
 Physical XP test:
 1. Extract this entire artifact unchanged on Windows XP SP3 x86.
