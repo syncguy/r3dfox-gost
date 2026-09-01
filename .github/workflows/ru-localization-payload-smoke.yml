@@ -73,8 +73,19 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf "$MERGE_DIR"
-          export PYTHONPATH="$(pwd)/third_party/python/moz_l10n${PYTHONPATH:+:$PYTHONPATH}"
-          ./mach python -c 'import moz.l10n; print("moz.l10n import OK")'
+          VENDORED_PYTHONPATH="$({
+            python3 - <<'PY'
+          from pathlib import Path
+          roots = [
+              str(p.resolve())
+              for p in sorted(Path('third_party/python').iterdir())
+              if p.is_dir() and p.name != '_venv'
+          ]
+          print(':'.join(roots))
+          PY
+          } )"
+          export PYTHONPATH="$VENDORED_PYTHONPATH${PYTHONPATH:+:$PYTHONPATH}"
+          ./mach python -c 'import moz.l10n, gitignorant; print("vendored l10n imports OK")'
           ./mach python -m moz.l10n.bin.build \
             --config browser/locales/l10n.toml \
             --base "$(pwd)/$L10N_BASE" \
