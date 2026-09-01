@@ -8,6 +8,63 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-01 — ten-API XP synchronization smoke passes and is transferred into the full XP x32 workflow
+
+Track: Windows Vista/7/XP binary compatibility only; this result is not GOST TLS handshake evidence.
+
+Focused proof identity:
+
+- source-under-test `d65b464c74caadace97995f07a4919363c41a0ea` on `agent/gost-tls-poc`;
+- commit message `ci(xp): expand synchronization YY smoke to ten APIs`;
+- workflow `msvcr14x Rust YY XP x86 SRW smoke`;
+- Actions run `33470957048`, job `99740439208`;
+- runtime artifact `9786702687` (`msvcr14x-rust-yy-xp-x86-srw-runtime`), digest `sha256:6b931856c9e4e31b067b5684d3c49fd9028c2c9aaf7f2566be79c910ad353571`;
+- diagnostics artifact `9786703244` (`msvcr14x-rust-yy-xp-x86-srw-diagnostics`), digest `sha256:57c67a45a30b94a854f00e358c528c1ffe4129dc7dc615de19c1ed725e89c530`;
+- run/job conclusion: **success**.
+
+The focused compatibility surface now explicitly covers:
+
+- `AcquireSRWLockExclusive`;
+- `AcquireSRWLockShared`;
+- `ReleaseSRWLockExclusive`;
+- `ReleaseSRWLockShared`;
+- `InitializeSRWLock`;
+- `InitializeConditionVariable`;
+- `SleepConditionVariableCS`;
+- `SleepConditionVariableSRW`;
+- `WakeAllConditionVariable`;
+- `WakeConditionVariable`.
+
+Verified gates for run `33470957048`:
+
+- pinned msvcr14x Release x86 build — **PASS**;
+- all ten required weak-alias `.obj/.obi` members are present in YY `kernel32.lib` — **PASS**;
+- physically narrow ten-API YY provider builds and exposes every required `YY_Thunks_*` symbol — **PASS**;
+- the ordinary C++ `/MD` helper directly references all ten APIs — **PASS**;
+- representative Rust archive build — **PASS**;
+- final coexistence link and linker map selection of all ten `YY_Thunks_*` implementations — **PASS**;
+- `GATE - Reject ten direct synchronization imports` — **PASS**;
+- XP x86 PE floor for the staged runtime bundle — **PASS**;
+- hosted Windows 2022 probe execution — **PASS**.
+
+This supersedes the earlier five-function smoke as the current focused synchronization capability proof. `InitializeCriticalSectionEx` remains separately classified for an XP-native/source fallback rather than being silently added to this YY set; `TryAcquireSRWLock*` are not added without an observed target import.
+
+The previous full Firefox failure remains exact evidence for why the transfer must be stronger than provider membership alone: source `99fac0b869c4c0a4638f4e076d77547d90e146cb`, run `33396056005`, job `99500729287`, package artifact `9764345117` retained direct synchronization imports and failed physical XP startup at `KERNEL32!AcquireSRWLockExclusive`. That workflow had omitted the proven SRW members from the narrow provider, injected the compatibility libraries only into the libxul link, and then failed at an unrelated post-package CRT-survival gate before the later broad import audit could execute.
+
+Transfer implementation:
+
+- full XP x32 workflow lineage: `agent/winrt-source-poc`;
+- transfer commit `8d76efba59fd7d4c04df3f0d3fe82e1c4e08a3ce`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`.
+
+The transfer adds all ten direct/import YY members to the narrow provider and verifies their `YY_Thunks_*` symbols before the expensive Firefox build. It also fixes the separate-link-boundary problem: the narrow provider is now injected into `xul.dll`, `r3dfox.exe`, `mozglue.dll`, and `plugin-container.exe` link configurations rather than assuming a libxul-only injection can affect separately linked PEs. Full YY `kernel32.lib` remains prohibited from final links.
+
+A dedicated `GATE - Reject core browser synchronization direct imports` now executes immediately after `mach build`, before msvcr14x runtime staging, legacy D3DCompiler staging, PE retargeting and package/CRT-survival gates. It inspects the four core PEs above for all ten names and records per-PE import diagnostics. Therefore a later independent packaging failure can no longer hide this specific synchronization regression.
+
+Conclusion: **PASS for the ten-API focused mechanism; transfer implemented but not yet full-build-proven.** The next heavy XP x32 run must use transfer commit `8d76efba...` or an explicitly identified descendant and must pass the new early synchronization gate before the family can be called successfully integrated into Firefox. Physical Windows XP startup remains a separate runtime milestone.
+
+---
+
 ## 2026-09-01 — focused Firefox 153 Russian l10n merge produces real payload
 
 Track: browser packaging / localization only. This is not GOST TLS handshake evidence and not Windows compatibility evidence.
