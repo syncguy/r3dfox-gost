@@ -27,6 +27,7 @@ jobs:
       MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
       NIGHTLY_TOOLCHAIN: "nightly-2026-08-20"
       RUST_TARGET_WIN7: "x86_64-win7-windows-msvc"
+      FIREFOX_L10N_SHA: 4273d99ccdc4a516ec6abd742a272ad1d385ddf4
       EXTENSION_ID: ru.cryptopro.nmcades@cryptopro.ru
       FALLBACK_XPI: r3dfox\extensions\ru.cryptopro.nmcades@cryptopro.ru.xpi
       OFFICIAL_URL: https://www.cryptopro.ru/sites/default/files/products/cades/extensions/firefox_cryptopro_extension_latest.xpi
@@ -36,6 +37,55 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: GATE A - Checkout pinned Russian localization source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $l10n = Join-Path $env:GITHUB_WORKSPACE '.l10n\firefox-l10n'
+          if (Test-Path $l10n) { Remove-Item -Recurse -Force $l10n }
+          git clone --filter=blob:none --no-checkout https://github.com/mozilla-l10n/firefox-l10n.git $l10n
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $l10n sparse-checkout init --cone
+          git -C $l10n sparse-checkout set ru
+          git -C $l10n fetch --depth=1 origin $env:FIREFOX_L10N_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $l10n checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actual = (git -C $l10n rev-parse HEAD).Trim()
+          if ($actual -ne $env:FIREFOX_L10N_SHA) { throw "l10n SHA mismatch: expected $env:FIREFOX_L10N_SHA got $actual" }
+          $actual | Set-Content -Encoding ascii ru-l10n-source-sha.txt
+          "L10N_BASE=$l10n" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:L10N_SOURCE_ROOT = Join-Path $l10n 'ru'
+          @'
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path(os.environ['L10N_SOURCE_ROOT'])
+          ftl = sorted(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          zero = [p for p in ftl if p.stat().st_size == 0]
+          cyr = [p for p in nonempty if re.search('[А-Яа-яЁё]', p.read_text(encoding='utf-8', errors='ignore'))]
+          print(f'ru source: ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+          print('SOURCE EMPTY FTL PATHS:')
+          for p in zero:
+              print(p.resolve())
+          if not zero:
+              print('(none)')
+          Path('ru-l10n-source-empty-paths.txt').write_text(''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8')
+          Path('ru-l10n-source-summary.txt').write_text(
+              f'source_root={root.resolve()}\nftl_total={len(ftl)}\nftl_nonempty={len(nonempty)}\nftl_zero={len(zero)}\nftl_cyrillic={len(cyr)}\n',
+              encoding='utf-8',
+          )
+          if len(ftl) < 200:
+              raise SystemExit('Russian source tree unexpectedly small')
+          if len(nonempty) / len(ftl) < 0.98:
+              raise SystemExit('Russian source tree has too many empty Fluent files')
+          if len(cyr) / len(nonempty) < 0.90:
+              raise SystemExit('Russian source tree has too few Cyrillic Fluent files')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure packaging-only Russian UI default
         shell: powershell
@@ -285,6 +335,11 @@ jobs:
           export MOZ_TELEMETRY_REPORTING=
           export MOZ_PACKAGE_JSSHELL=1
           '@ | Set-Content '.mozconfig-gost'
+          $l10nMozPath = $env:L10N_BASE.Replace('\', '/')
+          "ac_add_options --with-l10n-base=$l10nMozPath" | Add-Content '.mozconfig-gost'
+          if (-not (Select-String -Path '.mozconfig-gost' -SimpleMatch "--with-l10n-base=$l10nMozPath" -Quiet)) {
+            throw 'Pinned l10n base was not written to mozconfig.'
+          }
           Get-Content '.mozconfig-gost'
 
       - name: Bootstrap build dependencies
@@ -486,7 +541,7 @@ jobs:
           & $exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Configure object directory and verify Rust target
+      - name: Configure object directory and verify Rust target and l10n base
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -497,6 +552,17 @@ jobs:
           $joined = $output -join "`n"
           if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+x86_64-win7-windows-msvc') {
             throw 'Configure did not select x86_64-win7-windows-msvc.'
+          }
+          $envOutput = .\mach.ps1 environment --format json 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $envOutput | Set-Content -Encoding utf8 configure-environment.json
+          $json = ($envOutput -join "`n") | ConvertFrom-Json
+          $configured = [string]$json.substs.L10NBASEDIR
+          $expected = [System.IO.Path]::GetFullPath($env:L10N_BASE)
+          Write-Host "configured L10NBASEDIR=$configured"
+          Write-Host "expected L10NBASEDIR=$expected"
+          if ([System.IO.Path]::GetFullPath($configured) -ne $expected) {
+            throw "Configure L10NBASEDIR mismatch: expected $expected got $configured"
           }
 
       - name: Build export prerequisites
@@ -556,9 +622,78 @@ jobs:
           python -c "import json,zipfile; p=r'$distXpi'; z=zipfile.ZipFile(p); m=json.loads(z.read('manifest.json')); i=m.get('browser_specific_settings',{}).get('gecko',{}).get('id') or m.get('applications',{}).get('gecko',{}).get('id'); assert i==r'$env:EXTENSION_ID', (i, r'$env:EXTENSION_ID'); print('dist-id='+i+' version='+str(m.get('version')))"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: GATE B/C - Materialize and verify production ru merge and staging
+        id: locale-prepackage
+        if: steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $env:MOZ_CHROME_MULTILOCALE = 'ru'
+          & $mozmake -C 'obj-gost-win64' chrome-ru
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:MERGE_ROOT = [System.IO.Path]::GetFullPath('obj-gost-win64\browser\locales\merge-dir\ru')
+          $env:STAGE_ROOT = [System.IO.Path]::GetFullPath('obj-gost-win64\dist\xpi-stage\locale-ru')
+          @'
+          import hashlib
+          import os
+          import re
+          from pathlib import Path
+
+          def inspect(root, label, summary_name, empty_name, min_ftl, min_ratio):
+              root = Path(root)
+              if not root.is_dir():
+                  raise SystemExit(f'{label} directory missing: {root}')
+              ftl = sorted(root.rglob('*.ftl'))
+              nonempty = [p for p in ftl if p.stat().st_size > 0]
+              zero = [p for p in ftl if p.stat().st_size == 0]
+              cyr = [p for p in nonempty if re.search('[А-Яа-яЁё]', p.read_text(encoding='utf-8', errors='ignore'))]
+              reps = [
+                  p for p in ftl
+                  if p.as_posix().endswith('browser/browser/browser.ftl')
+                  or p.as_posix().endswith('browser/preferences/preferences.ftl')
+                  or p.as_posix().endswith('toolkit/neterror/netError.ftl')
+              ]
+              print(f'{label}: root={root.resolve()} ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+              print(f'{label} EMPTY FTL PATHS:')
+              for p in zero:
+                  print(p.resolve())
+              if not zero:
+                  print('(none)')
+              rep_lines = []
+              for p in reps:
+                  data = p.read_bytes()
+                  text = data.decode('utf-8', errors='ignore')
+                  sha = hashlib.sha256(data).hexdigest()
+                  has_cyr = bool(re.search('[А-Яа-яЁё]', text))
+                  line = f'{p.resolve()} size={len(data)} sha256={sha} cyrillic={int(has_cyr)}'
+                  print(f'{label} representative {line}')
+                  rep_lines.append(line)
+                  if not data or not has_cyr:
+                      raise SystemExit(f'{label} representative resource is not substantive Russian: {p}')
+              Path(empty_name).write_text(''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8')
+              Path(summary_name).write_text(
+                  f'root={root.resolve()}\nftl_total={len(ftl)}\nftl_nonempty={len(nonempty)}\nftl_zero={len(zero)}\nftl_cyrillic={len(cyr)}\n' +
+                  ''.join(f'representative={line}\n' for line in rep_lines),
+                  encoding='utf-8',
+              )
+              if len(ftl) < min_ftl:
+                  raise SystemExit(f'{label} Russian Fluent tree unexpectedly small')
+              if len(nonempty) / len(ftl) < min_ratio:
+                  raise SystemExit(f'{label} Russian Fluent payload is too empty')
+              if len(cyr) / max(len(nonempty), 1) < 0.50:
+                  raise SystemExit(f'{label} contains too few Cyrillic Fluent resources')
+              if len(reps) < 3:
+                  raise SystemExit(f'{label} missing representative browser/preferences/netError resources')
+
+          inspect(os.environ['MERGE_ROOT'], 'production merge', 'ru-production-merge-summary.txt', 'ru-production-merge-empty-paths.txt', 200, 0.90)
+          inspect(os.environ['STAGE_ROOT'], 'pre-package staging', 'ru-prepackage-summary.txt', 'ru-prepackage-empty-paths.txt', 150, 0.90)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package release r3dfox as ru + en-US multi-locale
         id: package-release
-        if: steps.build-release.outcome == 'success'
+        if: steps.locale-prepackage.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -570,7 +705,7 @@ jobs:
             Where-Object { $_.Name -match '\.(zip|7z)$' -or $_.Name -like '*.installer.exe' } |
             Select-Object FullName,Length | Format-Table -AutoSize
 
-      - name: GATE - Verify CryptoPro XPI and ru/en-US UI in final portable archive
+      - name: GATE D - Verify CryptoPro XPI and substantive ru/en-US UI in final portable archive
         if: steps.package-release.outcome == 'success'
         shell: powershell
         run: |
@@ -612,54 +747,114 @@ jobs:
 
           $env:R3DFOX_LOCALE_EXTRACT = $extract
           @'
+          import hashlib
           import os
+          import re
           import zipfile
           from pathlib import Path
 
-          root = Path(os.environ["R3DFOX_LOCALE_EXTRACT"])
-          omni_files = list(root.rglob("omni.ja"))
+          root = Path(os.environ['R3DFOX_LOCALE_EXTRACT'])
+          omni_files = sorted(root.rglob('omni.ja'))
           if not omni_files:
-              raise SystemExit("No omni.ja found in packaged browser")
+              raise SystemExit('No omni.ja found in packaged browser')
 
-          found = {"ru": False, "en-US": False}
-          examples = {"ru": None, "en-US": None}
           bundle_hits = []
+          multilocale_hits = []
           expected_pref = 'pref("intl.locale.requested", "ru");'
+          summaries = []
+          empty_lines = []
+          seen_roles = set()
 
           for omni in omni_files:
+              role = 'browser' if omni.parent.name.lower() == 'browser' else 'root'
               with zipfile.ZipFile(omni) as zf:
-                  for name in zf.namelist():
-                      normalized = "/" + name.replace("\\", "/").lstrip("/")
-                      if normalized == "/defaults/pref/r3dfox-bundle.js":
-                          bundle_hits.append(f"{omni}:{name}")
-                          bundle_text = zf.read(name).decode("utf-8-sig")
-                          if expected_pref not in bundle_text:
-                              raise SystemExit(
-                                  "Packaged defaults/pref/r3dfox-bundle.js does not request Russian UI by default"
-                              )
-                      for locale in found:
-                          markers = (
-                              f"/localization/{locale}/",
-                              f"/chrome/{locale}/",
-                              f"/{locale}/locale/",
-                              f"/locale/{locale}/",
-                          )
-                          if any(marker in normalized for marker in markers):
-                              found[locale] = True
-                              examples[locale] = examples[locale] or f"{omni}:{name}"
+                  names = zf.namelist()
+                  for name in names:
+                      normalized = name.replace('\\', '/').lstrip('/')
+                      if normalized == 'defaults/pref/r3dfox-bundle.js':
+                          bundle_hits.append(f'{omni.resolve()}!/{normalized}')
+                          text = zf.read(name).decode('utf-8-sig')
+                          if expected_pref not in text:
+                              raise SystemExit('Packaged r3dfox-bundle.js does not request Russian UI by default')
+                      if normalized == 'res/multilocale.txt':
+                          text = zf.read(name).decode('utf-8-sig').strip()
+                          multilocale_hits.append((f'{omni.resolve()}!/{normalized}', text))
 
+                  ru = [n for n in names if n.replace('\\', '/').startswith('localization/ru/') and not n.endswith('/')]
+                  en = [n for n in names if n.replace('\\', '/').startswith('localization/en-US/') and not n.endswith('/')]
+                  ru_ftl = [n for n in ru if n.endswith('.ftl')]
+                  en_ftl = [n for n in en if n.endswith('.ftl')]
+                  if not ru:
+                      continue
+                  seen_roles.add(role)
+                  ru_zero = [n for n in ru if zf.getinfo(n).file_size == 0]
+                  ru_ftl_zero = [n for n in ru_ftl if zf.getinfo(n).file_size == 0]
+                  ru_cyr = []
+                  for n in ru_ftl:
+                      data = zf.read(n)
+                      if data and re.search('[А-Яа-яЁё]', data.decode('utf-8', errors='ignore')):
+                          ru_cyr.append(n)
+                  print(f'{role} omni={omni.resolve()} ru_files={len(ru)} ru_zero={len(ru_zero)} ru_ftl={len(ru_ftl)} ru_ftl_zero={len(ru_ftl_zero)} ru_cyrillic={len(ru_cyr)} en_files={len(en)} en_ftl={len(en_ftl)}')
+                  print(f'{role.upper()} OMNI EMPTY RU PATHS:')
+                  for n in ru_zero:
+                      line = f'{omni.resolve()}!/{n.replace(chr(92), "/")}'
+                      print(line)
+                      empty_lines.append(line)
+                  if not ru_zero:
+                      print('(none)')
+                  reps = [
+                      n for n in ru_ftl
+                      if n.endswith('browser/browser/browser.ftl')
+                      or n.endswith('browser/preferences/preferences.ftl')
+                      or n.endswith('toolkit/neterror/netError.ftl')
+                  ]
+                  rep_lines = []
+                  for n in reps:
+                      data = zf.read(n)
+                      text = data.decode('utf-8', errors='ignore')
+                      en_name = n.replace('localization/ru/', 'localization/en-US/', 1)
+                      sha = hashlib.sha256(data).hexdigest()
+                      has_cyr = bool(re.search('[А-Яа-яЁё]', text))
+                      identical = en_name in names and data == zf.read(en_name)
+                      line = f'{omni.resolve()}!/{n} size={len(data)} sha256={sha} cyrillic={int(has_cyr)} identical_enUS={int(identical)}'
+                      print(f'{role} representative {line}')
+                      rep_lines.append(line)
+                      if not data or not has_cyr or identical:
+                          raise SystemExit(f'Final {role} representative Russian resource failed content gate: {n}')
+                  if len(ru_ftl) < 50:
+                      raise SystemExit(f'Final {role} omni Russian Fluent tree unexpectedly small: {len(ru_ftl)}')
+                  if len(ru_ftl_zero) / len(ru_ftl) > 0.10:
+                      raise SystemExit(f'Final {role} omni has too many zero-length Russian Fluent files: {len(ru_ftl_zero)}/{len(ru_ftl)}')
+                  if len(ru_cyr) / max(len(ru_ftl) - len(ru_ftl_zero), 1) < 0.50:
+                      raise SystemExit(f'Final {role} omni has too few Cyrillic Russian Fluent resources')
+                  if role == 'root' and not any(n.endswith('toolkit/neterror/netError.ftl') for n in reps):
+                      raise SystemExit('Final root omni missing substantive Russian netError.ftl')
+                  if role == 'browser' and not (
+                      any(n.endswith('browser/browser/browser.ftl') for n in reps)
+                      and any(n.endswith('browser/preferences/preferences.ftl') for n in reps)
+                  ):
+                      raise SystemExit('Final browser omni missing substantive Russian browser/preferences resources')
+                  summaries.append(
+                      f'role={role}\nomni={omni.resolve()}\nru_files={len(ru)}\nru_zero={len(ru_zero)}\nru_ftl={len(ru_ftl)}\nru_ftl_zero={len(ru_ftl_zero)}\nru_cyrillic={len(ru_cyr)}\nen_files={len(en)}\nen_ftl={len(en_ftl)}\n' +
+                      ''.join(f'representative={line}\n' for line in rep_lines)
+                  )
+
+          if seen_roles != {'root', 'browser'}:
+              raise SystemExit(f'Expected substantive Russian localization in root and browser omni.ja; got {sorted(seen_roles)}')
           if len(bundle_hits) != 1:
-              raise SystemExit(
-                  "Expected exactly one defaults/pref/r3dfox-bundle.js inside packaged omni.ja; "
-                  f"found {len(bundle_hits)}"
-              )
-          print("bundle-evidence=" + bundle_hits[0])
-          print("packaged-ui-locales=" + ",".join(k for k, v in found.items() if v))
-          for locale, example in examples.items():
-              print(f"locale-evidence {locale}={example}")
-          missing = [locale for locale, present in found.items() if not present]
-          if missing:
-              raise SystemExit("Missing packaged UI locale resources: " + ", ".join(missing))
+              raise SystemExit(f'Expected exactly one defaults/pref/r3dfox-bundle.js; found {len(bundle_hits)}')
+          if not any(text == 'ru,en-US' for _, text in multilocale_hits):
+              raise SystemExit(f'No res/multilocale.txt contains exact ru,en-US: {multilocale_hits}')
+          Path('ru-final-omni-empty-paths.txt').write_text('\n'.join(empty_lines) + ('\n' if empty_lines else ''), encoding='utf-8')
+          Path('ru-final-omni-summary.txt').write_text(
+              f'browser_source_sha={os.environ.get("GITHUB_SHA", "unknown")}\n'
+              f'l10n_source_sha={os.environ.get("FIREFOX_L10N_SHA", "unknown")}\n'
+              + '\n'.join(summaries)
+              + '\nmultilocale=' + repr(multilocale_hits) + '\n',
+              encoding='utf-8',
+          )
+          print('bundle-evidence=' + bundle_hits[0])
+          print('multilocale-evidence=' + repr(multilocale_hits))
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -667,6 +862,8 @@ jobs:
           "archive=$($archive.Name)" | Set-Content -Encoding utf8 cryptopro-package-evidence.txt
           "path=$($matches[0].FullName.Substring($extract.Length))" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
           "sha256=$packagedHash" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "browser_source_sha=$env:GITHUB_SHA" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "l10n_source_sha=$env:FIREFOX_L10N_SHA" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
           "ui_default=ru" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
           "ui_locales=ru,en-US" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
           Get-Content cryptopro-package-evidence.txt
@@ -694,6 +891,16 @@ jobs:
             cryptopro-extension-selection.json
             cryptopro-package-evidence.txt
             cryptopro-packaged.xpi
+            ru-l10n-source-sha.txt
+            ru-l10n-source-summary.txt
+            ru-l10n-source-empty-paths.txt
+            ru-production-merge-summary.txt
+            ru-production-merge-empty-paths.txt
+            ru-prepackage-summary.txt
+            ru-prepackage-empty-paths.txt
+            ru-final-omni-summary.txt
+            ru-final-omni-empty-paths.txt
+            configure-environment.json
             rust-win7-target-cfg.txt
             rust-std-vendor.log
             rust-std-vendor.stdout.log
