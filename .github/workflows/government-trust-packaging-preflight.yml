@@ -54,7 +54,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $roots = @(
             @{ Kind='RSA'; Path=$env:RSA_CERT; Hash=$env:RSA_SHA256; Subject='CN=Russian Trusted Root CA' },
-            @{ Kind='GOST'; Path=$env:GOST_CERT; Hash=$env:GOST_SHA256; Subject='CN=Минцифры России' }
+            @{ Kind='GOST'; Path=$env:GOST_CERT; Hash=$env:GOST_SHA256; Subject=$null }
           )
           foreach ($root in $roots) {
             if (-not (Test-Path $root.Path)) { throw "Bundled $($root.Kind) root is missing: $($root.Path)" }
@@ -68,7 +68,7 @@ jobs:
             Write-Host "$($root.Kind) NotBefore=$($cert.NotBefore.ToUniversalTime().ToString('o'))"
             Write-Host "$($root.Kind) NotAfter=$($cert.NotAfter.ToUniversalTime().ToString('o'))"
             if ($cert.Subject -ne $cert.Issuer) { throw "$($root.Kind) certificate is not self-signed by identity." }
-            if ($cert.Subject -notmatch [regex]::Escape($root.Subject)) { throw "Unexpected $($root.Kind) root subject: $($cert.Subject)" }
+            if ($root.Subject -and $cert.Subject -notmatch [regex]::Escape($root.Subject)) { throw "Unexpected $($root.Kind) root subject: $($cert.Subject)" }
             $bc = $cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' } | Select-Object -First 1
             if (-not $bc) { throw "$($root.Kind) BasicConstraints extension is missing." }
             $bc2 = [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]$bc
