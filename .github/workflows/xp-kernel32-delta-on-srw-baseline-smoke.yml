@@ -254,11 +254,13 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $deltaLib)) { throw 'Failed to build delta YY provider' }
           $deltaSymbols = (& dumpbin.exe /nologo /linkermember:1 $deltaLib 2>&1 | Out-String)
           $deltaSymbols | Set-Content -Encoding utf8 diagnostics\delta-provider-symbols.txt
-          foreach ($api in Get-Content diagnostics\delta-apis.txt) {
-            if ($deltaSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Delta provider missing YY_Thunks_$api" }
+          foreach ($spec in $deltaSpecs) {
+            foreach ($symbol in @("_$($spec.Api)@$($spec.Arity)", "__imp__$($spec.Api)@$($spec.Arity)")) {
+              if ($deltaSymbols.IndexOf($symbol,[System.StringComparison]::Ordinal) -lt 0) { throw "Delta provider missing exact alias symbol $symbol" }
+            }
           }
-          foreach ($forbidden in @('YY_Thunks_GetTickCount64','YY_Thunks_CreateWaitableTimerExA','YY_Thunks_AcquireSRWLockExclusive','YY_Thunks_ProcessPrng')) {
-            if ($deltaSymbols.IndexOf($forbidden,[System.StringComparison]::Ordinal) -ge 0) { throw "Delta provider contains non-delta symbol $forbidden" }
+          foreach ($forbidden in @('_GetTickCount64@0','__imp__GetTickCount64@0','_AcquireSRWLockExclusive@4','__imp__AcquireSRWLockExclusive@4','_ProcessPrng@8','__imp__ProcessPrng@8')) {
+            if ($deltaSymbols.IndexOf($forbidden,[System.StringComparison]::Ordinal) -ge 0) { throw "Delta provider contains non-delta alias symbol $forbidden" }
           }
           "SMOKE_DIR=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "BASELINE_YY_LIB=$baselineLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -612,7 +614,7 @@ jobs:
           Get-ChildItem $env:RUNTIME_BUNDLE -File | ForEach-Object { $h=Get-FileHash -Algorithm SHA256 $_.FullName; "$($h.Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content -Encoding ascii (Join-Path $env:RUNTIME_BUNDLE 'SHA256SUMS.txt')
 
       - name: Upload XP baseline plus delta runtime
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: xp-kernel32-delta-on-srw-baseline-runtime
