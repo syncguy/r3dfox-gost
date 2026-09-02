@@ -8,6 +8,68 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — full Firefox XP x32 build reaches the expected physical-XP `CreateWaitableTimerExA` loader blocker
+
+**Track:** Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration and physical-XP loader progression  
+**Branch:** `agent/winrt-source-poc`  
+**Source-under-test:** `6998ba51b1052b08d8b0b2a221d63b896eccd219` (`ci(xp): run integrated kernel32 source-thunk cluster build`)  
+**Workflow:** `GOST PoC build XP x32` (`.github/workflows/gost-poc-build-xp-x32.yml`)  
+**Actions run:** `33610933602`  
+**Job:** `100185641911` (`Build GOST PoC XP x32`)  
+**Aggregate job result:** failure  
+**Package artifact:** `9843567202` (`r3dfox-gost-xp-x32-package`), `250937297` bytes, digest `sha256:62a2426e411d36076c372fc93485f9d26b814fcd93df3ca36205dc14da5762e1`  
+**Diagnostics artifact:** `9843568460` (`r3dfox-gost-xp-x32-diagnostics`), `5749701` bytes, digest `sha256:8862483c39505599aa75e1db2171472f01ffb5aab65bc1900514fd66ed73783a`
+
+### Build/package boundary
+
+The exact Actions job successfully completed the full Firefox XP x32 compilation and package-generation stages before the later validation failure. This is useful build evidence, but it is **not** a closed XP runtime milestone and must not be promoted to one.
+
+The runnable package was then tested on physical Windows XP SP3 x86. Browser startup fails immediately with the loader dialog:
+
+`r3dfox.exe - Entry Point Not Found`
+
+`The procedure entry point CreateWaitableTimerExA could not be located in the dynamic link library KERNEL32.dll.`
+
+This is the expected physical-XP edge already identified by the earlier loader progression. The new full build therefore **re-confirms rather than closes** the current runtime blocker.
+
+### Exact import evidence from this build
+
+The diagnostics artifact from this exact run contains the final core-browser import inventories under `xp-x32-sync-import-gate/`.
+
+`mozglue.dll-imports.txt` contains, under `DLL: KERNEL32.dll`, the direct symbol:
+
+`CreateWaitableTimerExA`
+
+The corresponding saved inventories for `r3dfox.exe`, `xul.dll`, and `plugin-container.exe` contain no direct `CreateWaitableTimerExA` occurrence. Therefore the exact direct dependency responsible for the physical-XP loader failure is:
+
+`mozglue.dll -> KERNEL32.dll!CreateWaitableTimerExA`
+
+The dialog is presented as an `r3dfox.exe` startup error because loading the browser loads `mozglue.dll`; the direct PE import is in `mozglue.dll`.
+
+### Import-gate defect
+
+The workflow's final direct-import gate scans these exact core-browser import inventories, but its fatal API list covers the 24 already-closed YY capability-present KERNEL32 APIs and **omits `CreateWaitableTimerExA`**.
+
+Elsewhere in the same workflow, `CreateWaitableTimerExA` is explicitly treated as the separately required/outside-provider export because YY-Thunks 1.2.2 exposes no matching XP x86 capability. The final gate therefore had enough project context to know this API remained special, but it did not make a surviving direct `KERNEL32!CreateWaitableTimerExA` import fatal.
+
+That is why the build-time import check did not stop where the physical XP loader later stopped. The gate contract must be hardened so that any surviving direct `CreateWaitableTimerExA` import in the production core-browser binaries is a hard failure until a proven XP-compatible remediation removes it.
+
+### Secondary CRT-validation RED is not the current XP blocker
+
+The aggregate Actions job later failed at the post-package CRT verification stage. That RED must not replace the physical-XP loader blocker. The diagnostics artifact itself contains `packaged-crt-contract.txt` proving that the package contains the expected app-local CRT payload, including `ucrtbase.dll` and `msvcp140.dll` with recorded SHA-256 values. Treat the CRT validator failure as a secondary CI/gate issue to clean up, not as evidence that the package lacked those DLLs and not as the next XP runtime target.
+
+### Conclusion
+
+Run `33610933602` / job `100185641911` / SHA `6998ba51...` proves that the integrated Firefox XP x32 source reaches full build/package generation, but the exact produced browser is **not XP-startup compatible**. Physical Windows XP SP3 x86 and the run's own PE-import diagnostics agree on the same current blocker:
+
+`mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
+
+The next technical work remains the already-defined semantic investigation/remediation for `CreateWaitableTimerExA`, preceded or accompanied by a fail-closed production import gate for this exact symbol. Do not re-open the 24 capability-present KERNEL32 cluster. No GOST TLS runtime/handshake conclusion follows from this XP compatibility result.
+
+Status: current immutable experiment evidence; build/package generation reached, physical XP startup RED at the expected `CreateWaitableTimerExA` loader dependency; current blocker confirmed, not closed.
+
+---
+
 ## 2026-09-02 — XP x86 core KERNEL32 capability cluster closes GREEN at representative/hosted level
 
 **Track:** Windows XP SP3 x86 compatibility / YY-Thunks KERNEL32 closure  
@@ -86,7 +148,7 @@ Status: current immutable experiment evidence; representative/hosted KERNEL32 cl
 **Actions run:** `33604407934`  
 **Job:** `100165018692` (`Proven SRW/Rust/CRT closure + KERNEL32 delta / XP x86`)  
 **Result:** failure  
-**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c5fc21dcc2a093b1467b86c7f454fee3f8b3aab1df1`
+**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c7f454fee3f8b3aab1df1`
 
 Observed execution boundary:
 
