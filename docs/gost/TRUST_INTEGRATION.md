@@ -1,6 +1,6 @@
 # Windows system roots + Russian Trusted Root CA integration
 
-Status: **ACTIVE / FULL PACKAGE GATE GREEN; CLEAN-PROFILE RUNTIME ACCEPTANCE PENDING**.
+Status: **ACTIVE / FULL PACKAGE GATE GREEN; WIN7 RSA/NSS RUNTIME SMOKE GREEN; FULL CLEAN-PROFILE ACCEPTANCE PENDING**.
 
 Track: browser/government-system packaging and ordinary Firefox/NSS trust integration. This is independent from GOST TLS MSSPI server verification and from Windows Vista/7/XP binary compatibility.
 
@@ -180,6 +180,49 @@ This result is packaging/staging evidence only. It does not yet prove that a cle
 
 The heavy workflow had temporarily acquired three unintended trigger additions (`agent/trust-integration-poc`, `r3dfox/policies.json`, `r3dfox/certificates/**`) solely as launch plumbing. Commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` removes exactly those three lines and restores the prior trigger policy while preserving the trust gates. The successful run remains bound to `e7640a819...`.
 
+## Win7 x64 ordinary NSS Russian RSA runtime smoke — GREEN / PARTIAL ACCEPTANCE
+
+The first runtime smoke against the successful trust-package lineage is now positive for the Russian RSA path, but it does not yet close the full exact-artifact acceptance gate.
+
+Target build identity:
+
+- source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
+- Actions run `33595966569`, attempt 2;
+- job `100141282134`;
+- packaged-browser artifact `9838528394`.
+
+Reference package binary hashes, computed directly from `r3dfox-v153.0.3.win64.zip` inside artifact `9838528394`:
+
+- `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7`;
+- `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6`.
+
+These hashes are the package-side preflight reference. The current user-supplied runtime evidence did not include local binary hash output, so exact local equality is still pending.
+
+The user reports a successful launch on Windows 7 x64 with:
+
+```text
+R3DFOX_GOST_HOSTS=lk.zakupki.gov.ru
+R3DFOX_GOST_CLIENT_CERT_THUMBPRINT=
+R3DFOX_GOST_CLIENT_AUTH_MODE=
+R3DFOX_GOST_CIPHERS=
+profile=C:\Temp\r3dfox\profile
+URL=https://zakupki.gov.ru/epz/main/public/home.html
+```
+
+Observed runtime evidence supplied by the user:
+
+- `about:policies` lists the `Certificates` policy as active with `ImportEnterpriseRoots=true` and both `Install` filenames, `russian_trusted_root_ca_rsa.cer` and `russian_trusted_root_ca_gost.cer`;
+- `https://zakupki.gov.ru/epz/main/public/home.html` renders successfully over HTTPS;
+- the Firefox certificate viewer shows the leaf `*.zakupki.gov.ru`, issuer `Russian Trusted Sub CA`, and root `Russian Trusted Root CA`;
+- the tested main host `zakupki.gov.ru` is not the configured GOST allowlist token `lk.zakupki.gov.ru`, so this main-page result belongs to ordinary Firefox/NSS trust rather than the allowlisted MSSPI GOST transport;
+- no Sub CA/intermediate is bundled by the product contract, yet the observed RSA chain builds through `Russian Trusted Sub CA` to the Russian RSA root and is accepted by the browser.
+
+This closes a useful sub-boundary: **the packaged `Certificates` policy is visibly active at runtime and the target Russian RSA PKI path works in the tested Win7 x64 environment without explicitly bundling the Sub CA.** Do not reinterpret this as proof of MSSPI GOST server verification.
+
+The full runtime acceptance gate remains open because the current evidence does not yet prove that the supplied profile was newly clean, does not contain local `r3dfox.exe`/`xul.dll` hashes matching the reference values above, does not directly show the effective locked `security.enterprise_roots.enabled=true`, does not isolate a Windows-store-only trusted path from the bundled RSA anchor, and does not exercise the bundled GOST root / relevant GOST PKI path.
+
+Do not change the inherited AutoConfig defaults on this RSA smoke alone.
+
 ## Historical bootstrap failures — not trust evidence
 
 Two temporary one-shot branch-bootstrap runs failed for infrastructure reasons only and must not be interpreted as certificate, policy, NSS or packaging failures:
@@ -191,21 +234,21 @@ The helper workflow is removed. Future source changes in this track are direct r
 
 ## Remaining PoC work
 
-1. On a completely new profile launch the exact packaged browser artifact `9838528394` and verify `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import without manual NSS import, and the intended relationship with the inherited AutoConfig defaults.
-2. Verify the target Russian RSA PKI path and relevant GOST PKI path with the two-root contract and without bundling a Sub CA.
-3. Bind runtime results to exact source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`, run `33595966569`, job `100141282134`, artifact `9838528394`, relevant browser binary hashes, clean profile and sanitized observations.
+1. Confirm that the runtime directory used for the Win7 test matches artifact `9838528394` by recording local SHA-256 for `r3dfox.exe` and `xul.dll` against `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7` and `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6`, and repeat/confirm the test from a completely new clean profile.
+2. Show the effective locked runtime value `security.enterprise_roots.enabled=true` under the active `Certificates.ImportEnterpriseRoots` policy and prove a Windows-store-only trust case without manual NSS import, so Windows-root import is not conflated with the bundled RSA root.
+3. Exercise the bundled GOST trust anchor / relevant GOST PKI path while preserving the two-root contract and no explicitly bundled Sub CA.
 4. After the PoC is proven at runtime, transfer only the minimal audited trust diff back to `agent/gost-tls-poc`; do not merge the experimental branch history wholesale.
 
 ## Runtime acceptance gate
 
 A full integrated build is accepted for this track only after a clean-profile exact-artifact test proves:
 
-1. `about:policies` shows the `Certificates` policy active;
+1. `about:policies` shows the `Certificates` policy active — **observed in the current Win7 RSA smoke, but exact local binary/profile preflight is still pending**;
 2. `security.enterprise_roots.enabled` is effectively `true` under policy;
 3. Windows-installed trusted roots are honored without manual NSS import;
 4. both pinned portable root anchors are available to the packaged browser;
-5. the target RSA and GOST PKI paths behave as required with the two roots and no explicitly bundled Sub CA;
-6. exact source SHA, Actions run/job, artifact and relevant browser binary hashes are recorded.
+5. the target RSA and GOST PKI paths behave as required with the two roots and no explicitly bundled Sub CA — **RSA path observed; GOST side still open**;
+6. exact source SHA, Actions run/job, artifact and relevant browser binary hashes are recorded — **source/run/job/artifact and package-side reference hashes are known; local runtime hash equality is still open**.
 
 ## Boundary with GOST TLS
 
