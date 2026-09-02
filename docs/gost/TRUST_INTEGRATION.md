@@ -1,108 +1,181 @@
 # Windows system roots + Russian Trusted Root CA integration
 
-Status: **MANDATORY BEFORE THE NEXT FULL BROWSER BUILD AFTER THE LEGACY RNG PoC**.
+Status: **ACTIVE / ISOLATED TRUST-INTEGRATION POC NEXT**.
 
-Track: browser/government-system packaging and ordinary NSS trust integration. This is independent from GOST TLS MSSPI server verification and from the Windows compatibility/RNG implementation itself.
+Track: browser/government-system packaging and ordinary Firefox/NSS trust integration. This is independent from GOST TLS MSSPI server verification and from Windows Vista/7/XP binary compatibility.
 
-## Why this is mandatory
+## Current checkpoint — 2026-09-02
 
-A prior clean-profile runtime experiment established that the r3dfox AutoConfig layer disables Windows enterprise/system roots by default through `security.enterprise_roots.enabled=false`. Manually enabling `security.enterprise_roots.enabled=true` on a clean profile caused Firefox to import/use the trusted Windows certificate stores and the previously untrusted Russian PKI site became trusted without manual NSS certificate import.
+The earlier trust-integration work was started but not completed. The repository retained a fast workflow and this design document, but both still described an obsolete one-root contract.
 
-The latest Windows x86 compatibility build must not be treated as product-complete merely because it starts on Win7, contains GOST TLS, and passes loader/runtime compatibility gates. Before the next expensive integrated browser build, the project must restore the already-agreed trust configuration below.
+Current default-branch checkpoint before creating the isolated PoC branch:
+
+- default/active branch: `agent/gost-tls-poc`;
+- source checkpoint: `a258821f49df78a47bc2972e62d47c9d77b34e62`;
+- two public root CA source files are now committed under `r3dfox/certificates/` as binary DER:
+  - `russian_trusted_root_ca_rsa.cer`;
+  - `russian_trusted_root_ca_gost.cer`;
+- the RSA DER is the expected `Russian Trusted Root CA` and retains the previously pinned SHA-256 `d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31`;
+- the GOST root is also committed as DER and must receive its exact pinned SHA-256/identity gate before the PoC is considered complete;
+- `r3dfox/policies.json` does not yet contain the required `Certificates` policy;
+- `r3dfox/config.cfg` still disables enterprise/system roots through the inherited defaults;
+- `r3dfox/moz.build` and `browser/installer/package-manifest.in` do not yet stage/package both roots;
+- `.github/workflows/government-trust-packaging-preflight.yml` exists and auto-triggers on `r3dfox/certificates/**`, but it still implements the obsolete single-file `russian_trusted_root_ca.cer` contract and therefore must be updated before its result can be used as trust-integration evidence.
+
+The certificate-source commit itself is intentionally inert with respect to browser runtime behavior. Active trust integration begins only when policy/preferences/build/package staging are changed.
+
+## Runtime evidence that defines the product requirement
+
+A prior clean-profile runtime experiment established that the r3dfox AutoConfig layer disables Windows enterprise/system roots by default through `security.enterprise_roots.enabled=false`. Manually enabling enterprise-root support caused Firefox to import/use the trusted Windows certificate stores and the previously untrusted Russian PKI site became trusted without manual NSS certificate import.
+
+Separate manual testing also established the intended chain policy for this project: the Sub CA/intermediate is not required for the target behavior. Trust succeeds when the required root anchors are present and the enterprise/system-root settings are enabled. Therefore the product contract intentionally bundles the two root CAs only; do not add a Sub CA unless new concrete runtime evidence proves it is required.
 
 ## Required production contract
 
-1. `r3dfox/policies.json` must explicitly contain Firefox Enterprise Policy:
+### 1. Firefox Enterprise Policy
 
-   ```json
-   "Certificates": {
-     "ImportEnterpriseRoots": true,
-     "Install": [
-       "russian_trusted_root_ca.cer"
-     ]
-   }
-   ```
+`r3dfox/policies.json` must contain:
 
-   `ImportEnterpriseRoots=true` is the primary mechanism. It makes Windows machine/user CA stores an explicit browser contract instead of relying on the current r3dfox AutoConfig default.
+```json
+"Certificates": {
+  "ImportEnterpriseRoots": true,
+  "Install": [
+    "russian_trusted_root_ca_rsa.cer",
+    "russian_trusted_root_ca_gost.cer"
+  ]
+}
+```
 
-2. Bundle exactly one fallback trust anchor: **Russian Trusted Root CA** / Ministry of Digital Development and Communications.
+`ImportEnterpriseRoots=true` is the primary integration mechanism. It makes Windows machine/user CA stores an explicit browser contract rather than relying on the inherited r3dfox default.
 
-   Required certificate SHA-256:
+`Certificates.Install` provides the two pinned portable fallback trust anchors.
 
-   `d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31`
+### 2. AutoConfig preferences
 
-   Expected identity from the previously inspected DER:
+The production configuration must not contradict the policy. `r3dfox/config.cfg` must enable the relevant enterprise-root preferences:
 
-   - subject/common name: `Russian Trusted Root CA`;
-   - organization: `The Ministry of Digital Development and Communications`;
-   - self-signed root;
-   - `BasicConstraints: CA=TRUE`;
-   - validity approximately 2022-03-01 through 2032-02-27.
+```js
+defaultPref("security.certerrors.mitm.auto_enable_enterprise_roots", true);
+defaultPref("security.enterprise_roots.enabled", true);
+```
 
-3. Do **not** bundle/install the intermediate certificate unless a future concrete site/runtime failure proves it is required. The prior runtime result showed that enabling system roots plus the root certificate is sufficient; installing an intermediate with `Certificates.Install` would unnecessarily promote it to explicit NSS trust.
+The exact production comment around these preferences should describe Windows/enterprise roots or Russian PKI integration, not RSA only, because the portable bundle contains both RSA and GOST roots.
 
-4. Package the DER as a portable browser resource under:
+### 3. Bundled root anchors
 
-   `distribution/Certificates/russian_trusted_root_ca.cer`
+Bundle exactly these two public root CA files:
 
-   The source file should live under the r3dfox source tree and be copied by `r3dfox/moz.build`; `browser/installer/package-manifest.in` must explicitly allow it into the final package.
+- `r3dfox/certificates/russian_trusted_root_ca_rsa.cer`;
+- `r3dfox/certificates/russian_trusted_root_ca_gost.cer`.
 
-## Required CI gates
+Both source files must remain binary DER and byte-for-byte pinned.
 
-A fast trust/packaging smoke must verify before the next full browser build:
+RSA root expected identity:
 
-- source DER exists and SHA-256 equals `d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31`;
-- certificate parses as DER X.509;
-- it is a CA/root and matches the expected public identity;
+- common name: `Russian Trusted Root CA`;
+- organization: `The Ministry of Digital Development and Communications`;
+- self-signed root;
+- `BasicConstraints: CA=TRUE`;
+- validity approximately 2022-03-01 through 2032-02-27;
+- SHA-256: `d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31`.
+
+GOST root requirements:
+
+- preserve the exact DER committed in the source checkpoint;
+- prove self-signed root / `BasicConstraints: CA=TRUE`;
+- record and pin its exact SHA-256 and stable public X.509 identity in the updated preflight before accepting the PoC;
+- do not infer its identity merely from the filename.
+
+Do **not** bundle/install a Sub CA/intermediate. The current runtime requirement has already been proven without it.
+
+### 4. Build and package staging
+
+`r3dfox/moz.build` must stage both DER files into:
+
+```text
+distribution/Certificates/russian_trusted_root_ca_rsa.cer
+distribution/Certificates/russian_trusted_root_ca_gost.cer
+```
+
+`browser/installer/package-manifest.in` must explicitly preserve both files in the final portable package.
+
+## Isolated PoC branch and implementation plan
+
+Continue this work on a dedicated branch created directly from the current default-branch trust-source checkpoint. Planned branch name:
+
+`agent/trust-integration-poc`
+
+Keep this branch limited to the trust-integration line. Do not mix Windows XP/WinRT/toolchain experiments or GOST MSSPI handshake changes into it.
+
+Implementation order:
+
+1. validate both committed DER files and pin exact SHA-256/X.509 identity for both roots;
+2. update `r3dfox/policies.json` for `ImportEnterpriseRoots=true` and both `Certificates.Install` filenames;
+3. enable the two enterprise-root preferences in `r3dfox/config.cfg`;
+4. update `r3dfox/moz.build` to stage both roots;
+5. update `browser/installer/package-manifest.in` to package both roots;
+6. rewrite `.github/workflows/government-trust-packaging-preflight.yml` from the obsolete one-root contract to the exact two-root contract;
+7. require the fast preflight to pass on an exact branch SHA before starting an expensive full browser build;
+8. extend the heavy package integration gate to verify both exact certificate hashes in `dist/bin` and the final portable archive;
+9. test the exact built artifact with a new clean profile and record the runtime result.
+
+## Fast CI contract
+
+`.github/workflows/government-trust-packaging-preflight.yml` is the intended low-cost trust integration gate. Its existing trigger on `r3dfox/certificates/**` is useful, but its implementation is currently stale and must not be treated as a pass/fail verdict on the new two-root design until updated.
+
+The corrected fast gate must verify:
+
+- both source DER files exist;
+- both exact SHA-256 values match pinned expectations;
+- both certificates parse as X.509;
+- both are CA/root certificates with the expected public identities;
 - `r3dfox/policies.json` contains `Certificates.ImportEnterpriseRoots=true`;
-- `Certificates.Install` contains exactly the intended bundled root filename for this integration;
-- `r3dfox/moz.build` stages the root into `distribution/Certificates`;
-- `browser/installer/package-manifest.in` includes the root path;
-- the full packaging workflow later proves exact SHA equality in `dist/bin/distribution/Certificates` and in the final portable archive.
+- `Certificates.Install` contains exactly the two intended root filenames;
+- `r3dfox/config.cfg` enables both enterprise-root preferences;
+- `r3dfox/moz.build` stages both roots into `distribution/Certificates`;
+- `browser/installer/package-manifest.in` contains both final package paths;
+- no Sub CA/intermediate is accidentally added to the explicit bundled trust-anchor set.
 
-The packaging workflow path triggers must include at least:
+The automatic run started by the DER source commit is diagnostic only until the workflow itself is updated: it still expects `russian_trusted_root_ca.cer`, one old hash and one-root policy/package entries.
 
-- `r3dfox/policies.json`;
-- the bundled certificate source path/directory;
-- `r3dfox/moz.build`;
-- `browser/installer/package-manifest.in`.
+## Heavy package integration gate
 
-## Historical heavy packaging gate to reactivate
+The existing heavy integration workflow `.github/workflows/cryptopro-mozilla-packaging-smoke.yml` can be reused as a full Mozilla build/package survival proof because it already exercises real `dist/bin`, `mach package` and final portable extraction.
 
-The existing heavy integration workflow is `.github/workflows/cryptopro-mozilla-packaging-smoke.yml` (`CryptoPro Mozilla packaging smoke`). Its last relevant failed run is:
+Historical relevant run:
 
 - run `33076347741`;
 - job `98531418338`;
 - source-under-test `07c7c48419ca39952a57a53967c1bcabaa8384c1`.
 
-That run successfully completed the full Firefox build, CryptoPro XPI `dist/bin` gate, package creation, and artifact upload. It failed only in the final portable verification because the gate required exactly one loose `defaults\pref\r3dfox-bundle.js` after extraction and found zero. This is not evidence that the Russian locale/default preference was absent: packaged Firefox may fold pref resources into `omni.ja`, and the same gate already performs a separate `omni.ja` locale-resource inspection.
+That historical run completed the full Firefox build and package stages and failed later on an unrelated loose `r3dfox-bundle.js` assertion. It is not trust-certificate failure evidence and must not be rerun as if it tested current source.
 
-Before this heavy workflow is used as the final trust/package integration proof, replace the loose-file-only `r3dfox-bundle.js` assertion with a packaging-form-independent check (loose file or the appropriate `omni.ja` content) or otherwise verify the effective Russian-default configuration without assuming a loose pref file.
+Before using the heavy workflow as final trust/package proof:
 
-Do not rerun historical run `33076347741`; a rerun would remain pinned to source `07c7c484...`. The next heavy test must be a new run from the then-current integrated source SHA.
-
-The heavy workflow should additionally verify the exact bundled root SHA in both `dist/bin/distribution/Certificates` and the final portable archive, and its `paths:` trigger must include `r3dfox/policies.json` and `r3dfox/certificates/**`.
+- include `r3dfox/policies.json`, `r3dfox/config.cfg`, `r3dfox/certificates/**`, `r3dfox/moz.build` and `browser/installer/package-manifest.in` in the relevant trigger/contract;
+- verify both exact certificate hashes in `dist/bin/distribution/Certificates`;
+- verify both exact hashes again after extracting the final portable archive;
+- keep certificate/package evidence separate from GOST MSSPI handshake conclusions.
 
 ## Runtime acceptance gate
 
-After the integrated build, use a completely new profile and verify:
+After a full integrated build, use the mandatory exact-artifact discipline and a completely new profile. Require:
 
-1. `about:policies` shows the certificate policy active;
-2. `security.enterprise_roots.enabled` is true/policy-controlled;
-3. a Windows-installed trusted root is automatically honored without manual NSS import;
-4. the Russian PKI site used in the previous clean-profile experiment is trusted with only the root requirement above;
-5. no intermediate has been promoted to a trust anchor merely for convenience.
+1. `about:policies` shows the `Certificates` policy active;
+2. `security.enterprise_roots.enabled` is effectively true;
+3. `security.certerrors.mitm.auto_enable_enterprise_roots` is effectively true;
+4. a root trusted through the Windows certificate store is honored without manual NSS import;
+5. the target Russian RSA PKI path is trusted with the RSA root contract;
+6. the target GOST PKI path is trusted with the GOST root contract where applicable;
+7. the same tests succeed without installing/bundling a Sub CA solely for convenience;
+8. the exact browser source SHA, Actions run/job, artifact and relevant binary hashes are recorded with the result.
 
 ## Boundary with GOST TLS
 
-This work closes ordinary Firefox/NSS + Windows trust-store integration for the adapted browser. It does **not** close the independent GOST TLS MSSPI server-verification blocker. MSSPI/SSPI/CryptoAPI trust behavior must still be proven with its own GOST runtime evidence.
+This work closes ordinary Firefox/NSS + Windows trust-store integration for the adapted browser. It does **not** close the independent GOST TLS MSSPI server-verification blocker. MSSPI/SSPI/CryptoAPI verification must still be proven with its own exact-artifact GOST runtime evidence.
 
-## Ordering
+Likewise, a green trust preflight or successful browser package does not prove Windows XP/Vista/7 loader compatibility.
 
-Current work remains the isolated `agent/legacy-rng-poc` experiment. Do not interrupt that line with a full browser build for this trust work.
+## Return-to-main rule
 
-Required sequence:
-
-`legacy RNG PoC -> trust integration + fast packaging smoke -> integrate proven WinRT/XP/RNG/trust changes -> next full browser build -> clean-profile trust runtime regression + Win7/XP compatibility runtime`.
-
-The next expensive full browser build is blocked until this trust contract is implemented and its fast static/packaging preflight is green.
+Do not merge experimental noise merely because the PoC builds. Once the fast gate and runtime/package acceptance are proven, transfer the minimal proven trust integration back to `agent/gost-tls-poc` as a small auditable change set. The two DER root source files are already present in the default branch and therefore do not need to be reintroduced from the experiment branch.
