@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 This file is the authoritative current technical synthesis. Detailed evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; formally closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 dependency/build contract is in `XP_BUILD_CONTRACT.md`.
 
@@ -212,7 +212,7 @@ Current proven three-extension package checkpoint:
 
 The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled state is proven for all three. Native-component functionality and version-to-version update behavior remain separate work.
 
-## Russian localization — package content proven, final gate repair pending
+## Russian localization — package gate closed; Russian-first UI manually observed
 
 Historical full Windows x64 package source `37846488e281b4c3a2df46e949b4f970a7343ed3`, run `33403654068`, job `99525795309`, packaged artifact `9768056691` was packaging-green but not a functional Russian-UI pass because most packaged Russian Fluent resources in root/browser `omni.ja` were zero-length.
 
@@ -223,21 +223,22 @@ Focused Firefox 153 l10n merge proof remains:
 - `firefox-l10n` SHA `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`;
 - evidence artifact `9785719216`.
 
-The latest full integration run advances the boundary substantially:
+The first substantive full integration package was source `e4f9f775d82ff14a75708e11043211e7259eed9b`, run `33489331410`, job `99796818515`, packaged artifact `9798517225`. Its build, production Russian merge and `ru + en-US` packaging passed, and independent artifact inspection proved populated Russian resources in both final `omni.ja` files. Its only red step was a Gate D false negative caused by testing the production-merge suffix `browser/browser/browser.ftl` against the normalized final archive path `localization/ru/browser/browser.ftl`.
 
-- source-under-test `e4f9f775d82ff14a75708e11043211e7259eed9b`;
+That CI blocker is now closed by the corrected exact source/run:
+
+- source-under-test `3e2c32386f373d4693db52b32c05aa2000878def`;
 - workflow `CryptoPro Mozilla packaging smoke`;
-- Actions run `33489331410`, job `99796818515`;
-- packaged-browser artifact `9798517225`;
-- run conclusion: failure only at final Gate D.
+- Actions run `33520207057`, job `99897230730`;
+- run/job conclusion: **success**;
+- packaged-browser artifact `9812333220`, digest `sha256:c8e62704fcc2cd1b99c78cf6cf90b405b653a9aeba5272d132bcda4eaed5edd8`;
+- evidence artifact `9812333789`, digest `sha256:fdcb6a34ed5625532af86413330b5c2d4453be046f3d6419d49d2d45c7a143dc`.
 
-The pinned Russian source checkout, packaging-only Russian default, full release build, CryptoPro `dist/bin` gate, production `ru` merge gate, and `ru + en-US` multi-locale packaging all passed. The production merge contains `217` RU FTL files (`216` non-empty, `215` with Cyrillic); prepackage staging contains substantive root and browser resources (`98/99` and `129/129` non-empty respectively).
+For this exact run the pinned Russian source checkout, Russian-default configuration, full release build, CryptoPro `dist/bin` gate, production `ru` merge gate, `ru + en-US` package, corrected final Gate D, and both artifact uploads all pass. Gate D retains the substantive-content checks: root/browser Russian Fluent payload, zero-length limits, Cyrillic content, representative differences from en-US, Russian requested by default, and exact `ru,en-US` multilocale declaration.
 
-Independent inspection of the exact final portable artifact proves that substantive Russian UI resources survive packaging: browser `omni.ja` contains `129` RU FTL with zero zero-length files and `118` containing Cyrillic; root `omni.ja` contains `99` RU FTL with one zero-length file and `96` containing Cyrillic. Representative `browser.ftl`, `preferences.ftl`, and `netError.ftl` are substantive; the package requests Russian by default and declares exact `ru,en-US` multilocale content.
+Runtime/UI evidence is kept bound to its own exact artifact. The user manually exercised predecessor artifact `9798517225` from run `33489331410` and observed a Russian interface out of the box, localized Settings and TLS error UI, and successful switching to `en-US`. The later source `3e2c323...` changes only the final CI path predicate; that prior runtime observation is therefore not relabeled as execution of artifact `9812333220`.
 
-The red Gate D is therefore a **CI false negative**, not a localization-content failure. The production merge path for the representative browser resource is `browser/browser/browser.ftl`, while final `browser/omni.ja` normalizes it to `localization/ru/browser/browser.ftl`. Gate D still tests the former suffix and incorrectly reports the packaged browser resource as missing.
-
-Current localization blocker: repair Gate D to validate the actual final `omni.ja` path while retaining the zero-length, Cyrillic, en-US-difference, Russian-default and `ru,en-US` checks. After that gate is green on a new exact source/run, perform a clean-profile runtime Russian-UI verification. The current packaging evidence does not by itself prove runtime UI behavior.
+Current localization status: **no active packaging blocker**. The mass-empty Russian payload defect is superseded, and the final Gate D path-shape false negative is closed. A future exact-artifact runtime regression is useful when localization/package behavior changes, but another full build is not required merely to reconfirm this corrected gate on unchanged source.
 
 # Separation of conclusions
 
