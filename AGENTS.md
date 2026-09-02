@@ -77,6 +77,9 @@ These rules supplement the global Firefox instructions above and are authoritati
 - A requested change to `.github/workflows/<name>.yml` must modify only that requested workflow unless the user explicitly requests additional workflow files.
 - Before every write under `.github/workflows/`, identify and fetch the exact existing target file and its current blob SHA. After the write, verify the resulting commit and changed filenames.
 - If a workflow is `workflow_dispatch`-only and no direct workflow-dispatch operation is available, commit the requested workflow change and STOP. Ask the user to start it manually. NEVER synthesize a dispatcher workflow as a workaround.
+- Whenever asking the user to start a workflow manually, MUST provide the direct GitHub Actions workflow page in the form `https://github.com/<owner>/<repo>/actions/workflows/<workflow-file>.yml`, where the `Run workflow` control is available.
+- In the same manual-launch instruction, MUST state the exact branch name/ref the user should select in `Run workflow`; never leave the branch implicit.
+- Do not substitute a repository tree/blob link to `.github/workflows/...` or the generic Actions page for the direct workflow Actions page when manual launch is required.
 
 ### Project invariants
 - Add GOST TLS support to r3dfox/Firefox through `deemru/msspi` and the Windows CryptoPro/SSPI stack.
