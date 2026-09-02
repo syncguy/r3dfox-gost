@@ -1,0 +1,644 @@
+name: XP x86 KERNEL32 delta on proven SRW baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-kernel32-delta-on-srw-baseline-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+  YY_THUNKS_VERSION: "1.2.2"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+  RUST_TOOLCHAIN: "nightly-2026-08-20"
+  RUST_TARGET: "i686-pc-windows-msvc"
+  PROVEN_BASELINE_RUN: "33470957048"
+  PROVEN_BASELINE_JOB: "99740439208"
+  PROVEN_BASELINE_SHA: "d65b464c74caadace97995f07a4919363c41a0ea"
+
+jobs:
+  delta-smoke:
+    name: Proven SRW/Rust/CRT closure + KERNEL32 delta / XP x86
+    runs-on: windows-2022
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Prepare diagnostics
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "test_commit=$env:GITHUB_SHA"
+            "compatibility_target=Windows XP SP3 x86"
+            "proven_baseline_run=$env:PROVEN_BASELINE_RUN"
+            "proven_baseline_job=$env:PROVEN_BASELINE_JOB"
+            "proven_baseline_sha=$env:PROVEN_BASELINE_SHA"
+            "msvcr14x_commit=$env:MSVCR14X_SHA"
+            "yy_thunks_version=$env:YY_THUNKS_VERSION"
+            "yy_thunks_target=$env:YY_THUNKS_TARGET"
+            "rust_toolchain=$env:RUST_TOOLCHAIN"
+            "rust_target=$env:RUST_TARGET"
+            "pe_subsystem_min_version=$env:WINDOWS_XP_SUBSYSTEM"
+            "delta_excludes=GetTickCount64 (already proven), CreateWaitableTimerExA (no YY 1.2.2 provider; separate caller-semantics blocker)"
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+          @(
+            'InitializeCriticalSectionEx','CompareStringOrdinal','GetCurrentProcessorNumber',
+            'GetFileInformationByHandleEx','GetFinalPathNameByHandleW','GetLocaleInfoEx',
+            'LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
+            'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation',
+            'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId',
+            'GetTimeZoneInformationForYear','GetUserPreferredUILanguages','InitOnceBeginInitialize',
+            'InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+          ) | Set-Content -Encoding ascii diagnostics\delta-apis.txt
+          cmd /c "where cl && cl 2>&1" | Set-Content -Encoding utf8 diagnostics\cl-version.txt
+          cmd /c "where link && link 2>&1" | Set-Content -Encoding utf8 diagnostics\link-version.txt
+          rustc -Vv | Set-Content -Encoding utf8 diagnostics\rustc-version.txt
+
+      - name: Fetch and build pinned msvcr14x Release x86
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'msvcr14x'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git init $root
+          git -C $root remote add origin $env:MSVCR14X_REPO
+          git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
+          git -C $root checkout --detach FETCH_HEAD
+          git -C $root submodule update --init --recursive --depth 1
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $env:MSVCR14X_SHA) { throw "Unexpected msvcr14x commit: $actual" }
+          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86' -r "/bl:$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-release-x86.binlog"
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x build failed: $LASTEXITCODE" }
+          $required = @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')
+          $release = $null
+          $candidateDirs = @(Get-ChildItem -Path $root -Recurse -File -Filter 'ucrtbase.dll' | ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)
+          foreach ($candidate in $candidateDirs) {
+            $missing = @($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) })
+            if ($missing.Count -gt 0) { continue }
+            $headers = (& dumpbin.exe /nologo /headers (Join-Path $candidate 'ucrtbase.dll') 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0 -and $headers -match '(?im)^\s*14C machine \(x86\)') { $release = $candidate; break }
+          }
+          if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
+          Get-ChildItem -LiteralPath $release -File | Sort-Object Name | Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 | Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
+          "resolved_msvcr14x_release=$release" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-package'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory | Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } | Select-Object -First 1
+          if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch)) { throw 'Required YY XP x86 libraries are missing' }
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "resolved_yy_lib=$($yyLib.FullName)" | Add-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Build exact proven baseline provider plus delta provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:RUNNER_TEMP 'xp-kernel32-delta-on-srw-baseline'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $work | Out-Null
+          $members = @(& lib.exe /nologo /list $env:THUNK_YY_KERNEL32_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY kernel32.lib' }
+          $members | Set-Content -Encoding utf8 diagnostics\yy-kernel32-members.txt
+
+          function Extract-Member([string]$member, [string]$root, [string]$key) {
+            $dir = Join-Path $root $key
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$member" $env:THUNK_YY_KERNEL32_LIB | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $member" }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File | Select-Object -First 1
+            if (-not $file) { throw "No extracted object for $key" }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            return $dst
+          }
+
+          $baselineRoot = Join-Path $work 'baseline-selected'
+          New-Item -ItemType Directory -Force $baselineRoot | Out-Null
+          $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $baselineSpecs = @(
+            @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
+            @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
+            @{ Key='precise-direct'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obj$' },
+            @{ Key='precise-import'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obi$' },
+            @{ Key='flsalloc-direct'; Pattern='(?i)[\\/]_FlsAlloc@4\.obj$' },
+            @{ Key='flsalloc-import'; Pattern='(?i)[\\/]_FlsAlloc@4\.obi$' },
+            @{ Key='flsfree-direct'; Pattern='(?i)[\\/]_FlsFree@4\.obj$' },
+            @{ Key='flsfree-import'; Pattern='(?i)[\\/]_FlsFree@4\.obi$' },
+            @{ Key='flsset-direct'; Pattern='(?i)[\\/]_FlsSetValue@8\.obj$' },
+            @{ Key='flsset-import'; Pattern='(?i)[\\/]_FlsSetValue@8\.obi$' },
+            @{ Key='isfiber-direct'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obj$' },
+            @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
+            @{ Key='stack-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
+            @{ Key='stack-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='srw-acq-ex-direct'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-acq-ex-import'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-acq-sh-direct'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obj$' },
+            @{ Key='srw-acq-sh-import'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obi$' },
+            @{ Key='srw-rel-ex-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-rel-ex-import'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-rel-sh-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obj$' },
+            @{ Key='srw-rel-sh-import'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obi$' },
+            @{ Key='srw-init-direct'; Pattern='(?i)[\\/]_InitializeSRWLock@4\.obj$' },
+            @{ Key='srw-init-import'; Pattern='(?i)[\\/]_InitializeSRWLock@4\.obi$' },
+            @{ Key='cv-init-direct'; Pattern='(?i)[\\/]_InitializeConditionVariable@4\.obj$' },
+            @{ Key='cv-init-import'; Pattern='(?i)[\\/]_InitializeConditionVariable@4\.obi$' },
+            @{ Key='cv-sleep-cs-direct'; Pattern='(?i)[\\/]_SleepConditionVariableCS@12\.obj$' },
+            @{ Key='cv-sleep-cs-import'; Pattern='(?i)[\\/]_SleepConditionVariableCS@12\.obi$' },
+            @{ Key='srw-sleep-direct'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obj$' },
+            @{ Key='srw-sleep-import'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obi$' },
+            @{ Key='cv-wake-all-direct'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obj$' },
+            @{ Key='cv-wake-all-import'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obi$' },
+            @{ Key='cv-wake-direct'; Pattern='(?i)[\\/]_WakeConditionVariable@4\.obj$' },
+            @{ Key='cv-wake-import'; Pattern='(?i)[\\/]_WakeConditionVariable@4\.obi$' },
+            @{ Key='implementation'; Pattern=$implementationPattern }
+          )
+          $baselineObjects = @()
+          $baselineMap = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $baselineSpecs) {
+            $hits = @($members | Where-Object { $_ -match $spec.Pattern })
+            if ($hits.Count -ne 1) { throw "Expected one proven baseline $($spec.Key) member; found $($hits.Count)" }
+            $baselineObjects += Extract-Member $hits[0] $baselineRoot $spec.Key
+            $baselineMap.Add("$($spec.Key)|$($hits[0])")
+          }
+          $baselineMap | Set-Content -Encoding utf8 diagnostics\baseline-selected-members.txt
+          $baselineLib = Join-Path $work 'yy-xp-rust-srw-provider.lib'
+          & lib.exe /nologo "/out:$baselineLib" @baselineObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $baselineLib)) { throw 'Failed to build exact proven baseline YY provider' }
+          (& dumpbin.exe /nologo /linkermember:1 $baselineLib 2>&1 | Out-String) | Set-Content -Encoding utf8 diagnostics\baseline-provider-symbols.txt
+
+          $deltaRoot = Join-Path $work 'delta-selected'
+          New-Item -ItemType Directory -Force $deltaRoot | Out-Null
+          $deltaSpecs = @(
+            @{ Api='InitializeCriticalSectionEx'; Arity=12 },
+            @{ Api='CompareStringOrdinal'; Arity=20 },
+            @{ Api='GetCurrentProcessorNumber'; Arity=0 },
+            @{ Api='GetFileInformationByHandleEx'; Arity=16 },
+            @{ Api='GetFinalPathNameByHandleW'; Arity=16 },
+            @{ Api='GetLocaleInfoEx'; Arity=16 },
+            @{ Api='LCIDToLocaleName'; Arity=16 },
+            @{ Api='LocaleNameToLCID'; Arity=8 },
+            @{ Api='SetFileInformationByHandle'; Arity=16 },
+            @{ Api='CancelIoEx'; Arity=8 },
+            @{ Api='CreateWaitableTimerExW'; Arity=16 },
+            @{ Api='CancelSynchronousIo'; Arity=4 },
+            @{ Api='GetDynamicTimeZoneInformation'; Arity=4 },
+            @{ Api='GetProcessIdOfThread'; Arity=4 },
+            @{ Api='GetQueuedCompletionStatusEx'; Arity=24 },
+            @{ Api='GetThreadId'; Arity=4 },
+            @{ Api='GetTimeZoneInformationForYear'; Arity=12 },
+            @{ Api='GetUserPreferredUILanguages'; Arity=16 },
+            @{ Api='InitOnceBeginInitialize'; Arity=16 },
+            @{ Api='InitOnceComplete'; Arity=12 },
+            @{ Api='QueryFullProcessImageNameW'; Arity=16 },
+            @{ Api='QueryProcessCycleTime'; Arity=8 },
+            @{ Api='QueryThreadCycleTime'; Arity=8 }
+          )
+          $deltaObjects = @()
+          $deltaMap = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $deltaSpecs) {
+            foreach ($kind in @('obj','obi')) {
+              $pattern = '(?i)[\\/]_' + [regex]::Escape($spec.Api) + '@' + $spec.Arity + '\.' + $kind + '$'
+              $hits = @($members | Where-Object { $_ -match $pattern })
+              if ($hits.Count -ne 1) { throw "Expected one delta $($spec.Api) .$kind member; found $($hits.Count)" }
+              $key = "$($spec.Api)-$kind"
+              $deltaObjects += Extract-Member $hits[0] $deltaRoot $key
+              $deltaMap.Add("$key|$($hits[0])")
+            }
+          }
+          $deltaMap | Set-Content -Encoding utf8 diagnostics\delta-selected-members.txt
+          $deltaLib = Join-Path $work 'yy-xp-kernel32-delta-provider.lib'
+          & lib.exe /nologo "/out:$deltaLib" @deltaObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $deltaLib)) { throw 'Failed to build delta YY provider' }
+          $deltaSymbols = (& dumpbin.exe /nologo /linkermember:1 $deltaLib 2>&1 | Out-String)
+          $deltaSymbols | Set-Content -Encoding utf8 diagnostics\delta-provider-symbols.txt
+          foreach ($api in Get-Content diagnostics\delta-apis.txt) {
+            if ($deltaSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Delta provider missing YY_Thunks_$api" }
+          }
+          foreach ($forbidden in @('YY_Thunks_GetTickCount64','YY_Thunks_CreateWaitableTimerExA','YY_Thunks_AcquireSRWLockExclusive','YY_Thunks_ProcessPrng')) {
+            if ($deltaSymbols.IndexOf($forbidden,[System.StringComparison]::Ordinal) -ge 0) { throw "Delta provider contains non-delta symbol $forbidden" }
+          }
+          "SMOKE_DIR=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "BASELINE_YY_LIB=$baselineLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DELTA_YY_LIB=$deltaLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile unchanged proven C++ SRW helper
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'srw-helper.cpp'
+          $obj = Join-Path $env:SMOKE_DIR 'srw-helper.obj'
+          @'
+          #define _WIN32_WINNT 0x0600
+          #include <windows.h>
+          #include <string>
+          #include <vector>
+          extern "C" int cpp_srw_probe() {
+              std::vector<std::string> v{"msvcr14x", "rust", "yy-sync"};
+              SRWLOCK lock;
+              CONDITION_VARIABLE cv;
+              CRITICAL_SECTION cs;
+              InitializeSRWLock(&lock);
+              InitializeConditionVariable(&cv);
+              InitializeCriticalSection(&cs);
+
+              AcquireSRWLockExclusive(&lock);
+              BOOL slept_srw = SleepConditionVariableSRW(&cv, &lock, 0, 0);
+              ReleaseSRWLockExclusive(&lock);
+              AcquireSRWLockShared(&lock);
+              ReleaseSRWLockShared(&lock);
+
+              EnterCriticalSection(&cs);
+              BOOL slept_cs = SleepConditionVariableCS(&cv, &cs, 0);
+              LeaveCriticalSection(&cs);
+
+              WakeConditionVariable(&cv);
+              WakeAllConditionVariable(&cv);
+              DeleteCriticalSection(&cs);
+              return static_cast<int>(v.size()) + (slept_srw ? 1 : 0) + (slept_cs ? 1 : 0);
+          }
+          '@ | Set-Content -Encoding utf8 $src
+          & cl.exe /nologo /c /MD /O2 /EHsc /std:c++20 $src "/Fo:$obj" 2>&1 | Tee-Object diagnostics\srw-helper-compile.log
+          if ($LASTEXITCODE -ne 0) { throw 'Synchronization helper compile failed' }
+          "CPP_SRW_HELPER_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile KERNEL32 delta helper
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'delta-helper.cpp'
+          $obj = Join-Path $env:SMOKE_DIR 'delta-helper.obj'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #define _WIN32_WINNT 0x0601
+          #include <windows.h>
+          #include <stdio.h>
+          extern "C" int cpp_delta_probe() {
+              int failures = 0;
+              #define PASS(x) printf(#x ": PASS\n")
+              #define FAIL(x) do { printf(#x ": FAIL err=%lu\n", GetLastError()); ++failures; } while (0)
+
+              CRITICAL_SECTION cs;
+              if (InitializeCriticalSectionEx(&cs, 0, 0)) { EnterCriticalSection(&cs); LeaveCriticalSection(&cs); DeleteCriticalSection(&cs); PASS(InitializeCriticalSectionEx); } else FAIL(InitializeCriticalSectionEx);
+              if (CompareStringOrdinal(L"abc", 3, L"abc", 3, TRUE) == CSTR_EQUAL) PASS(CompareStringOrdinal); else FAIL(CompareStringOrdinal);
+              (void)GetCurrentProcessorNumber(); PASS(GetCurrentProcessorNumber);
+
+              WCHAR path[MAX_PATH];
+              DWORD n = GetTempPathW(MAX_PATH, path);
+              const WCHAR suffix[] = L"r3dfox-yy-delta.tmp";
+              DWORD i = n;
+              for (DWORD j = 0; suffix[j] && i + 1 < MAX_PATH; ++j) path[i++] = suffix[j];
+              path[i] = 0;
+              HANDLE f = CreateFileW(path, GENERIC_READ | GENERIC_WRITE | FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, 0);
+              if (f == INVALID_HANDLE_VALUE) {
+                  printf("control-temp-file: FAIL\n");
+                  ++failures;
+              } else {
+                  FILE_BASIC_INFO bi;
+                  if (GetFileInformationByHandleEx(f, FileBasicInfo, &bi, sizeof(bi))) PASS(GetFileInformationByHandleEx); else FAIL(GetFileInformationByHandleEx);
+                  if (SetFileInformationByHandle(f, FileBasicInfo, &bi, sizeof(bi))) PASS(SetFileInformationByHandle); else FAIL(SetFileInformationByHandle);
+                  WCHAR q[512];
+                  DWORD z = GetFinalPathNameByHandleW(f, q, 512, FILE_NAME_NORMALIZED);
+                  if (z > 0 && z < 512) PASS(GetFinalPathNameByHandleW); else FAIL(GetFinalPathNameByHandleW);
+                  SetLastError(ERROR_SUCCESS);
+                  if (CancelIoEx(f, 0) || GetLastError() == ERROR_NOT_FOUND) PASS(CancelIoEx); else FAIL(CancelIoEx);
+                  CloseHandle(f);
+              }
+
+              WCHAR localeName[LOCALE_NAME_MAX_LENGTH] = {L'e',L'n',L'-',L'U',L'S',0};
+              if (LCIDToLocaleName(GetUserDefaultLCID(), localeName, LOCALE_NAME_MAX_LENGTH, 0) > 0) PASS(LCIDToLocaleName); else FAIL(LCIDToLocaleName);
+              if (LocaleNameToLCID(localeName, 0)) PASS(LocaleNameToLCID); else FAIL(LocaleNameToLCID);
+              WCHAR localeValue[128];
+              if (GetLocaleInfoEx(localeName, LOCALE_SLANGUAGE, localeValue, 128) > 0) PASS(GetLocaleInfoEx); else FAIL(GetLocaleInfoEx);
+
+              HANDLE timer = CreateWaitableTimerExW(0, 0, 0, TIMER_ALL_ACCESS);
+              if (!timer) FAIL(CreateWaitableTimerExW); else {
+                  LARGE_INTEGER due; due.QuadPart = -100000LL;
+                  BOOL ok = SetWaitableTimer(timer, &due, 0, 0, 0, FALSE);
+                  DWORD wait = ok ? WaitForSingleObject(timer, 2000) : WAIT_FAILED;
+                  CloseHandle(timer);
+                  if (ok && wait == WAIT_OBJECT_0) PASS(CreateWaitableTimerExW); else FAIL(CreateWaitableTimerExW);
+              }
+
+              SetLastError(ERROR_SUCCESS);
+              if (CancelSynchronousIo(GetCurrentThread()) || GetLastError() == ERROR_NOT_FOUND) PASS(CancelSynchronousIo); else FAIL(CancelSynchronousIo);
+              DYNAMIC_TIME_ZONE_INFORMATION dynamicTz;
+              DWORD tzState = GetDynamicTimeZoneInformation(&dynamicTz);
+              if (tzState != TIME_ZONE_ID_INVALID) PASS(GetDynamicTimeZoneInformation); else FAIL(GetDynamicTimeZoneInformation);
+              if (GetProcessIdOfThread(GetCurrentThread()) == GetCurrentProcessId()) PASS(GetProcessIdOfThread); else FAIL(GetProcessIdOfThread);
+
+              HANDLE cp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 1);
+              OVERLAPPED_ENTRY entry;
+              ULONG removed = 0;
+              SetLastError(0);
+              BOOL gqcs = cp ? GetQueuedCompletionStatusEx(cp, &entry, 1, &removed, 0, FALSE) : FALSE;
+              DWORD gqcsError = GetLastError();
+              if (cp) CloseHandle(cp);
+              if ((!gqcs && gqcsError == WAIT_TIMEOUT) || (gqcs && removed == 0)) PASS(GetQueuedCompletionStatusEx); else FAIL(GetQueuedCompletionStatusEx);
+              if (GetThreadId(GetCurrentThread()) == GetCurrentThreadId()) PASS(GetThreadId); else FAIL(GetThreadId);
+
+              SYSTEMTIME st;
+              GetSystemTime(&st);
+              TIME_ZONE_INFORMATION yearTz;
+              if (tzState != TIME_ZONE_ID_INVALID && GetTimeZoneInformationForYear(st.wYear, &dynamicTz, &yearTz)) PASS(GetTimeZoneInformationForYear); else FAIL(GetTimeZoneInformationForYear);
+
+              ULONG languageCount = 0, languageChars = 0;
+              if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &languageCount, 0, &languageChars) && languageChars > 0) PASS(GetUserPreferredUILanguages); else FAIL(GetUserPreferredUILanguages);
+
+              INIT_ONCE once = INIT_ONCE_STATIC_INIT;
+              BOOL pending = FALSE;
+              PVOID context = 0;
+              if (InitOnceBeginInitialize(&once, 0, &pending, &context) && pending) {
+                  PASS(InitOnceBeginInitialize);
+                  if (InitOnceComplete(&once, 0, 0)) PASS(InitOnceComplete); else FAIL(InitOnceComplete);
+              } else {
+                  FAIL(InitOnceBeginInitialize);
+                  FAIL(InitOnceComplete);
+              }
+
+              WCHAR image[512];
+              DWORD imageChars = 512;
+              if (QueryFullProcessImageNameW(GetCurrentProcess(), 0, image, &imageChars) && imageChars) PASS(QueryFullProcessImageNameW); else FAIL(QueryFullProcessImageNameW);
+              ULONG64 processCycles = 0;
+              if (QueryProcessCycleTime(GetCurrentProcess(), &processCycles)) PASS(QueryProcessCycleTime); else FAIL(QueryProcessCycleTime);
+              ULONG64 threadCycles = 0;
+              if (QueryThreadCycleTime(GetCurrentThread(), &threadCycles)) PASS(QueryThreadCycleTime); else FAIL(QueryThreadCycleTime);
+
+              printf("DeltaOverall: %s\n", failures ? "FAIL" : "PASS");
+              return failures;
+          }
+          '@ | Set-Content -Encoding utf8 $src
+          & cl.exe /nologo /c /MD /O2 /GS- /EHsc- /GR- /D_WIN32_WINNT=0x0601 $src "/Fo:$obj" 2>&1 | Tee-Object diagnostics\delta-helper-compile.log
+          if ($LASTEXITCODE -ne 0) { throw 'Delta helper compile failed' }
+          $symbols = (& dumpbin.exe /nologo /symbols $obj 2>&1 | Out-String)
+          $symbols | Set-Content -Encoding utf8 diagnostics\delta-helper-symbols.txt
+          foreach ($api in Get-Content diagnostics\delta-apis.txt) {
+            if ($symbols.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "Delta helper missing reference to $api" }
+          }
+          if ($symbols.IndexOf('CreateWaitableTimerExA',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'CreateWaitableTimerExA leaked into delta helper' }
+          if ($symbols.IndexOf('GetTickCount64',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Already-proven GetTickCount64 leaked into delta helper' }
+          "CPP_DELTA_HELPER_OBJ=$obj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build unchanged representative Rust archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'probe.rs'
+          $rlib = Join-Path $env:SMOKE_DIR 'libsrw_probe.rlib'
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::hint::black_box;
+          use std::sync::{Arc, Condvar, Mutex, Once, RwLock};
+          use std::thread;
+          use std::time::Duration;
+          #[inline(never)]
+          pub fn run_probe() {
+              black_box(RandomState::new());
+              static INIT: Once = Once::new();
+              INIT.call_once(|| black_box(()));
+              let rw = RwLock::new(1usize);
+              *rw.write().unwrap() += 1;
+              black_box(*rw.read().unwrap());
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let waiter_pair = Arc::clone(&pair);
+              let waiter = thread::spawn(move || {
+                  let (lock, cv) = &*waiter_pair;
+                  let guard = lock.lock().unwrap();
+                  let _ = cv.wait_timeout(guard, Duration::from_millis(1)).unwrap();
+              });
+              {
+                  let (lock, cv) = &*pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_all();
+              }
+              waiter.join().unwrap();
+          }
+          '@ | Set-Content -Encoding utf8 $src
+          & rustc $src --crate-name srw_probe --crate-type rlib --edition 2021 --target $env:RUST_TARGET -O -o $rlib
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $rlib)) { throw 'Rust archive build failed' }
+          "RUST_PROBE_RLIB=$rlib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Link with exact proven Rust CRT closure plus delta provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lld = (Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source
+          if (-not $lld) { $lld = 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw 'lld-link.exe not found' }
+          $main = Join-Path $env:SMOKE_DIR 'main.rs'
+          $exe = Join-Path $env:SMOKE_DIR 'xp-kernel32-delta-on-srw-baseline.exe'
+          $map = Join-Path $env:SMOKE_DIR 'final.map'
+          $wrapper = Join-Path $env:SMOKE_DIR 'lld-wrapper.cmd'
+          $linkLog = Join-Path $env:SMOKE_DIR 'final-link-command.txt'
+          @'
+          extern crate srw_probe;
+          unsafe extern "C" {
+              fn cpp_srw_probe() -> i32;
+              fn cpp_delta_probe() -> i32;
+          }
+          fn main() {
+              srw_probe::run_probe();
+              let baseline = unsafe { cpp_srw_probe() };
+              assert!(baseline >= 3);
+              let delta = unsafe { cpp_delta_probe() };
+              assert_eq!(delta, 0);
+          }
+          '@ | Set-Content -Encoding utf8 $main
+          @"
+          @echo off
+          >"$linkLog" echo "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:THUNK_YY_SYNCH_LIB" "$env:BASELINE_YY_LIB" "$env:DELTA_YY_LIB" %*
+          "$lld" "-LIBPATH:$env:MSVCR14X_RELEASE" "$env:THUNK_YY_SYNCH_LIB" "$env:BASELINE_YY_LIB" "$env:DELTA_YY_LIB" %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $wrapper
+          & rustc $main --edition 2021 --target $env:RUST_TARGET -O `
+            --extern "srw_probe=$env:RUST_PROBE_RLIB" `
+            "-Clinker=$wrapper" `
+            "-Clink-arg=$env:CPP_SRW_HELPER_OBJ" `
+            "-Clink-arg=$env:CPP_DELTA_HELPER_OBJ" `
+            "-Clink-arg=/map:$map" `
+            -o $exe 2>&1 | Tee-Object diagnostics\final-link-output.txt
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe) -or -not (Test-Path $map)) { throw 'XP x86 baseline+delta link failed' }
+          Copy-Item -Force $linkLog diagnostics\final-link-command.txt
+          Copy-Item -Force $map diagnostics\final.map
+
+          $logged = Get-Content $linkLog -Raw
+          $baselineSequence = @("-LIBPATH:$env:MSVCR14X_RELEASE", $env:THUNK_YY_SYNCH_LIB, $env:BASELINE_YY_LIB)
+          $cursor = 0
+          foreach ($needle in $baselineSequence) {
+            $at = $logged.IndexOf($needle, $cursor, [System.StringComparison]::OrdinalIgnoreCase)
+            if ($at -lt 0) { throw "Final link command lost proven baseline sequence item: $needle" }
+            $cursor = $at + $needle.Length
+          }
+          $deltaAt = $logged.IndexOf($env:DELTA_YY_LIB, $cursor, [System.StringComparison]::OrdinalIgnoreCase)
+          if ($deltaAt -lt 0) { throw 'Delta provider is not appended after the exact proven baseline provider sequence' }
+          if ($logged.IndexOf($env:THUNK_YY_KERNEL32_LIB,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY kernel32.lib reached final link command' }
+          if ($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB",[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Full YY directory reached final LIBPATH' }
+          foreach ($arg in @('/NOLOGO','/LARGEADDRESSAWARE','/SAFESEH','ntdll.lib','userenv.lib','ws2_32.lib','dbghelp.lib','/defaultlib:msvcrt','/NXCOMPAT','/OPT:REF,ICF')) {
+            if ($logged.IndexOf($arg,[System.StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "Rust proven linker closure lost argument $arg" }
+          }
+          $kernel32Count = [regex]::Matches($logged, '(?i)(?:^|\s)kernel32\.lib(?:\s|$)').Count
+          if ($kernel32Count -ne 3) { throw "Rust proven linker closure expected three kernel32.lib arguments; found $kernel32Count" }
+          if ($logged.IndexOf('/entry:',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Unexpected manual /entry override; proven Rust closure has none' }
+          if ($logged.IndexOf('/nodefaultlib:',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Unexpected /nodefaultlib override; proven Rust closure has none' }
+
+          $mapText = Get-Content $map -Raw
+          foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable','SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable')) {
+            if ($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Proven baseline map invariant lost YY_Thunks_$api" }
+          }
+          foreach ($api in Get-Content diagnostics\delta-apis.txt) {
+            if ($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Final map did not select delta YY_Thunks_$api" }
+          }
+
+          $before = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
+          $before | Set-Content -Encoding utf8 diagnostics\headers-probe-before-retarget.txt
+          & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe 2>&1 | Tee-Object diagnostics\editbin-subsystem.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Explicit XP subsystem retarget failed' }
+          $after = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
+          $after | Set-Content -Encoding utf8 diagnostics\headers-probe-after-retarget.txt
+          "SMOKE_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: GATE - Preserve baseline imports and reject only delta direct imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = (& dumpbin.exe /nologo /imports $env:SMOKE_EXE 2>&1 | Out-String)
+          $raw | Set-Content -Encoding utf8 diagnostics\final-imports.txt
+          foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable','SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable')) {
+            if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Proven baseline regression: direct import $api returned" }
+          }
+          foreach ($api in Get-Content diagnostics\delta-apis.txt) {
+            if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Delta direct import remains: $api" }
+          }
+          foreach ($bad in @('api-ms-win-','ext-ms-','KERNELBASE.dll','bcrypt.dll')) {
+            if ($raw.IndexOf($bad,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Forbidden dependency $bad" }
+          }
+          if ($raw.IndexOf('CreateWaitableTimerExA',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'CreateWaitableTimerExA unexpectedly entered this separate delta experiment' }
+          'baseline_plus_delta_import_gate=PASS' | Set-Content -Encoding ascii diagnostics\import-gate.txt
+
+      - name: Stage proven app-local runtime and require XP x86 PE floor
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $env:SMOKE_DIR 'xp-x86-runtime'
+          New-Item -ItemType Directory -Force $bundle | Out-Null
+          Copy-Item -Force $env:SMOKE_EXE $bundle
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $src = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $src)) { throw "Missing msvcr14x runtime DLL: $dll" }
+            Copy-Item -Force $src $bundle
+          }
+          foreach ($binary in Get-ChildItem -LiteralPath $bundle -File) {
+            $headers = (& dumpbin.exe /nologo /headers $binary.FullName 2>&1 | Out-String)
+            $headers | Set-Content -Encoding utf8 (Join-Path diagnostics ("headers-" + $binary.Name + '.txt'))
+            if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw "$($binary.Name) is not x86" }
+            $line = @($headers -split "`r?`n" | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1)
+            if (-not $line -or $line[0] -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem for $($binary.Name)" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$($binary.Name) subsystem $version is newer than XP x86" }
+          }
+          "RUNTIME_BUNDLE=$bundle" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run baseline plus delta probe on Windows 2022 runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:RUNTIME_BUNDLE
+          try {
+            $exe = Get-ChildItem -LiteralPath . -Filter '*.exe' -File | Select-Object -First 1
+            & $exe.FullName 2>&1 | Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE 'diagnostics\hosted-run.txt')
+            if ($LASTEXITCODE -ne 0) { throw "Probe failed: $LASTEXITCODE" }
+          } finally { Pop-Location }
+
+      - name: Build physical XP runtime bundle metadata
+        shell: powershell
+        run: |
+          @'
+          @echo off
+          echo XP x86 KERNEL32 delta on proven SRW baseline
+          xp-kernel32-delta-on-srw-baseline.exe
+          set EC=%ERRORLEVEL%
+          echo DriverExitCode=%EC%
+          exit /b %EC%
+          '@ | Set-Content -Encoding ascii (Join-Path $env:RUNTIME_BUNDLE 'run-on-xp.cmd')
+          @'
+          This bundle preserves the exact provider/linker/CRT foundation proven by run 33470957048 / job 99740439208 / SHA d65b464c74caadace97995f07a4919363c41a0ea and adds only the KERNEL32 delta listed in delta-apis.txt.
+          GetTickCount64 is intentionally not a delta hypothesis. CreateWaitableTimerExA is intentionally absent because YY-Thunks 1.2.2 does not provide it; that Firefox caller requires separate semantic analysis.
+          Hosted execution is not physical Windows XP proof.
+          '@ | Set-Content -Encoding ascii (Join-Path $env:RUNTIME_BUNDLE 'README-XP.txt')
+          Copy-Item diagnostics\delta-apis.txt $env:RUNTIME_BUNDLE
+          Get-ChildItem $env:RUNTIME_BUNDLE -File | ForEach-Object { $h=Get-FileHash -Algorithm SHA256 $_.FullName; "$($h.Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content -Encoding ascii (Join-Path $env:RUNTIME_BUNDLE 'SHA256SUMS.txt')
+
+      - name: Upload XP baseline plus delta runtime
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-kernel32-delta-on-srw-baseline-runtime
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ env.RUNTIME_BUNDLE }}\**\*
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-kernel32-delta-on-srw-baseline-diagnostics
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            diagnostics\**\*
+            ${{ runner.temp }}\xp-kernel32-delta-on-srw-baseline\**\*
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          "## XP x86 KERNEL32 delta on proven SRW baseline" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Immutable baseline: run $env:PROVEN_BASELINE_RUN / job $env:PROVEN_BASELINE_JOB / SHA $env:PROVEN_BASELINE_SHA." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline provider membership/order, common YY implementation, synchronization.lib, msvcr14x LIBPATH, Rust linker/defaultlib behavior and app-local CRT staging are preserved." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Delta provider contains only the 23 APIs in diagnostics/delta-apis.txt." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- GetTickCount64 is excluded as already proven; CreateWaitableTimerExA is excluded and remains a separate caller-semantics blocker." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
