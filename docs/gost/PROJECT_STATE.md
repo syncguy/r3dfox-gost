@@ -241,51 +241,38 @@ Runtime/UI evidence is kept bound to its own exact artifact. The user manually e
 
 Current localization status: **no active packaging blocker**. The mass-empty Russian payload defect is superseded, and the final Gate D path-shape false negative is closed. A future exact-artifact runtime regression is useful when localization/package behavior changes, but another full build is not required merely to reconfirm this corrected gate on unchanged source.
 
-# Firefox/NSS + Windows trust integration
+# Firefox/NSS + Windows trust integration — COMPLETE ON POC BRANCH
 
-This is an independent trust/package line on `agent/trust-integration-poc`; detailed design and exact acceptance criteria are authoritative in `TRUST_INTEGRATION.md`.
+This independent trust/package PoC is closed on `agent/trust-integration-poc`; detailed design and exact evidence are authoritative in `TRUST_INTEGRATION.md` and `TEST_LOG.md`.
 
-Current static contract is green:
+Static/package contract:
 
 - exactly two bundled public roots, RSA SHA-256 `d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31` and GOST SHA-256 `4bb37cc7c0ff4bf2aa893e95076ebb3565c69237ee1b61635beee4c1966495c7`;
 - `Certificates.ImportEnterpriseRoots=true` plus exactly the two `Certificates.Install` filenames;
 - both roots staged by `r3dfox/moz.build` and preserved by `browser/installer/package-manifest.in`;
-- fast preflight source `b7a2b7289a49e498911ac1231e517632469074b3`, run `33593375735`, job `100131774111`, **success**.
-
-The first heavy package attempt remains build-description failure evidence, not trust-failure evidence:
-
-- source `b2184aa0c7c95a47a35c7010248953902500daf3`;
-- run `33594665980`, job `100135594681`;
-- failed during configure before `mach build` because the two certificate entries in `FINAL_TARGET_FILES.distribution.Certificates` were not lexically sorted for Mozilla `StrictOrderingOnAppendList`;
-- therefore the `dist/bin` trust gate, package step and final portable trust gate were all skipped.
-
-The ordering defect is fixed by source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`. Its corrected heavy package is now authoritative:
-
-- workflow `CryptoPro Mozilla packaging smoke`;
-- Actions run `33595966569`, attempt `2`;
-- job `100141282134` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
-- run/job conclusion: **success**;
+- fast preflight source `b7a2b7289a49e498911ac1231e517632469074b3`, run `33593375735`, job `100131774111`, **success**;
+- corrected heavy package source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`, run `33595966569`, attempt 2, job `100141282134`, **success**;
 - packaged-browser artifact `9838528394`, digest `sha256:8341f2a4c11a3aeaf088f4fb46655bef405014ca4e9f47132640545d52784354`;
 - packaging-evidence artifact `9838528813`, digest `sha256:e89f134877ecbba92e04782dddc13edd5b3981db64b1687c186f47c4ff2d3d09`.
 
-The exact successful job passes the full release build, `GATE - Verify CryptoPro XPI and trust roots in real dist/bin`, production Russian localization merge, `ru + en-US` package, `GATE D - Verify CryptoPro XPI, trust roots, and substantive ru/en-US UI in final portable archive`, and both artifact uploads. The two pinned roots are therefore proven to survive the real `dist/bin/distribution/Certificates` tree and the extracted final portable `distribution/Certificates` tree under the workflow's exact presence/hash checks, while the existing CryptoPro and localization package gates remain green.
+The exact successful job passes the full release build, real `dist/bin` root presence/hash gate, Russian localization merge, `ru + en-US` package, final portable root/hash/UI Gate D, and both artifact uploads. The earlier unsorted-list failure source `b2184aa...` is superseded.
 
-Attempt `1` of the same run, job `100139347397`, was cancelled during checkout and is superseded by successful attempt `2`.
+Clean-profile exact-artifact runtime acceptance is now also **GREEN** on Windows 7 SP1 x64 (`6.1.7601`):
 
-The first runtime trust smoke is now exact-artifact-bound and positive on Windows 7 SP1 x64 for the Russian RSA/NSS path. The user launched the packaged browser on `Microsoft Windows [Version 6.1.7601]` with `R3DFOX_GOST_HOSTS=lk.zakupki.gov.ru` and navigated to `https://zakupki.gov.ru/epz/main/public/home.html`. `about:policies` shows the `Certificates` policy active with `ImportEnterpriseRoots=true` and both installed root filenames; the main EIS page renders successfully; and Firefox certificate details show `*.zakupki.gov.ru -> Russian Trusted Sub CA -> Russian Trusted Root CA`. Because the tested main host is `zakupki.gov.ru`, not the configured allowlist token `lk.zakupki.gov.ru`, this result is ordinary Firefox/NSS trust evidence rather than an MSSPI GOST handshake result. The package does not explicitly bundle the Sub CA, so the successful chain confirms that an explicit intermediate bundle is not required for this observed RSA path.
+- the user confirms the profile is newly created before every launch;
+- local `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7` exactly matches artifact `9838528394`;
+- local `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6` exactly matches artifact `9838528394`;
+- `about:policies` shows the `Certificates` policy active with `ImportEnterpriseRoots=true` and both pinned `Install` filenames;
+- `about:config` shows `security.enterprise_roots.enabled` as **locked**, boolean, **true**;
+- therefore enterprise policy precedence over the inherited `defaultPref(..., false)` is directly proven and no `config.cfg` change is required;
+- ordinary Firefox/NSS HTTPS to `zakupki.gov.ru` succeeds and the certificate viewer shows `*.zakupki.gov.ru -> Russian Trusted Sub CA -> Russian Trusted Root CA`;
+- the product does not explicitly bundle the Sub CA, proving that the observed RSA path does not require adding the intermediate to the package.
 
-Exact local runtime hashes supplied by the user match the package-side values computed directly from `r3dfox-v153.0.3.win64.zip` inside artifact `9838528394`:
+Current trust status: **POC COMPLETE / ACCEPTED.** Separate Windows-store-only isolation and a separate browser-side GOST-root website probe are not blockers for this track. The project accepts the active policy, locked effective enterprise-root preference, exact two-root package/policy contract and real RSA/NSS chain as the completed Firefox/NSS trust-integration acceptance.
 
-- `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7` — **MATCH**;
-- `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6` — **MATCH**.
+Next product action is transfer, not further trust research: move only the minimal audited trust diff into `agent/gost-tls-poc`, preserving the exact two-root contract, policy behavior, package gates and lexical staging order. Do not merge the experiment branch history wholesale.
 
-Therefore the exact binary-identity portion of this trust runtime preflight is closed for source `e7640a8195c6f10d8e909ad620ace74fa08c2c86` / run `33595966569` / job `100141282134` / artifact `9838528394`.
-
-Current trust status: **package/staging closure is GREEN; exact-artifact Win7 SP1 x64 Russian RSA/NSS runtime smoke is GREEN; full clean-profile runtime acceptance remains OPEN.** Remaining closure items are explicit confirmation that the used profile was newly clean, direct proof that `security.enterprise_roots.enabled` is effectively true/locked under policy, a Windows-store-only trust case that is not conflated with the bundled RSA anchor, and runtime coverage of the bundled GOST root / relevant GOST PKI path.
-
-`r3dfox/config.cfg` still has inherited `defaultPref(..., false)` values for enterprise-root preferences. The active `about:policies` evidence is encouraging, but the effective locked `security.enterprise_roots.enabled=true` value still needs direct runtime confirmation before changing AutoConfig. The separate `security.certerrors.mitm.auto_enable_enterprise_roots` mechanism is not itself the policy switch. Do not change `config.cfg` on the basis of the RSA smoke alone.
-
-This trust line does not close the independent MSSPI/SSPI GOST server-verification blocker and does not prove the broader Windows XP/Vista/7 compatibility track. It does establish that this exact x64 package launches and renders the tested ordinary HTTPS page on the reported Windows 7 SP1 system.
+This closure does **not** close the independent MSSPI/SSPI GOST server-verification blocker and does not prove the broader Windows XP/Vista/7 compatibility track. It proves only that this exact x64 package launches and exercises the accepted ordinary NSS trust path on the reported Windows 7 SP1 system.
 
 # Separation of conclusions
 
@@ -297,5 +284,5 @@ This trust line does not close the independent MSSPI/SSPI GOST server-verificati
 - Single-DLL bcrypt physical-XP success proves only the focused app-local bcrypt dependency/runtime contract, not Firefox startup.
 - GOST runtime != Windows compatibility.
 - Extension/localization packaging != extension runtime, UI runtime, GOST runtime, or old-Windows runtime.
-- Trust preflight/package survival != clean-profile NSS policy effectiveness != GOST MSSPI server trust.
+- Firefox/NSS trust-integration PoC completion != MSSPI GOST server-trust closure.
 - Documentation HEADs never replace the exact source-under-test SHA for a previously built or runtime-tested artifact.
