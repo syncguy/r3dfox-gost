@@ -1,6 +1,6 @@
 # Windows system roots + Russian Trusted Root CA integration
 
-Status: **ACTIVE / FAST PREFLIGHT GREEN; FULL PACKAGE RETRY IN PROGRESS**.
+Status: **ACTIVE / FULL PACKAGE GATE GREEN; CLEAN-PROFILE RUNTIME ACCEPTANCE PENDING**.
 
 Track: browser/government-system packaging and ordinary Firefox/NSS trust integration. This is independent from GOST TLS MSSPI server verification and from Windows Vista/7/XP binary compatibility.
 
@@ -14,11 +14,11 @@ Branch base / documented default-branch checkpoint:
 
 `ab9b9abb09f30e5dcb665b681cd1fbc092954c1b`
 
-Current full-package source-under-test:
+Authoritative full-package source-under-test:
 
 `e7640a8195c6f10d8e909ad620ace74fa08c2c86`
 
-The later branch commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` only restores the original heavy-workflow trigger policy and must not be cited as the source-under-test for the already-started package run.
+The later branch commits that restore the original heavy-workflow trigger policy or update documentation are not the source-under-test for the successful package run.
 
 The current implementation contains the intended trust changes relative to the branch base:
 
@@ -123,11 +123,11 @@ The predecessor failed run `33592606106` was a workflow-harness false negative c
 
 The fast gate intentionally does not prove runtime policy effectiveness and does not prove survival in the final portable archive.
 
-## Full package integration
+## Full package integration — GREEN
 
-`.github/workflows/cryptopro-mozilla-packaging-smoke.yml` is the selected heavy integration/package proof because it already exercises the full release Firefox build, CryptoPro XPI staging, pinned Russian localization, production `ru` merge, `mach package`, final portable extraction and evidence upload.
+`.github/workflows/cryptopro-mozilla-packaging-smoke.yml` is the selected heavy integration/package proof because it exercises the full release Firefox build, CryptoPro XPI staging, pinned Russian localization, production `ru` merge, `mach package`, final portable extraction and evidence upload.
 
-The trust extension keeps all existing CryptoPro/l10n gates and additionally requires:
+The trust extension requires:
 
 - both pinned roots at `obj-gost-win64/dist/bin/distribution/Certificates/` after the full build;
 - exact SHA-256 for both roots there;
@@ -150,16 +150,35 @@ The failure was a Mozilla build-description ordering error, not trust evidence. 
 
 Commit `e7640a8195c6f10d8e909ad620ace74fa08c2c86` fixes only that ordering defect by swapping the two certificate entries. Its diff was checked and contains no other source change.
 
-### Corrected heavy retry — IN PROGRESS
+### Corrected heavy retry — SUCCESS
+
+Authoritative exact result:
 
 - source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
-- run `33595966569`;
-- job `100139347397`;
-- state at handoff: **in progress**.
+- workflow `CryptoPro Mozilla packaging smoke`;
+- run `33595966569`, attempt 2;
+- job `100141282134` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
+- result: **SUCCESS**.
 
-Do not record any build/package/trust gate from this retry as passed until the exact job finishes.
+The exact successful job passed all relevant boundaries, including:
 
-The heavy workflow had temporarily acquired three unintended trigger additions (`agent/trust-integration-poc`, `r3dfox/policies.json`, `r3dfox/certificates/**`) solely as launch plumbing. Commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` removes exactly those three lines and restores the prior trigger policy while preserving the trust gates. The already-running retry remains bound to `e7640a819...`.
+- full release browser build;
+- `GATE - Verify CryptoPro XPI and trust roots in real dist/bin`;
+- production Russian localization merge;
+- `ru + en-US` multi-locale packaging;
+- `GATE D - Verify CryptoPro XPI, trust roots, and substantive ru/en-US UI in final portable archive`;
+- packaged-browser and packaging-evidence uploads.
+
+Exact artifacts:
+
+- packaged browser artifact `9838528394` (`r3dfox-cryptopro-mozilla-packaging-ru-en-US`), GitHub digest `sha256:8341f2a4c11a3aeaf088f4fb46655bef405014ca4e9f47132640545d52784354`;
+- packaging evidence artifact `9838528813` (`cryptopro-mozilla-packaging-evidence`), GitHub digest `sha256:e89f134877ecbba92e04782dddc13edd5b3981db64b1687c186f47c4ff2d3d09`.
+
+Conclusion: **PASS / FULL PACKAGE TRUST-STAGING GATE CLOSED.** The two pinned public root files survive byte-for-byte through the real Firefox `dist/bin` and final portable package while the existing CryptoPro and localization gates remain green. The prior `StrictOrderingOnAppendList` failure is superseded as an active blocker.
+
+This result is packaging/staging evidence only. It does not yet prove that a clean-profile Firefox process applies the `Certificates` policy, effectively enables enterprise-root import, trusts the Windows store as intended, or successfully validates the target RSA/GOST PKI paths. It also does not close MSSPI/SSPI GOST server verification or old-Windows compatibility.
+
+The heavy workflow had temporarily acquired three unintended trigger additions (`agent/trust-integration-poc`, `r3dfox/policies.json`, `r3dfox/certificates/**`) solely as launch plumbing. Commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` removes exactly those three lines and restores the prior trigger policy while preserving the trust gates. The successful run remains bound to `e7640a819...`.
 
 ## Historical bootstrap failures — not trust evidence
 
@@ -172,12 +191,10 @@ The helper workflow is removed. Future source changes in this track are direct r
 
 ## Remaining PoC work
 
-1. Obtain the final conclusion of heavy retry `33595966569` / job `100139347397` / source `e7640a8195c6f10d8e909ad620ace74fa08c2c86` and require both exact trust gates plus the existing CryptoPro/l10n gates to pass.
-2. Record the exact packaged browser and evidence artifact identities from that run if successful.
-3. On a completely new profile verify `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import without manual NSS import, and the intended relationship with the inherited AutoConfig defaults.
-4. Verify the target Russian RSA PKI path and relevant GOST PKI path with the two-root contract and without bundling a Sub CA.
-5. Bind runtime results to the exact source SHA, Actions run/job, browser artifact and relevant binary hashes.
-6. After the PoC is proven, transfer only the minimal audited trust diff back to `agent/gost-tls-poc`; do not merge the experimental branch history wholesale.
+1. On a completely new profile launch the exact packaged browser artifact `9838528394` and verify `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import without manual NSS import, and the intended relationship with the inherited AutoConfig defaults.
+2. Verify the target Russian RSA PKI path and relevant GOST PKI path with the two-root contract and without bundling a Sub CA.
+3. Bind runtime results to exact source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`, run `33595966569`, job `100141282134`, artifact `9838528394`, relevant browser binary hashes, clean profile and sanitized observations.
+4. After the PoC is proven at runtime, transfer only the minimal audited trust diff back to `agent/gost-tls-poc`; do not merge the experimental branch history wholesale.
 
 ## Runtime acceptance gate
 
