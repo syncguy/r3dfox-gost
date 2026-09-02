@@ -137,58 +137,44 @@ Provider construction, baseline helper, delta helper and representative Rust arc
 
 The earlier `_ProcessPrng@8` diagnostic RED, run `33599812797` / job `100150793264` / source `80e42dd85a2c1902de5fdce402d4983becc2f77c`, is likewise closed as a test-provider internal dependency omission; run `33600786738` restores that closure and passes.
 
-### Full Firefox XP x32 build and portable packaging — BUILD/PACKAGE GREEN
+### Current XP blocker and next target — `CreateWaitableTimerExA`
 
-The integrated full-Firefox milestone is tied to:
+The current physical-XP production/runtime blocker is exactly:
 
-- source-under-test SHA `6998ba51b1052b08d8b0b2a221d63b896eccd219`;
-- workflow `XP x32` (`.github/workflows/xp-x32.yml`);
-- run `33610933602`;
-- job `100185641911`;
-- package artifact `5701777195` (`r3dfox-gost-xp-x32-package`), digest `sha256:999a6276856771eb4629020d366fbcf4e696b2928de8bfb6e2b024b12b0406d8`;
-- diagnostics artifact `5701777490` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:741a517b7065a60b581567cb45bc83b4d1ca79b1277a3871e757554991236977`.
+`mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
 
-The exact run proves:
+The next experiment must answer the call-site semantics before implementing a fallback. Identify the exact Firefox/r3dfox caller and determine at least:
 
-- `Build release r3dfox XP x32` — PASS;
-- build-time compile/import gates — PASS;
-- XP runtime staging — PASS;
-- XP PE subsystem retargeting — PASS;
-- packaged D3DCompiler gate — PASS;
-- `Package XP x32 experiment` — PASS;
-- package and diagnostics artifacts — uploaded successfully.
+- requested access (`dwDesiredAccess`);
+- manual vs auto reset behavior;
+- `CREATE_WAITABLE_TIMER_*` flags;
+- object name / namespace requirements;
+- security-attribute requirements;
+- high-resolution semantics;
+- any behavior that cannot be preserved by XP's `CreateWaitableTimerA` or another primitive.
 
-The aggregate job remains RED only because the later `GATE - Verify msvcr14x CRT survived portable packaging` failed. That gate found no `msvcr14*.dll` next to packaged `r3dfox.exe`.
-
-This result must therefore be classified as **successful full Firefox XP x32 build and portable package with a failed post-package CRT validation**, not as a failed Firefox build.
-
-### Current XP blocker and acceptance path — packaged CRT, then physical XP runtime
-
-The immediate CI/package blocker is now to preserve the required msvcr14x CRT in the runnable portable package so that `msvcr14*.dll` is present next to packaged `r3dfox.exe` and the post-package CRT gate passes.
-
-After that gate is GREEN, run the exact package on physical Windows XP SP3 x86 and continue loader/runtime validation. The previously observed `mozglue.dll -> KERNEL32!CreateWaitableTimerExA` dependency remains a runtime semantic risk until this new package is actually executed on XP; the successful hosted build/package does not by itself prove that dependency is solved at physical-XP runtime.
+Only after that analysis may a narrow XP-compatible remediation be selected. Do not add a generic wrapper based solely on signature similarity.
 
 Acceptance path:
 
-1. fix/stage/preserve the required msvcr14x CRT into the portable package;
-2. rerun `xp-x32` and require build + package + CRT post-package gate all GREEN;
-3. bind the produced package and diagnostics to exact source SHA + run + job + artifact digests;
-4. execute that exact package on physical Windows XP SP3 x86;
-5. record the first concrete loader/runtime result, including whether `CreateWaitableTimerExA` is still observable;
-6. only then choose any additional narrow runtime remediation based on evidence.
+1. caller-semantics analysis;
+2. minimal implementation/fallback only if semantically valid;
+3. focused x86 compile + native link;
+4. XP 5.01 PE/import gate with no direct `CreateWaitableTimerExA` dependency;
+5. functional hosted timer test;
+6. physical Windows XP SP3 x86 focused runtime;
+7. only then a full Firefox 153 x86 rebuild and physical XP startup test.
 
-Do not return to re-proving the already closed SRW/Rust/CRT/YY baseline or the 24 capability-present KERNEL32 cluster merely because the aggregate run `33610933602` is red. Its red status is post-package CRT validation, not a regression of the compiled Firefox integration.
-
-No GOST TLS conclusion follows from this XP compatibility build/package milestone.
+No full Firefox rebuild is justified merely to re-prove the already closed baseline/24-API cluster.
 
 ## Windows 7 x86 compatibility — separate evidence
 
-Two independently observed Win7 issues remain separate from the XP package/runtime target:
+Two independently observed Win7 issues remain separate from the XP `CreateWaitableTimerExA` target:
 
 - content-sandbox RNG/`RandomUint64OrDie` line, including the candidate pre-lockdown RNG warm-up; exact runtime proof with sandbox enabled remains required before calling that fix closed;
 - later parent/browser WinRT delay-load line where `xul.dll` attempts missing `api-ms-win-core-winrt-l1-1-0.dll` / `RoGetActivationFactory`; narrow YY WinRT exposure remains the intended compatibility direction.
 
-Neither line is evidence about the current XP package/runtime edge and neither should displace the packaged-CRT gate as the immediate XP target.
+Neither line is evidence about the current physical-XP loader edge and neither should displace `CreateWaitableTimerExA` as the next XP target.
 
 ## Bundled government-system extensions — independent track
 

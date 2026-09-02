@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-02
+Last updated: 2026-08-28
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -228,42 +228,6 @@ The Actions workflow passed representative C++ `/MD` + modern `i686-pc-windows-m
 The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; all three runs returned `ExitCode=0` without loader/runtime errors or antivirus intervention.
 
 This closes representative XP x86 runtime viability for the tested workload. It does not prove Firefox 153/xul startup on XP or GOST TLS behavior on XP; full 32-bit Firefox/xul integration remains the next separate compatibility milestone.
-
-### Canonical XP x86 SRW/Rust/CRT/YY baseline — COMPLETE
-
-The exact compatibility baseline is source `d65b464c74caadace97995f07a4919363c41a0ea`, workflow `msvcr14x Rust YY XP x86 SRW smoke`, run `33470957048`, job `99740439208`, runtime artifact `9786702687` and diagnostics artifact `9786703244`.
-
-This closes the representative SRW/Rust/CRT/YY coexistence baseline used by later XP delta experiments. Later API work must extend this exact proven closure rather than reconstruct it from memory.
-
-### XP x86 24-API KERNEL32 representative/hosted cluster — COMPLETE
-
-Exact source/run:
-
-- source `0184985c2f0c5ab1c4c732a200cfbda07a6aefb4`;
-- workflow `XP x86 core KERNEL32 cluster smoke`;
-- run `33600786738`, job `100153789478`;
-- runtime artifact `9835297933`, digest `sha256:5c6e9d81e8277dc8225c5e7e7f8fc7dbde66b56184df19e0774a264e1890020d`;
-- diagnostics artifact `9835298737`, digest `sha256:92cc62ac5d452257a26fef13fa5b705277ece44c9df01cebd9ba4013403f179b`.
-
-Native x86 link, XP PE/import gates, hosted functional execution and artifact publication pass for all 24 YY capability-present KERNEL32 APIs. The prior `_ProcessPrng@8` RED is closed as a narrow-provider internal dependency omission. `CreateWaitableTimerExA` remains intentionally outside this closure because YY-Thunks 1.2.2 exposes no matching XP x86 capability.
-
-This milestone is representative/hosted closure only; physical-XP execution and full Firefox runtime remain separate evidence.
-
-### First full Firefox XP x32 build and portable package — COMPLETE
-
-Exact source/run:
-
-- source-under-test `6998ba51b1052b08d8b0b2a221d63b896eccd219`;
-- workflow `XP x32`;
-- run `33610933602`, job `100185641911`;
-- package artifact `5701777195` (`r3dfox-gost-xp-x32-package`), digest `sha256:999a6276856771eb4629020d366fbcf4e696b2928de8bfb6e2b024b12b0406d8`;
-- diagnostics artifact `5701777490` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:741a517b7065a60b581567cb45bc83b4d1ca79b1277a3871e757554991236977`.
-
-`Build release r3dfox XP x32`, the build-time compile/import gates, XP runtime staging, PE subsystem retargeting, packaged D3DCompiler gate, `Package XP x32 experiment`, and both artifact uploads all pass.
-
-The overall job is red only because the later `GATE - Verify msvcr14x CRT survived portable packaging` does not find any `msvcr14*.dll` next to packaged `r3dfox.exe` and exits with code 1. That open packaging/runtime-dependency gate does not revoke the completed build/package milestone.
-
-This closes **full Firefox XP x32 build and portable package generation**, not physical-XP startup/runtime. Real XP execution is still pending after CRT preservation is fixed, and `CreateWaitableTimerExA` remains a runtime risk until checked on the new exact package. No GOST TLS conclusion follows from this compatibility milestone.
 
 ## Bundled government-system extensions
 
