@@ -7,8 +7,8 @@ FINAL_TARGET_FILES.distribution += [
 ]
 
 FINAL_TARGET_FILES.distribution.Certificates += [
-  "certificates/russian_trusted_root_ca_rsa.cer",
   "certificates/russian_trusted_root_ca_gost.cer",
+  "certificates/russian_trusted_root_ca_rsa.cer",
 ]
 
 FINAL_TARGET_FILES.distribution.extensions += [
