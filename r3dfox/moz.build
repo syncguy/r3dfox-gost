@@ -6,6 +6,11 @@ FINAL_TARGET_FILES.distribution += [
   "policies.json",
 ]
 
+FINAL_TARGET_FILES.distribution.Certificates += [
+  "certificates/russian_trusted_root_ca_rsa.cer",
+  "certificates/russian_trusted_root_ca_gost.cer",
+]
+
 FINAL_TARGET_FILES.distribution.extensions += [
   "extensions/gosuslugi@plugin.xpi",
   "extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi",
