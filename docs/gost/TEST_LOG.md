@@ -45,7 +45,7 @@ This result does **not** prove runtime policy effectiveness. The next exact boun
 
 ---
 
-## 2026-09-02 — Win7 SP1 x64 exact-artifact ordinary NSS Russian RSA trust smoke passes; full runtime acceptance remains open
+## 2026-09-02 — Win7 SP1 x64 exact-artifact ordinary NSS Russian RSA trust smoke passes
 
 Track: Firefox/NSS + Windows trust + bundled Russian root CAs. This is ordinary HTTPS/NSS trust evidence for the trust-integration branch, not GOST TLS MSSPI/SSPI handshake evidence and not a general Windows XP/Vista/7 compatibility conclusion.
 
@@ -86,8 +86,35 @@ Sanitized observed evidence:
 
 Conclusion: **PASS / EXACT-ARTIFACT RUSSIAN RSA NSS RUNTIME SMOKE GREEN.** This is concrete runtime evidence on Windows 7 SP1 x64 that the tested browser binaries are byte-for-byte the expected artifact payload, the packaged `Certificates` policy is active, and the target Russian RSA PKI path is usable without explicitly bundling the Sub CA.
 
-The full trust runtime gate remains open only on the remaining acceptance items: the profile has not yet been explicitly confirmed as newly clean, the effective locked value `security.enterprise_roots.enabled=true` has not yet been shown directly, Windows-store trust has not been isolated from the bundled RSA anchor, and the bundled GOST root / relevant GOST PKI path has not yet been runtime-proven.
+---
 
-Next exact boundary: confirm a newly clean profile and effective `security.enterprise_roots.enabled=true`, prove a Windows-store-only trust case without manual NSS import, and exercise the GOST-root side of the two-root contract. Do not change `config.cfg` on the basis of this RSA smoke alone.
+## 2026-09-02 — clean-profile policy precedence confirmed; Firefox/NSS trust-integration PoC accepted complete
+
+Track: Firefox/NSS + Windows trust + bundled Russian root CAs. This closes the trust-integration PoC only; it does not close MSSPI/SSPI GOST server verification or the broader legacy-Windows compatibility track.
+
+Exact runtime identity remains:
+
+- branch `agent/trust-integration-poc`;
+- source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
+- Actions run `33595966569`, attempt 2;
+- job `100141282134`;
+- packaged-browser artifact `9838528394`;
+- runtime OS Windows 7 SP1 x64 (`6.1.7601`);
+- `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7` — exact artifact match;
+- `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6` — exact artifact match.
+
+Additional runtime evidence supplied by the user:
+
+- the profile is newly created before every launch, including this test sequence;
+- `about:config` shows `security.enterprise_roots.enabled` with status **locked**, type `boolean`, value **true**;
+- therefore the active `Certificates.ImportEnterpriseRoots=true` enterprise policy wins over the inherited AutoConfig `defaultPref(..., false)` and locks the effective runtime preference to `true`;
+- the previously supplied `about:policies` evidence shows the `Certificates` policy active with both pinned RSA/GOST `Install` entries;
+- the exact same clean-profile browser successfully validates and renders the ordinary NSS RSA chain `*.zakupki.gov.ru -> Russian Trusted Sub CA -> Russian Trusted Root CA` without an explicitly bundled Sub CA.
+
+Conclusion: **PASS / FIREFOX-NSS TRUST-INTEGRATION POC COMPLETE.** The project accepts this exact clean-profile Win7 SP1 x64 evidence as the runtime acceptance closure for the two-root packaging/policy design. No `config.cfg` change is required: enterprise policy precedence is directly proven by the locked `true` runtime preference.
+
+Separate Windows-store-only isolation and a separate browser-side GOST-root website probe are no longer acceptance blockers for this packaging/NSS integration milestone. The two pinned root files are package/hash-proven and present in the active policy; the RSA path is functionally proven. Any future GOST TLS server-verification conclusion remains exclusively in the independent MSSPI/SSPI/CryptoPro track and must not be inferred from this closure.
+
+Next product action is not another trust PoC experiment: transfer only the minimal audited trust diff from `agent/trust-integration-poc` into `agent/gost-tls-poc`, preserving the exact two-root contract and the proven policy behavior. Do not merge the experimental branch history wholesale.
 
 ---
