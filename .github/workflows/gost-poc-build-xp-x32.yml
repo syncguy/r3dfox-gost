@@ -360,6 +360,14 @@ jobs:
           $members | Set-Content -Encoding utf8 (Join-Path $work 'yy-kernel32-members.txt')
 
           $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $clusterApis = @(
+            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal',
+            'GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
+            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
+            'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
+            'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
+            'InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+          )
           $wanted = @(
             @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
             @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
@@ -397,6 +405,11 @@ jobs:
             @{ Key='cv-wake-one-import'; Pattern='(?i)[\\/]_WakeConditionVariable@4\.obi$' },
             @{ Key='implementation'; Pattern=$implementationPattern }
           )
+          foreach ($api in $clusterApis) {
+            $escaped = [regex]::Escape($api)
+            $wanted += @{ Key="cluster-$api-direct"; Pattern="(?i)[\\/]_${escaped}@\d+\.obj$" }
+            $wanted += @{ Key="cluster-$api-import"; Pattern="(?i)[\\/]_${escaped}@\d+\.obi$" }
+          }
 
           $objects = @()
           $memberMap = [System.Collections.Generic.List[string]]::new()
@@ -438,6 +451,10 @@ jobs:
             'YY_Thunks_SleepConditionVariableCS','YY_Thunks_SleepConditionVariableSRW',
             'YY_Thunks_WakeAllConditionVariable','YY_Thunks_WakeConditionVariable'
           )) {
+            if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
+          }
+          foreach ($api in $clusterApis) {
+            $required = "YY_Thunks_$api"
             if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
           }
           foreach ($broad in @('LockResource','__imp_LockResource')) {
@@ -608,7 +625,7 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: GATE - Reject core browser synchronization direct imports
+      - name: GATE - Reject proven core browser XP direct imports
         id: sync-import-gate
         if: steps.build-release.outcome == 'success'
         shell: powershell
@@ -618,6 +635,12 @@ jobs:
           $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-sync-import-gate'
           New-Item -ItemType Directory -Force $diag | Out-Null
           $apis = @(
+            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal',
+            'GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
+            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
+            'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
+            'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
+            'InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
             'AcquireSRWLockExclusive','AcquireSRWLockShared',
             'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
             'InitializeSRWLock','InitializeConditionVariable',
@@ -640,7 +663,7 @@ jobs:
           }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-sync-imports.txt')
           if ($hits.Count -gt 0) {
-            throw 'Core browser synchronization imports survived the proven ten-API YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
+            throw 'Core browser imports survived the proven SRW plus 24-API KERNEL32 YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
           }
 
       - name: Stage msvcr14x XP runtime DLLs
@@ -914,6 +937,10 @@ jobs:
             'SetThreadStackGuarantee','SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork',
             'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable',
             'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
+            'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation',
+            'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+            'GetUserPreferredUILanguages','InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW',
+            'QueryProcessCycleTime','QueryThreadCycleTime',
           )
 
           $hits = [System.Collections.Generic.List[string]]::new()
@@ -983,7 +1010,7 @@ jobs:
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the physically narrow ten-API SRW/condition-variable provider proven by run 33470957048." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the physically narrow SRW/condition-variable closure extended with the 24 capability-present KERNEL32 APIs proven by run 33600786738 / job 100153789478 / SHA 0184985c2f0c5ab1c4c732a200cfbda07a6aefb4. CreateWaitableTimerExA remains outside that provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Core browser synchronization imports are fail-fast gated immediately after the Firefox build, before CRT/D3D/package gates." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Portable package and runtime archive include the verified XP-compatible ucrtbase.dll and msvcp140.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This proves full-build/link/import viability only. Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
