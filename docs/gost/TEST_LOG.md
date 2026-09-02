@@ -51,6 +51,8 @@ This is a packaging/runtime-dependency preservation problem, not a Firefox compi
 
 This run proves **full Firefox XP x32 build and portable packaging**, not physical-XP runtime compatibility. It does not prove that the produced browser starts or operates on Windows XP SP3 x86. `CreateWaitableTimerExA` remains a physical-XP runtime semantic risk to validate after the package dependency set is correct. No GOST TLS runtime or handshake conclusion follows from this compatibility build.
 
+This newer full-build/package evidence supersedes the earlier auxiliary RED entry's then-proposed ordering that placed `CreateWaitableTimerExA` caller analysis before any full Firefox rebuild. The full rebuild has now happened successfully; the immediate next delta is the packaged CRT gate, then physical-XP execution of this new package.
+
 **Conclusion:** classify run `33610933602` / job `100185641911` / source `6998ba51...` as **BUILD/PACKAGE SUCCESS with POST-PACKAGE CRT VALIDATION FAILURE**, not as a failed Firefox build. The next gate is packaged CRT preservation; after it is GREEN, execute the exact package on physical Windows XP SP3 x86 and continue runtime/loader validation.
 
 Status: current immutable experiment evidence; full XP x32 Firefox build/package milestone GREEN, aggregate job RED only at later CRT packaging gate, physical XP runtime pending.
@@ -135,7 +137,7 @@ Status: current immutable experiment evidence; representative/hosted KERNEL32 cl
 **Actions run:** `33604407934`  
 **Job:** `100165018692` (`Proven SRW/Rust/CRT closure + KERNEL32 delta / XP x86`)  
 **Result:** failure  
-**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c7f454fee3f8b3aab1df1`
+**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c5fc21dcc2a093b1467b86c7f454fee3f8b3aab1df1`
 
 Observed execution boundary:
 
@@ -157,4 +159,4 @@ The active physical-XP production/runtime edge remains the already observed Fire
 
 YY-Thunks 1.2.2 has no direct XP x86 capability for `CreateWaitableTimerExA`. The next experiment is therefore **not** another reconstruction of the 24-API cluster: first identify the exact Firefox/r3dfox caller and required `CreateWaitableTimerExA` semantics, then design the narrowest XP-compatible remediation and validate it in a focused probe before any full Firefox rebuild.
 
-Status: current auxiliary RED retained for provenance; does not invalidate the stronger GREEN; not the active blocker.
+Status: historical auxiliary RED retained for provenance; does not invalidate the stronger GREEN. Its then-proposed next action is superseded by the later full-build/package result above.
