@@ -44,3 +44,49 @@ Conclusion: **PASS / FULL PACKAGE TRUST-STAGING GATE CLOSED.** The two pinned pu
 This result does **not** prove runtime policy effectiveness. The next exact boundary is a clean-profile launch of artifact `9838528394` proving `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import without manual NSS import, availability of the two bundled anchors, and the intended RSA/GOST PKI behavior without explicitly bundling a Sub CA. This package result also does not close MSSPI/SSPI GOST server verification or old-Windows runtime compatibility.
 
 ---
+
+## 2026-09-02 — Win7 x64 ordinary NSS Russian RSA trust smoke passes; full runtime acceptance remains open
+
+Track: Firefox/NSS + Windows trust + bundled Russian root CAs. This is ordinary HTTPS/NSS trust evidence for the trust-integration branch, not GOST TLS MSSPI/SSPI handshake evidence and not a Windows XP/Vista/7 binary-compatibility conclusion.
+
+Target build identity under test:
+
+- branch `agent/trust-integration-poc`;
+- source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- Actions run `33595966569`, attempt 2;
+- job `100141282134`;
+- packaged-browser artifact `9838528394`.
+
+Reference binary identity derived directly from the packaged-browser artifact's `r3dfox-v153.0.3.win64.zip` payload:
+
+- `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7`;
+- `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6`.
+
+These are the expected package-side hashes for exact-runtime preflight. The user-supplied runtime evidence did not yet include local `certutil -hashfile` output, so local equality to these hashes remains to be recorded before the full exact-artifact acceptance gate can close.
+
+Runtime environment and launch reported by the user:
+
+- physical/runtime OS: Windows 7 x64;
+- `R3DFOX_GOST_HOSTS=lk.zakupki.gov.ru`;
+- client-certificate thumbprint override cleared;
+- client-auth mode override cleared;
+- cipher override cleared;
+- profile path `C:\Temp\r3dfox\profile`;
+- launch URL `https://zakupki.gov.ru/epz/main/public/home.html`.
+
+Sanitized observed evidence:
+
+- `about:policies` shows the `Certificates` policy in the **Active** section with `ImportEnterpriseRoots=true` and both `Install` entries, `russian_trusted_root_ca_rsa.cer` and `russian_trusted_root_ca_gost.cer`;
+- the main EIS procurement page at `zakupki.gov.ru` loads successfully over HTTPS;
+- the Firefox certificate viewer shows the server leaf `*.zakupki.gov.ru`, issued by `Russian Trusted Sub CA`, chaining to `Russian Trusted Root CA`;
+- the tested main host is `zakupki.gov.ru`, while the GOST allowlist token supplied for this launch is `lk.zakupki.gov.ru`, so this main-page result belongs to the ordinary Firefox/NSS trust path rather than the allowlisted MSSPI GOST transport;
+- no explicitly bundled Sub CA/intermediate is part of the two-root package contract, yet the observed RSA server chain builds through `Russian Trusted Sub CA` to the bundled Russian RSA root and the page renders without a certificate error.
+
+Conclusion: **PASS / RUSSIAN RSA NSS RUNTIME SMOKE GREEN, PARTIAL RUNTIME ACCEPTANCE ONLY.** This is concrete runtime evidence that the packaged policy object is active and that the target Russian RSA PKI path is usable in the tested Win7 x64 browser/profile environment without adding the Sub CA to the product package.
+
+The full trust runtime gate remains open because the supplied evidence does not yet establish all mandatory preflight/acceptance items: the profile was not independently demonstrated to be newly clean, local `r3dfox.exe`/`xul.dll` hashes were not recorded, the effective locked value of `security.enterprise_roots.enabled` was not shown directly, Windows-store trust was not isolated from the bundled RSA anchor, and the bundled GOST root / relevant GOST PKI path was not runtime-proven.
+
+Next exact boundary: record the two local binary hashes against the package-side values above, confirm a new clean profile and effective `security.enterprise_roots.enabled=true`, prove a Windows-store-only trust case without manual NSS import, and exercise the GOST-root side of the two-root contract. Do not change `config.cfg` on the basis of this RSA smoke alone.
+
+---
