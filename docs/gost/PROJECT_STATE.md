@@ -137,35 +137,40 @@ Provider construction, baseline helper, delta helper and representative Rust arc
 
 The earlier `_ProcessPrng@8` diagnostic RED, run `33599812797` / job `100150793264` / source `80e42dd85a2c1902de5fdce402d4983becc2f77c`, is likewise closed as a test-provider internal dependency omission; run `33600786738` restores that closure and passes.
 
-### Current XP blocker and next target — `CreateWaitableTimerExA`
+### Current XP blocker — `CreateWaitableTimerExA`; remediation implemented, validation pending
 
-The current physical-XP production/runtime blocker is exactly:
+The current physical-XP production/runtime blocker remains the exact historical dependency:
 
 `mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
 
-The next experiment must answer the call-site semantics before implementing a fallback. Identify the exact Firefox/r3dfox caller and determine at least:
+The call-site investigation is now complete. The direct import comes from `mozilla::baseprofiler::SamplerThread` in `mozglue/baseprofiler/core/platform-win32.cpp` and is used only to create an unnamed high-resolution profiler sampling timer with null security attributes, `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, and `TIMER_ALL_ACCESS`.
 
-- requested access (`dwDesiredAccess`);
-- manual vs auto reset behavior;
-- `CREATE_WAITABLE_TIMER_*` flags;
-- object name / namespace requirements;
-- security-attribute requirements;
-- high-resolution semantics;
-- any behavior that cannot be preserved by XP's `CreateWaitableTimerA` or another primitive.
+Firefox already contains the required fallback when `mHiResTimer == nullptr`: optional `timeBeginPeriod(...)`, then the existing `Sleep(...)` / sub-millisecond spin path, with `timeEndPeriod(...)` balancing the resolution change on stop. Therefore the XP build does not need a semantic emulation of `CreateWaitableTimerExA`.
 
-Only after that analysis may a narrow XP-compatible remediation be selected. Do not add a generic wrapper based solely on signature similarity.
+Selected implementation checkpoint: `70422044f90058c90d276f231457f9a08c1343ff`.
 
-Acceptance path:
+The implementation deliberately follows the same legacy-source policy used for WinRT exclusions:
 
-1. caller-semantics analysis;
-2. minimal implementation/fallback only if semantically valid;
-3. focused x86 compile + native link;
-4. XP 5.01 PE/import gate with no direct `CreateWaitableTimerExA` dependency;
-5. functional hosted timer test;
-6. physical Windows XP SP3 x86 focused runtime;
-7. only then a full Firefox 153 x86 rebuild and physical XP startup test.
+- `MOZ_NO_WINRT` is reused as the branch's legacy-Windows build switch for Windows baseprofiler;
+- under that switch `SamplerThread` initializes `mHiResTimer` directly to `nullptr`;
+- the `CreateWaitableTimerExA` expression is compiled only in the non-legacy branch;
+- the ordinary/non-XP high-resolution behavior is unchanged;
+- no `GetProcAddress`, no new YY thunk and no `CreateWaitableTimerA` substitution are introduced.
 
-No full Firefox rebuild is justified merely to re-prove the already closed baseline/24-API cluster.
+A `CreateWaitableTimerA` replacement or routing through YY's `CreateWaitableTimerExW` fallback is intentionally rejected: an ordinary non-null timer would suppress Firefox's existing `mHiResTimer == nullptr` fallback without actually preserving high-resolution semantics.
+
+This is an **implemented candidate, not yet a closed blocker**. The immediate validation is a new exact-SHA full XP x32 build followed by PE-import inspection and then physical Windows XP startup.
+
+Acceptance path now is:
+
+1. build/link Firefox 153 x86 from the exact current branch SHA;
+2. prove `mozglue.dll` has no direct `CreateWaitableTimerExA` import and remains XP 5.01/x86 under established gates;
+3. obtain the runnable package from that exact run;
+4. launch that exact package on physical Windows XP SP3 x86;
+5. if startup advances, record the next concrete loader/runtime edge rather than reopening the already closed baseline/24-API cluster;
+6. close `CreateWaitableTimerExA` in `DONE.md` only after exact build/import and physical-XP evidence are bound to run/job/SHA.
+
+No GOST TLS runtime conclusion follows from this compatibility work.
 
 ## Windows 7 x86 compatibility — separate evidence
 
