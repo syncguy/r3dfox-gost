@@ -1,5 +1,6 @@
 name: Apply trust integration once
 
+# One-shot branch bootstrap; remove after the integration commit lands.
 on:
   push:
     branches:
