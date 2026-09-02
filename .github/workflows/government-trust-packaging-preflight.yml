@@ -7,7 +7,6 @@ on:
       - agent/trust-integration-poc
     paths:
       - "r3dfox/policies.json"
-      - "r3dfox/config.cfg"
       - "r3dfox/certificates/**"
       - "r3dfox/moz.build"
       - "browser/installer/package-manifest.in"
@@ -35,7 +34,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: GATE - Policy and AutoConfig enable enterprise roots
+      - name: GATE - Policy enables enterprise roots and installs two roots
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -47,13 +46,6 @@ jobs:
           if ($install.Count -ne $expected.Count) { throw "Certificates.Install must contain exactly the two pinned roots; got $($install.Count)." }
           foreach ($name in $expected) {
             if ($install -notcontains $name) { throw "Certificates.Install is missing $name." }
-          }
-          $cfg = [System.IO.File]::ReadAllText('r3dfox\config.cfg')
-          foreach ($pref in @(
-            'defaultPref("security.certerrors.mitm.auto_enable_enterprise_roots", true);',
-            'defaultPref("security.enterprise_roots.enabled", true);'
-          )) {
-            if (-not $cfg.Contains($pref)) { throw "config.cfg is missing required trust preference: $pref" }
           }
 
       - name: GATE - Pinned RSA and GOST root identities
@@ -102,9 +94,10 @@ jobs:
           ## Government trust packaging preflight
 
           Required contract:
-          - Windows enterprise roots enabled by policy and AutoConfig defaults
+          - Windows enterprise roots explicitly enabled by Firefox policy
           - exactly two pinned DER fallback roots: RSA + GOST
           - no bundled intermediate/Sub CA
           - exact SHA-256 pinned for both roots
           - moz.build and package-manifest staging required for both roots
+          - effective preference state is a runtime acceptance check, not duplicated here through AutoConfig
           '@ | Add-Content $env:GITHUB_STEP_SUMMARY
