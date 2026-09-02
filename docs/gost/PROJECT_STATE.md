@@ -19,8 +19,9 @@ Keep these conclusions independent unless a deliberately combined experiment tes
 1. GOST TLS runtime / MSSPI / SSPI / CryptoPro / handshake.
 2. Windows Vista/7/XP binary compatibility / toolchain / PE imports / runtime closure.
 3. Bundled government-system extensions and localization/package behavior.
+4. Firefox/NSS + Windows trust + bundled Russian root CAs / final portable package.
 
-Build success does not prove GOST TLS. A focused dependency runtime pass does not prove full Firefox startup. Packaging success does not prove runtime discovery or network behavior.
+Build success does not prove GOST TLS. A focused dependency runtime pass does not prove full Firefox startup. Packaging success does not prove runtime discovery or network behavior. Trust preflight/package success does not prove MSSPI server verification or old-Windows compatibility.
 
 # GOST TLS runtime
 
@@ -240,6 +241,32 @@ Runtime/UI evidence is kept bound to its own exact artifact. The user manually e
 
 Current localization status: **no active packaging blocker**. The mass-empty Russian payload defect is superseded, and the final Gate D path-shape false negative is closed. A future exact-artifact runtime regression is useful when localization/package behavior changes, but another full build is not required merely to reconfirm this corrected gate on unchanged source.
 
+# Firefox/NSS + Windows trust integration
+
+This is an independent trust/package line on `agent/trust-integration-poc`; detailed design and exact acceptance criteria are authoritative in `TRUST_INTEGRATION.md`.
+
+Current static contract is green:
+
+- exactly two bundled public roots, RSA SHA-256 `d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31` and GOST SHA-256 `4bb37cc7c0ff4bf2aa893e95076ebb3565c69237ee1b61635beee4c1966495c7`;
+- `Certificates.ImportEnterpriseRoots=true` plus exactly the two `Certificates.Install` filenames;
+- both roots staged by `r3dfox/moz.build` and preserved by `browser/installer/package-manifest.in`;
+- fast preflight source `b7a2b7289a49e498911ac1231e517632469074b3`, run `33593375735`, job `100131774111`, **success**.
+
+The first heavy package attempt is not trust-failure evidence:
+
+- source `b2184aa0c7c95a47a35c7010248953902500daf3`;
+- run `33594665980`, job `100135594681`;
+- failed during configure before `mach build` because the two certificate entries in `FINAL_TARGET_FILES.distribution.Certificates` were not lexically sorted for Mozilla `StrictOrderingOnAppendList`;
+- therefore the `dist/bin` trust gate, package step and final portable trust gate were all skipped.
+
+The ordering defect is fixed by source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`, whose diff only swaps the GOST/RSA staging lines. Corrected heavy retry `33595966569`, job `100139347397`, is the current package source-under-test and was **in progress** at handoff. Later branch commits that restore trigger policy or update documentation are not that run's source identity.
+
+Current blocker / next boundary: require the corrected retry to pass the existing CryptoPro/l10n gates plus exact RSA/GOST presence and SHA-256 in both real `dist/bin/distribution/Certificates` and the extracted final portable `distribution/Certificates`. Only then proceed to a clean-profile runtime test of `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import, and the two bundled anchors.
+
+`r3dfox/config.cfg` still has inherited `defaultPref(..., false)` values for enterprise-root preferences. Firefox enterprise policy is expected to set-and-lock `security.enterprise_roots.enabled=true`; this precedence must be verified on the exact built artifact before changing AutoConfig. The separate `security.certerrors.mitm.auto_enable_enterprise_roots` mechanism is not itself the policy switch.
+
+This trust line does not close the independent MSSPI/SSPI GOST server-verification blocker and does not prove Windows XP/Vista/7 runtime compatibility.
+
 # Separation of conclusions
 
 - Build success != GOST handshake success.
@@ -250,4 +277,5 @@ Current localization status: **no active packaging blocker**. The mass-empty Rus
 - Single-DLL bcrypt physical-XP success proves only the focused app-local bcrypt dependency/runtime contract, not Firefox startup.
 - GOST runtime != Windows compatibility.
 - Extension/localization packaging != extension runtime, UI runtime, GOST runtime, or old-Windows runtime.
+- Trust preflight/package survival != clean-profile NSS policy effectiveness != GOST MSSPI server trust.
 - Documentation HEADs never replace the exact source-under-test SHA for a previously built or runtime-tested artifact.
