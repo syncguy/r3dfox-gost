@@ -18,7 +18,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: agent/trust-integration-poc
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
 
       - name: Apply two-root trust integration
         shell: python
