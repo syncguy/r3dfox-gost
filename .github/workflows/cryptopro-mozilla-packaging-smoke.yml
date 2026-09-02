@@ -4,8 +4,11 @@ on:
   push:
     branches:
       - agent/gost-tls-poc
+      - agent/trust-integration-poc
     paths:
       - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
+      - "r3dfox/policies.json"
+      - "r3dfox/certificates/**"
       - "r3dfox/moz.build"
       - "browser/installer/package-manifest.in"
       - ".github/workflows/cryptopro-mozilla-packaging-smoke.yml"
@@ -31,6 +34,10 @@ jobs:
       EXTENSION_ID: ru.cryptopro.nmcades@cryptopro.ru
       FALLBACK_XPI: r3dfox\extensions\ru.cryptopro.nmcades@cryptopro.ru.xpi
       OFFICIAL_URL: https://www.cryptopro.ru/sites/default/files/products/cades/extensions/firefox_cryptopro_extension_latest.xpi
+      RSA_ROOT_NAME: russian_trusted_root_ca_rsa.cer
+      RSA_ROOT_SHA256: d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31
+      GOST_ROOT_NAME: russian_trusted_root_ca_gost.cer
+      GOST_ROOT_SHA256: 4bb37cc7c0ff4bf2aa893e95076ebb3565c69237ee1b61635beee4c1966495c7
 
     steps:
       - name: Checkout r3dfox-gost
@@ -611,7 +618,7 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: GATE - Verify CryptoPro XPI in real dist/bin
+      - name: GATE - Verify CryptoPro XPI and trust roots in real dist/bin
         if: steps.build-release.outcome == 'success'
         shell: powershell
         run: |
@@ -624,6 +631,24 @@ jobs:
           }
           python -c "import json,zipfile; p=r'$distXpi'; z=zipfile.ZipFile(p); m=json.loads(z.read('manifest.json')); i=m.get('browser_specific_settings',{}).get('gecko',{}).get('id') or m.get('applications',{}).get('gecko',{}).get('id'); assert i==r'$env:EXTENSION_ID', (i, r'$env:EXTENSION_ID'); print('dist-id='+i+' version='+str(m.get('version')))"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $roots = @(
+            @{ Name=$env:RSA_ROOT_NAME; Hash=$env:RSA_ROOT_SHA256 },
+            @{ Name=$env:GOST_ROOT_NAME; Hash=$env:GOST_ROOT_SHA256 }
+          )
+          $trustLines = @()
+          foreach ($root in $roots) {
+            $certPath = "obj-gost-win64\dist\bin\distribution\Certificates\$($root.Name)"
+            if (-not (Test-Path $certPath)) { throw "Pinned root missing from real dist/bin: $certPath" }
+            $certHash = (Get-FileHash -Algorithm SHA256 $certPath).Hash.ToLowerInvariant()
+            if ($certHash -ne $root.Hash) {
+              throw "dist/bin root hash mismatch for $($root.Name): expected $($root.Hash) got $certHash"
+            }
+            $line = "path=$certPath sha256=$certHash"
+            Write-Host "trust dist/bin $line"
+            $trustLines += $line
+          }
+          $trustLines | Set-Content -Encoding utf8 trust-dist-bin-evidence.txt
 
       - name: GATE B - Materialize and verify production ru merge
         id: locale-prepackage
@@ -727,7 +752,7 @@ jobs:
             Where-Object { $_.Name -match '\.(zip|7z)$' -or $_.Name -like '*.installer.exe' } |
             Select-Object FullName,Length | Format-Table -AutoSize
 
-      - name: GATE D - Verify CryptoPro XPI and substantive ru/en-US UI in final portable archive
+      - name: GATE D - Verify CryptoPro XPI, trust roots, and substantive ru/en-US UI in final portable archive
         if: steps.package-release.outcome == 'success'
         shell: powershell
         run: |
@@ -766,6 +791,28 @@ jobs:
           if ($packagedHash -ne $env:CRYPTOPRO_SELECTED_SHA256) {
             throw "Packaged XPI hash mismatch: expected $env:CRYPTOPRO_SELECTED_SHA256 got $packagedHash"
           }
+
+          $roots = @(
+            @{ Name=$env:RSA_ROOT_NAME; Hash=$env:RSA_ROOT_SHA256 },
+            @{ Name=$env:GOST_ROOT_NAME; Hash=$env:GOST_ROOT_SHA256 }
+          )
+          $trustLines = @()
+          foreach ($root in $roots) {
+            $certSuffix = "\distribution\Certificates\$($root.Name)"
+            $certMatches = @(Get-ChildItem $extract -Recurse -File -Filter $root.Name |
+              Where-Object { $_.FullName.EndsWith($certSuffix, [System.StringComparison]::OrdinalIgnoreCase) })
+            if ($certMatches.Count -ne 1) {
+              throw "Expected exactly one packaged root $($root.Name) under distribution\Certificates; found $($certMatches.Count)."
+            }
+            $certHash = (Get-FileHash -Algorithm SHA256 $certMatches[0].FullName).Hash.ToLowerInvariant()
+            if ($certHash -ne $root.Hash) {
+              throw "Packaged root hash mismatch for $($root.Name): expected $($root.Hash) got $certHash"
+            }
+            $line = "path=$($certMatches[0].FullName.Substring($extract.Length)) sha256=$certHash"
+            Write-Host "trust package $line"
+            $trustLines += $line
+          }
+          $trustLines | Set-Content -Encoding utf8 trust-package-evidence.txt
 
           $env:R3DFOX_LOCALE_EXTRACT = $extract
           @'
@@ -913,6 +960,8 @@ jobs:
             cryptopro-extension-selection.json
             cryptopro-package-evidence.txt
             cryptopro-packaged.xpi
+            trust-dist-bin-evidence.txt
+            trust-package-evidence.txt
             ru-l10n-source-sha.txt
             ru-l10n-source-summary.txt
             ru-l10n-source-empty-paths.txt
