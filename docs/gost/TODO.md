@@ -104,20 +104,23 @@ The proven baseline and the 24 capability-present KERNEL32 cluster are **closed 
 - 24-API KERNEL32 representative/hosted closure: source `0184985c2f0c5ab1c4c732a200cfbda07a6aefb4`, run `33600786738`, job `100153789478`;
 - the later auxiliary RED source `523601862d227da08819a0e4a74276cf3288fb56`, run `33604407934`, job `100165018692`, failed before PE/runtime gates and does not reopen those closed milestones.
 
-Physical XP evidence from the later full-Firefox line has already advanced past the earlier synchronization/`CloseThreadpoolWork` stage. The current production/runtime loader edge is:
+Physical XP evidence from the later full-Firefox line has already advanced past the earlier synchronization/`CloseThreadpoolWork` stage. The current production/runtime loader edge remains the historical:
 
 `mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
 
 YY-Thunks 1.2.2 has no direct XP x86 capability for `CreateWaitableTimerExA`; the cluster smoke intentionally reports it as `SKIP`.
 
+The source investigation and remediation design are complete. The exact owner is `mozilla::baseprofiler::SamplerThread` in `mozglue/baseprofiler/core/platform-win32.cpp`; the API is used only for the profiler's optional high-resolution sampling timer. Firefox already provides an `mHiResTimer == nullptr` fallback, so the XP branch intentionally compiles out the high-resolution timer instead of emulating the API.
+
+Implementation checkpoint `70422044f90058c90d276f231457f9a08c1343ff` reuses the branch's existing `MOZ_NO_WINRT` legacy-Windows switch and initializes `mHiResTimer` directly to `nullptr` for that build. No runtime probing, new YY thunk, or low-resolution timer substitution is required.
+
 Open work, in order:
 
-1. **P0 — map the exact Firefox/r3dfox `CreateWaitableTimerExA` caller and semantics.** Identify every relevant call site that contributes to the observed `mozglue.dll` import and record the actual `dwDesiredAccess`, manual/auto-reset behavior, `CREATE_WAITABLE_TIMER_*` flags, object naming, security/namespace requirements and any high-resolution expectation. Do not infer that `CreateWaitableTimerA` is equivalent before this analysis.
-2. **Design the narrowest XP-compatible remediation.** If the proven call-site contract can be preserved with `CreateWaitableTimerA` or another XP primitive, implement only that semantic fallback/redirect. If semantics cannot be preserved, stop and document the incompatibility instead of shipping a generic wrapper that silently changes behavior.
-3. **Focused proof before a full Firefox build.** Require x86 compile, native link, XP 5.01 PE floor, no forbidden/direct `CreateWaitableTimerExA` import, functional timer behavior on the hosted runner, and then a physical Windows XP SP3 x86 run of the focused artifact. Bind every result to exact SHA + run + job + artifacts.
-4. **Only after the focused path is GREEN, rebuild Firefox 153 x86 and repeat physical XP startup.** The acceptance condition is that the loader advances past the exact `mozglue.dll -> KERNEL32!CreateWaitableTimerExA` dependency; any newly observed failure becomes a separate evidence-backed blocker.
-5. **Keep remaining xul/Win7 legacy APIs secondary.** Existing WinRT-delay-load and sandbox/RNG investigations remain valid separate evidence, but they are not the current XP loader target and must not displace `CreateWaitableTimerExA` until this physical-XP edge is closed.
-6. Keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility. Browser startup and ordinary browsing do not prove the MSSPI GOST path.
+1. **P0 — validate the implemented `CreateWaitableTimerExA` source cut in the full XP x32 workflow.** Run `.github/workflows/gost-poc-build-xp-x32.yml` from the exact current `agent/winrt-source-poc` SHA. Bind the result to run ID, job ID and source-under-test SHA. The build must compile/link and the final `mozglue.dll` import inventory must contain no direct `CreateWaitableTimerExA` dependency.
+2. **Physical XP startup from the exact produced package.** Verify the browser advances beyond the historical `CreateWaitableTimerExA` loader dialog on Windows XP SP3 x86. Record the exact artifact identity/hash used for the runtime test.
+3. **Close or advance the blocker strictly from evidence.** If the exact package starts past this edge, close `CreateWaitableTimerExA` in `DONE.md` and update `PROJECT_STATE.md`; if a new loader/runtime dependency appears, record that exact dependency as the next blocker rather than reopening the SRW/Rust/CRT/24-API baseline.
+4. **Keep remaining xul/Win7 legacy APIs secondary.** Existing WinRT-delay-load and sandbox/RNG investigations remain valid separate evidence, but they are not the current XP loader target and must not displace this physical-XP sequence.
+5. Keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility. Browser startup and ordinary browsing do not prove the MSSPI GOST path.
 
 Do not re-run `GetTickCount64`, SRW, Rust, CRT, the 24 capability-present KERNEL32 APIs, or reconstruct their provider closure from memory merely for confirmation. New XP experiments must extend the exact proven baseline and test only the new delta.
 
