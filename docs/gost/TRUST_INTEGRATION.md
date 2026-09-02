@@ -1,12 +1,12 @@
 # Windows system roots + Russian Trusted Root CA integration
 
-Status: **ACTIVE / TWO-ROOT POC IMPLEMENTED; FAST PREFLIGHT IN PROGRESS**.
+Status: **ACTIVE / FAST PREFLIGHT GREEN; FULL PACKAGE RETRY IN PROGRESS**.
 
 Track: browser/government-system packaging and ordinary Firefox/NSS trust integration. This is independent from GOST TLS MSSPI server verification and from Windows Vista/7/XP binary compatibility.
 
 ## Current checkpoint — 2026-09-02
 
-The earlier trust-integration work had been started but left incomplete around an obsolete one-root contract. The current work resumes it on the isolated branch:
+The trust-integration work continues on the isolated branch:
 
 `agent/trust-integration-poc`
 
@@ -14,18 +14,21 @@ Branch base / documented default-branch checkpoint:
 
 `ab9b9abb09f30e5dcb665b681cd1fbc092954c1b`
 
-Current implementation source-under-test before documentation-only follow-up:
+Current full-package source-under-test:
 
-`ba947ff81ccd49fb470f5316b0009dbc28ccbdd9`
+`e7640a8195c6f10d8e909ad620ace74fa08c2c86`
 
-The implementation checkpoint contains only the intended trust changes relative to the branch base:
+The later branch commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` only restores the original heavy-workflow trigger policy and must not be cited as the source-under-test for the already-started package run.
 
-- `.github/workflows/government-trust-packaging-preflight.yml` — converted from the stale one-root check to the exact two-root contract;
-- `r3dfox/policies.json` — adds `Certificates.ImportEnterpriseRoots=true` and exactly two `Certificates.Install` entries;
-- `r3dfox/moz.build` — stages both root certificates under `distribution/Certificates`;
-- `browser/installer/package-manifest.in` — preserves both roots in the final package.
+The current implementation contains the intended trust changes relative to the branch base:
 
-The temporary `apply-trust-integration-once.yml` bootstrap workflow used during branch setup has been removed. Repository edits are now made directly; GitHub Actions in this track are verification only.
+- `.github/workflows/government-trust-packaging-preflight.yml` — exact two-root static contract;
+- `r3dfox/policies.json` — `Certificates.ImportEnterpriseRoots=true` and exactly two `Certificates.Install` entries;
+- `r3dfox/moz.build` — both roots staged under `distribution/Certificates`, with the list kept in the lexicographic order required by Mozilla `StrictOrderingOnAppendList`;
+- `browser/installer/package-manifest.in` — both roots preserved in the final package;
+- `.github/workflows/cryptopro-mozilla-packaging-smoke.yml` — exact root presence/hash gates in real `dist/bin` and in the extracted final portable archive, plus trust evidence files in the existing evidence artifact.
+
+The temporary `apply-trust-integration-once.yml` bootstrap workflow used during branch setup has been removed. Repository edits are direct; GitHub Actions in this track are verification only.
 
 ## Pinned public trust anchors
 
@@ -50,7 +53,7 @@ Do **not** bundle/install a Sub CA/intermediate. Manual runtime testing establis
 
 ## Firefox Enterprise Policy
 
-`r3dfox/policies.json` now contains:
+`r3dfox/policies.json` contains:
 
 ```json
 "Certificates": {
@@ -66,53 +69,97 @@ Do **not** bundle/install a Sub CA/intermediate. Manual runtime testing establis
 
 ### AutoConfig boundary
 
-The inherited `r3dfox/config.cfg` still contains the pre-existing enterprise-root defaults. The current PoC deliberately does **not** duplicate the same trust switch through a second configuration mechanism.
+The inherited `r3dfox/config.cfg` still contains the pre-existing enterprise-root defaults:
 
-The acceptance requirement is therefore behavioral, not a second static configuration assertion: after building the exact artifact, a clean-profile runtime test must prove that the active enterprise policy produces the required effective browser trust behavior and effective preference state. If the inherited AutoConfig setting actually defeats or conflicts with the policy at runtime, that will be a concrete failure and `config.cfg` will then be changed with exact evidence.
+```js
+defaultPref("security.certerrors.mitm.auto_enable_enterprise_roots", false);
+defaultPref("security.enterprise_roots.enabled", false);
+```
 
-This avoids changing both policy and AutoConfig speculatively before their real precedence/effective behavior is observed in the adapted browser.
+The current PoC deliberately does not change them before exact-artifact runtime verification. Firefox 153 enterprise-policy implementation handles `Certificates.ImportEnterpriseRoots` by setting and locking `security.enterprise_roots.enabled` to the policy value, so the expected effective runtime value is `true` despite the inherited AutoConfig default. The clean-profile runtime acceptance gate must prove that actual precedence/effective state in this fork rather than assuming it from static code alone.
+
+`security.certerrors.mitm.auto_enable_enterprise_roots` is a separate automatic MITM/certificate-error mechanism and is not set by the `Certificates.ImportEnterpriseRoots` policy. Its inherited `false` value is therefore not by itself evidence that policy-driven Windows-root import is disabled.
+
+If exact-artifact runtime evidence shows that AutoConfig defeats or otherwise conflicts with policy behavior, change `config.cfg` on that evidence. Do not change both mechanisms speculatively before the runtime gate.
 
 ## Build and package staging
 
-`r3dfox/moz.build` now stages:
+`r3dfox/moz.build` stages:
 
 ```text
-distribution/Certificates/russian_trusted_root_ca_rsa.cer
 distribution/Certificates/russian_trusted_root_ca_gost.cer
+distribution/Certificates/russian_trusted_root_ca_rsa.cer
 ```
 
-`browser/installer/package-manifest.in` now explicitly preserves the same two paths in the final portable package.
+The source list is intentionally `gost` before `rsa` because Mozilla's `FINAL_TARGET_FILES` list type enforces lexical ordering.
 
-The manifest change was diff-checked after editing: the final net manifest difference is exactly two added certificate paths and no unrelated substitutions.
+`browser/installer/package-manifest.in` explicitly preserves both certificate paths in the final portable package.
 
-The policy change was also diff-checked: the final net policy difference is exactly the seven lines of the `Certificates` section and no unrelated search-engine or other policy changes.
+The manifest and policy changes were diff-checked after editing and contain no unrelated substitutions.
 
-## Fast trust preflight
+## Fast trust preflight — GREEN
 
 `.github/workflows/government-trust-packaging-preflight.yml` is the low-cost static trust gate.
 
-Current run under evaluation:
+Authoritative successful result:
 
 - workflow: `Government trust packaging preflight`;
-- run ID: `33592606106`;
-- job ID: `100129486191`;
-- source-under-test: `ba947ff81ccd49fb470f5316b0009dbc28ccbdd9`;
-- current state at documentation time: **in progress**.
+- run ID: `33593375735`;
+- job ID: `100131774111` (`Windows/NSS two-root trust packaging contract`);
+- source-under-test: `b7a2b7289a49e498911ac1231e517632469074b3`;
+- result: **SUCCESS**.
 
-Do not treat that run as passed until the exact job finishes successfully.
-
-The updated gate verifies:
+The exact run passed:
 
 - `Certificates.ImportEnterpriseRoots=true`;
-- `Certificates.Install` contains exactly the RSA and GOST root filenames;
-- both source certificates exist as DER;
-- exact SHA-256 for both roots;
-- expected public subjects;
-- self-signed root identity and `BasicConstraints: CA=TRUE`;
-- `r3dfox/moz.build` stages both roots;
-- `browser/installer/package-manifest.in` packages both roots.
+- exactly the two RSA/GOST `Certificates.Install` filenames;
+- both DER files and exact SHA-256 values;
+- public X.509 identities;
+- self-issued/root identity and `BasicConstraints: CA=TRUE`;
+- `r3dfox/moz.build` staging entries;
+- `browser/installer/package-manifest.in` package entries.
 
-The fast gate intentionally does not claim runtime policy effectiveness and does not prove final portable archive survival.
+The predecessor failed run `33592606106` was a workflow-harness false negative caused by a Cyrillic Subject literal in Windows PowerShell, not a certificate/trust failure.
+
+The fast gate intentionally does not prove runtime policy effectiveness and does not prove survival in the final portable archive.
+
+## Full package integration
+
+`.github/workflows/cryptopro-mozilla-packaging-smoke.yml` is the selected heavy integration/package proof because it already exercises the full release Firefox build, CryptoPro XPI staging, pinned Russian localization, production `ru` merge, `mach package`, final portable extraction and evidence upload.
+
+The trust extension keeps all existing CryptoPro/l10n gates and additionally requires:
+
+- both pinned roots at `obj-gost-win64/dist/bin/distribution/Certificates/` after the full build;
+- exact SHA-256 for both roots there;
+- exactly one copy of each root under `distribution/Certificates/` in the extracted final portable archive;
+- the same exact SHA-256 values again in the portable package;
+- `trust-dist-bin-evidence.txt` and `trust-package-evidence.txt` in the existing packaging evidence artifact.
+
+### First heavy trust attempt — FAILED BEFORE BUILD
+
+Exact result:
+
+- source-under-test `b2184aa0c7c95a47a35c7010248953902500daf3`;
+- run `33594665980`;
+- job `100135594681` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
+- result: **FAILURE**;
+- failing step: `Configure object directory and verify Rust target and l10n base`;
+- full `mach build`, `dist/bin` trust gate, package step and final portable trust gate were all skipped.
+
+The failure was a Mozilla build-description ordering error, not trust evidence. `r3dfox/moz.build` supplied the certificate list as RSA then GOST, while `FINAL_TARGET_FILES` uses `StrictOrderingOnAppendList` and required lexical order GOST then RSA. Configure raised `mozbuild.util.UnsortedError` before any browser compilation.
+
+Commit `e7640a8195c6f10d8e909ad620ace74fa08c2c86` fixes only that ordering defect by swapping the two certificate entries. Its diff was checked and contains no other source change.
+
+### Corrected heavy retry — IN PROGRESS
+
+- source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
+- run `33595966569`;
+- job `100139347397`;
+- state at handoff: **in progress**.
+
+Do not record any build/package/trust gate from this retry as passed until the exact job finishes.
+
+The heavy workflow had temporarily acquired three unintended trigger additions (`agent/trust-integration-poc`, `r3dfox/policies.json`, `r3dfox/certificates/**`) solely as launch plumbing. Commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` removes exactly those three lines and restores the prior trigger policy while preserving the trust gates. The already-running retry remains bound to `e7640a819...`.
 
 ## Historical bootstrap failures — not trust evidence
 
@@ -125,29 +172,20 @@ The helper workflow is removed. Future source changes in this track are direct r
 
 ## Remaining PoC work
 
-1. Obtain a green result from the exact fast preflight source SHA and record its run/job/SHA.
-2. Extend a real full-build/package workflow to verify both pinned hashes in `dist/bin/distribution/Certificates` and again in the extracted final portable archive.
-3. Build the exact browser artifact only after the fast gate is green.
-4. On a completely new profile verify `about:policies`, effective enterprise-root behavior and Windows-root import without manual NSS import.
-5. Verify the target Russian RSA PKI path and the relevant GOST PKI path with the two-root contract and without bundling a Sub CA.
-6. Bind the runtime result to exact source SHA, Actions run/job, artifact and browser binary hashes.
-7. After the PoC is proven, transfer only the minimal audited trust diff back to `agent/gost-tls-poc`; do not merge the experimental branch history wholesale.
-
-## Heavy package integration gate
-
-The existing `.github/workflows/cryptopro-mozilla-packaging-smoke.yml` can be reused or adapted as a full Mozilla build/package survival proof because it already exercises real `dist/bin`, `mach package` and final portable extraction.
-
-Historical relevant run `33076347741`, job `98531418338`, source `07c7c48419ca39952a57a53967c1bcabaa8384c1` is not current trust evidence. It completed build/package and later failed on an unrelated loose `r3dfox-bundle.js` assertion.
-
-Before a heavy trust/package proof is accepted, require exact RSA/GOST certificate hashes in both `dist/bin/distribution/Certificates` and the extracted final portable archive. Keep this evidence separate from GOST MSSPI handshake and Windows loader-compatibility conclusions.
+1. Obtain the final conclusion of heavy retry `33595966569` / job `100139347397` / source `e7640a8195c6f10d8e909ad620ace74fa08c2c86` and require both exact trust gates plus the existing CryptoPro/l10n gates to pass.
+2. Record the exact packaged browser and evidence artifact identities from that run if successful.
+3. On a completely new profile verify `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import without manual NSS import, and the intended relationship with the inherited AutoConfig defaults.
+4. Verify the target Russian RSA PKI path and relevant GOST PKI path with the two-root contract and without bundling a Sub CA.
+5. Bind runtime results to the exact source SHA, Actions run/job, browser artifact and relevant binary hashes.
+6. After the PoC is proven, transfer only the minimal audited trust diff back to `agent/gost-tls-poc`; do not merge the experimental branch history wholesale.
 
 ## Runtime acceptance gate
 
 A full integrated build is accepted for this track only after a clean-profile exact-artifact test proves:
 
 1. `about:policies` shows the `Certificates` policy active;
-2. Windows-installed trusted roots are honored without manual NSS import;
-3. the effective enterprise-root preference/state is compatible with the policy despite the inherited AutoConfig defaults;
+2. `security.enterprise_roots.enabled` is effectively `true` under policy;
+3. Windows-installed trusted roots are honored without manual NSS import;
 4. both pinned portable root anchors are available to the packaged browser;
 5. the target RSA and GOST PKI paths behave as required with the two roots and no explicitly bundled Sub CA;
 6. exact source SHA, Actions run/job, artifact and relevant browser binary hashes are recorded.
