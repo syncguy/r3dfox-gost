@@ -8,6 +8,52 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — first full trust-package attempt fails at moz.build ordering before browser build
+
+Track: Firefox/NSS + Windows trust + bundled Russian root CAs + final portable packaging only. This is not GOST TLS MSSPI handshake evidence and not Windows XP/Vista/7 compatibility evidence.
+
+Exact project/build identity:
+
+- branch `agent/trust-integration-poc`;
+- source-under-test `b2184aa0c7c95a47a35c7010248953902500daf3`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- Actions run `33594665980`;
+- job `100135594681` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
+- run/job conclusion: **failure**.
+
+Observed boundary:
+
+- setup, pinned Russian localization source, CryptoPro selection, pagefile setup, MozillaBuild/MSSPI setup, Rust build-std preparation and the Win7 Rust preflight all passed;
+- `Configure object directory and verify Rust target and l10n base` failed while processing `r3dfox/moz.build`;
+- `mach build` never started;
+- the real `dist/bin` CryptoPro/trust-root gate was skipped;
+- production `ru` merge, `mach package`, final portable trust-root gate and packaged-browser upload were skipped;
+- therefore this run provides **no pass/fail evidence** for root survival in `dist/bin`, final portable packaging, runtime policy precedence, or NSS trust behavior.
+
+Root cause is exact and local to the Mozilla build description. `FINAL_TARGET_FILES.distribution.Certificates` is a `StrictOrderingOnAppendList`; source `b2184aa...` supplied:
+
+```text
+certificates/russian_trusted_root_ca_rsa.cer
+certificates/russian_trusted_root_ca_gost.cer
+```
+
+but lexical order requires GOST before RSA. Configure raised `mozbuild.util.UnsortedError` with expected `certificates/russian_trusted_root_ca_gost.cer` and received `certificates/russian_trusted_root_ca_rsa.cer`.
+
+Repair commit `e7640a8195c6f10d8e909ad620ace74fa08c2c86` swaps only those two staging lines. Its checked diff contains no other source change.
+
+A corrected heavy retry was created from that exact repair source:
+
+- source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
+- run `33595966569`;
+- job `100139347397`;
+- state at handoff: **in progress**.
+
+The later commit `88f7d45c01a8a9a740d4e3d35043ae812a9dd624` removes exactly three unintended heavy-workflow trigger additions and restores the prior trigger policy; it does not change the source already checked out by retry `33595966569` and must not be substituted for `e7640a819...` as that run's source identity.
+
+Conclusion: **FAIL / BUILD-DESCRIPTION HARNESS DEFECT / TRUST PACKAGE VERDICT OPEN.** The failed run does not invalidate the two-root trust design or the green fast trust preflight. The next evidence boundary is the exact corrected retry `33595966569` / `100139347397` / `e7640a819...`; do not mark its build, trust-root, localization or package gates passed until it completes.
+
+---
+
 ## 2026-09-02 — repaired final Russian localization Gate D passes the full ru + en-US package workflow
 
 Track: bundled extensions / localization / package behavior only. This is not GOST TLS runtime/handshake evidence and not old-Windows runtime evidence.
