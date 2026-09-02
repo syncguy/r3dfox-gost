@@ -67,6 +67,17 @@ These rules supplement the global Firefox instructions above and are authoritati
 - `win-153` is a protected reference snapshot. NEVER commit, push, merge, rebase, force-push, delete, fork-sync, or otherwise modify `win-153` unless the user explicitly requests that exact operation.
 - Do not infer the active working branch from an old pull request base. PR #1 historically targets `win-153`; active development remains on `agent/gost-tls-poc`.
 
+### GitHub repository mutation policy
+- If a direct repository tool exists for the requested mutation, MUST use that direct tool. The existence of an indirect workaround is not permission to use it.
+- To modify an existing UTF-8 repository file, MUST fetch the exact target file and current blob SHA, then use the direct file-update operation for that same path.
+- To create or delete a repository file, MUST use the direct file-create or file-delete operation respectively when available.
+- NEVER create a temporary GitHub Actions workflow in order to edit another repository file, commit or push repository changes, dispatch another workflow, work around GitHub App or `GITHUB_TOKEN` permissions, or delete itself after performing such an operation.
+- NEVER use a GitHub Actions runner as a surrogate repository editor when direct repository mutation tools are available.
+- NEVER use low-level Git data operations such as blob/tree/commit/ref construction to work around a failed or unavailable direct file operation unless the user explicitly authorizes that exact approach.
+- A requested change to `.github/workflows/<name>.yml` must modify only that requested workflow unless the user explicitly requests additional workflow files.
+- Before every write under `.github/workflows/`, identify and fetch the exact existing target file and its current blob SHA. After the write, verify the resulting commit and changed filenames.
+- If a workflow is `workflow_dispatch`-only and no direct workflow-dispatch operation is available, commit the requested workflow change and STOP. Ask the user to start it manually. NEVER synthesize a dispatcher workflow as a workaround.
+
 ### Project invariants
 - Add GOST TLS support to r3dfox/Firefox through `deemru/msspi` and the Windows CryptoPro/SSPI stack.
 - Ordinary HTTPS must continue to use Firefox NSS. Only explicitly selected/allowlisted GOST TLS hosts use the MSSPI-backed transport.
