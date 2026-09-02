@@ -74,3 +74,38 @@ The workflow's own identity record explicitly classifies its proof level as `YY 
 **Conclusion:** run `33600786738` / job `100153789478` / SHA `0184985c...` closes the 24-API core KERNEL32 cluster at representative/hosted level. The prior `_ProcessPrng@8` failure is closed as a narrow-provider internal-dependency omission. `CreateWaitableTimerExA` remains an expected capability-missing `SKIP` and a separate investigation; physical-XP execution remains a separate gate.
 
 Status: current immutable experiment evidence; representative/hosted KERNEL32 cluster closure GREEN, physical XP not claimed.
+
+---
+
+## 2026-09-02 — later baseline+delta RED is auxiliary evidence, not a regression of the closed cluster
+
+**Track:** Windows XP SP3 x86 compatibility / auxiliary baseline+delta formulation  
+**Branch:** `agent/winrt-source-poc`  
+**Source-under-test:** `523601862d227da08819a0e4a74276cf3288fb56`  
+**Workflow:** `XP x86 KERNEL32 delta on proven SRW baseline` (`.github/workflows/xp-kernel32-delta-on-srw-baseline-smoke.yml`)  
+**Actions run:** `33604407934`  
+**Job:** `100165018692` (`Proven SRW/Rust/CRT closure + KERNEL32 delta / XP x86`)  
+**Result:** failure  
+**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c5fc21dcc2a093b1467b86c7f454fee3f8b3aab1df1`
+
+Observed execution boundary:
+
+- exact-baseline-plus-delta provider construction PASS;
+- unchanged baseline C++ helper PASS;
+- KERNEL32 delta helper PASS;
+- representative Rust archive PASS;
+- native link FAIL;
+- PE/import, XP-floor, hosted-runtime and physical-package stages were consequently SKIPPED;
+- diagnostics upload PASS.
+
+This workflow is a later, auxiliary re-expression of the experiment. It stopped at native-link evidence and therefore reached a **weaker evidence level** than the already successful run `33600786738`, which completed native link, PE/import closure and hosted functional runtime for the 24 capability-present APIs.
+
+**Conclusion:** run `33604407934` does not revoke, supersede or reopen the GREEN 24-API KERNEL32 cluster. No target-API regression was demonstrated. Future work must not return to re-proving that closed cluster merely because this auxiliary workflow is red.
+
+The active physical-XP production/runtime edge remains the already observed Firefox loader dependency:
+
+`mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
+
+YY-Thunks 1.2.2 has no direct XP x86 capability for `CreateWaitableTimerExA`. The next experiment is therefore **not** another reconstruction of the 24-API cluster: first identify the exact Firefox/r3dfox caller and required `CreateWaitableTimerExA` semantics, then design the narrowest XP-compatible remediation and validate it in a focused probe before any full Firefox rebuild.
+
+Status: current auxiliary RED retained for provenance; does not invalidate the stronger GREEN; not the active blocker.
