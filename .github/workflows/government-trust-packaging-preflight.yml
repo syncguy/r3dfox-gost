@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - agent/gost-tls-poc
+      - agent/trust-integration-poc
     paths:
       - "r3dfox/policies.json"
+      - "r3dfox/config.cfg"
       - "r3dfox/certificates/**"
       - "r3dfox/moz.build"
       - "browser/installer/package-manifest.in"
@@ -17,13 +19,15 @@ permissions:
 
 jobs:
   trust-preflight:
-    name: Windows/NSS trust packaging contract
+    name: Windows/NSS two-root trust packaging contract
     runs-on: windows-2022
     timeout-minutes: 10
 
     env:
-      ROOT_CERT: r3dfox\certificates\russian_trusted_root_ca.cer
-      ROOT_SHA256: d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31
+      RSA_CERT: r3dfox\certificates\russian_trusted_root_ca_rsa.cer
+      RSA_SHA256: d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31
+      GOST_CERT: r3dfox\certificates\russian_trusted_root_ca_gost.cer
+      GOST_SHA256: 4bb37cc7c0ff4bf2aa893e95076ebb3565c69237ee1b61635beee4c1966495c7
 
     steps:
       - name: Checkout r3dfox-gost
@@ -31,57 +35,63 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: GATE - Policy imports Windows enterprise roots
+      - name: GATE - Policy and AutoConfig enable enterprise roots
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $policy = Get-Content 'r3dfox\policies.json' -Raw | ConvertFrom-Json
-          if (-not $policy.policies.Certificates) {
-            throw 'policies.json has no Certificates policy.'
-          }
-          if ($policy.policies.Certificates.ImportEnterpriseRoots -ne $true) {
-            throw 'Certificates.ImportEnterpriseRoots must be true.'
-          }
+          if (-not $policy.policies.Certificates) { throw 'policies.json has no Certificates policy.' }
+          if ($policy.policies.Certificates.ImportEnterpriseRoots -ne $true) { throw 'Certificates.ImportEnterpriseRoots must be true.' }
           $install = @($policy.policies.Certificates.Install)
-          if ($install -notcontains 'russian_trusted_root_ca.cer') {
-            throw 'Certificates.Install must contain russian_trusted_root_ca.cer.'
+          $expected = @('russian_trusted_root_ca_rsa.cer', 'russian_trusted_root_ca_gost.cer')
+          if ($install.Count -ne $expected.Count) { throw "Certificates.Install must contain exactly the two pinned roots; got $($install.Count)." }
+          foreach ($name in $expected) {
+            if ($install -notcontains $name) { throw "Certificates.Install is missing $name." }
+          }
+          $cfg = [System.IO.File]::ReadAllText('r3dfox\config.cfg')
+          foreach ($pref in @(
+            'defaultPref("security.certerrors.mitm.auto_enable_enterprise_roots", true);',
+            'defaultPref("security.enterprise_roots.enabled", true);'
+          )) {
+            if (-not $cfg.Contains($pref)) { throw "config.cfg is missing required trust preference: $pref" }
           }
 
-      - name: GATE - Russian Trusted Root CA identity
+      - name: GATE - Pinned RSA and GOST root identities
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not (Test-Path $env:ROOT_CERT)) {
-            throw "Bundled root is missing: $env:ROOT_CERT"
+          $roots = @(
+            @{ Kind='RSA'; Path=$env:RSA_CERT; Hash=$env:RSA_SHA256; Subject='CN=Russian Trusted Root CA' },
+            @{ Kind='GOST'; Path=$env:GOST_CERT; Hash=$env:GOST_SHA256; Subject='CN=Минцифры России' }
+          )
+          foreach ($root in $roots) {
+            if (-not (Test-Path $root.Path)) { throw "Bundled $($root.Kind) root is missing: $($root.Path)" }
+            $hash = (Get-FileHash -Algorithm SHA256 $root.Path).Hash.ToLowerInvariant()
+            if ($hash -ne $root.Hash) { throw "$($root.Kind) root SHA-256 mismatch: expected $($root.Hash) got $hash" }
+            $bytes = [System.IO.File]::ReadAllBytes($root.Path)
+            if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x30) { throw "$($root.Kind) certificate is not DER SEQUENCE encoded." }
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes)
+            Write-Host "$($root.Kind) Subject=$($cert.Subject)"
+            Write-Host "$($root.Kind) Issuer=$($cert.Issuer)"
+            Write-Host "$($root.Kind) NotBefore=$($cert.NotBefore.ToUniversalTime().ToString('o'))"
+            Write-Host "$($root.Kind) NotAfter=$($cert.NotAfter.ToUniversalTime().ToString('o'))"
+            if ($cert.Subject -ne $cert.Issuer) { throw "$($root.Kind) certificate is not self-signed by identity." }
+            if ($cert.Subject -notmatch [regex]::Escape($root.Subject)) { throw "Unexpected $($root.Kind) root subject: $($cert.Subject)" }
+            $bc = $cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' } | Select-Object -First 1
+            if (-not $bc) { throw "$($root.Kind) BasicConstraints extension is missing." }
+            $bc2 = [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]$bc
+            if (-not $bc2.CertificateAuthority) { throw "$($root.Kind) bundled certificate is not a CA." }
           }
-          $hash = (Get-FileHash -Algorithm SHA256 $env:ROOT_CERT).Hash.ToLowerInvariant()
-          if ($hash -ne $env:ROOT_SHA256) {
-            throw "Root SHA-256 mismatch: expected $env:ROOT_SHA256 got $hash"
-          }
-          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($env:ROOT_CERT)
-          Write-Host "Subject=$($cert.Subject)"
-          Write-Host "Issuer=$($cert.Issuer)"
-          Write-Host "NotBefore=$($cert.NotBefore.ToUniversalTime().ToString('o'))"
-          Write-Host "NotAfter=$($cert.NotAfter.ToUniversalTime().ToString('o'))"
-          if ($cert.Subject -ne $cert.Issuer) { throw 'Expected a self-signed root certificate.' }
-          if ($cert.Subject -notmatch 'CN=Russian Trusted Root CA') { throw 'Unexpected root subject.' }
-          if ($cert.Subject -notmatch 'Ministry of Digital Development') { throw 'Unexpected root organization.' }
-          $bc = $cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' } | Select-Object -First 1
-          if (-not $bc) { throw 'BasicConstraints extension is missing.' }
-          $bc2 = [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]$bc
-          if (-not $bc2.CertificateAuthority) { throw 'Bundled certificate is not a CA.' }
 
-      - name: GATE - Build and package manifests stage the root
+      - name: GATE - Build and package manifests stage both roots
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $moz = [System.IO.File]::ReadAllText('r3dfox\moz.build')
-          if (-not $moz.Contains('certificates/russian_trusted_root_ca.cer')) {
-            throw 'r3dfox/moz.build does not stage the Russian Trusted Root CA.'
-          }
           $manifest = [System.IO.File]::ReadAllText('browser\installer\package-manifest.in')
-          if (-not $manifest.Contains('@RESPATH@/distribution/Certificates/russian_trusted_root_ca.cer')) {
-            throw 'package-manifest.in does not package the Russian Trusted Root CA.'
+          foreach ($name in @('russian_trusted_root_ca_rsa.cer', 'russian_trusted_root_ca_gost.cer')) {
+            if (-not $moz.Contains("certificates/$name")) { throw "r3dfox/moz.build does not stage $name." }
+            if (-not $manifest.Contains("@RESPATH@/distribution/Certificates/$name")) { throw "package-manifest.in does not package $name." }
           }
 
       - name: Summary
@@ -92,9 +102,9 @@ jobs:
           ## Government trust packaging preflight
 
           Required contract:
-          - Windows enterprise roots explicitly enabled by Firefox policy
-          - Russian Trusted Root CA bundled as the only explicit fallback root
-          - no bundled intermediate trust anchor
-          - exact root SHA-256 pinned
-          - moz.build and package-manifest staging required
+          - Windows enterprise roots enabled by policy and AutoConfig defaults
+          - exactly two pinned DER fallback roots: RSA + GOST
+          - no bundled intermediate/Sub CA
+          - exact SHA-256 pinned for both roots
+          - moz.build and package-manifest staging required for both roots
           '@ | Add-Content $env:GITHUB_STEP_SUMMARY
