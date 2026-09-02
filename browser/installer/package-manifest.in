@@ -122,7 +122,7 @@
 @BINPATH@/@DLL_PREFIX@mozwayland@DLL_SUFFIX@
 #endif
 #ifdef MOZ_ENABLE_V4L2
-; Similar to glxtest, this tests the capabilities of the Video for Linux.
+; Similar to glxtest, this tests the hardware decoding for Video for Linux.
 ; Currently, it doesn't ship for Firefox targeting typical Intel CPU (or compatible).
 @BINPATH@/v4l2test
 #endif
