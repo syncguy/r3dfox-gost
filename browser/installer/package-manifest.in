@@ -122,7 +122,7 @@
 @BINPATH@/@DLL_PREFIX@mozwayland@DLL_SUFFIX@
 #endif
 #ifdef MOZ_ENABLE_V4L2
-; Similar to glxtest, this tests the hardware decoding for Video for Linux.
+; Similar to glxtest, this tests the capabilities of the Video for Linux.
 ; Currently, it doesn't ship for Firefox targeting typical Intel CPU (or compatible).
 @BINPATH@/v4l2test
 #endif
@@ -252,7 +252,7 @@
 
 ; DevTools
 @RESPATH@/browser/chrome/devtools@JAREXT@
-@RESPATH@/browser/chrome/devtools-startup.manifest
+@RESPATH@/browser/chrome/devtools.manifest
 @RESPATH@/browser/@PREF_DIR@/debugger.js
 
 ; PdfJs
@@ -331,7 +331,7 @@
 @RESPATH@/res/table-remove-row-active.gif
 @RESPATH@/res/table-remove-row-hover.gif
 @RESPATH@/res/table-remove-row.gif
-@RESPATH@/grabber.gif
+@RESPATH@/res/grabber.gif
 #ifdef XP_MACOSX
 @RESPATH@/res/cursors/*
 #endif
@@ -438,7 +438,7 @@ bin/libfreebl_64int_3.so
 #endif
 
 #ifdef MOZ_CLANG_RT_ASAN_LIB
-@BINPATH@/@LLVM_SYMBOLIZER@
+@BINPATH@/@MOZ_CLANG_RT_ASAN_LIB@
 #endif
 
 ; media
