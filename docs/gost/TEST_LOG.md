@@ -8,6 +8,69 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — `CreateWaitableTimerExA` call-site mapped and XP compile-time cut implemented; build validation pending
+
+**Track:** Windows XP SP3 x86 compatibility / `mozglue.dll` loader closure  
+**Branch:** `agent/winrt-source-poc`  
+**Prior failing production evidence:** source `6998ba51b1052b08d8b0b2a221d63b896eccd219`, run `33610933602`, job `100185641911`, package artifact `9843567202`, diagnostics artifact `9843568460`  
+**Implementation checkpoint:** `70422044f90058c90d276f231457f9a08c1343ff`  
+**Actions run for the implementation:** not yet run at this checkpoint
+
+### Exact source owner and semantics
+
+The surviving direct import is owned by the Windows base profiler path in `mozglue/baseprofiler/core/platform-win32.cpp`, specifically `mozilla::baseprofiler::SamplerThread`.
+
+The constructor previously initialized `mHiResTimer` with:
+
+`CreateWaitableTimerExA(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS)`
+
+Therefore the call is:
+
+- unnamed;
+- no custom security attributes;
+- auto-reset rather than manual-reset;
+- requested with `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`;
+- requested with `TIMER_ALL_ACCESS`;
+- used only as the profiler sampler's high-resolution sleep primitive.
+
+This is not a general Firefox synchronization primitive and not part of the GOST TLS runtime path.
+
+### Existing fallback makes an XP source cut semantically valid
+
+`SamplerThread` already has a complete `mHiResTimer == nullptr` path. When the timer is absent, the constructor optionally calls `timeBeginPeriod(...)` for short profiler intervals, `SleepMicro()` uses the existing `Sleep(...)` / sub-millisecond spin fallback, and `Stop()` balances the timer-resolution change with `timeEndPeriod(...)`.
+
+Therefore XP does not require emulation of `CreateWaitableTimerExA`, a new YY thunk, or runtime `GetProcAddress` probing. The correct XP policy is to compile out the high-resolution optimization and enter the existing fallback immediately.
+
+A simple replacement with `CreateWaitableTimerA` or routing through YY's `CreateWaitableTimerExW` fallback was rejected because it could return a non-null ordinary waitable timer and thereby suppress the profiler's intentional `mHiResTimer == nullptr` fallback while not providing the requested high-resolution semantics.
+
+### Implemented source policy
+
+The XP branch reuses the same legacy-Windows build switch already used to exclude WinRT-only code: `MOZ_NO_WINRT`.
+
+At implementation checkpoint `70422044f90058c90d276f231457f9a08c1343ff`:
+
+- `mozglue/baseprofiler/moz.build` defines `MOZ_NO_WINRT` for the Windows base-profiler build while keeping `core/platform.cpp` in its normal unified build;
+- `mozglue/baseprofiler/core/platform-win32.cpp` initializes `mHiResTimer(nullptr)` when `MOZ_NO_WINRT` is defined;
+- the `CreateWaitableTimerExA` expression is under the opposite compile-time branch and therefore must not contribute a reference/import in the XP build;
+- non-legacy builds retain the original high-resolution timer code unchanged.
+
+The net production-code delta from pre-change branch HEAD `fd927a18af3275404ff34bcc79dffd63d1796477` is limited to those two base-profiler files.
+
+### Acceptance / next evidence
+
+This implementation is **not yet a closed GREEN**. The next full XP x32 build must be tied to its exact source SHA/run/job and prove at minimum:
+
+1. Firefox 153 x86 still compiles and links with the existing proven XP baseline;
+2. `mozglue.dll` no longer directly imports `KERNEL32!CreateWaitableTimerExA`;
+3. the produced PE remains x86 / XP 5.01 compatible under the established gates;
+4. the runnable package advances past the historical `CreateWaitableTimerExA` loader failure on physical Windows XP SP3 x86.
+
+If physical XP advances to a new loader/runtime failure, that new exact dependency becomes a separate blocker. The earlier 24-API KERNEL32 cluster remains closed and must not be reopened merely because this new delta is under test.
+
+**Conclusion:** the call-site analysis is complete and supports a minimal compile-time exclusion. The implementation intentionally disables only the high-resolution profiler timer on the legacy-Windows build and relies on Firefox's pre-existing fallback. Status remains **candidate implemented / build and physical-XP validation pending**.
+
+---
+
 ## 2026-09-02 — full Firefox XP x32 build reaches the expected physical-XP `CreateWaitableTimerExA` loader blocker
 
 **Track:** Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration and physical-XP loader progression  
