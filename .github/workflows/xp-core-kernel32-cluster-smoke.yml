@@ -260,7 +260,7 @@ jobs:
             SKIP(LocaleNameToLCID);
           #endif
           #if HAVE_GetLocaleInfoEx
-            {WCHAR v[128];if(GetLocaleInfoEx(ln,LOCALE_SLANGUAGE,v,128)>0)PASS(GetLocaleInfoEx);else FAIL(GetLocaleInfoEx);
+            {WCHAR v[128];if(GetLocaleInfoEx(ln,LOCALE_SLANGUAGE,v,128)>0)PASS(GetLocaleInfoEx);else FAIL(GetLocaleInfoEx);}
           #else
             SKIP(GetLocaleInfoEx);
           #endif
