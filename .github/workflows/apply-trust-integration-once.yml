@@ -1,0 +1,193 @@
+name: Apply trust integration once
+
+on:
+  push:
+    branches:
+      - agent/trust-integration-poc
+    paths:
+      - ".github/workflows/apply-trust-integration-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/trust-integration-poc
+          fetch-depth: 0
+
+      - name: Apply two-root trust integration
+        shell: python
+        run: |
+          from pathlib import Path
+          import textwrap
+
+          policies = Path("r3dfox/policies.json")
+          text = policies.read_text(encoding="utf-8")
+          marker = '        "DisplayMenuBar": true,\n'
+          addition = '''        "Certificates": {\n            "ImportEnterpriseRoots": true,\n            "Install": [\n                "russian_trusted_root_ca_rsa.cer",\n                "russian_trusted_root_ca_gost.cer"\n            ]\n        },\n'''
+          if '"Certificates"' not in text:
+              if marker not in text:
+                  raise SystemExit("policies.json insertion marker not found")
+              text = text.replace(marker, marker + addition, 1)
+          policies.write_text(text, encoding="utf-8")
+
+          config = Path("r3dfox/config.cfg")
+          text = config.read_text(encoding="utf-8")
+          old1 = 'defaultPref("security.certerrors.mitm.auto_enable_enterprise_roots", false);'
+          old2 = 'defaultPref("security.enterprise_roots.enabled", false);'
+          if old1 not in text or old2 not in text:
+              raise SystemExit("config.cfg enterprise-root defaults not found")
+          text = text.replace('// Disable third-party/OS-level root certificates', '// Enable Windows/enterprise root certificates', 1)
+          text = text.replace(old1, old1.replace('false', 'true'), 1)
+          text = text.replace(old2, old2.replace('false', 'true'), 1)
+          config.write_text(text, encoding="utf-8")
+
+          moz = Path("r3dfox/moz.build")
+          text = moz.read_text(encoding="utf-8")
+          marker = '''FINAL_TARGET_FILES.distribution += [\n  "policies.json",\n]\n'''
+          addition = '''\nFINAL_TARGET_FILES.distribution.Certificates += [\n  "certificates/russian_trusted_root_ca_rsa.cer",\n  "certificates/russian_trusted_root_ca_gost.cer",\n]\n'''
+          if 'FINAL_TARGET_FILES.distribution.Certificates' not in text:
+              if marker not in text:
+                  raise SystemExit("r3dfox/moz.build insertion marker not found")
+              text = text.replace(marker, marker + addition, 1)
+          moz.write_text(text, encoding="utf-8")
+
+          manifest = Path("browser/installer/package-manifest.in")
+          text = manifest.read_text(encoding="utf-8")
+          marker = '@RESPATH@/distribution/policies.json\n'
+          addition = '@RESPATH@/distribution/Certificates/russian_trusted_root_ca_rsa.cer\n@RESPATH@/distribution/Certificates/russian_trusted_root_ca_gost.cer\n'
+          if 'distribution/Certificates/russian_trusted_root_ca_rsa.cer' not in text:
+              if marker not in text:
+                  raise SystemExit("package-manifest.in insertion marker not found")
+              text = text.replace(marker, marker + addition, 1)
+          manifest.write_text(text, encoding="utf-8")
+
+          workflow = textwrap.dedent(r'''\
+          name: Government trust packaging preflight
+
+          on:
+            push:
+              branches:
+                - agent/gost-tls-poc
+                - agent/trust-integration-poc
+              paths:
+                - "r3dfox/policies.json"
+                - "r3dfox/config.cfg"
+                - "r3dfox/certificates/**"
+                - "r3dfox/moz.build"
+                - "browser/installer/package-manifest.in"
+                - ".github/workflows/government-trust-packaging-preflight.yml"
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            trust-preflight:
+              name: Windows/NSS two-root trust packaging contract
+              runs-on: windows-2022
+              timeout-minutes: 10
+
+              env:
+                RSA_CERT: r3dfox\certificates\russian_trusted_root_ca_rsa.cer
+                RSA_SHA256: d26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31
+                GOST_CERT: r3dfox\certificates\russian_trusted_root_ca_gost.cer
+                GOST_SHA256: 4bb37cc7c0ff4bf2aa893e95076ebb3565c69237ee1b61635beee4c1966495c7
+
+              steps:
+                - name: Checkout r3dfox-gost
+                  uses: actions/checkout@v4
+                  with:
+                    fetch-depth: 1
+
+                - name: GATE - Policy and AutoConfig enable enterprise roots
+                  shell: powershell
+                  run: |
+                    $ErrorActionPreference = 'Stop'
+                    $policy = Get-Content 'r3dfox\policies.json' -Raw | ConvertFrom-Json
+                    if (-not $policy.policies.Certificates) { throw 'policies.json has no Certificates policy.' }
+                    if ($policy.policies.Certificates.ImportEnterpriseRoots -ne $true) { throw 'Certificates.ImportEnterpriseRoots must be true.' }
+                    $install = @($policy.policies.Certificates.Install)
+                    $expected = @('russian_trusted_root_ca_rsa.cer', 'russian_trusted_root_ca_gost.cer')
+                    if ($install.Count -ne $expected.Count) { throw "Certificates.Install must contain exactly the two pinned roots; got $($install.Count)." }
+                    foreach ($name in $expected) {
+                      if ($install -notcontains $name) { throw "Certificates.Install is missing $name." }
+                    }
+                    $cfg = [System.IO.File]::ReadAllText('r3dfox\config.cfg')
+                    foreach ($pref in @(
+                      'defaultPref("security.certerrors.mitm.auto_enable_enterprise_roots", true);',
+                      'defaultPref("security.enterprise_roots.enabled", true);'
+                    )) {
+                      if (-not $cfg.Contains($pref)) { throw "config.cfg is missing required trust preference: $pref" }
+                    }
+
+                - name: GATE - Pinned RSA and GOST root identities
+                  shell: powershell
+                  run: |
+                    $ErrorActionPreference = 'Stop'
+                    $roots = @(
+                      @{ Kind='RSA'; Path=$env:RSA_CERT; Hash=$env:RSA_SHA256; Subject='CN=Russian Trusted Root CA' },
+                      @{ Kind='GOST'; Path=$env:GOST_CERT; Hash=$env:GOST_SHA256; Subject='CN=Минцифры России' }
+                    )
+                    foreach ($root in $roots) {
+                      if (-not (Test-Path $root.Path)) { throw "Bundled $($root.Kind) root is missing: $($root.Path)" }
+                      $hash = (Get-FileHash -Algorithm SHA256 $root.Path).Hash.ToLowerInvariant()
+                      if ($hash -ne $root.Hash) { throw "$($root.Kind) root SHA-256 mismatch: expected $($root.Hash) got $hash" }
+                      $bytes = [System.IO.File]::ReadAllBytes($root.Path)
+                      if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x30) { throw "$($root.Kind) certificate is not DER SEQUENCE encoded." }
+                      $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes)
+                      Write-Host "$($root.Kind) Subject=$($cert.Subject)"
+                      Write-Host "$($root.Kind) Issuer=$($cert.Issuer)"
+                      Write-Host "$($root.Kind) NotBefore=$($cert.NotBefore.ToUniversalTime().ToString('o'))"
+                      Write-Host "$($root.Kind) NotAfter=$($cert.NotAfter.ToUniversalTime().ToString('o'))"
+                      if ($cert.Subject -ne $cert.Issuer) { throw "$($root.Kind) certificate is not self-signed by identity." }
+                      if ($cert.Subject -notmatch [regex]::Escape($root.Subject)) { throw "Unexpected $($root.Kind) root subject: $($cert.Subject)" }
+                      $bc = $cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' } | Select-Object -First 1
+                      if (-not $bc) { throw "$($root.Kind) BasicConstraints extension is missing." }
+                      $bc2 = [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]$bc
+                      if (-not $bc2.CertificateAuthority) { throw "$($root.Kind) bundled certificate is not a CA." }
+                    }
+
+                - name: GATE - Build and package manifests stage both roots
+                  shell: powershell
+                  run: |
+                    $ErrorActionPreference = 'Stop'
+                    $moz = [System.IO.File]::ReadAllText('r3dfox\moz.build')
+                    $manifest = [System.IO.File]::ReadAllText('browser\installer\package-manifest.in')
+                    foreach ($name in @('russian_trusted_root_ca_rsa.cer', 'russian_trusted_root_ca_gost.cer')) {
+                      if (-not $moz.Contains("certificates/$name")) { throw "r3dfox/moz.build does not stage $name." }
+                      if (-not $manifest.Contains("@RESPATH@/distribution/Certificates/$name")) { throw "package-manifest.in does not package $name." }
+                    }
+
+                - name: Summary
+                  if: always()
+                  shell: powershell
+                  run: |
+                    @'
+                    ## Government trust packaging preflight
+
+                    Required contract:
+                    - Windows enterprise roots enabled by policy and AutoConfig defaults
+                    - exactly two pinned DER fallback roots: RSA + GOST
+                    - no bundled intermediate/Sub CA
+                    - exact SHA-256 pinned for both roots
+                    - moz.build and package-manifest staging required for both roots
+                    '@ | Add-Content $env:GITHUB_STEP_SUMMARY
+          ''')
+          Path('.github/workflows/government-trust-packaging-preflight.yml').write_text(workflow, encoding='utf-8')
+
+      - name: Commit integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add r3dfox/policies.json r3dfox/config.cfg r3dfox/moz.build browser/installer/package-manifest.in .github/workflows/government-trust-packaging-preflight.yml
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m "trust: integrate pinned Russian RSA and GOST roots"
+          git push origin HEAD:agent/trust-integration-poc
