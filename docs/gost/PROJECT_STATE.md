@@ -252,16 +252,27 @@ Current static contract is green:
 - both roots staged by `r3dfox/moz.build` and preserved by `browser/installer/package-manifest.in`;
 - fast preflight source `b7a2b7289a49e498911ac1231e517632469074b3`, run `33593375735`, job `100131774111`, **success**.
 
-The first heavy package attempt is not trust-failure evidence:
+The first heavy package attempt remains build-description failure evidence, not trust-failure evidence:
 
 - source `b2184aa0c7c95a47a35c7010248953902500daf3`;
 - run `33594665980`, job `100135594681`;
 - failed during configure before `mach build` because the two certificate entries in `FINAL_TARGET_FILES.distribution.Certificates` were not lexically sorted for Mozilla `StrictOrderingOnAppendList`;
 - therefore the `dist/bin` trust gate, package step and final portable trust gate were all skipped.
 
-The ordering defect is fixed by source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`, whose diff only swaps the GOST/RSA staging lines. Corrected heavy retry `33595966569`, job `100139347397`, is the current package source-under-test and was **in progress** at handoff. Later branch commits that restore trigger policy or update documentation are not that run's source identity.
+The ordering defect is fixed by source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`. Its corrected heavy package is now authoritative:
 
-Current blocker / next boundary: require the corrected retry to pass the existing CryptoPro/l10n gates plus exact RSA/GOST presence and SHA-256 in both real `dist/bin/distribution/Certificates` and the extracted final portable `distribution/Certificates`. Only then proceed to a clean-profile runtime test of `about:policies`, effective `security.enterprise_roots.enabled`, Windows-root import, and the two bundled anchors.
+- workflow `CryptoPro Mozilla packaging smoke`;
+- Actions run `33595966569`, attempt `2`;
+- job `100141282134` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
+- run/job conclusion: **success**;
+- packaged-browser artifact `9838528394`, digest `sha256:8341f2a4c11a3aeaf088f4fb46655bef405014ca4e9f47132640545d52784354`;
+- packaging-evidence artifact `9838528813`, digest `sha256:e89f134877ecbba92e04782dddc13edd5b3981db64b1687c186f47c4ff2d3d09`.
+
+The exact successful job passes the full release build, `GATE - Verify CryptoPro XPI and trust roots in real dist/bin`, production Russian localization merge, `ru + en-US` package, `GATE D - Verify CryptoPro XPI, trust roots, and substantive ru/en-US UI in final portable archive`, and both artifact uploads. The two pinned roots are therefore proven to survive the real `dist/bin/distribution/Certificates` tree and the extracted final portable `distribution/Certificates` tree under the workflow's exact presence/hash checks, while the existing CryptoPro and localization package gates remain green.
+
+Attempt `1` of the same run, job `100139347397`, was cancelled during checkout and is superseded by successful attempt `2`.
+
+Current trust status: **package/staging closure is GREEN; clean-profile runtime acceptance is OPEN.** The next boundary is the exact packaged browser artifact `9838528394`: verify `about:policies`, effective `security.enterprise_roots.enabled=true`, Windows-root import without manual NSS import, availability of both bundled root anchors, and the target Russian RSA/GOST PKI paths with the two-root contract and no explicitly bundled Sub CA. Bind that runtime result to source `e7640a8195c6f10d8e909ad620ace74fa08c2c86`, run `33595966569`, job `100141282134`, artifact `9838528394`, relevant browser binary hashes, clean profile and sanitized observations.
 
 `r3dfox/config.cfg` still has inherited `defaultPref(..., false)` values for enterprise-root preferences. Firefox enterprise policy is expected to set-and-lock `security.enterprise_roots.enabled=true`; this precedence must be verified on the exact built artifact before changing AutoConfig. The separate `security.certerrors.mitm.auto_enable_enterprise_roots` mechanism is not itself the policy switch.
 
