@@ -15,7 +15,6 @@ if not CONFIG["JS_STANDALONE"]:
     ]
     UNIFIED_SOURCES += [
         "core/PageInformation.cpp",
-        "core/platform.cpp",
         "core/ProfileBuffer.cpp",
         "core/ProfileBufferEntry.cpp",
         "core/ProfiledThreadData.cpp",
@@ -26,6 +25,8 @@ if not CONFIG["JS_STANDALONE"]:
         "core/ProfilingStack.cpp",
         "core/RegisteredThread.cpp",
     ]
+    SOURCES += ["core/platform.cpp"]
+    SOURCES["core/platform.cpp"].flags += ["-DMOZ_NO_WINRT"]
 
     # Keep in sync with ProfilerPlatformMacros.h
     if (
