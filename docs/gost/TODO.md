@@ -96,19 +96,30 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 - only a successful, normally verified GOST connection becomes session-confirmed;
 - discovery cache is process/session scoped and never bypasses trust/client-auth policy.
 
-## Windows compatibility — independent
+## Windows XP SP3 x86 compatibility — independent
 
-The representative Windows XP SP3 x86 coexistence question is closed for source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`: the exact probe with bundled msvcr14x `ucrtbase.dll` and `msvcp140.dll` ran three times on physical Windows XP SP3 x86 with `ExitCode=0`.
+The proven baseline and the 24 capability-present KERNEL32 cluster are **closed evidence and are not backlog items**:
 
-The first full Firefox 153 x86 integration build now also exists: source `982d6529a707c6feecad97c725feed8a3cd21c81`, run `33141004769`, job `98751650853`, package artifact `9676548553`, physical-test runtime artifact `9676549576`, diagnostics artifact `9676550507`. Full compilation/package/runtime staging succeeded; the run is red only because the post-build XP import audit failed. Physical tests have converted that broad audit result into concrete runtime blockers.
+- immutable SRW/Rust/CRT/YY baseline: source `d65b464c74caadace97995f07a4919363c41a0ea`, run `33470957048`, job `99740439208`;
+- 24-API KERNEL32 representative/hosted closure: source `0184985c2f0c5ab1c4c732a200cfbda07a6aefb4`, run `33600786738`, job `100153789478`;
+- the later auxiliary RED source `523601862d227da08819a0e4a74276cf3288fb56`, run `33604407934`, job `100165018692`, failed before PE/runtime gates and does not reopen those closed milestones.
+
+Physical XP evidence from the later full-Firefox line has already advanced past the earlier synchronization/`CloseThreadpoolWork` stage. The current production/runtime loader edge is:
+
+`mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
+
+YY-Thunks 1.2.2 has no direct XP x86 capability for `CreateWaitableTimerExA`; the cluster smoke intentionally reports it as `SKIP`.
 
 Open work, in order:
 
-1. **XP x32 loader blocker — `CloseThreadpoolWork`.** On physical XP the browser does not reach UI startup because a startup-loaded PE module has a hard `KERNEL32!CloseThreadpoolWork` dependency. Identify the exact importing module from the build diagnostics/import tables; redirect/remove only that observed hard import using the narrow compatibility strategy; rebuild and rerun the exact physical XP startup test. Do not assume the dialog title proves `r3dfox.exe` itself owns the import.
-2. **Win7 x32 content-sandbox RNG blocker — candidate fix awaiting exact runtime validation.** Physical Win7 evidence localizes the immediate tab death to `RandomUint64OrDie` after the sandboxed `RtlGenRandom` / `SystemFunction036` path fails; the same binary browses real pages when the content sandbox is disabled, so the failure is sandbox-dependent. Commit `27bf83a679ec26b93bc72a0ec7635fb26f821782` now pre-warms the exact Mozilla OS RNG path on pre-Win8 systems in `LowerContentSandbox()` before `LowerToken()`, matching Chromium's renderer warm-up ordering while keeping the sandbox enabled. Next: build the exact full x86 browser from this source, run it on physical Win7 with the content sandbox **enabled**, and require ordinary tabs/pages to survive startup. Do not call this fixed until that exact runtime passes.
-3. **Win7 x32 later parent/browser crash — `xul.dll` WinRT delay-load blocker.** On the exact source `982d6529a707c6feecad97c725feed8a3cd21c81` / run `33141004769` / runtime artifact `9676549576`, the sandbox-off browser can browse real pages and then later crashes in the parent process. ProcMon plus first-chance WinDbg now prove the failure chain: `xul.dll` delay-loads `api-ms-win-core-winrt-l1-1-0.dll`, attempts `RoGetActivationFactory`, Win7 returns `ERROR_MOD_NOT_FOUND` (`0x7e`), and the MSVC delay-load helper raises `0xc06d007e`. This is separate from the content RNG blocker. YY-Thunks 1.2.2 already implements a pre-Win8 `RoGetActivationFactory` thunk that returns `CLASS_E_CLASSNOTAVAILABLE` when real WinRT is unavailable, but the exact XP/x32 workflow's narrow YY provider currently exposes only the selected ProcessPrng/precise-time/FLS/fiber/stack-guarantee aliases plus the common implementation object and `synchronization.lib`; it does not expose the WinRT alias. Next: identify the exact YY-Thunks 1.2.2 archive/member set for `RoGetActivationFactory` and the companion WinRT string APIs that `xul.dll` also delay-imports; extend the existing **narrow** provider and rebuild. Do not inject a fake API-set DLL and do not switch to broad complete-YY `kernel32.lib` interposition. Preserve the current evidence that several obvious Firefox WinRT call sites are already OS-gated; the exact C++ caller that reached this delay-load remains unmapped without xul symbols.
-4. Re-run the resulting exact full x86 build on physical Win7 and XP after each compatibility fix, treating each newly observed loader/runtime failure as a separate evidence-backed blocker rather than preemptively rewriting every audit finding.
-5. Keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility. A browser that starts and browses ordinary pages still does not prove the MSSPI GOST path on XP/Win7.
+1. **P0 — map the exact Firefox/r3dfox `CreateWaitableTimerExA` caller and semantics.** Identify every relevant call site that contributes to the observed `mozglue.dll` import and record the actual `dwDesiredAccess`, manual/auto-reset behavior, `CREATE_WAITABLE_TIMER_*` flags, object naming, security/namespace requirements and any high-resolution expectation. Do not infer that `CreateWaitableTimerA` is equivalent before this analysis.
+2. **Design the narrowest XP-compatible remediation.** If the proven call-site contract can be preserved with `CreateWaitableTimerA` or another XP primitive, implement only that semantic fallback/redirect. If semantics cannot be preserved, stop and document the incompatibility instead of shipping a generic wrapper that silently changes behavior.
+3. **Focused proof before a full Firefox build.** Require x86 compile, native link, XP 5.01 PE floor, no forbidden/direct `CreateWaitableTimerExA` import, functional timer behavior on the hosted runner, and then a physical Windows XP SP3 x86 run of the focused artifact. Bind every result to exact SHA + run + job + artifacts.
+4. **Only after the focused path is GREEN, rebuild Firefox 153 x86 and repeat physical XP startup.** The acceptance condition is that the loader advances past the exact `mozglue.dll -> KERNEL32!CreateWaitableTimerExA` dependency; any newly observed failure becomes a separate evidence-backed blocker.
+5. **Keep remaining xul/Win7 legacy APIs secondary.** Existing WinRT-delay-load and sandbox/RNG investigations remain valid separate evidence, but they are not the current XP loader target and must not displace `CreateWaitableTimerExA` until this physical-XP edge is closed.
+6. Keep GOST TLS-on-old-Windows as a later exact-build/runtime milestone independent from loader/startup compatibility. Browser startup and ordinary browsing do not prove the MSSPI GOST path.
+
+Do not re-run `GetTickCount64`, SRW, Rust, CRT, the 24 capability-present KERNEL32 APIs, or reconstruct their provider closure from memory merely for confirmation. New XP experiments must extend the exact proven baseline and test only the new delta.
 
 ## Bundled government-system extensions — independent
 
