@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -315,3 +315,26 @@ The portable package contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlug
 ### Three-extension clean-profile discovery/enabled state — COMPLETE
 
 On the exact packaged browser from source `b3d097de...`, run `32976571122`, artifact `9614275050`, a fresh dedicated profile shows all three bundled project extensions enabled. Native functionality of IFCPlugin/Gosplugin and update behavior remain open separately.
+
+## Firefox/NSS + Windows trust integration
+
+### Two-root Russian trust package + clean-profile runtime acceptance — COMPLETE
+
+Exact accepted source/build/runtime evidence:
+
+- experiment branch `agent/trust-integration-poc`;
+- source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- run `33595966569`, attempt 2, job `100141282134`, success;
+- packaged-browser artifact `9838528394`;
+- runtime OS Windows 7 SP1 x64 (`Microsoft Windows [Version 6.1.7601]`);
+- `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7` — exact artifact/runtime match;
+- `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6` — exact artifact/runtime match.
+
+The package contains exactly the pinned RSA and GOST root files under `distribution/Certificates`; both survive real `dist/bin` and final portable exact hash gates. On a newly created profile, `about:policies` shows `Certificates.ImportEnterpriseRoots=true` and both `Certificates.Install` entries active. `about:config` shows `security.enterprise_roots.enabled` as **locked**, boolean, **true**, directly proving enterprise-policy precedence over the inherited AutoConfig `defaultPref(..., false)`; no `config.cfg` change is required.
+
+On the same exact clean-profile browser, ordinary Firefox/NSS HTTPS to `zakupki.gov.ru` succeeds with the observed chain `*.zakupki.gov.ru -> Russian Trusted Sub CA -> Russian Trusted Root CA`. The project does not bundle the Sub CA, so an explicit intermediate is not required for this accepted RSA path.
+
+Conclusion: **COMPLETE.** The two-root Firefox/NSS trust-integration PoC is formally closed. Separate Windows-store-only isolation and a separate browser-side GOST-root website probe are not acceptance blockers for this milestone. Actual GOST TLS server verification remains a separate MSSPI/SSPI/CryptoPro security problem and is not implied by this closure.
+
+The remaining work is product transfer only: carry the minimal audited trust diff into `agent/gost-tls-poc`; do not merge the experiment branch history wholesale.
