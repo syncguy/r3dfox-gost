@@ -45,29 +45,30 @@ This result does **not** prove runtime policy effectiveness. The next exact boun
 
 ---
 
-## 2026-09-02 — Win7 x64 ordinary NSS Russian RSA trust smoke passes; full runtime acceptance remains open
+## 2026-09-02 — Win7 SP1 x64 exact-artifact ordinary NSS Russian RSA trust smoke passes; full runtime acceptance remains open
 
-Track: Firefox/NSS + Windows trust + bundled Russian root CAs. This is ordinary HTTPS/NSS trust evidence for the trust-integration branch, not GOST TLS MSSPI/SSPI handshake evidence and not a Windows XP/Vista/7 binary-compatibility conclusion.
+Track: Firefox/NSS + Windows trust + bundled Russian root CAs. This is ordinary HTTPS/NSS trust evidence for the trust-integration branch, not GOST TLS MSSPI/SSPI handshake evidence and not a general Windows XP/Vista/7 compatibility conclusion.
 
-Target build identity under test:
+Exact build/runtime identity:
 
 - branch `agent/trust-integration-poc`;
 - source-under-test `e7640a8195c6f10d8e909ad620ace74fa08c2c86`;
 - workflow `CryptoPro Mozilla packaging smoke`;
 - Actions run `33595966569`, attempt 2;
 - job `100141282134`;
-- packaged-browser artifact `9838528394`.
+- packaged-browser artifact `9838528394`;
+- runtime OS `Microsoft Windows [Version 6.1.7601]` = Windows 7 SP1;
+- runtime directory reported as `C:\1\r3dfox-v153.0.3.win64.portable`.
 
-Reference binary identity derived directly from the packaged-browser artifact's `r3dfox-v153.0.3.win64.zip` payload:
+Package-side reference hashes derived directly from artifact `9838528394` and local runtime hashes supplied by the user are identical:
 
-- `r3dfox.exe` SHA-256 `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7`;
-- `xul.dll` SHA-256 `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6`.
+- `r3dfox.exe` SHA-256 package/runtime `a439940ba92e70f14b1997f7d82e5beceb2ef6aa4517c21ca9001311cfa13aa7` — **MATCH**;
+- `xul.dll` SHA-256 package/runtime `8ebda2b3337e2fe9c88a7191885e509d55fb1fa2cbb3c5ca54e1df4be8b323d6` — **MATCH**.
 
-These are the expected package-side hashes for exact-runtime preflight. The user-supplied runtime evidence did not yet include local `certutil -hashfile` output, so local equality to these hashes remains to be recorded before the full exact-artifact acceptance gate can close.
+The exact binary-identity portion of the runtime preflight is therefore closed for this smoke.
 
 Runtime environment and launch reported by the user:
 
-- physical/runtime OS: Windows 7 x64;
 - `R3DFOX_GOST_HOSTS=lk.zakupki.gov.ru`;
 - client-certificate thumbprint override cleared;
 - client-auth mode override cleared;
@@ -83,10 +84,10 @@ Sanitized observed evidence:
 - the tested main host is `zakupki.gov.ru`, while the GOST allowlist token supplied for this launch is `lk.zakupki.gov.ru`, so this main-page result belongs to the ordinary Firefox/NSS trust path rather than the allowlisted MSSPI GOST transport;
 - no explicitly bundled Sub CA/intermediate is part of the two-root package contract, yet the observed RSA server chain builds through `Russian Trusted Sub CA` to the bundled Russian RSA root and the page renders without a certificate error.
 
-Conclusion: **PASS / RUSSIAN RSA NSS RUNTIME SMOKE GREEN, PARTIAL RUNTIME ACCEPTANCE ONLY.** This is concrete runtime evidence that the packaged policy object is active and that the target Russian RSA PKI path is usable in the tested Win7 x64 browser/profile environment without adding the Sub CA to the product package.
+Conclusion: **PASS / EXACT-ARTIFACT RUSSIAN RSA NSS RUNTIME SMOKE GREEN.** This is concrete runtime evidence on Windows 7 SP1 x64 that the tested browser binaries are byte-for-byte the expected artifact payload, the packaged `Certificates` policy is active, and the target Russian RSA PKI path is usable without explicitly bundling the Sub CA.
 
-The full trust runtime gate remains open because the supplied evidence does not yet establish all mandatory preflight/acceptance items: the profile was not independently demonstrated to be newly clean, local `r3dfox.exe`/`xul.dll` hashes were not recorded, the effective locked value of `security.enterprise_roots.enabled` was not shown directly, Windows-store trust was not isolated from the bundled RSA anchor, and the bundled GOST root / relevant GOST PKI path was not runtime-proven.
+The full trust runtime gate remains open only on the remaining acceptance items: the profile has not yet been explicitly confirmed as newly clean, the effective locked value `security.enterprise_roots.enabled=true` has not yet been shown directly, Windows-store trust has not been isolated from the bundled RSA anchor, and the bundled GOST root / relevant GOST PKI path has not yet been runtime-proven.
 
-Next exact boundary: record the two local binary hashes against the package-side values above, confirm a new clean profile and effective `security.enterprise_roots.enabled=true`, prove a Windows-store-only trust case without manual NSS import, and exercise the GOST-root side of the two-root contract. Do not change `config.cfg` on the basis of this RSA smoke alone.
+Next exact boundary: confirm a newly clean profile and effective `security.enterprise_roots.enabled=true`, prove a Windows-store-only trust case without manual NSS import, and exercise the GOST-root side of the two-root contract. Do not change `config.cfg` on the basis of this RSA smoke alone.
 
 ---
