@@ -151,6 +151,14 @@ jobs:
               $file=Get-ChildItem $dir -File | Select-Object -First 1; $dst=Join-Path $dir 'member.obj'; Copy-Item -Force $file.FullName $dst; $objects+=$dst; $map.Add("$api-$kind|$($hits[0])")
             }
           }
+          foreach ($kind in @('obj','obi')) {
+            $hits=@($members | Where-Object { $_ -match "(?i)[\\/]_ProcessPrng@8\.$kind$" })
+            if ($hits.Count -ne 1) { throw "Expected one ProcessPrng .$kind internal closure member; found $($hits.Count)" }
+            $dir=Join-Path $selected "ProcessPrng-$kind"; New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try { & lib.exe /nologo "/extract:$($hits[0])" $env:THUNK_YY_KERNEL32_LIB | Out-Null; if($LASTEXITCODE-ne 0){throw 'ProcessPrng extract failed'} } finally { Pop-Location }
+            $file=Get-ChildItem $dir -File | Select-Object -First 1; $dst=Join-Path $dir 'member.obj'; Copy-Item -Force $file.FullName $dst; $objects+=$dst; $map.Add("ProcessPrng-$kind|$($hits[0])")
+          }
           $impl=@($members | Where-Object { $_ -match ('(?i)[\\/]YY_Thunks_for_'+[regex]::Escape($env:YY_THUNKS_TARGET)+'\.obj$') })
           if($impl.Count-ne 1){throw "Expected one common YY implementation; found $($impl.Count)"}
           $dir=Join-Path $selected 'implementation'; New-Item -ItemType Directory -Force $dir|Out-Null; Push-Location $dir
@@ -161,6 +169,7 @@ jobs:
           if($LASTEXITCODE-ne 0){throw 'narrow provider build failed'}
           $symbols=(& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String); $symbols|Set-Content -Encoding utf8 diagnostics\narrow-provider-symbols.txt
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($symbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Provider missing YY_Thunks_$api"}}
+          if($symbols.IndexOf('_ProcessPrng@8',[System.StringComparison]::Ordinal)-lt 0){throw 'Provider missing ProcessPrng internal closure'}
           "NARROW_YY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Generate capability header
@@ -251,7 +260,7 @@ jobs:
             SKIP(LocaleNameToLCID);
           #endif
           #if HAVE_GetLocaleInfoEx
-            {WCHAR v[128];if(GetLocaleInfoEx(ln,LOCALE_SLANGUAGE,v,128)>0)PASS(GetLocaleInfoEx);else FAIL(GetLocaleInfoEx);}
+            {WCHAR v[128];if(GetLocaleInfoEx(ln,LOCALE_SLANGUAGE,v,128)>0)PASS(GetLocaleInfoEx);else FAIL(GetLocaleInfoEx);
           #else
             SKIP(GetLocaleInfoEx);
           #endif
