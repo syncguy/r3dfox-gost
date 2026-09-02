@@ -8,6 +8,55 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — First full XP x32 Firefox build and portable package complete successfully; CRT post-package gate remains RED
+
+**Track:** Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration and packaging  
+**Branch:** `agent/winrt-source-poc`  
+**Source-under-test:** `6998ba51b1052b08d8b0b2a221d63b896eccd219`  
+**Workflow:** `XP x32` (`.github/workflows/xp-x32.yml`)  
+**Actions run:** `33610933602`  
+**Job:** `100185641911`  
+**Overall job result:** failure  
+**Build milestone:** success  
+**Portable-package milestone:** success  
+**Package artifact:** `5701777195` (`r3dfox-gost-xp-x32-package`), `263053348` bytes, digest `sha256:999a6276856771eb4629020d366fbcf4e696b2928de8bfb6e2b024b12b0406d8`  
+**Diagnostics artifact:** `5701777490` (`r3dfox-gost-xp-x32-diagnostics`), `5978530` bytes, digest `sha256:741a517b7065a60b581567cb45bc83b4d1ca79b1277a3871e757554991236977`
+
+### Exact milestone proved by the run
+
+The integrated XP x32 Firefox line progressed through the full compile/package path:
+
+- `Build release r3dfox XP x32` — **PASS**;
+- build-time compile/import gates — **PASS**;
+- XP runtime staging — **PASS**;
+- XP PE subsystem retargeting — **PASS**;
+- packaged `D3DCompiler_47.dll` gate — **PASS**;
+- `Package XP x32 experiment` — **PASS**;
+- package artifact upload — **PASS**;
+- diagnostics artifact upload — **PASS**.
+
+Therefore the first complete XP x32 Firefox build and portable-package milestone is closed successfully for exact source `6998ba51...`. The aggregate workflow is red only because a later validation step failed after the browser had already built and packaged successfully.
+
+### Remaining post-package CRT gate
+
+`GATE - Verify msvcr14x CRT survived portable packaging` — **FAIL**.
+
+The gate inspected the packaged directory beside `r3dfox.exe` and found no `msvcr14*.dll`. The observed packaged DLL set included `freebl3.dll`, `mozglue.dll`, `mozsqlite3.dll`, `nss3.dll`, and `softokn3.dll`, then the gate emitted:
+
+`ERROR: expected packaged CRT (msvcr14*.dll) was not found next to packaged r3dfox.exe.`
+
+This is a packaging/runtime-dependency preservation problem, not a Firefox compile or package-generation failure. The immediate CI task is to make the required msvcr14x CRT survive into the portable package and make this post-package gate GREEN.
+
+### Evidence boundary
+
+This run proves **full Firefox XP x32 build and portable packaging**, not physical-XP runtime compatibility. It does not prove that the produced browser starts or operates on Windows XP SP3 x86. `CreateWaitableTimerExA` remains a physical-XP runtime semantic risk to validate after the package dependency set is correct. No GOST TLS runtime or handshake conclusion follows from this compatibility build.
+
+**Conclusion:** classify run `33610933602` / job `100185641911` / source `6998ba51...` as **BUILD/PACKAGE SUCCESS with POST-PACKAGE CRT VALIDATION FAILURE**, not as a failed Firefox build. The next gate is packaged CRT preservation; after it is GREEN, execute the exact package on physical Windows XP SP3 x86 and continue runtime/loader validation.
+
+Status: current immutable experiment evidence; full XP x32 Firefox build/package milestone GREEN, aggregate job RED only at later CRT packaging gate, physical XP runtime pending.
+
+---
+
 ## 2026-09-02 — XP x86 core KERNEL32 capability cluster closes GREEN at representative/hosted level
 
 **Track:** Windows XP SP3 x86 compatibility / YY-Thunks KERNEL32 closure  
@@ -86,7 +135,7 @@ Status: current immutable experiment evidence; representative/hosted KERNEL32 cl
 **Actions run:** `33604407934`  
 **Job:** `100165018692` (`Proven SRW/Rust/CRT closure + KERNEL32 delta / XP x86`)  
 **Result:** failure  
-**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c5fc21dcc2a093b1467b86c7f454fee3f8b3aab1df1`
+**Diagnostics artifact:** `9836714005` (`xp-kernel32-delta-on-srw-baseline-diagnostics`), digest `sha256:163d410b8cf06d6641086c7f454fee3f8b3aab1df1`
 
 Observed execution boundary:
 
