@@ -8,6 +8,47 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — repaired final Russian localization Gate D passes the full ru + en-US package workflow
+
+Track: bundled extensions / localization / package behavior only. This is not GOST TLS runtime/handshake evidence and not old-Windows runtime evidence.
+
+Exact project/build identity:
+
+- branch `agent/gost-tls-poc`;
+- source-under-test `3e2c32386f373d4693db52b32c05aa2000878def`;
+- workflow `CryptoPro Mozilla packaging smoke`;
+- Actions run `33520207057`;
+- job `99897230730` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
+- run/job conclusion: **success**;
+- pinned `firefox-l10n` source SHA remains `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`.
+
+Exact artifacts:
+
+- packaged browser artifact `9812333220` (`r3dfox-cryptopro-mozilla-packaging-ru-en-US`), digest `sha256:c8e62704fcc2cd1b99c78cf6cf90b405b653a9aeba5272d132bcda4eaed5edd8`;
+- packaging evidence artifact `9812333789` (`cryptopro-mozilla-packaging-evidence`), digest `sha256:fdcb6a34ed5625532af86413330b5c2d4453be046f3d6419d49d2d45c7a143dc`.
+
+Every relevant localization/package boundary is green in the exact job:
+
+- pinned Russian localization checkout — **PASS**;
+- packaging-only Russian UI default — **PASS**;
+- full release browser build — **PASS**;
+- CryptoPro XPI presence/hash in real `dist/bin` — **PASS**;
+- production `ru` merge materialization/content gate — **PASS**;
+- `ru + en-US` multi-locale package — **PASS**;
+- corrected final Gate D inside the extracted portable archive — **PASS**;
+- packaged-browser upload — **PASS**;
+- packaging-evidence upload — **PASS**.
+
+The repair commit changes only the final `browser/omni.ja` representative-resource suffix used by Gate D: the packaged path is checked as `browser/browser.ftl` rather than the production-merge-tree shape `browser/browser/browser.ftl`. This is the exact defect characterized by failed predecessor run `33489331410`, job `99796818515`, source `e4f9f775d82ff14a75708e11043211e7259eed9b`.
+
+The successful rerun therefore closes the CI false negative. The full package now proves, under the existing hard checks, that substantive Russian resources survive in both root and browser `omni.ja`, differ from en-US where representative checks require it, Russian is requested by default, and the package declares exact `ru,en-US` multilocale content.
+
+Separately, the user had already manually exercised the packaged browser from predecessor artifact `9798517225` and observed Russian UI out of the box, including localized settings and TLS error UI, and successful switching back to `en-US`. That runtime/UI observation belongs to the predecessor exact artifact and is not reattributed to run `33520207057`; the new source change is a CI gate correction rather than a browser localization-content change.
+
+Conclusion: **PASS / localization package gate CLOSED.** The previous mass-empty-Russian-payload defect and the later Gate D path-shape false negative are both superseded as active blockers. There is no current localization packaging blocker. Any future runtime regression check should be bound to its own exact browser artifact, but another full build is not required merely to re-prove the corrected Gate D on unchanged source.
+
+---
+
 ## 2026-09-01 — physically proven single-DLL bcrypt published as reusable raw release asset
 
 Track: Windows XP x86 dependency distribution/integration only. This does not add new bcrypt runtime evidence and is not GOST TLS handshake evidence.
