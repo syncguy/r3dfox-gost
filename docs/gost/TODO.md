@@ -179,6 +179,18 @@ Next:
 6. transfer only proven shared packaging gates into the two main browser workflows;
 7. later prove real version-to-version update behavior where a valid older/newer signed extension is available.
 
+## Firefox/NSS trust integration — product transfer only
+
+The isolated two-root trust PoC on `agent/trust-integration-poc` is **COMPLETE**. Do not schedule another build or runtime test merely to re-prove it on unchanged source.
+
+Open product-integration task:
+
+1. transfer the minimal audited trust diff from `agent/trust-integration-poc` into `agent/gost-tls-poc`;
+2. preserve exactly the two pinned RSA/GOST roots, `Certificates.ImportEnterpriseRoots=true`, both `Certificates.Install` entries, final-package survival entries and lexical `gost`-before-`rsa` staging order;
+3. preserve the inherited AutoConfig defaults because exact clean-profile runtime evidence already proves `security.enterprise_roots.enabled=true` is locked by policy;
+4. do not merge the experimental branch history wholesale;
+5. after transfer, use ordinary regression gates as needed, but do not reopen the completed trust PoC absent new contradictory evidence.
+
 ## CI artifact ergonomics — project-wide
 
 For every heavyweight workflow that performs a full browser compilation/package, add a dedicated portable artifact containing only the produced runnable `.7z` archive.
