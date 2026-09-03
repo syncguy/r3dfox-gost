@@ -8,6 +8,53 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — full XP x32 Firefox build and package pass; portable msvcr14x survival gate remains red
+
+Track: Windows XP SP3 x86 compatibility / full Firefox build and packaging only. This is not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33638897692`, attempt `1`;
+- job `100276666021` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- overall run/job conclusion: **failure**, localized after successful build/package to the portable CRT-survival gate.
+
+Passed boundaries before the red flag:
+
+- pinned `msvcr14x` Release x86 build and the focused proven XP runtime-contract gate — **PASS**;
+- narrow YY-Thunks XP x86 provider and core-browser linker patching — **PASS**;
+- Firefox x86 configure/export prerequisites — **PASS**;
+- security-manager SSL target-object compile gate — **PASS**;
+- full `Build release r3dfox XP x32` — **PASS**;
+- early `GATE - Reject proven core browser XP direct imports` — **PASS**;
+- app-local XP CRT staging — **PASS**;
+- legacy Firefox XP `D3DCompiler_47.dll` staging, PE retarget and package-survival gates — **PASS**;
+- pre-package CRT identity recording — **PASS**;
+- `Package XP x32 experiment` / Firefox package production — **PASS**.
+
+The exact staged CRT identity recorded before packaging was:
+
+- `ucrtbase.dll`: SHA-256 `b78cf1cdc5c1bce0716e31352940663128978bc1720f8b1ad015d97eb41e2ac8`, size `992712` bytes;
+- `msvcp140.dll`: SHA-256 `d7c77c8ac9dd56f0cd6902010f05297d6ef96a4d0f9a75986914fab7d3b5ad7d`, size `446784` bytes.
+
+Red flag:
+
+- step `GATE - Verify msvcr14x CRT survived portable packaging` — **FAIL**;
+- the gate requires exactly one packaged `ucrtbase.dll` and one packaged `msvcp140.dll` matching the pre-package SHA-256 identities above;
+- no produced portable package satisfied that exact contract, so the workflow terminated with `No produced portable package contains the exact staged XP CRT runtime.`;
+- independent inspection of uploaded package artifact `9855749298` (`r3dfox-gost-xp-x32-package`) confirms that `r3dfox-v153.0.3.win32.zip` contains neither `ucrtbase.dll` nor `msvcp140.dll`;
+- diagnostics artifact `9855751471` (`r3dfox-gost-xp-x32-diagnostics`) preserves the pre-package CRT identities and other build evidence.
+
+Because this integrity gate failed, the workflow intentionally skipped the physical-test runtime archive and the final broad `GATE - Audit XP x32 PE floor and direct imports`. Therefore the successful full compile/link/package checkpoint must not be promoted to an authoritative XP runtime package, and the early core-import gate must not be misread as complete post-XP import closure.
+
+Conclusion: **major full-build progress / packaging-contract RED.** The current blocker exposed by this run is no longer Firefox compilation or packaging itself; it is preservation of the already staged and identified app-local msvcr14x runtime across the Mozilla `dist/bin -> mach package -> portable archive` boundary. Do not reopen the Rust/YY synchronization linker work on the basis of this failure alone.
+
+Next experiment: repair portable-package inclusion/survival of the exact staged `ucrtbase.dll` and `msvcp140.dll`, rerun the same full XP x32 lineage, require the CRT-survival gate to pass, then allow the final broad PE/import audit and physical-test runtime archive to execute. Only an exact resulting package tested on physical XP can advance the full-browser runtime milestone.
+
+---
+
 ## 2026-09-02 — repaired final Russian localization Gate D passes the full ru + en-US package workflow
 
 Track: bundled extensions / localization / package behavior only. This is not GOST TLS runtime/handshake evidence and not old-Windows runtime evidence.
