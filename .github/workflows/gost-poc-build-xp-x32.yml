@@ -699,6 +699,7 @@ jobs:
       - name: GATE - Reject proven core browser XP direct imports
         id: sync-import-gate
         if: steps.build-release.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -740,7 +741,7 @@ jobs:
 
       - name: Stage msvcr14x XP runtime DLLs
         id: stage-runtime
-        if: steps.sync-import-gate.outcome == 'success'
+        if: always() && steps.build-release.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -800,6 +801,7 @@ jobs:
       - name: GATE - Verify retargeted legacy D3DCompiler_47
         id: verify-retargeted-d3dcompiler
         if: steps.retarget-pe.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -823,7 +825,7 @@ jobs:
 
       - name: Stage proven XP bcrypt.dll
         id: stage-xp-bcrypt
-        if: steps.verify-retargeted-d3dcompiler.outcome == 'success'
+        if: always() && steps.retarget-pe.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -879,6 +881,7 @@ jobs:
       - name: GATE - Verify legacy D3DCompiler_47 survived packaging
         id: verify-legacy-d3dcompiler
         if: steps.package-release.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -892,7 +895,8 @@ jobs:
 
       - name: GATE - Verify msvcr14x CRT survived portable packaging
         id: verify-packaged-crt
-        if: steps.verify-legacy-d3dcompiler.outcome == 'success'
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -909,6 +913,7 @@ jobs:
             Sort-Object LastWriteTimeUtc -Descending)
           if ($archives.Count -eq 0) { throw "No portable package archive found under $dist" }
 
+          "XP_PORTABLE_ARCHIVE=$($archives[0].FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $verifiedArchive = $null
           foreach ($archive in $archives) {
             $extract = Join-Path $env:RUNNER_TEMP ("xp-package-crt-" + [guid]::NewGuid().ToString('N'))
@@ -935,25 +940,26 @@ jobs:
               "ucrtbase.dll|sha256=$($matches['ucrtbase.dll'])",
               "msvcp140.dll|sha256=$($matches['msvcp140.dll'])"
             ) | Add-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+            "XP_PORTABLE_ARCHIVE=$($verifiedArchive.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
             break
           }
           if (-not $verifiedArchive) { throw 'No produced portable package contains exactly one matching ucrtbase.dll and msvcp140.dll' }
-          "XP_PORTABLE_ARCHIVE=$($verifiedArchive.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: GATE - Verify proven bcrypt survived portable packaging
         id: verify-packaged-bcrypt
-        if: steps.verify-packaged-crt.outcome == 'success'
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:XP_PORTABLE_ARCHIVE -or -not (Test-Path $env:XP_PORTABLE_ARCHIVE)) { throw 'Verified portable archive is unavailable for bcrypt gate' }
+          if (-not $env:XP_PORTABLE_ARCHIVE -or -not (Test-Path $env:XP_PORTABLE_ARCHIVE)) { throw 'Portable archive is unavailable for bcrypt gate' }
           if (-not $env:XP_BCRYPT_STAGED_SHA256) { throw 'Staged bcrypt hash was not recorded before packaging' }
           $extract = Join-Path $env:RUNNER_TEMP ("xp-package-bcrypt-" + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory -Force $extract | Out-Null
           & 7z.exe x $env:XP_PORTABLE_ARCHIVE "-o$extract" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract verified portable archive for bcrypt gate' }
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract portable archive for bcrypt gate' }
           $found = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'bcrypt.dll')
-          if ($found.Count -ne 1) { throw "Verified portable package must contain exactly one bcrypt.dll; found $($found.Count)" }
+          if ($found.Count -ne 1) { throw "Portable package must contain exactly one bcrypt.dll; found $($found.Count)" }
           $item = Get-Item $found[0].FullName
           $sha1 = (Get-FileHash -Algorithm SHA1 $found[0].FullName).Hash.ToLowerInvariant()
           $sha256 = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
@@ -972,7 +978,7 @@ jobs:
 
       - name: Build XP x32 runtime test archive from dist/bin
         id: runtime-archive
-        if: steps.verify-packaged-bcrypt.outcome == 'success'
+        if: always() && steps.package-release.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -990,6 +996,7 @@ jobs:
       - name: GATE - Audit XP x32 PE floor and direct imports
         id: xp-import-audit
         if: steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -1129,16 +1136,50 @@ jobs:
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
 
       - name: GATE - Summarize XP x32 full build
-        if: always() && steps.runtime-archive.outcome == 'success' && steps.xp-import-audit.outcome == 'success'
+        if: always()
         shell: powershell
         run: |
-          "## GOST TLS PoC build XP x32: build/import PASS" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $ErrorActionPreference = 'Stop'
+          $checks = @(
+            @{ Name='core-import'; Outcome='${{ steps.sync-import-gate.outcome }}' },
+            @{ Name='retargeted-d3dcompiler'; Outcome='${{ steps.verify-retargeted-d3dcompiler.outcome }}' },
+            @{ Name='packaged-d3dcompiler'; Outcome='${{ steps.verify-legacy-d3dcompiler.outcome }}' },
+            @{ Name='packaged-crt'; Outcome='${{ steps.verify-packaged-crt.outcome }}' },
+            @{ Name='packaged-bcrypt'; Outcome='${{ steps.verify-packaged-bcrypt.outcome }}' },
+            @{ Name='broad-import-audit'; Outcome='${{ steps.xp-import-audit.outcome }}' }
+          )
+          $operations = @(
+            @{ Name='build'; Outcome='${{ steps.build-release.outcome }}' },
+            @{ Name='package'; Outcome='${{ steps.package-release.outcome }}' },
+            @{ Name='runtime-archive'; Outcome='${{ steps.runtime-archive.outcome }}' }
+          )
+          $red = [System.Collections.Generic.List[string]]::new()
+
+          "## GOST TLS PoC build XP x32: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256, staged after PE retarget and verified unchanged in the portable archive." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the physically narrow SRW/condition-variable closure, the 24-API KERNEL32 baseline proven by run 33600786738 / job 100153789478 / SHA 0184985c2f0c5ab1c4c732a200cfbda07a6aefb4, and focused residual coverage for GetThreadPreferredUILanguages, InitOnceExecuteOnce and QueryFullProcessImageNameA proven by run 33712987285 / job 100516220327 / SHA ffb72c4ae6988a7c4f82b4e67a9027e41afb572b. CreateWaitableTimerExA remains outside that provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Core browser proven KERNEL32 imports are fail-fast gated immediately after the Firefox build, before CRT/D3D/package gates." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Portable package and runtime archive include the verified XP-compatible ucrtbase.dll, msvcp140.dll, and proven bcrypt.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- This proves full-build/link/import viability only. Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; residual-three focused proof is run 33712987285 / job 100516220327 / SHA ffb72c4ae6988a7c4f82b4e67a9027e41afb572b." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($item in $operations) {
+            "- $($item.Name): $($item.Outcome)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            if ($item.Outcome -ne 'success') { $red.Add("operation:$($item.Name)=$($item.Outcome)") }
+          }
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "### Diagnostic gates" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($item in $checks) {
+            "- $($item.Name): $($item.Outcome)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            if ($item.Outcome -notin @('success','skipped')) { $red.Add("gate:$($item.Name)=$($item.Outcome)") }
+          }
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Package/runtime/diagnostics uploads execute before this final verdict." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- A diagnostic RED does not suppress later evidence collection." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+          if ($red.Count -gt 0) {
+            $red | Set-Content -Encoding utf8 diagnostics\final-red-gates.txt
+            throw ("XP x32 build completed evidence collection with RED outcomes: " + ($red -join '; '))
+          }
