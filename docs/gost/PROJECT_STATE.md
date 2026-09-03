@@ -2,22 +2,34 @@
 
 Last updated: 2026-09-03
 
-This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; Windows XP x86 dependency/build rules are in `XP_BUILD_CONTRACT.md`.
+This file is the authoritative current technical synthesis and handoff for new chats.
+
+## Canonical documentation location — read this first
+
+All project documentation is maintained in the repository default branch `agent/gost-tls-poc`, under `docs/gost/`, regardless of which experimental/work branch contains the code being investigated.
+
+Do not look for copies of the XP contracts/status documents in `agent/winrt-source-poc` or other experiment branches. For documentation, explicitly read `agent/gost-tls-poc:docs/gost/...`. Experimental branches are for code/workflow state and exact source-under-test identity; they do not relocate the documentation source of truth.
+
+For Windows XP x86 work, the mandatory starting documents are therefore on `agent/gost-tls-poc`:
+
+- `docs/gost/PROJECT_STATE.md`;
+- `docs/gost/XP_BUILD_CONTRACT.md`;
+- `docs/gost/XP_COMPATIBILITY_STRATEGY.md` when architectural strategy is relevant;
+- `docs/gost/XP_SYNC_IMPORT_STATUS.md`, `XP_IMPORT_REMEDIATION.md`, `XP_PROPSYS_STATUS.md`, `XP_BCRYPT_STATUS.md`, `XP_CREATE_WAITABLE_TIMER_STATUS.md` as applicable;
+- `docs/gost/TEST_LOG.md`, `DONE.md`, `TODO.md`, `WORKFLOWS.md` as required by the question.
+
+Detailed experiment evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; Windows XP x86 dependency/build rules are in `XP_BUILD_CONTRACT.md`.
 
 ## Repository / branch policy
 
 - Repository: `syncguy/r3dfox-gost`.
-- Default GOST development branch: `agent/gost-tls-poc`.
+- Default GOST development branch and documentation source of truth: `agent/gost-tls-poc`.
 - Windows XP SP3 x86 compatibility work branch: `agent/winrt-source-poc`.
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
 - PR #1 historically targets `win-153`; it does not define the working branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer base.
 
-### Branch-local state precedence
-
-When a technical question concerns a non-default active branch, the branch-local `docs/gost/PROJECT_STATE.md`, `TEST_LOG.md`, `TODO.md`, `DONE.md`, and relevant status documents at that branch HEAD must be read after this default-branch handoff. Newer branch-local evidence overrides an older cross-branch snapshot here. A historical blocker in this file must never override a later exact physical-runtime or CI result from the active branch.
-
-For Windows XP x86 work specifically, always verify `agent/winrt-source-poc` HEAD and read its branch-local XP documentation before drawing a current-blocker conclusion.
+When a technical question concerns a non-default work branch, verify that branch's exact HEAD and inspect its code/workflow/runtime evidence, but continue reading the canonical documentation from `agent/gost-tls-poc`.
 
 ## Separation of conclusions
 
@@ -71,7 +83,7 @@ This track is independent of GOST TLS runtime.
 
 ## Current handoff — read this before historical XP entries
 
-Active work is on `agent/winrt-source-poc`.
+Active work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
 The old SRW/condition-variable loader failures are **closed historical blockers**, not the current XP edge. The canonical narrow synchronization baseline remains:
 
