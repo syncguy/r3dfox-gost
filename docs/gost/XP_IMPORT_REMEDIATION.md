@@ -36,6 +36,26 @@ Future acceptance must therefore be inventory-driven rather than name-list-drive
 
 A curated `$forbiddenApis` list remains useful as a fail-fast regression gate for already-known families, but it is not an exhaustive XP compatibility proof.
 
+## Closed source remediation — `CreateWaitableTimerExA`
+
+`CreateWaitableTimerExA` is **CLOSED** for the current XP x86 production path and must not be counted as an open YY-Thunks blocker.
+
+Historical focused capability evidence remains valid but is superseded for production planning: the earlier core KERNEL32 cluster smoke, source `0184985c2f0c5ab1c4c732a200cfbda07a6aefb4`, Actions run `33600786738`, job `100153789478`, found that YY-Thunks 1.2.2 did not provide the requested `CreateWaitableTimerExA` capability. That result described the YY surface only; it did not prove that Firefox required the API on XP.
+
+The project subsequently chose the preferred source-remediation path. In the XP configuration the base-profiler modern high-resolution waitable-timer path is excluded under `MOZ_NO_WINRT`; `mHiResTimer` remains unavailable and Firefox deliberately uses its already-existing legacy fallback path based on timer-period adjustment / sleep behavior. The generic non-XP Windows source may still contain the `CreateWaitableTimerExA` call; the important production property is that the XP build does not compile/link the modern path.
+
+Exact closure evidence:
+
+- source-under-test `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`;
+- relevant source-remediation lineage includes commit `70422044f90058c90d276f231457f9a08c1343ff`, which applies `MOZ_NO_WINRT` to the unified base-profiler compilation unit;
+- Actions run `33638897692`, job `100276666021`;
+- full `Build release r3dfox XP x32` — **PASS**;
+- `GATE - Reject proven core browser XP direct imports` — **PASS**;
+- `Package XP x32 experiment` — **PASS**;
+- the run later failed for an independent post-package msvcr14x CRT-survival problem, so the overall run is not GREEN and must not be described as a complete XP runtime pass.
+
+Classification: `SOURCE_REMEDIATION / CLOSED`. Do not add `CreateWaitableTimerExA` to the narrow YY provider, do not reopen its earlier YY-missing result as a blocker, and only reopen this item if a later exact XP build reintroduces a hard `KERNEL32.dll!CreateWaitableTimerExA` import or runtime evidence contradicts the fallback behavior.
+
 ## Controlled msvcr14x outputs
 
 `ucrtbase.dll` and `msvcp140.dll` in this project are not opaque host redistributables. They are controlled build outputs from the pinned `Chuyu-Team/msvcr14x` source used by the XP workflow.
@@ -82,6 +102,8 @@ Classification:
 
 The preferred result is that `xul.dll` no longer has a hard `PROPSYS.dll` import on XP. Determine the Firefox caller and required variant-to-string semantics before deciding whether to replace the call in source or provide a tiny local implementation.
 
+Detailed `PROPSYS` work is tracked separately in [`XP_PROPSYS_STATUS.md`](./XP_PROPSYS_STATUS.md); do not mix that stage into the core KERNEL32/YY closure.
+
 ## Confirmed delay-load / deferred subsystem dependencies in `xul.dll`
 
 The raw `xul.dll` diagnostics also contain delayed imports. These do not have the same loader priority as the hard imports above, but they are still runtime compatibility work: a path can fail when first exercised on XP.
@@ -122,7 +144,7 @@ YY-Thunks v1.2.2 contains bounded UIAutomationCore fallbacks for this family, ge
 
 ### NCrypt
 
-Confirmed delayed symbols:
+Confirmed delayed symbols include:
 
 - `NCryptFreeObject`;
 - `NCryptSignHash`.
@@ -148,6 +170,8 @@ These have upstream YY-Thunks implementations and fit the bounded compatibility 
 2. `GetThreadPreferredUILanguages` — `xul.dll`;
 3. `QueryFullProcessImageNameA` — `xul.dll`;
 4. `VariantCompare` — `xul.dll`, subject to removing the remaining hard `PROPSYS.dll` dependency as a whole.
+
+`CreateWaitableTimerExA` is deliberately absent from this queue: its earlier YY capability miss is superseded by the closed Firefox source-remediation/fallback path documented above.
 
 Do not automatically add all four to one archive. Preserve per-PE link ownership and the existing prohibition on complete YY `kernel32.lib` interposition.
 
@@ -206,16 +230,18 @@ Once the current CRT package-survival blocker is repaired and the workflow reach
 - resolution class for each required residual dependency;
 - a machine-readable unresolved set that is empty before physical-XP acceptance.
 
-The audit should continue to retain focused regression gates for already closed families, including msvcr14x CRT, the proven synchronization set, legacy `D3DCompiler_47.dll`, and the selected app-local `xp-bcrypt-v1/bcrypt.dll`. Full inventory and focused regression gates are complementary; neither replaces the other.
+The audit should continue to retain focused regression gates for already closed families, including msvcr14x CRT, the proven synchronization set, legacy `D3DCompiler_47.dll`, the `CreateWaitableTimerExA` source fallback, and the selected app-local `xp-bcrypt-v1/bcrypt.dll`. Full inventory and focused regression gates are complementary; neither replaces the other.
 
 ## Current conclusion
 
 The 2026-09-03 diagnostics review changes the planning model but does not change the current build blocker: run `33638897692` still stops at CRT package survival before the final whole-package audit. The important new conclusion is that selected known-import gates are insufficient for XP acceptance and that several residual hard and delayed dependencies are already visible in the available core-PE diagnostics.
 
+`CreateWaitableTimerExA` is not part of that residual blocker set. Its YY-missing observation belongs only to the historical focused capability run `33600786738`; current production status is source-remediated/closed by the XP fallback configuration confirmed in run `33638897692`.
+
 The next compatibility work should therefore proceed in this order:
 
 1. preserve/fix the exact msvcr14x runtime across packaging so the full workflow can reach its final audit;
-2. add focused coverage for the newly identified bounded YY candidates, especially `InitOnceExecuteOnce`, without reopening the proven ten-API synchronization baseline;
+2. add focused coverage for the newly identified bounded YY candidates, especially `InitOnceExecuteOnce`, without reopening the proven ten-API synchronization baseline or the closed `CreateWaitableTimerExA` fallback;
 3. trace and remove/replace the Queue B source-level dependencies;
 4. keep WinRT, UIAutomation, DWM, NCrypt and AVRT as explicit subsystem decisions rather than one undifferentiated YY expansion;
 5. run the complete inventory-driven final PE/direct+delay import audit;
