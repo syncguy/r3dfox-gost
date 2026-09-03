@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 This file is the authoritative current technical synthesis. Detailed evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; formally closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 dependency/build contract is in `XP_BUILD_CONTRACT.md`.
 
@@ -184,12 +184,31 @@ Later physical-XP browser evidence from source `99fac0b869c4c0a4638f4e076d77547d
 
 The ten-API synchronization mechanism has been transferred into the full XP x32 workflow lineage with separate link-boundary handling for `xul.dll`, `r3dfox.exe`, `mozglue.dll`, and `plugin-container.exe`, plus an early post-build synchronization-import gate. Full YY `kernel32.lib` interposition remains prohibited.
 
+### Latest full-build checkpoint — compile/link/package green, CRT package-integrity red
+
+The newest full XP x32 run is a substantial build milestone but is not an accepted XP runtime package:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`;
+- workflow `GOST TLS PoC build  XP x32`;
+- Actions run `33638897692`, attempt `1`;
+- job `100276666021`;
+- package artifact `9855749298`;
+- diagnostics artifact `9855751471`;
+- overall run/job conclusion: **failure** at the post-package msvcr14x CRT-survival gate.
+
+For this exact source the full release Firefox x86 build succeeds, the early selected-core XP direct-import rejection gate succeeds, the app-local msvcr14x runtime is staged and its exact identity is recorded before packaging, legacy `D3DCompiler_47.dll` survives packaging, and `mach package` succeeds. This advances the synchronization/link integration from representative capability proof into a successful full-build/early-gate checkpoint.
+
+The red boundary is narrower and later: `GATE - Verify msvcr14x CRT survived portable packaging` fails because no produced portable package contains exactly the staged `ucrtbase.dll` and `msvcp140.dll` with their recorded pre-package SHA-256 identities. Independent inspection of `r3dfox-v153.0.3.win32.zip` confirms that both DLLs are absent there. The failure is therefore a `dist/bin -> package` preservation/inclusion problem, not evidence of a Firefox compile/link regression.
+
+Because that integrity gate is fail-fast, the physical-test runtime archive and final broad XP PE-floor/direct-import audit are skipped. Therefore this run does **not** prove complete post-XP import closure, physical Windows XP startup, ordinary browsing, or any GOST TLS behavior.
+
 Current full-browser work order:
 
-1. prove the ten-API synchronization aliases are actually consumed by all four core Firefox PEs in a full build;
-2. keep the physically proven msvcr14x runtime/package contract green;
+1. repair portable-package survival of the exact staged msvcr14x `ucrtbase.dll` and `msvcp140.dll`; do not reopen the Rust/YY synchronization linker work without new linker evidence;
+2. rerun the same full XP x32 lineage and require the CRT-survival gate to pass so the final broad PE-floor/direct-import audit and physical-test runtime archive can execute;
 3. consume the physically proven raw `xp-bcrypt-v1` release asset in the full package, verify exact SHA-256/size, stage only `bcrypt.dll`, and require package survival;
-4. regenerate the surviving broad import inventory after those already-proven families are removed;
+4. regenerate the surviving broad import inventory after the already-proven synchronization/CRT/bcrypt families are correctly represented in the package;
 5. remediate remaining Firefox-owned and separately linked component imports at their source/build/dependency boundary where practical;
 6. test the exact resulting package on physical XP for startup and ordinary browsing;
 7. only after ordinary XP browser viability, treat GOST TLS on XP as a separate exact-artifact milestone.
