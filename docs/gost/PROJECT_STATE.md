@@ -64,22 +64,28 @@ Full YY `kernel32.lib` interposition remains prohibited. Keep per-PE/provider ow
 The latest completed full-browser compatibility run is:
 
 - experiment branch `agent/winrt-source-poc`;
-- exact source-under-test `4949a16e730cc15fc85b128fd62dac2a27c4d9c5`;
+- exact source-under-test `f602df1b2f3c9b85a4b938a4ea57b07373ac9a95`;
 - workflow `GOST TLS PoC build  XP x32`;
-- Actions run `33718674533`, job `100533128424`, attempt `1`;
+- Actions run `33738262420`, job `100593897593`, attempt `1`;
 - aggregate conclusion: **failure** at the final evidence summary, after successful compile/package and artifact preservation.
 
 Exact artifacts from this run:
 
-- package artifact `9883134667`, digest `sha256:64b9537376b72a9e38728236b666b929e84e9c6895a022a1dd66338b9a645582`;
-- runtime artifact `9883135451`, digest `sha256:9a5380bfec2b05a8460f6dfef99c85a1c053e1b31f9f18f101d6a7fc5563127b`;
-- diagnostics artifact `9883136547`, digest `sha256:b7fb3503a258d78fec927cd0f81413d5124f6f9b4a61cd27a034ec6092607f1c`.
+- package artifact `9891436211`, digest `sha256:277f4584bc95a8b425c640db01d18078cdd9ab307caa33bbc8fc2940457ed362`;
+- runtime artifact `9891437190`, digest `sha256:a9f8d9598f431f757fcc63c3796dcc600af48371236cf0586e18f5bd9e323cf3`;
+- diagnostics artifact `9891438460`, digest `sha256:a421a0cabbfcb151120842e4525b2296011c2c1bc127808e1cfaf52d0e1f612a`.
 
-This run closes the prior portable CRT package-survival blocker: the accepted portable archive contains matching staged/packaged `ucrtbase.dll` and `msvcp140.dll`. It also closes app-local `xp-bcrypt-v1` package survival at the automated build/package level. Full build, production core-browser import gate, D3D staging/retarget/package survival, CRT staging/package survival, bcrypt staging/package survival, runtime-archive creation and all three artifact uploads are GREEN.
+Full build, production core-browser import gate, D3D staging/retarget/package survival, CRT staging/package survival, bcrypt staging/package survival, runtime-archive creation and all three artifact uploads are GREEN. The final run-level RED is not a compile/package failure; the summary promotes the deliberately non-fatal broad all-PE import audit outcome.
 
-The remaining aggregate RED is the broad all-PE import inventory: **69 known post-XP findings** remain across auxiliary/media/test PEs. The audit is deliberately diagnostic/non-fatal until the final summary so runnable evidence survives. `InitOnceExecuteOnce`, `GetThreadPreferredUILanguages`, and `QueryFullProcessImageNameA` are absent from that broad forbidden-import report, and the production core-browser gate is GREEN; this is full-build/import evidence for those three names, not physical-XP proof.
+The authoritative broad forbidden-import report is now reduced to exactly three rows, all in GMP test DLLs:
 
-Current compatibility blocker: classify the 69 broad findings into shipped/runtime-required versus test-only/non-shipped PEs, remediate the runtime-required closure without broad YY `kernel32.lib` interposition, and keep the inventory-driven audit authoritative. In parallel, runtime artifact `9883135451` is the exact next physical Windows XP candidate. Physical XP must determine whether startup advances beyond the last documented loader edge `KERNEL32!InitOnceExecuteOnce`.
+- `gmp-fake/1.0/fake.dll` -> `FlsGetValue`;
+- `gmp-fake/1.0/fake.dll` -> `TryAcquireSRWLockExclusive`;
+- `gmp-fakeopenh264/1.0/fakeopenh264.dll` -> `FlsGetValue`.
+
+This supersedes the previous run `33718674533` as current full-build inventory evidence and materially narrows its 69 broad findings. The production core-browser gate remains GREEN. The source-remediation quartet diagnostic is informational/non-blocking and reports `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId` as surviving in its focused `xul.dll` check, but neither appears in the authoritative broad forbidden-import report for the final distribution audit.
+
+Current compatibility blocker: determine whether the two GMP test plugin DLL families belong in the physical XP runtime-required closure; if they are test-only/non-shipped, exclude/classify them explicitly without weakening the inventory-driven audit, otherwise remediate their three hard imports. Runtime artifact `9891437190` is the newest exact physical Windows XP startup candidate. Physical XP must determine whether startup advances beyond the last documented loader edge `KERNEL32!InitOnceExecuteOnce`.
 
 No GOST TLS runtime or handshake conclusion follows from this compatibility run.
 
@@ -93,7 +99,7 @@ Focused proof exists for:
 
 Evidence: source `ffb72c4ae6988a7c4f82b4e67a9027e41afb572b`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33712987285`, job `100516220327`.
 
-This proves focused capability only, not full Firefox integration or physical-XP startup. Run `33718674533` additionally proves that all three names are absent from the broad forbidden-import report of the exact full build at source `4949a16e730cc15fc85b128fd62dac2a27c4d9c5`; physical XP remains the final boundary.
+This proves focused capability only, not full Firefox integration or physical-XP startup. Run `33718674533` proved all three names absent from its broad forbidden-import report; run `33738262420` retains the production core-browser gate GREEN and reduces the authoritative broad report to the three GMP test-DLL imports listed above. Physical XP remains the final boundary.
 
 The last documented physical XP loader edge remains `KERNEL32!InitOnceExecuteOnce` until a newer exact physical-XP artifact advances beyond it.
 
@@ -153,7 +159,7 @@ Authoritative rules: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
 
 The project intentionally does not require isolated Mozilla partial builds merely to re-prove accepted source guards. Mozilla's build graph is tightly coupled; accepted source changes ride otherwise-justified full XP browser builds.
 
-Run `33718674533` proves that the full Firefox x32 build/package and runtime-archive boundaries can complete with the current dependency/package contract. Future full builds must retain the inventory-driven PE/import audit. Source removal or a GREEN curated core gate does not by itself prove complete distribution import closure or physical Windows XP startup.
+Run `33738262420` proves that the full Firefox x32 build/package and runtime-archive boundaries complete with the current dependency/package contract while the authoritative broad inventory is down to three GMP test-DLL hard imports. Future full builds must retain the inventory-driven PE/import audit. Source removal or a GREEN curated core gate does not by itself prove complete distribution import closure or physical Windows XP startup.
 
 Final XP acceptance remains:
 

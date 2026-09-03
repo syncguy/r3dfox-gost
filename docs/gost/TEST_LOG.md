@@ -8,6 +8,47 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-03 — broad XP x32 import inventory reduced from 69 findings to three test-GMP imports
+
+Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration only. This is not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `f602df1b2f3c9b85a4b938a4ea57b07373ac9a95`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33738262420`, attempt `1`;
+- job `100593897593`;
+- aggregate run/job conclusion: **failure** at final summary after evidence collection.
+
+Exact artifacts:
+
+- package artifact `9891436211`, `327757708` bytes, digest `sha256:277f4584bc95a8b425c640db01d18078cdd9ab307caa33bbc8fc2940457ed362`;
+- runtime artifact `9891437190`, `74914750` bytes, digest `sha256:a9f8d9598f431f757fcc63c3796dcc600af48371236cf0586e18f5bd9e323cf3`;
+- diagnostics artifact `9891438460`, `5947148` bytes, digest `sha256:a421a0cabbfcb151120842e4525b2296011c2c1bc127808e1cfaf52d0e1f612a`.
+
+Passed boundaries before the aggregate RED:
+
+- full Firefox x86 build — **PASS**;
+- production core-browser direct-import gate — **PASS**;
+- D3DCompiler_47 retarget/package-survival gates — **PASS**;
+- packaged CRT contract — **PASS**;
+- packaged `xp-bcrypt-v1` contract — **PASS**;
+- package and physical-test runtime archive creation — **PASS**;
+- package/runtime/diagnostics uploads — **PASS**.
+
+The final broad all-PE audit is the only diagnostic RED promoted by `GATE - Summarize XP x32 full build`. Its exact `xp-x32-forbidden-direct-imports.txt` contains only three rows:
+
+- `gmp-fake/1.0/fake.dll` -> `FlsGetValue`;
+- `gmp-fake/1.0/fake.dll` -> `TryAcquireSRWLockExclusive`;
+- `gmp-fakeopenh264/1.0/fakeopenh264.dll` -> `FlsGetValue`.
+
+This is a material reduction from the 69 findings in run `33718674533`. The curated production core-browser gate remains GREEN, so this run does not re-open the previously closed core-browser linker/source-remediation lines. The source-remediation quartet diagnostic is informational/non-blocking and reports two surviving names, `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId`; those do not appear in the authoritative broad forbidden-import file for this run.
+
+Conclusion: **FULL BUILD + PACKAGE + RUNTIME ARCHIVE GREEN; BROAD INVENTORY RED ONLY ON THREE GMP TEST DLL IMPORTS.** The immediate build-side blocker is now classification/removal or exclusion of those GMP test-only PEs from the XP runtime-required closure, while preserving the complete inventory-driven audit. Runtime artifact `9891437190` supersedes `9883135451` as the newest exact physical-Windows-XP startup candidate. No physical-XP startup and no GOST TLS handshake conclusion follows from this CI run.
+
+---
+
 ## 2026-09-03 — full XP x32 package dependency closure GREEN; broad distribution import inventory remains RED
 
 Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration only. This is not GOST TLS runtime/handshake evidence.
