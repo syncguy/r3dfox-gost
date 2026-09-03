@@ -1,0 +1,157 @@
+name: XP bcrypt release staging smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - '.github/workflows/xp-bcrypt-release-staging-smoke.yml'
+      - 'docs/gost/XP_BCRYPT_RELEASE_CONTRACT.md'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-and-verify:
+    name: Stage proven bcrypt.dll into dist/bin
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    env:
+      BCRYPT_TAG: xp-bcrypt-v1
+      BCRYPT_RELEASE_ID: '380563342'
+      BCRYPT_ASSET_ID: '539647946'
+      BCRYPT_SIZE: '520704'
+      BCRYPT_SHA1: ae021f44edc48b03bb4d67cb5773b62bdf60cb67
+      BCRYPT_SHA256: f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193
+      WORK_ROOT: ${{ github.workspace }}\artifacts\xp-bcrypt-release-staging
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Enable x86 MSVC tools for PE audit
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Fetch release metadata and stage bcrypt.dll
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+
+          $distBin = Join-Path $env:WORK_ROOT 'dist\bin'
+          $diag = Join-Path $env:WORK_ROOT 'diagnostics'
+          New-Item -ItemType Directory -Force -Path $distBin,$diag | Out-Null
+
+          $releaseUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:BCRYPT_TAG"
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri $releaseUri
+          if ([string]$release.id -ne $env:BCRYPT_RELEASE_ID) { throw "Unexpected release id: $($release.id)" }
+          if ($release.tag_name -ne $env:BCRYPT_TAG) { throw "Unexpected release tag: $($release.tag_name)" }
+
+          $assets = @($release.assets | Where-Object { $_.name -eq 'bcrypt.dll' })
+          if ($assets.Count -ne 1) { throw "Expected exactly one bcrypt.dll release asset; found $($assets.Count)" }
+          $asset = $assets[0]
+          if ([string]$asset.id -ne $env:BCRYPT_ASSET_ID) { throw "Unexpected bcrypt asset id: $($asset.id)" }
+          if ([string]$asset.size -ne $env:BCRYPT_SIZE) { throw "Unexpected bcrypt asset size metadata: $($asset.size)" }
+
+          $dst = Join-Path $distBin 'bcrypt.dll'
+          Invoke-WebRequest -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri $asset.browser_download_url -OutFile $dst
+
+          @(
+            "tag=$($release.tag_name)",
+            "release_id=$($release.id)",
+            "target_commitish=$($release.target_commitish)",
+            "asset_id=$($asset.id)",
+            "asset_name=$($asset.name)",
+            "asset_size=$($asset.size)",
+            "asset_url=$($asset.browser_download_url)",
+            "staged_path=$dst"
+          ) | Set-Content -Encoding ascii (Join-Path $diag 'bcrypt-release-provenance.txt')
+
+      - name: GATE - Verify staged bcrypt identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Join-Path $env:WORK_ROOT 'dist\bin\bcrypt.dll'
+          $diag = Join-Path $env:WORK_ROOT 'diagnostics'
+          if (-not (Test-Path $dll)) { throw "Staged bcrypt.dll missing: $dll" }
+
+          $item = Get-Item $dll
+          $sha1 = (Get-FileHash -Algorithm SHA1 $dll).Hash.ToLowerInvariant()
+          $sha256 = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+
+          if ([string]$item.Length -ne $env:BCRYPT_SIZE) { throw "bcrypt.dll size mismatch: expected=$env:BCRYPT_SIZE actual=$($item.Length)" }
+          if ($sha1 -ne $env:BCRYPT_SHA1) { throw "bcrypt.dll SHA1 mismatch: expected=$env:BCRYPT_SHA1 actual=$sha1" }
+          if ($sha256 -ne $env:BCRYPT_SHA256) { throw "bcrypt.dll SHA256 mismatch: expected=$env:BCRYPT_SHA256 actual=$sha256" }
+
+          @(
+            "size=$($item.Length)",
+            "sha1=$sha1",
+            "sha256=$sha256"
+          ) | Set-Content -Encoding ascii (Join-Path $diag 'bcrypt-release-identity.txt')
+
+      - name: GATE - Verify bcrypt PE and runtime closure
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Join-Path $env:WORK_ROOT 'dist\bin\bcrypt.dll'
+          $diag = Join-Path $env:WORK_ROOT 'diagnostics'
+
+          $headers = @(& dumpbin.exe /nologo /headers $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /headers failed for bcrypt.dll' }
+          $imports = @(& dumpbin.exe /nologo /imports $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for bcrypt.dll' }
+          $exports = @(& dumpbin.exe /nologo /exports $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /exports failed for bcrypt.dll' }
+
+          $headers | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.headers.txt')
+          $imports | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.imports.txt')
+          $exports | Set-Content -Encoding utf8 (Join-Path $diag 'bcrypt.exports.txt')
+
+          if (-not ($headers -match '(?im)^\s*14C machine \(x86\)')) { throw 'bcrypt.dll is not x86 machine 14C' }
+          if ($imports -match '(?i)\bmbedtls\.dll\b') { throw 'bcrypt.dll unexpectedly depends on mbedtls.dll' }
+          foreach ($pattern in @('(?i)\bapi-ms-win-','(?i)\bext-ms-','(?i)\bKERNELBASE\.dll\b','(?i)\bBCRYPTPRIMITIVES\.dll\b')) {
+            if ($imports -match $pattern) { throw "bcrypt.dll retains forbidden dependency pattern: $pattern" }
+          }
+
+          foreach ($name in @(
+            'BCryptOpenAlgorithmProvider','BCryptCloseAlgorithmProvider','BCryptGetProperty',
+            'BCryptCreateHash','BCryptHashData','BCryptFinishHash','BCryptDestroyHash','BCryptGenRandom'
+          )) {
+            if (-not ($exports -match ('\b' + [regex]::Escape($name) + '\b'))) { throw "Required bcrypt export missing: $name" }
+          }
+
+      - name: Write staging contract summary
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $diag = Join-Path $env:WORK_ROOT 'diagnostics'
+          @(
+            'contract=PASS',
+            "source_tag=$env:BCRYPT_TAG",
+            "release_id=$env:BCRYPT_RELEASE_ID",
+            "asset_id=$env:BCRYPT_ASSET_ID",
+            "dist_bin=artifacts/xp-bcrypt-release-staging/dist/bin",
+            'runtime_file=bcrypt.dll',
+            "sha1=$env:BCRYPT_SHA1",
+            "sha256=$env:BCRYPT_SHA256"
+          ) | Set-Content -Encoding ascii (Join-Path $diag 'bcrypt-staging-contract.txt')
+
+      - name: Upload staged dist/bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-bcrypt-release-dist-bin
+          path: ${{ env.WORK_ROOT }}\dist\bin
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bcrypt staging diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-bcrypt-release-staging-diagnostics
+          path: ${{ env.WORK_ROOT }}\diagnostics
+          if-no-files-found: error
+          retention-days: 14
