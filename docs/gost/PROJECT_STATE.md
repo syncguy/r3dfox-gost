@@ -173,7 +173,9 @@ The current immediate RED is `GATE - Verify msvcr14x CRT survived portable packa
 
 The post-package diagnostics contain those pre-package hashes but no successful `archive=...` record. The gate checks every produced `.7z`/`.zip` and requires exactly one matching copy of each DLL; no produced archive satisfies that contract. Independent inspection of `r3dfox-v153.0.3.win32.zip` confirms that both custom CRT DLLs are absent while `d3dcompiler_47.dll` is present.
 
-The likely packaging mechanism is now identified: the stock Firefox package manifest includes `ucrtbase.dll` only when `MOZ_PACKAGE_WIN_UCRT_DLLS` is enabled and the MSVC C++ runtime only when `MOZ_PACKAGE_MSVC_DLLS` is enabled. The XP workflow manually stages the pinned msvcr14x DLLs after the build, but that does not by itself activate those Mozilla package predicates. Fix the product/package input contract; do not weaken the post-package identity gate.
+The packaging mechanism is now identified: the XP workflow stages the pinned msvcr14x DLLs into `dist/bin`, but the package manifest did not require those exact files for this configuration. Source `3e9e3596dc82ee6108d1910ae9912ccf2a8e3e38` changes only `browser/installer/package-manifest.in`, adding `@BINPATH@/ucrtbase.dll` and `@BINPATH@/msvcp140.dll` directly under the existing `#ifdef XP_WIN` block. This deliberately moves the current experiment from implicit Mozilla CRT predicates to an explicit `dist/bin -> package staging` contract for the two pinned app-local XP runtimes. The post-package hash/uniqueness gate is unchanged and remains fail-closed.
+
+Validation of this manifest change is currently in progress in workflow `GOST TLS PoC build  XP x32`, run `33708144139`, job `100501664342`, source-under-test `3e9e3596dc82ee6108d1910ae9912ccf2a8e3e38`, attempt 1. Do not treat the patch as package-closure GREEN until that exact run reaches `GATE - Verify msvcr14x CRT survived portable packaging` and the resulting package/diagnostics artifacts confirm one matching copy of each DLL.
 
 The same post-package CRT red existed in run `33610933602`; its earlier `TEST_LOG.md` interpretation has been corrected because `packaged-crt-contract.txt` from diagnostics artifact `9843568460` also contains only pre-package hashes and no successful archive record.
 
@@ -181,11 +183,10 @@ Because the current CRT survival gate fails, the dedicated runtime archive and b
 
 Immediate acceptance path:
 
-1. make the exact pinned msvcr14x `ucrtbase.dll` + `msvcp140.dll` survive Mozilla packaging with unchanged recorded hashes;
-2. rerun the full XP x32 workflow from a new exact SHA and keep the current full-build/34-import/`CreateWaitableTimerExA` removal evidence green;
-3. require the runtime-archive and broad PE/import gates to execute and pass far enough to produce the next accepted runtime candidate;
-4. launch that exact accepted package/runtime artifact on physical Windows XP SP3 x86;
-5. only after physical XP advances beyond the old timer loader edge may `CreateWaitableTimerExA` be closed in `DONE.md`; any next loader/runtime failure becomes the new blocker.
+1. validate in exact run `33708144139` that the explicitly listed `ucrtbase.dll` + `msvcp140.dll` survive Mozilla packaging with unchanged recorded hashes;
+2. require the runtime-archive and broad PE/import gates to execute and pass far enough to produce the next accepted runtime candidate;
+3. launch that exact accepted package/runtime artifact on physical Windows XP SP3 x86;
+4. only after physical XP advances beyond the old timer loader edge may `CreateWaitableTimerExA` be closed in `DONE.md`; any next loader/runtime failure becomes the new blocker.
 
 No GOST TLS runtime conclusion follows from this compatibility work.
 
