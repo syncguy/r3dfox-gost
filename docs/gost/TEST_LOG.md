@@ -8,6 +8,91 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-02 — full XP x32 build removes `CreateWaitableTimerExA`; post-package msvcr14x survival is the new immediate RED
+
+**Track:** Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration and package closure  
+**Branch:** `agent/winrt-source-poc`  
+**Source-under-test:** `17cdb459ec4f115a209fd50ac225cf867b9f3a2f` (`docs(xp): advance waitable timer validation plan`)  
+**Workflow:** `GOST TLS PoC build  XP x32` (`.github/workflows/gost-poc-build-xp-x32.yml`)  
+**Actions run:** `33638897692`  
+**Job:** `100276666021` (`Windows x86 / r3dfox GOST / XP SP3 full build`)  
+**Run attempt:** `1`  
+**Aggregate run/job result:** failure  
+**Package artifact:** `9855749298` (`r3dfox-gost-xp-x32-package`), `250936246` bytes, digest `sha256:b8cd19fda1244a2f2f55ff08bbc35ca180e8d0cbf487ec67cb64d54586b9c6ad`  
+**Diagnostics artifact:** `9855751471` (`r3dfox-gost-xp-x32-diagnostics`), `5743723` bytes, digest `sha256:bce0bbdbc778b0114b9d33e670a9bf687e4699cfda7353efebc6b92650f03eed`
+
+### Major build/link/import progression — PASS
+
+The exact job completed every expensive build boundary before packaging validation:
+
+- pinned msvcr14x Release x86 build — PASS;
+- mandatory XP x86 msvcr14x runtime contract gate — PASS;
+- narrow YY XP x86 provider construction — PASS;
+- Firefox x86 configure/export — PASS;
+- security manager SSL target-object compile — PASS;
+- full `mach build` / `Build release r3dfox XP x32` — PASS;
+- core-browser direct-import gate — PASS;
+- staging of `ucrtbase.dll` and `msvcp140.dll` into `dist/bin` — PASS;
+- legacy XP `D3DCompiler_47.dll` staging/retarget gate — PASS;
+- PE subsystem retarget step — PASS;
+- pre-package CRT identity recording — PASS;
+- `mach package` / `Package XP x32 experiment` — PASS;
+- post-package legacy `D3DCompiler_47.dll` survival gate — PASS.
+
+The core-browser gate in this exact workflow rejects 34 already-proven post-XP KERNEL32 APIs — the closed ten SRW/condition-variable APIs plus the closed 24-API KERNEL32 cluster — across all four production core PEs: `r3dfox.exe`, `xul.dll`, `mozglue.dll`, and `plugin-container.exe`. That gate is GREEN and `surviving-sync-imports.txt` is empty.
+
+The workflow's 34-name fatal list at this SHA still does **not** include `CreateWaitableTimerExA`, so its removal must not be inferred merely from the green gate. Independent inspection of the exact diagnostics artifact closes the build/import half of that delta: `CreateWaitableTimerExA` is absent from all four saved core-browser import inventories, including `mozglue.dll-imports.txt`. Therefore the implemented base-profiler source cut successfully removes the historical direct dependency:
+
+`mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
+
+from this exact full Firefox build.
+
+This is stronger than the earlier implementation-only checkpoint, but it is not yet physical-XP runtime closure. `CreateWaitableTimerExA` must remain open until an accepted package advances past that historical loader edge on physical Windows XP.
+
+### New immediate RED — staged msvcr14x CRT is not accepted in any produced package
+
+The first failing step is `GATE - Verify msvcr14x CRT survived portable packaging`.
+
+Immediately before packaging, the job records the exact staged hashes:
+
+- `ucrtbase.dll` SHA-256 `1d4d54cf0d59d2911367d533a6e252316c7c6f53c862de574af1701c20eed6e5`;
+- `msvcp140.dll` SHA-256 `61815cf338d36d7ccec21997e693d37ea7a2042b66b49926b64789961e0796b6`.
+
+The exact diagnostics file `packaged-crt-contract.txt` contains only those two pre-package identity lines. It contains no successful `archive=...` record. The gate implementation tests every produced `.7z`/`.zip` candidate and accepts only an archive containing exactly one `ucrtbase.dll` and exactly one `msvcp140.dll`, both with the recorded hashes. No candidate satisfied that contract, so the gate fails.
+
+Independent inspection of the uploaded package artifact confirms the same packaging-boundary problem for the normal ZIP payload: `r3dfox-v153.0.3.win32.zip` contains the successfully preserved `d3dcompiler_47.dll` but contains neither `ucrtbase.dll` nor `msvcp140.dll`.
+
+The package manifest explains the likely mechanism. On Windows, `browser/installer/package-manifest.in` only includes `ucrtbase.dll` under `MOZ_PACKAGE_WIN_UCRT_DLLS` and the MSVC C++ runtime under `MOZ_PACKAGE_MSVC_DLLS`. The XP workflow manually stages the pinned msvcr14x DLLs after the Firefox build, but that staging alone does not activate those Mozilla packaging predicates. This is the leading root-cause hypothesis and should be fixed at the package-input/manifest contract rather than by weakening the post-package gate.
+
+### Important correction to the previous run record
+
+The prior entry for source `6998ba51b1052b08d8b0b2a221d63b896eccd219`, run `33610933602`, job `100185641911`, had described its `packaged-crt-contract.txt` as proof that the portable package contained the expected CRT. Reinspection of that exact earlier diagnostics artifact `9843568460` shows the same structure as the current run: only pre-package hashes are present and there is no successful `archive=...` record. That earlier interpretation was incorrect.
+
+This correction does **not** invalidate the earlier physical-XP `CreateWaitableTimerExA` observation: the exact browser reached that loader edge in that test. It only means the CRT package-survival contract was already independently red and had not been closed by that run.
+
+### Evidence boundary / skipped stages
+
+Because the CRT package-survival gate failed:
+
+- `Build XP x32 runtime test archive from dist/bin` was skipped;
+- the broad `GATE - Audit XP x32 PE floor and direct imports` was skipped;
+- the dedicated physical-test runtime archive upload was skipped;
+- the final workflow summary gate was skipped.
+
+The general package artifact and diagnostics artifact were nevertheless uploaded. The package artifact is valuable build/package evidence but is **not accepted as the next physical-XP runtime candidate** because the required app-local msvcr14x package closure is not validated.
+
+### Conclusion / next step
+
+**BUILD/LINK/CORE-IMPORT PASS; PACKAGE-CONTRACT RED.** Run `33638897692` materially advances the full Firefox XP line: the full x86 browser builds and packages, all 34 already-proven core KERNEL32 imports are absent across the four core PEs, and the exact diagnostics independently prove that `CreateWaitableTimerExA` has disappeared from `mozglue.dll` and the other core import inventories.
+
+The immediate blocker is now the `dist/bin -> packaged archive` survival of the pinned msvcr14x `ucrtbase.dll` + `msvcp140.dll` pair. Repair the package manifest/configuration contract so the exact staged DLLs survive packaging, keep the current hash-equality gate fail-closed, rerun the full workflow from a new exact SHA, require the runtime archive and broad PE audit to execute, and only then use that exact accepted artifact for physical Windows XP startup progression.
+
+No GOST TLS runtime/handshake conclusion follows from this Windows compatibility result.
+
+Status: current immutable experiment evidence; full build/import progression GREEN, packaging CRT survival RED, physical-XP validation of the `CreateWaitableTimerExA` source cut still pending.
+
+---
+
 ## 2026-09-02 — `CreateWaitableTimerExA` call-site mapped and XP compile-time cut implemented; build validation pending
 
 **Track:** Windows XP SP3 x86 compatibility / `mozglue.dll` loader closure  
@@ -117,9 +202,11 @@ Elsewhere in the same workflow, `CreateWaitableTimerExA` is explicitly treated a
 
 That is why the build-time import check did not stop where the physical XP loader later stopped. The gate contract must be hardened so that any surviving direct `CreateWaitableTimerExA` import in the production core-browser binaries is a hard failure until a proven XP-compatible remediation removes it.
 
-### Secondary CRT-validation RED is not the current XP blocker
+### Secondary CRT-validation RED — corrected interpretation
 
-The aggregate Actions job later failed at the post-package CRT verification stage. That RED must not replace the physical-XP loader blocker. The diagnostics artifact itself contains `packaged-crt-contract.txt` proving that the package contains the expected app-local CRT payload, including `ucrtbase.dll` and `msvcp140.dll` with recorded SHA-256 values. Treat the CRT validator failure as a secondary CI/gate issue to clean up, not as evidence that the package lacked those DLLs and not as the next XP runtime target.
+The aggregate Actions job later failed at the post-package CRT verification stage. The earlier interpretation of `packaged-crt-contract.txt` as proof that the portable package contained the expected `ucrtbase.dll` and `msvcp140.dll` was incorrect. Reinspection of exact diagnostics artifact `9843568460` shows only the two pre-package hash lines and no successful `archive=...` record. Therefore this run did **not** close the CRT package-survival contract.
+
+That packaging RED still did not replace the physical-XP blocker observed from this exact test: the browser reached and reported `CreateWaitableTimerExA`. However, once the source cut removes that direct import, CRT package survival must be repaired before the next package is accepted as the physical-XP candidate.
 
 ### Conclusion
 
