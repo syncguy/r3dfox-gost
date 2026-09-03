@@ -118,6 +118,32 @@ The current full XP x32 validation run is:
 
 The purpose of this run is to carry the current narrow XP compatibility provider into the real Firefox build while preserving package/runtime/diagnostic artifacts even when later gates are red. Do not call `InitOnceExecuteOnce` closed at full-browser or physical-XP level until this exact run completes and its resulting exact artifact is tested on physical XP.
 
+### Remaining KERNEL32 source-remediation quartet — focused strategy GREEN
+
+The next known source-remediation quartet after residual-3 is:
+
+- `GetApplicationRestartSettings`;
+- `RegisterApplicationRestart`;
+- `UnregisterApplicationRestart`;
+- `GetNamedPipeServerProcessId`.
+
+Exact ownership and chosen remediation are now established:
+
+- the Application Restart trio is owned by `toolkit/xre/nsAppRunner.cpp::RegisterApplicationRestartChanged` and is optional Windows OS-restart/relaunch integration; the legacy-XP policy is a compile-time no-op for this feature as one unit, not three YY thunks;
+- `GetNamedPipeServerProcessId` is owned by `accessible/windows/msaa/CompatibilityUIA.cpp::GetUiaClientPidsWin11::QueryThreadProc`; it belongs to Windows 11 UI Automation client detection, not sandbox IPC. The selected remediation is runtime `GetProcAddress` resolution preserving the native call when available and failing the candidate lookup when unavailable.
+
+Focused proof is GREEN:
+
+- source-under-test `0450fd8f2b22b9e0263e0755e0ea52f4dd6e2aa4`;
+- workflow `XP KERNEL32 source remediation smoke`;
+- run `33720100459`;
+- job `100537300030`;
+- diagnostics artifact `9879912839`, digest `sha256:29f742d11f584a07695fcb5cfa87d5f7046e5a22d54470f3b97acb065b85b886`.
+
+The exact smoke proves source ownership, representative x86 compile/link, positive-control hard imports, absence of all four imports in the remediation variant, PE subsystem 5.01, and hosted runtime sanity. It does **not** yet prove production Firefox object/xul import closure or physical XP runtime.
+
+The next low-cost step for this quartet is production source integration followed by exact affected-target/object compilation and symbol/import inspection. Do not request a separate heavy full Firefox build solely to test this source hypothesis before that target-level proof. Detailed status: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`; dated experiment evidence: `TEST_LOG_2026-09-03.md`.
+
 ### XP package/dependency closures already established
 
 - Pinned/restored msvcr14x Release x86 is the required CRT baseline; do not substitute host redistributables.
