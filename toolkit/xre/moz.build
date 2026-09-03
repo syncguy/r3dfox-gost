@@ -159,6 +159,8 @@ SOURCES += [
     "ProfileReset.cpp",
 ]
 
+SOURCES["nsAppRunner.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+
 if CONFIG["MOZ_UPDATER"]:
     if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android":
         UNIFIED_SOURCES += [
