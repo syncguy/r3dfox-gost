@@ -117,6 +117,18 @@ The related bounded YY-Thunks mechanism has already passed focused proof togethe
 
 That GREEN proves focused capability/link/import/runtime behavior only. It does not by itself prove full Firefox integration or physical-XP startup.
 
+### KERNEL32 source-remediation quartet — strategy GREEN, production open
+
+The remaining source-remediation quartet is `GetApplicationRestartSettings`, `RegisterApplicationRestart`, `UnregisterApplicationRestart`, and `GetNamedPipeServerProcessId`. Its focused representative strategy proof is GREEN at source `0450fd8f2b22b9e0263e0755e0ea52f4dd6e2aa4`, workflow `XP KERNEL32 source remediation smoke`, run `33720100459`, job `100537300030`, diagnostics artifact `9879912839`. This does not prove production `xul.dll` or physical XP.
+
+For the Application Restart trio, source ownership is `toolkit/xre/nsAppRunner.cpp`: the callback `RegisterApplicationRestartChanged` is registered from `XREMain::XRE_mainRun()`. The accepted XP design is now a dedicated `MOZ_XP_COMPAT` compile-time boundary: guard the complete callback definition and independently guard only its `Preferences::RegisterCallbackAndCall(...)` registration. Do not disable the surrounding Windows startup block; altered DLL prefetch, Launcher Process, Skeleton UI/default-browser-agent setup and adjacent registry synchronization remain independent facilities.
+
+The source design is settled but the two guards are **not yet landed**. The available direct GitHub full-file update path for the large `nsAppRunner.cpp` produced truncated writes during the 2026-09-03 edit attempt; both attempts were immediately discarded by restoring `agent/winrt-source-poc` to exact pre-edit HEAD `10e055bacbfb5f955b1fd3b6e986c841f08797b1`, and the source blob was verified restored as `8f85b5323cda4a6444e04c8d370ff1871ad16793`. Do not treat either discarded write as source-under-test evidence.
+
+`MOZ_XP_COMPAT` is accepted as the dedicated legacy-XP source guard, but its actual build-config wiring still must be implemented and verified. Existing `MOZ_NO_WINRT` remediations need not be rewritten solely for naming consistency.
+
+For `GetNamedPipeServerProcessId`, ownership remains `accessible/windows/msaa/CompatibilityUIA.cpp` / `GetUiaClientPidsWin11::QueryThreadProc`. Preferred remediation remains bounded runtime resolution of the real native API, with failure when unavailable and no fabricated PID. Detailed plan: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
+
 ### Current full Firefox integration run — provisional
 
 The current full XP x32 validation run is:
