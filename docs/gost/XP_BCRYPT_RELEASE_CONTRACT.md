@@ -43,11 +43,38 @@ The smoke must remain independent from full Firefox compilation. It must:
 
 The identity gate is fail-closed. A download that exists but differs by one byte is RED and must not be promoted into the full browser workflow.
 
+## Focused smoke validation — GREEN
+
+The release/staging contract is now proven independently from a Firefox build.
+
+Primary current evidence:
+
+- branch: `agent/winrt-source-poc`;
+- source-under-test: `8599aff218163d1c8f628be82db78a144b192700`;
+- Actions run: `33711739424`;
+- job: `100512509387` (`Stage proven bcrypt.dll into dist/bin`);
+- result: **success**;
+- staged payload artifact: `9877206025` (`xp-bcrypt-release-dist-bin`), digest `sha256:974d34619fa94b89119b02921e18ad9bde11f2a7648c065f54f8f096496cce0c`;
+- diagnostics artifact: `9877206292` (`xp-bcrypt-release-staging-diagnostics`), digest `sha256:7d68383e993d02269995b2d9fdc4074d62236e127898d7e4deb721a090bc5620`.
+
+Every workflow gate passed: release metadata retrieval, exact `dist/bin` staging, size/SHA-1/SHA-256 identity, x86 PE/runtime-closure audit, contract summary, and both artifact uploads.
+
+The immediately preceding run also passed and serves as the initial implementation validation:
+
+- source-under-test: `fe4c0f351cd44611b43acb42f6e44d1b134cf701`;
+- Actions run: `33711714730`;
+- job: `100512436855`;
+- result: **success**;
+- staged payload artifact: `9877189099`, digest `sha256:e9165dd31477229a2c7a27c36cd8e12e9cc69005f4c1a82c1dfa9d26919e6a10`;
+- diagnostics artifact: `9877189382`, digest `sha256:52252ed0ca7aeb63ea4d3bc420d5c02ab79dad2c38afc746221a1e338d014ffa`.
+
+The second GREEN is the preferred current evidence because it validates the same workflow after the contract document was added. These runs close only the release retrieval/staging integrity prerequisite; they do not prove full Firefox package survival.
+
 ## Required integration sequence
 
 The XP browser solution must follow this order:
 
-1. focused `XP bcrypt release staging smoke` is GREEN for the exact source that defines the integration contract;
+1. focused `XP bcrypt release staging smoke` remains GREEN for the exact release/staging contract;
 2. reuse the same tag/asset identity and staging semantics in the full XP x32 workflow;
 3. put the exact `bcrypt.dll` into the real Firefox `obj-gost-xp-x32/dist/bin`;
 4. add an explicit Mozilla packaging entry so the DLL survives `dist/bin -> mach package -> portable archive`;
@@ -60,4 +87,4 @@ The focused smoke therefore closes only release retrieval/staging integrity. Ful
 
 Historical physical proof for the underlying binary remains tied to the release metadata: source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, Actions run `33513084915`, job `99873297193`, runtime artifact `9802703271`, physical Windows XP PASS.
 
-A later GREEN of the focused release/staging smoke does not replace that physical proof. It proves that CI retrieved and staged the same binary by exact identity.
+The GREEN focused release/staging smoke does not replace that physical proof. It proves that CI retrieves and stages the same binary by exact identity.
