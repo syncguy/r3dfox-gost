@@ -643,6 +643,8 @@ jobs:
           mk_add_options MOZ_DATA_REPORTING=0
           mk_add_options MOZ_SERVICES_HEALTHREPORT=0
           mk_add_options MOZ_TELEMETRY_REPORTING=
+          export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
           export MOZ_CRASHREPORTER=0
           export MOZ_DATA_REPORTING=0
           export MOZ_REQUIRE_SIGNING=
@@ -695,6 +697,50 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: DIAG - Check source-remediation quartet absent from xul.dll
+        id: source-remediation-quartet
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-source-remediation-quartet'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          if (-not (Test-Path $xul)) {
+            'result=WARN|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            Write-Warning "xul.dll missing for source-remediation quartet diagnostic: $xul"
+            exit 0
+          }
+          $raw = (& dumpbin.exe /nologo /imports $xul 2>&1 | Out-String)
+          $dumpbinExit = $LASTEXITCODE
+          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
+          if ($dumpbinExit -ne 0) {
+            "result=WARN|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            Write-Warning "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
+            exit 0
+          }
+          $apis = @(
+            'GetApplicationRestartSettings',
+            'RegisterApplicationRestart',
+            'UnregisterApplicationRestart',
+            'GetNamedPipeServerProcessId'
+          )
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($api in $apis) {
+            if ($raw.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              $hits.Add($api)
+            }
+          }
+          $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-quartet-imports.txt')
+          if ($hits.Count -gt 0) {
+            ("result=WARN|surviving=" + ($hits -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            Write-Warning ("xul.dll still imports source-remediation quartet members: " + ($hits -join ', '))
+          } else {
+            'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            Write-Host 'xul.dll contains none of the four source-remediation imports.'
+          }
 
       - name: GATE - Reject proven core browser XP direct imports
         id: sync-import-gate
@@ -1130,6 +1176,7 @@ jobs:
             xp-x32-retargeted-pe.txt
             xp-x32-direct-imports.txt
             xp-x32-forbidden-direct-imports.txt
+            xp-x32-source-remediation-quartet/**
             xp-x32-sync-import-gate/**
             xp-x32-import-audit/**
             diagnostics/**
@@ -1159,6 +1206,8 @@ jobs:
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- XP source defines: MOZ_NO_WINRT + MOZ_XP_COMPAT via CFLAGS/CXXFLAGS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-remediation quartet diagnostic: ${{ steps.source-remediation-quartet.outcome }} (informational/non-blocking)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; residual-three focused proof is run 33712987285 / job 100516220327 / SHA ffb72c4ae6988a7c4f82b4e67a9027e41afb572b." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
