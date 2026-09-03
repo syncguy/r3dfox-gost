@@ -160,10 +160,11 @@ jobs:
             'GetNamedPipeServerProcessId'
           )
           foreach ($api in $apis) {
-            if ($legacy -match "(?m)^\s*$api\s*$") {
+            $row = "(?im)^\s*[0-9A-F]+\s+$([regex]::Escape($api))\s*$"
+            if ($legacy -match $row) {
               throw "Legacy probe still hard-imports $api"
             }
-            if ($control -notmatch "(?m)^\s*$api\s*$") {
+            if ($control -notmatch $row) {
               throw "Positive control did not hard-import $api"
             }
           }
