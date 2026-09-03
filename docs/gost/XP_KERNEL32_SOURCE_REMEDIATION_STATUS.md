@@ -10,7 +10,7 @@ Working implementation branch for the current XP line: `agent/winrt-source-poc`.
 
 ## Purpose
 
-This document records the current analysis and proposed production plan for the remaining source-remediation KERNEL32 quartet:
+This document records the current analysis and production plan for the remaining source-remediation KERNEL32 quartet:
 
 - `GetApplicationRestartSettings`;
 - `RegisterApplicationRestart`;
@@ -48,13 +48,13 @@ The preceding run `33719991764`, job `100536981774`, source `95f6a680d3be006a9c9
 
 ## 1. Application Restart trio — treat as one feature
 
-### Exact owner
+### Exact owner and startup location
 
 File: `toolkit/xre/nsAppRunner.cpp`.
 
 Function: `RegisterApplicationRestartChanged`.
 
-The callback is registered through `Preferences::RegisterCallbackAndCall` for `PREF_WIN_REGISTER_APPLICATION_RESTART` / `toolkit.winRegisterApplicationRestart`.
+The callback registration is inside `XREMain::XRE_mainRun()`, after XPCOM/profile/preferences initialization and before the application enters its normal run loop. `Preferences::RegisterCallbackAndCall` both registers the preference callback and invokes it immediately during startup.
 
 The function uses all three Vista+ APIs as one logical Windows Application Restart feature:
 
@@ -63,6 +63,8 @@ The function uses all three Vista+ APIs as one logical Windows Application Resta
 - `UnregisterApplicationRestart`.
 
 When enabled and not already registered, Firefox constructs its restart command line and registers with `RESTART_NO_CRASH | RESTART_NO_HANG`. When registration exists while the preference is disabled, Firefox unregisters it.
+
+The surrounding `XP_WIN` block also initializes independent Windows facilities such as altered DLL prefetch, Launcher Process preferences, Skeleton UI/default-browser-agent preferences, and related registry state. Those adjacent facilities are **not** part of this remediation and must not be disabled merely to remove Application Restart.
 
 ### Required semantics
 
@@ -76,21 +78,56 @@ This integration supports Windows-driven automatic application relaunch/session 
 
 For the XP compatibility target, reproducing a Vista-era Application Restart facility is not a product requirement.
 
-### Proposed remediation
+### Selected production remediation
 
-**Preferred class: source removal / compile-time legacy fallback.**
+**Decision accepted 2026-09-03: use dedicated `MOZ_XP_COMPAT` source guards.**
 
-For the XP build, make `RegisterApplicationRestartChanged` an intentional no-op as one feature boundary so that none of the three API references reach the XP production object/link.
+The selected production shape is deliberately narrow and has two source boundaries inside the existing Windows code:
+
+1. wrap the complete definition of `RegisterApplicationRestartChanged` in `#  ifndef MOZ_XP_COMPAT` / `#  endif`;
+2. independently wrap only its `Preferences::RegisterCallbackAndCall(...)` registration in `XREMain::XRE_mainRun()` in the same guard.
+
+Conceptually:
+
+```cpp
+#ifdef XP_WIN
+...
+#  ifndef MOZ_XP_COMPAT
+static void RegisterApplicationRestartChanged(const char* aPref, void* aData) {
+  ...
+}
+#  endif
+...
+#endif
+```
+
+and:
+
+```cpp
+#ifdef XP_WIN
+#  ifndef MOZ_XP_COMPAT
+      Preferences::RegisterCallbackAndCall(
+          RegisterApplicationRestartChanged,
+          PREF_WIN_REGISTER_APPLICATION_RESTART);
+#  endif
+      SetupAlteredPrefetchPref();
+      ...
+#endif
+```
+
+This removes the whole optional Application Restart leaf from an XP-compatible translation unit without changing `XRE_mainRun()` itself and without touching the neighboring Windows startup integrations.
 
 Do not implement three independent YY thunks and do not emulate a Windows facility that XP does not provide.
 
-### Open implementation decision
+### Current implementation state
 
-Before editing production source, determine the correct XP-specific build define visible in `toolkit/xre`.
+The source design is **settled but not yet landed**.
 
-Do **not** casually reuse `MOZ_NO_WINRT` merely because it exists in another XP remediation. Its current use must be checked for scope: a directory-local define in another component is not automatically a suitable project-wide XP feature flag.
+During the 2026-09-03 edit attempt, the available GitHub direct `update_file` operation required complete replacement contents for the very large `toolkit/xre/nsAppRunner.cpp`. Two attempted full-file writes were detected as truncated before being accepted as work. In both cases the work branch was immediately restored to the exact pre-edit HEAD `10e055bacbfb5f955b1fd3b6e986c841f08797b1`; the authoritative source blob was verified restored as `8f85b5323cda4a6444e04c8d370ff1871ad16793`.
 
-The preferred implementation should have an explicit and maintainable meaning such as “legacy XP build”, rather than coupling Application Restart to an unrelated WinRT switch.
+Therefore **no production-source change is currently claimed** for `nsAppRunner.cpp`. The two guard insertions remain the accepted next edit, but must be applied through a safe exact-file editing path and then verified by a minimal diff before any build evidence is attached to them.
+
+`MOZ_XP_COMPAT` is the accepted dedicated legacy-XP source guard. Existing `MOZ_NO_WINRT` remediations do not need to be rewritten merely to adopt the new name; new XP-specific exclusions can converge on `MOZ_XP_COMPAT` as appropriate. Wiring/defining the macro in the actual XP build configuration remains a separate implementation step and must be verified rather than assumed.
 
 ## 2. `GetNamedPipeServerProcessId` — preserve modern security semantics
 
@@ -145,7 +182,8 @@ It proves:
 It does **not** prove:
 
 - the production Firefox source has been changed;
-- the exact Firefox objects compile with the chosen XP guard;
+- the exact Firefox objects compile with `MOZ_XP_COMPAT`;
+- the actual XP build defines `MOZ_XP_COMPAT` at the required owners;
 - final `xul.dll` has lost the four imports;
 - another owner/toolchain path does not reintroduce them;
 - the browser starts on physical Windows XP.
@@ -154,30 +192,18 @@ Therefore these APIs are **strategy-GREEN, production-open**.
 
 ## 4. Proposed work sequence
 
-### Step A — settle the XP compile-time boundary
+### Step A — land and wire `MOZ_XP_COMPAT`
 
-Before modifying either production owner, identify the existing build/configuration signal that should define “XP legacy product path” for both `toolkit/xre` and `accessible/windows/msaa`.
-
-Acceptance criteria:
-
-- it is intentionally tied to the XP compatibility build rather than to an unrelated subsystem;
-- it does not change normal Win7+/current Windows builds;
-- it is visible at the two required source owners without broad accidental effects;
-- introducing a new narrowly named define is acceptable if no existing signal has the correct semantics.
-
-This is the main design point to resolve before code changes.
-
-### Step B — integrate Application Restart source removal
-
-Change `RegisterApplicationRestartChanged` so the XP legacy build does not reference any of the three Application Restart APIs.
+The source boundary is now decided. Apply the two exact Application Restart guards in `agent/winrt-source-poc/toolkit/xre/nsAppRunner.cpp` and ensure the XP build configuration defines `MOZ_XP_COMPAT` for this translation unit.
 
 Acceptance criteria:
 
-- non-XP Windows behavior remains unchanged;
-- the XP object contains no references to the three APIs;
-- no substitute restart emulation or global shim is introduced.
+- minimal source diff: only definition guard + registration guard for Application Restart;
+- neighboring Windows startup facilities unchanged;
+- normal non-XP Windows behavior unchanged;
+- the XP translation unit does not compile the three Application Restart API references.
 
-### Step C — integrate named-pipe runtime resolution
+### Step B — integrate named-pipe runtime resolution
 
 Replace the direct `GetNamedPipeServerProcessId` call in the Win11 UIA path with bounded runtime resolution.
 
@@ -188,9 +214,9 @@ Acceptance criteria:
 - no fake PID or weakened validation semantics;
 - XP object/link has no hard `GetNamedPipeServerProcessId` import.
 
-### Step D — exact affected-target proof before another heavy build
+### Step C — exact affected-target proof before another heavy build
 
-Do **not** request another multi-hour full Firefox build solely to learn whether these two source edits compile or whether the four symbols remain referenced.
+Do **not** request another multi-hour full Firefox build solely to learn whether these source edits compile or whether the four symbols remain referenced.
 
 First run the cheapest production-representative proof available for the exact affected Firefox targets/objects.
 
@@ -204,7 +230,7 @@ The proof should establish at minimum:
 
 If build-system structure makes an isolated final-PE import proof impractical, use the narrowest target build that actually links the relevant object into its real owner. Do not replace a meaningful target proof with another synthetic-only probe: the synthetic strategy proof is already GREEN.
 
-### Step E — consume the result in the next necessary full Firefox build
+### Step D — consume the result in the next necessary full Firefox build
 
 Only after the exact production-target proof is GREEN should these changes ride the next full XP Firefox validation that is already technically justified by the broader compatibility queue.
 
@@ -212,7 +238,7 @@ That full run must retain the project’s inventory-driven PE audit. A curated f
 
 Acceptance for this quartet at full-browser level requires the exact produced `xul.dll` / package inventory to contain none of the four hard imports.
 
-### Step F — physical XP progression
+### Step E — physical XP progression
 
 Even a GREEN full-browser import audit does not prove runtime closure.
 
@@ -235,22 +261,20 @@ This stage must not be mixed with:
 
 Those have separate ownership/evidence tracks.
 
-## 6. Discussion points before production edits
+## 6. Remaining discussion points
 
-The proposed remediation direction is strong, but the following should be agreed before implementation:
+The Application Restart architecture is now settled. Remaining design questions for this quartet are:
 
-1. **Which compile-time signal should represent the XP legacy source path?** This is the only material unresolved design issue for the Application Restart change.
-2. **Should the named-pipe resolver be local to `CompatibilityUIA.cpp` or use an existing Mozilla helper?** Prefer the smallest change unless an established helper already provides the same bounded GetProcAddress pattern without introducing another dependency.
-3. **What is the cheapest exact production target that gives meaningful symbol/import evidence for both owners?** The goal is to avoid another full Firefox build until the source changes themselves are proven.
-4. **Should this quartet remain documented as one stage or split Application Restart and UIA after production integration?** Keeping them together is convenient for the current residual KERNEL32 queue, but their subsystem semantics are independent.
+1. where `MOZ_XP_COMPAT` should be defined in the XP build configuration so both current and future XP-specific source exclusions receive it intentionally;
+2. whether the named-pipe resolver should be local to `CompatibilityUIA.cpp` or use an existing Mozilla helper if an equivalent bounded helper already exists;
+3. what the cheapest exact production target is that gives meaningful compile/symbol/import evidence for both source owners.
 
 ## Recommended decision
 
-Proceed with the current architecture, but **do not edit production code until the XP build-define boundary is settled**.
+Proceed with the accepted architecture:
 
-The preferred production design is:
-
-- Application Restart trio -> one compile-time XP source removal/no-op;
+- Application Restart trio -> two narrow `MOZ_XP_COMPAT` compile-time guards, around the callback definition and its registration only;
+- leave the surrounding Windows startup integrations untouched;
 - `GetNamedPipeServerProcessId` -> native API preserved through bounded runtime lookup;
 - then exact production-target compilation/symbol proof;
 - then inclusion in the next otherwise-justified full XP build;
