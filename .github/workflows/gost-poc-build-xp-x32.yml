@@ -437,7 +437,8 @@ jobs:
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
             'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
             'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
-            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
+            'TryAcquireSRWLockExclusive','FlsGetValue'
           )
           $wanted = @(
             @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
