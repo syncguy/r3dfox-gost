@@ -436,7 +436,8 @@ jobs:
             'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
             'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
-            'InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+            'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
           $wanted = @(
             @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
@@ -710,7 +711,8 @@ jobs:
             'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
             'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
-            'InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
+            'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
             'AcquireSRWLockExclusive','AcquireSRWLockShared',
             'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
             'InitializeSRWLock','InitializeConditionVariable',
@@ -733,7 +735,7 @@ jobs:
           }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-sync-imports.txt')
           if ($hits.Count -gt 0) {
-            throw 'Core browser imports survived the proven SRW plus 24-API KERNEL32 YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
+            throw 'Core browser imports survived the proven SRW/KERNEL32 YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
           }
 
       - name: Stage msvcr14x XP runtime DLLs
@@ -1061,11 +1063,11 @@ jobs:
             'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription',
             'SetThreadStackGuarantee','SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork',
             'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable',
-            'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
+            'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable',
             'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation',
             'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
-            'GetUserPreferredUILanguages','InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW',
-            'QueryProcessCycleTime','QueryThreadCycleTime',
+            'GetUserPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
 
           $hits = [System.Collections.Generic.List[string]]::new()
@@ -1136,7 +1138,7 @@ jobs:
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256, staged after PE retarget and verified unchanged in the portable archive." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the physically narrow SRW/condition-variable closure extended with the 24 capability-present KERNEL32 APIs proven by run 33600786738 / job 100153789478 / SHA 0184985c2f0c5ab1c4c732a200cfbda07a6aefb4. CreateWaitableTimerExA remains outside that provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Core browser synchronization imports are fail-fast gated immediately after the Firefox build, before CRT/D3D/package gates." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86 with the physically narrow SRW/condition-variable closure, the 24-API KERNEL32 baseline proven by run 33600786738 / job 100153789478 / SHA 0184985c2f0c5ab1c4c732a200cfbda07a6aefb4, and focused residual coverage for GetThreadPreferredUILanguages, InitOnceExecuteOnce and QueryFullProcessImageNameA proven by run 33712987285 / job 100516220327 / SHA ffb72c4ae6988a7c4f82b4e67a9027e41afb572b. CreateWaitableTimerExA remains outside that provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Core browser proven KERNEL32 imports are fail-fast gated immediately after the Firefox build, before CRT/D3D/package gates." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Portable package and runtime archive include the verified XP-compatible ucrtbase.dll, msvcp140.dll, and proven bcrypt.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- This proves full-build/link/import viability only. Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
