@@ -2,223 +2,135 @@
 
 Last updated: 2026-09-03
 
-This file is the authoritative current technical synthesis. Detailed evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; formally closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 dependency/build contract is in `XP_BUILD_CONTRACT.md`.
+This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; Windows XP x86 dependency/build rules are in `XP_BUILD_CONTRACT.md`.
 
 ## Repository / branch policy
 
 - Repository: `syncguy/r3dfox-gost`.
-- Default / active branch: `agent/gost-tls-poc`.
+- Default GOST development branch: `agent/gost-tls-poc`.
+- Windows XP SP3 x86 compatibility work branch: `agent/winrt-source-poc`.
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
 - PR #1 historically targets `win-153`; it does not define the working branch.
-- Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer maintained r3dfox baseline.
+- Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer base.
 
-## Track separation
+### Branch-local state precedence
 
-Keep these conclusions independent unless a deliberately combined experiment tests both:
+When a technical question concerns a non-default active branch, the branch-local `docs/gost/PROJECT_STATE.md`, `TEST_LOG.md`, `TODO.md`, `DONE.md`, and relevant status documents at that branch HEAD must be read after this default-branch handoff. Newer branch-local evidence overrides an older cross-branch snapshot here. A historical blocker in this file must never override a later exact physical-runtime or CI result from the active branch.
 
-1. GOST TLS runtime / MSSPI / SSPI / CryptoPro / handshake.
-2. Windows Vista/7/XP binary compatibility / toolchain / PE imports / runtime closure.
+For Windows XP x86 work specifically, always verify `agent/winrt-source-poc` HEAD and read its branch-local XP documentation before drawing a current-blocker conclusion.
+
+## Separation of conclusions
+
+Keep these tracks independent unless a deliberately combined experiment tests both:
+
+1. GOST TLS runtime / NSS / NSPR / MSSPI / SSPI / CryptoPro / handshake.
+2. Windows Vista/7/XP compatibility / Rust / msvcr14x / YY-Thunks / linker / PE imports / physical runtime.
 3. Bundled government-system extensions and localization/package behavior.
 
-Build success does not prove GOST TLS. A focused dependency runtime pass does not prove full Firefox startup. Packaging success does not prove runtime discovery or network behavior.
+A successful build is not a successful GOST handshake. A hosted compatibility probe is not physical-XP proof. A Win7 x86 runtime pass does not prove XP import closure. A later documentation commit is never the source-under-test SHA for an earlier binary.
 
 # GOST TLS runtime
 
-## Architecture
+## Architecture and current checkpoint
 
 Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication.
 
-Current core constraints:
+Current runtime constraints include:
 
-- allowlist: `R3DFOX_GOST_HOSTS`;
+- allowlist through `R3DFOX_GOST_HOSTS`;
 - TLS 1.2 / HTTP/1.1 PoC path;
-- default GOST ciphers: `C100:C101:C102:FF85:0081`;
-- coordinated Firefox client-auth picker is default;
-- `R3DFOX_GOST_CLIENT_AUTH_MODE=legacy` remains a same-binary diagnostic fallback;
-- explicit local certificate selector remains diagnostic only;
-- `Session` is the picker default;
-- explicit `Once` uses the positive-only 5-second idle fanout lease;
-- explicit Cancel is attempt-local and is not stored as reusable negative state;
-- an unanswered picker abandoned by tab/load teardown remains unresolved phase 0 and is removed by lifecycle cleanup;
-- candidate discovery from `CurrentUser\MY` is distinct from live private-key/provider availability;
-- a provider refusal before first key acquisition fails only the current MSSPI attempt with `SEC_E_NO_CREDENTIALS`; a positive Session decision survives and can recover after the medium returns;
-- removing the key medium after a credential has already been acquired may not invalidate that live provider context;
-- synchronous CryptoPro/provider access currently runs on the shared Firefox Socket Thread; T9 measured a `74.742 s` provider wait during which unrelated network work queued while browser UI remained responsive;
-- current source still routes every non-`Once` positive choice through the same process-local remember store, so true persistent `Permanent` semantics remain unimplemented/unproven.
+- coordinated Firefox client-auth picker as default;
+- diagnostic legacy selector/mode remains available but is not production policy;
+- `Session` is the current default positive choice and remains process-local;
+- true persistent `Permanent` semantics remain open;
+- final fail-closed server verification remains open;
+- synchronous provider/key access can still block the shared Firefox Socket Thread during long CryptoPro waits.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
-## Current authoritative GOST runtime browser
+Current authoritative Session-default browser:
 
-- source-under-test `afbdad307f63e594d3715169d6e34235280dddaf`;
-- short SSL compile run `33073577249`, job `98521835147`, success;
-- authoritative main full build run `33073577269`, job `98521835354`, success;
+- source `afbdad307f63e594d3715169d6e34235280dddaf`;
+- full build run `33073577269`, job `98521835354`;
 - release artifact `9652941006`;
 - `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
 - `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
 
-Every new GOST runtime conclusion must pass the exact binary/environment/profile preflight in `STAGE2_RUNTIME_TEST_PLAN.md`.
+Closed runtime groups include basic Treasury GOST HTTPS, explicit-selector Treasury mTLS, coordinated client-auth lifecycle, GIS GMP isolation, Session lifetime, SD1-SD6 Session-default regression, T3 Cancel, T4 Abort, T7/T8 provider recovery, T9 provider-wait characterization and T10 picker presentation. Exact evidence is in `DONE.md` and the test logs.
 
-## Closed runtime milestones
+## Current GOST runtime work
 
-The following are closed on their recorded exact artifacts; do not repeat them on unchanged source merely for confirmation:
+1. Implement and prove true persistent `Permanent` semantics.
+2. Continue certificate-discovery/provider-boundary tests.
+3. Compare provider-wait behavior with stock Firefox before changing Socket Thread architecture.
+4. Complete mandatory fail-closed server trust and Firefox certificate-override integration.
 
-- basic Treasury GOST HTTPS/application traffic;
-- explicit-selector Treasury mTLS;
-- coordinated client-auth F1 lifecycle;
-- positive `Once` fanout/post-expiry scope;
-- generic GIS GMP mTLS scope and cross-host decision isolation;
-- positive `Session` same-process lifetime and restart boundary;
-- Session-default SD1-SD6 regression;
-- T3 explicit Cancel/no-certificate semantics;
-- T4 involuntary tab/load Abort semantics;
-- T7/T8 missing-medium/provider recovery;
-- T9 long provider wait characterization;
-- T10 detailed Russian picker presentation.
+# Windows XP SP3 x86 compatibility
 
-Exact evidence is in `DONE.md` and the test logs.
+This track is independent of GOST TLS runtime.
 
-## Current GOST runtime blockers / next work
+## Current handoff — read this before historical XP entries
 
-1. **T6 — real Permanent semantics.** Implement persistence distinct from the current in-memory non-Once store and prove process-restart/forget/change behavior.
-2. **T11/T12 — discovery boundary.** Verify dynamic `CurrentUser\MY` re-enumeration and provider/removable-media-only discovery behavior.
-3. **Provider-wait concurrency follow-up.** Compare T9 with stock Firefox token/PIN/client-certificate behavior before deciding whether MSSPI/provider access should move off the shared Socket Thread.
-4. **T5 remains deferred.** Post-login medium removal is not a valid fault injection because an already-acquired provider credential can remain usable.
-5. Continue candidate-policy/negative-path matrix.
-6. Complete mandatory fail-closed server trust.
+Active work is on `agent/winrt-source-poc`.
 
-## Mandatory server-trust closure — OPEN
-
-Final production behavior must:
-
-- reject `verifyOk == 0`;
-- reject any nonzero verification status;
-- integrate Firefox temporary/permanent certificate overrides;
-- use positive browser-session verification cache keyed by exact server identity;
-- prove valid Treasury hostname/chain succeeds;
-- prove wrong hostname and invalid/untrusted chain fail closed;
-- prove client private-key operations cannot occur before server trust.
-
-Do not use a production verification bypass.
-
-# Windows XP / legacy Windows compatibility
-
-This track is independent of GOST TLS handshake evidence.
-
-## Mandatory XP x86 build contract
-
-Authoritative rules are in `XP_BUILD_CONTRACT.md`.
-
-Physically proven CRT/Rust/YY reference remains:
-
-- source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`;
-- run `33387080767`, job `99472017220`;
-- runtime artifact `9756275917`;
-- exact runtime bundle executed successfully on physical Windows XP.
-
-The ten-API synchronization capability smoke is also green at representative-link scale:
+The old SRW/condition-variable loader failures are **closed historical blockers**, not the current XP edge. The canonical narrow synchronization baseline remains:
 
 - source `d65b464c74caadace97995f07a4919363c41a0ea`;
-- run `33470957048`, job `99740439208`;
-- runtime artifact `9786702687`;
-- covered APIs: `AcquireSRWLockExclusive`, `AcquireSRWLockShared`, `ReleaseSRWLockExclusive`, `ReleaseSRWLockShared`, `InitializeSRWLock`, `InitializeConditionVariable`, `SleepConditionVariableCS`, `SleepConditionVariableSRW`, `WakeAllConditionVariable`, `WakeConditionVariable`.
+- workflow `msvcr14x Rust YY XP x86 SRW smoke`;
+- run `33470957048`;
+- job `99740439208`;
+- runtime artifact `9786702687`.
 
-This is capability proof only; full Firefox link consumption remains a separate gate.
+The later full-Firefox/physical-XP line progressed beyond that synchronization cluster. Do not reopen `AcquireSRWLockExclusive`, the SRW family, or `CloseThreadpoolWork` without new contradictory evidence.
 
-## Source-built One-Core bcrypt closure — SINGLE-DLL / PHYSICALLY PROVEN / SELECTED
+`CreateWaitableTimerExA` is also **closed** by source-level remediation. The optional base-profiler high-resolution timer is compiled out for the legacy build and Firefox uses its pre-existing fallback. Full Firefox confirmation is tied to source `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`, run `33638897692`, job `100276666021`. The historical absence of a YY-Thunks `CreateWaitableTimerExA` capability is therefore not a current product blocker. Detailed closure: `XP_CREATE_WAITABLE_TIMER_STATUS.md`.
 
-The stock-XP missing `bcrypt.dll` boundary is closed at focused dependency/runtime level.
+### Current physical-XP loader edge
 
-Selected implementation:
+The latest physical Windows XP startup progression has moved past the earlier SRW and `CreateWaitableTimerExA` edges. The current observed loader failure is:
 
-- project source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
-- workflow `One-Core bcrypt source XP x86 smoke`;
-- run `33513084915`, job `99873297193`, success;
-- pinned upstream source `shorthorn-project/One-Core-API-Source@9eb3c31de9460c1ccce3f6a10c9c4a704f032514`;
-- build environment RosBE 2.1.6 i386;
-- runtime artifact `9802703271`, digest `sha256:e6ea796ef5f7dfb67e346630cd6432c9659e6d90d39ce90b8f44a1b3632edc8f`;
-- diagnostics artifact `9802704126`, digest `sha256:d989ce72af60185cb16b0ff99d156ed39170beab00055e776b881ee2cc54e6de`.
+`r3dfox.exe - Entry Point Not Found`
 
-The pinned active mbedTLS C modules are compiled directly into `bcrypt.dll`; the separate runtime `mbedtls.dll` dependency is removed. Embedded mbedTLS sources use `-U__WINESRC__` to preserve the compile semantics of the previously successful standalone mbedTLS target, while `bcrypt_main.c` remains in its normal bcrypt/Wine context. The bcrypt and mbedTLS C implementation sources themselves remain unmodified.
+`KERNEL32!InitOnceExecuteOnce`
 
-CI proves that the final single `bcrypt.dll` links, does not import `mbedtls.dll`, passes the current XP forbidden-import gate, retains the required BCrypt exports, and passes exact-local hosted dynamic exports/RNG/SHA-256 execution against the staged local DLL.
+Treat `InitOnceExecuteOnce` as the current physical loader edge until a newer exact physical-XP artifact advances beyond it.
 
-Physical Windows XP SP3 x86 (`Microsoft Windows XP [Version 5.1.2600]`) now closes the runtime boundary for the exact artifact. The extracted runtime directory contains exactly five files and only one DLL, `bcrypt.dll` (`520704` bytes); there is no `mbedtls.dll`. Both independent consumers load the same app-local path `D:\2026\09\01\onecore-bcrypt-source-xp-x86-runtime\bcrypt.dll` and report `EXPORTS PASS`, `RNG PASS`, `SHA256 PASS`, with `DynamicExitCode=0` and `LinkedExitCode=0`. User-recorded SHA-1 for the proven `bcrypt.dll` is `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`; SHA-256 is `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
+The related bounded YY-Thunks mechanism has already passed focused proof together with two other residual KERNEL32 APIs:
 
-Therefore the selected focused runtime closure is one deployable app-local DLL:
+- source `ffb72c4ae6988a7c4f82b4e67a9027e41afb572b`;
+- workflow `XP x86 core KERNEL32 cluster smoke`;
+- run `33712987285`;
+- job `100516220327`;
+- focused residuals: `InitOnceExecuteOnce`, `GetThreadPreferredUILanguages`, `QueryFullProcessImageNameA`.
 
-`bcrypt.dll -> XP-era system DLLs`
+That GREEN proves focused capability/link/import/runtime behavior only. It does not by itself prove full Firefox integration or physical-XP startup.
 
-with the required mbedTLS implementation embedded into the DLL itself.
+### Current full Firefox integration run — provisional
 
-The exact proven DLL is now also published for cross-branch reuse as technical prerelease/tag `xp-bcrypt-v1` in this repository. The tag points directly to source-under-test `a30a701...`; release ID `380563342` contains one raw asset `bcrypt.dll` (asset ID `539647946`, size `520704`, digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`). Publication workflow run `33518189052`, job `99890447193`, source `76225fcf95e4e484f0cec30c8e25a235119b0256` passed download, exact binary verification and raw asset publication. This publisher SHA is infrastructure identity only and is not the binary source-under-test.
+The current full XP x32 validation run is:
 
-For heavy Firefox builds, this Release asset is the canonical reusable input. An Actions cache may accelerate access, but cache miss must fall back to downloading `xp-bcrypt-v1` and verifying exact SHA-256/size; heavy workflows must not silently rebuild One-Core. Stage only `bcrypt.dll` and retain PE/import/package-survival gates.
-
-The earlier physically proven two-DLL source-built closure remains historical fallback/baseline evidence:
-
-- source `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`;
-- run `33493625367`, job `99810642354`;
-- runtime artifact `9794971087`;
-- closure `bcrypt.dll -> mbedtls.dll -> XP-era system DLLs`.
-
-It is no longer the selected packaging contract. Earlier prebuilt One-Core `Check integrity`, `ERROR_INVALID_IMAGE_HASH`, `bcryptext` forwarder and `DLL_INIT_FAILED` experiments remain historical diagnostics only and must not be mixed with either source-built closure.
-
-**Next bcrypt work is integration, not research:** update the full XP x32 Firefox workflow to consume the raw `xp-bcrypt-v1` release asset, require exact SHA-256/size before staging, stage only `bcrypt.dll`, retain PE/import and package-survival gates, and test the resulting exact browser artifact on physical XP.
-
-Detailed status: `XP_BCRYPT_STATUS.md`.
-
-## Current full Firefox XP boundary
-
-Historical broad baseline:
-
-- experiment branch `agent/winrt-source-poc`;
-- source `1635d28360ee35d47c1d8237bcf8f5864cc1144f`;
-- run `33310150314`;
-- job `99253613546`;
-- runtime artifact `9733280458`;
-- diagnostics artifact `9733280937`;
-- broad gate: 103 rows, 26 unique forbidden APIs across 15 PEs; `xul.dll` and `mozglue.dll` directly import `bcrypt.dll` in that baseline.
-
-Later physical-XP browser evidence from source `99fac0b869c4c0a4638f4e076d77547d90e146cb`, run `33396056005`, job `99500729287`, package artifact `9764345117` reaches a real loader failure at `KERNEL32!AcquireSRWLockExclusive`. That is independent of the now-proven bcrypt closure.
-
-The ten-API synchronization mechanism has been transferred into the full XP x32 workflow lineage with separate link-boundary handling for `xul.dll`, `r3dfox.exe`, `mozglue.dll`, and `plugin-container.exe`, plus an early post-build synchronization-import gate. Full YY `kernel32.lib` interposition remains prohibited.
-
-### Latest full-build checkpoint — compile/link/package green, CRT package-integrity red
-
-The newest full XP x32 run is a substantial build milestone but is not an accepted XP runtime package:
-
-- experiment branch `agent/winrt-source-poc`;
-- source-under-test `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`;
+- branch `agent/winrt-source-poc`;
+- source-under-test `4949a16e730cc15fc85b128fd62dac2a27c4d9c5`;
 - workflow `GOST TLS PoC build  XP x32`;
-- Actions run `33638897692`, attempt `1`;
-- job `100276666021`;
-- package artifact `9855749298`;
-- diagnostics artifact `9855751471`;
-- overall run/job conclusion: **failure** at the post-package msvcr14x CRT-survival gate.
+- run `33718674533`;
+- job `100533128424`;
+- status at this documentation checkpoint: **in progress**.
 
-For this exact source the full release Firefox x86 build succeeds, the early selected-core XP direct-import rejection gate succeeds, the app-local msvcr14x runtime is staged and its exact identity is recorded before packaging, legacy `D3DCompiler_47.dll` survives packaging, and `mach package` succeeds. This advances the synchronization/link integration from representative capability proof into a successful full-build/early-gate checkpoint.
+The purpose of this run is to carry the current narrow XP compatibility provider into the real Firefox build while preserving package/runtime/diagnostic artifacts even when later gates are red. Do not call `InitOnceExecuteOnce` closed at full-browser or physical-XP level until this exact run completes and its resulting exact artifact is tested on physical XP.
 
-The red boundary is narrower and later: `GATE - Verify msvcr14x CRT survived portable packaging` fails because no produced portable package contains exactly the staged `ucrtbase.dll` and `msvcp140.dll` with their recorded pre-package SHA-256 identities. Independent inspection of `r3dfox-v153.0.3.win32.zip` confirms that both DLLs are absent there. The failure is therefore a `dist/bin -> package` preservation/inclusion problem, not evidence of a Firefox compile/link regression.
+### XP package/dependency closures already established
 
-Because that integrity gate is fail-fast, the physical-test runtime archive and final broad XP PE-floor/direct-import audit are skipped. Therefore this run does **not** prove complete post-XP import closure, physical Windows XP startup, ordinary browsing, or any GOST TLS behavior.
+- Pinned/restored msvcr14x Release x86 is the required CRT baseline; do not substitute host redistributables.
+- The selected XP bcrypt closure is the single app-local `bcrypt.dll` published as `xp-bcrypt-v1`; source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, focused run `33513084915`, job `99873297193`, physically proven on XP.
+- Legacy `D3DCompiler_47.dll` staging/packaging is closed by source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
+- Full YY `kernel32.lib` interposition remains prohibited; keep per-PE narrow ownership.
+- Final XP acceptance must be inventory-driven across required PEs and must distinguish ordinary hard imports from delay-load dependencies. A curated known-API gate is a regression gate, not exhaustive proof.
 
-Current full-browser work order:
+Detailed residual classification is in `XP_IMPORT_REMEDIATION.md`. `XP_BUILD_CONTRACT.md` remains authoritative for build/staging/PE-floor rules.
 
-1. repair portable-package survival of the exact staged msvcr14x `ucrtbase.dll` and `msvcp140.dll`; do not reopen the Rust/YY synchronization linker work without new linker evidence;
-2. rerun the same full XP x32 lineage and require the CRT-survival gate to pass so the final broad PE-floor/direct-import audit and physical-test runtime archive can execute;
-3. consume the physically proven raw `xp-bcrypt-v1` release asset in the full package, verify exact SHA-256/size, stage only `bcrypt.dll`, and require package survival;
-4. regenerate the surviving broad import inventory after the already-proven synchronization/CRT/bcrypt families are correctly represented in the package;
-5. remediate remaining Firefox-owned and separately linked component imports at their source/build/dependency boundary where practical;
-6. test the exact resulting package on physical XP for startup and ordinary browsing;
-7. only after ordinary XP browser viability, treat GOST TLS on XP as a separate exact-artifact milestone.
+### Win7 x86 evidence boundary
 
-### Other closed/independent XP findings
-
-- Legacy `D3DCompiler_47.dll` staging/packaging boundary is closed by source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
-- Official r3dfox `v153.0.3` x86 ships with sandbox disabled; sandbox restoration is optional hardening, not an XP prerequisite.
-- Broad YY 26-name coverage smoke proves capability only; production membership remains caller/owner-driven.
-- WinRT broad YY expansion is retired; source-level removal/fallback remains the architectural direction for WinRT because WinRT has no XP meaning.
+A current XP-targeted x86 browser artifact can run successfully on Windows 7 x86 while still failing on XP because Win7 exports APIs that XP lacks. A Win7 x86 launch is therefore a useful general x86 runtime sanity check, but it must never be promoted to XP compatibility proof.
 
 # Bundled government-system extensions / localization
 
@@ -229,44 +141,29 @@ Current proven three-extension package checkpoint:
 - packaged-browser artifact `9614275050`;
 - evidence artifact `9614275551`.
 
-The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and the Russian-first content-language preference. Clean-profile discovery/enabled state is proven for all three. Native-component functionality and version-to-version update behavior remain separate work.
+The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and Russian-first content-language preference. Clean-profile discovery/enabled state is proven for all three. Native-component behavior and update behavior remain separate work.
 
-## Russian localization — package gate closed; Russian-first UI manually observed
+## Russian localization
 
-Historical full Windows x64 package source `37846488e281b4c3a2df46e949b4f970a7343ed3`, run `33403654068`, job `99525795309`, packaged artifact `9768056691` was packaging-green but not a functional Russian-UI pass because most packaged Russian Fluent resources in root/browser `omni.ja` were zero-length.
+The previous mass-empty Russian payload defect and final Gate D path-shape false negative are closed.
 
-Focused Firefox 153 l10n merge proof remains:
+Current corrected package gate:
 
-- source `91328ba86f050a7b64a5f344726548d22e599648`;
-- run `33468459359`, job `99733112273`, success;
-- `firefox-l10n` SHA `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`;
-- evidence artifact `9785719216`.
-
-The first substantive full integration package was source `e4f9f775d82ff14a75708e11043211e7259eed9b`, run `33489331410`, job `99796818515`, packaged artifact `9798517225`. Its build, production Russian merge and `ru + en-US` packaging passed, and independent artifact inspection proved populated Russian resources in both final `omni.ja` files. Its only red step was a Gate D false negative caused by testing the production-merge suffix `browser/browser/browser.ftl` against the normalized final archive path `localization/ru/browser/browser.ftl`.
-
-That CI blocker is now closed by the corrected exact source/run:
-
-- source-under-test `3e2c32386f373d4693db52b32c05aa2000878def`;
+- source `3e2c32386f373d4693db52b32c05aa2000878def`;
 - workflow `CryptoPro Mozilla packaging smoke`;
-- Actions run `33520207057`, job `99897230730`;
-- run/job conclusion: **success**;
-- packaged-browser artifact `9812333220`, digest `sha256:c8e62704fcc2cd1b99c78cf6cf90b405b653a9aeba5272d132bcda4eaed5edd8`;
-- evidence artifact `9812333789`, digest `sha256:fdcb6a34ed5625532af86413330b5c2d4453be046f3d6419d49d2d45c7a143dc`.
+- run `33520207057`, job `99897230730`;
+- packaged-browser artifact `9812333220`;
+- evidence artifact `9812333789`;
+- conclusion: success.
 
-For this exact run the pinned Russian source checkout, Russian-default configuration, full release build, CryptoPro `dist/bin` gate, production `ru` merge gate, `ru + en-US` package, corrected final Gate D, and both artifact uploads all pass. Gate D retains the substantive-content checks: root/browser Russian Fluent payload, zero-length limits, Cyrillic content, representative differences from en-US, Russian requested by default, and exact `ru,en-US` multilocale declaration.
+Manual runtime evidence on predecessor artifact `9798517225` from run `33489331410` observed Russian UI by default, localized Settings/TLS error UI, and successful switching to `en-US`. The later corrected CI source changed only the final path predicate; do not relabel that manual execution as artifact `9812333220`.
 
-Runtime/UI evidence is kept bound to its own exact artifact. The user manually exercised predecessor artifact `9798517225` from run `33489331410` and observed a Russian interface out of the box, localized Settings and TLS error UI, and successful switching to `en-US`. The later source `3e2c323...` changes only the final CI path predicate; that prior runtime observation is therefore not relabeled as execution of artifact `9812333220`.
-
-Current localization status: **no active packaging blocker**. The mass-empty Russian payload defect is superseded, and the final Gate D path-shape false negative is closed. A future exact-artifact runtime regression is useful when localization/package behavior changes, but another full build is not required merely to reconfirm this corrected gate on unchanged source.
-
-# Separation of conclusions
+# Global evidence rules
 
 - Build success != GOST handshake success.
-- Coordinated runtime success != final server-trust closure.
-- `client_cert_loaded=1` != private-key-use proof; completed mTLS is the proof.
-- Focused XP dependency runtime success != full Firefox XP startup.
-- Source-built bcrypt physical-XP success != synchronization/import closure.
-- Single-DLL bcrypt physical-XP success proves only the focused app-local bcrypt dependency/runtime contract, not Firefox startup.
-- GOST runtime != Windows compatibility.
-- Extension/localization packaging != extension runtime, UI runtime, GOST runtime, or old-Windows runtime.
-- Documentation HEADs never replace the exact source-under-test SHA for a previously built or runtime-tested artifact.
+- GOST runtime success != final server-trust closure.
+- Focused dependency/runtime success != full Firefox startup.
+- Win7 x86 startup != XP startup.
+- Source/build removal of a hard import != physical-XP runtime closure until the exact accepted artifact advances past that edge.
+- Documentation HEADs never replace the exact source-under-test SHA for previously built or runtime-tested artifacts.
+- For an in-progress run, record it as provisional and never mark its pending gate as passed.
