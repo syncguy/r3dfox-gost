@@ -18,10 +18,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout source
+      - name: Checkout source owners only
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          sparse-checkout: |
+            toolkit/xre/nsAppRunner.cpp
+            accessible/windows/msaa/CompatibilityUIA.cpp
+          sparse-checkout-cone-mode: false
 
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
