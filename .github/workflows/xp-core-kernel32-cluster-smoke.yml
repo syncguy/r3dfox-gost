@@ -45,10 +45,12 @@ jobs:
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
             'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
             'InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
+            'FlsAlloc','FlsGetValue','FlsSetValue','FlsFree','TryAcquireSRWLockExclusive',
             'InitOnceExecuteOnce','GetThreadPreferredUILanguages','QueryFullProcessImageNameA'
           ) | Set-Content -Encoding ascii diagnostics\requested-apis.txt
           @(
-            'InitOnceExecuteOnce','GetThreadPreferredUILanguages','QueryFullProcessImageNameA'
+            'InitOnceExecuteOnce','GetThreadPreferredUILanguages','QueryFullProcessImageNameA',
+            'TryAcquireSRWLockExclusive','FlsGetValue'
           ) | Set-Content -Encoding ascii diagnostics\required-delta.txt
           @(
             "repo=$env:GITHUB_REPOSITORY","test_commit=$env:GITHUB_SHA","compatibility_target=Windows XP SP3 x86",
@@ -56,7 +58,7 @@ jobs:
             "msvcr14x_commit=$env:MSVCR14X_SHA","inventory_evidence_run=$env:EVIDENCE_RUN",
             "inventory_evidence_job=$env:EVIDENCE_JOB","inventory_evidence_sha=$env:EVIDENCE_SHA",
             'proof_level=YY capability + hosted runner; physical XP pending',
-            'production_decision=three residual hard KERNEL32 imports are required YY candidates'
+            'production_decision=residual three plus TryAcquireSRWLockExclusive and FlsGetValue are required focused candidates; FLS setup closure included'
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Fetch and build pinned msvcr14x Release x86
@@ -221,6 +223,11 @@ jobs:
           #else
             SKIP(InitializeCriticalSectionEx);
           #endif
+          #if HAVE_TryAcquireSRWLockExclusive
+            {SRWLOCK lock=SRWLOCK_INIT;if(TryAcquireSRWLockExclusive(&lock)){ReleaseSRWLockExclusive(&lock);PASS(TryAcquireSRWLockExclusive);}else FAIL(TryAcquireSRWLockExclusive);}
+          #else
+            SKIP(TryAcquireSRWLockExclusive);
+          #endif
           #if HAVE_CompareStringOrdinal
             if(CompareStringOrdinal(L"abc",3,L"abc",3,TRUE)==CSTR_EQUAL)PASS(CompareStringOrdinal);else FAIL(CompareStringOrdinal);
           #else
@@ -312,6 +319,15 @@ jobs:
             {ULONG c=0,ch=0;BOOL ok=GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME,&c,0,&ch);if(ok&&ch>1){WCHAR* b=(WCHAR*)HeapAlloc(GetProcessHeap(),0,ch*sizeof(WCHAR));ULONG c2=c,ch2=ch;BOOL ok2=b?GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME,&c2,b,&ch2):FALSE;if(ok2&&c2>0&&ch2>1&&b[0])PASS(GetThreadPreferredUILanguages);else FAIL(GetThreadPreferredUILanguages);if(b)HeapFree(GetProcessHeap(),0,b);}else FAIL(GetThreadPreferredUILanguages);}
           #else
             SKIP(GetThreadPreferredUILanguages);
+          #endif
+          #if HAVE_FlsGetValue
+          #if HAVE_FlsAlloc && HAVE_FlsSetValue && HAVE_FlsFree
+            {DWORD index=FlsAlloc(NULL);int marker=153;if(index==FLS_OUT_OF_INDEXES){FAIL(FlsGetValue);}else{BOOL set=FlsSetValue(index,&marker);PVOID value=set?FlsGetValue(index):NULL;BOOL freed=FlsFree(index);if(set&&value==&marker&&freed)PASS(FlsGetValue);else FAIL(FlsGetValue);}}
+          #else
+            printf("FlsGetValue: FAIL (FLS setup capability missing)\n");++failures;
+          #endif
+          #else
+            SKIP(FlsGetValue);
           #endif
           #if HAVE_InitOnceBeginInitialize && HAVE_InitOnceComplete
             {INIT_ONCE o=INIT_ONCE_STATIC_INIT;BOOL pending=FALSE;PVOID ctx=0;if(InitOnceBeginInitialize(&o,0,&pending,&ctx)&&pending){PASS(InitOnceBeginInitialize);if(InitOnceComplete(&o,0,0))PASS(InitOnceComplete);else FAIL(InitOnceComplete);}else{FAIL(InitOnceBeginInitialize);FAIL(InitOnceComplete);}}
@@ -466,9 +482,9 @@ jobs:
           Physical Windows XP SP3 x86 acceptance
           =======================================
           Residual-import evidence: full Firefox run 33638897692 / job 100276666021 / SHA 17cdb459ec4f115a209fd50ac225cf867b9f3a2f.
-          Required new delta: InitOnceExecuteOnce, GetThreadPreferredUILanguages, QueryFullProcessImageNameA.
+          Required focused delta: InitOnceExecuteOnce, GetThreadPreferredUILanguages, QueryFullProcessImageNameA, TryAcquireSRWLockExclusive, FlsGetValue.
           Run: run-xp-cluster.cmd
-          Preserve complete stdout. PASS/FAIL is per API. The three required delta APIs must not be SKIP.
+          Preserve complete stdout. PASS/FAIL is per API. The five required delta APIs must not be SKIP.
           Hosted Windows execution is not physical-XP proof. This artifact does not prove full Firefox integration.
           '@|Set-Content -Encoding ascii runtime\README-XP.txt
           Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
