@@ -1,0 +1,188 @@
+name: XP KERNEL32 source remediation smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-kernel32-source-remediation-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  source-remediation:
+    name: Application Restart + named pipe / XP x86
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: GATE - Verify exact Firefox ownership and call-path anchors
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics,probe | Out-Null
+
+          $app = [System.IO.File]::ReadAllText('toolkit\xre\nsAppRunner.cpp')
+          $uia = [System.IO.File]::ReadAllText('accessible\windows\msaa\CompatibilityUIA.cpp')
+
+          $restartApis = @(
+            'GetApplicationRestartSettings',
+            'RegisterApplicationRestart',
+            'UnregisterApplicationRestart'
+          )
+          foreach ($api in $restartApis) {
+            $count = ([regex]::Matches($app, "\b$api\s*\(")).Count
+            if ($count -lt 1) { throw "Expected $api call not found in nsAppRunner.cpp" }
+          }
+          if (-not $app.Contains('static void RegisterApplicationRestartChanged')) {
+            throw 'RegisterApplicationRestartChanged owner not found'
+          }
+          if (-not $app.Contains('PREF_WIN_REGISTER_APPLICATION_RESTART')) {
+            throw 'Application Restart preference hook not found'
+          }
+          if (-not $app.Contains('Preferences::RegisterCallbackAndCall(')) {
+            throw 'Application Restart callback registration not found'
+          }
+
+          if (([regex]::Matches($uia, '\bGetNamedPipeServerProcessId\s*\(')).Count -ne 1) {
+            throw 'Expected exactly one GetNamedPipeServerProcessId call in CompatibilityUIA.cpp'
+          }
+          foreach ($anchor in @(
+            'class GetUiaClientPidsWin11',
+            'QueryThreadProc',
+            'Compatibility::GetUiaClientPids',
+            'IsWin11OrLater()',
+            'GetUiaClientPidWin10()'
+          )) {
+            if (-not $uia.Contains($anchor)) { throw "Missing UIA ownership anchor: $anchor" }
+          }
+
+          @(
+            "repo=$env:GITHUB_REPOSITORY",
+            "source_sha=$env:GITHUB_SHA",
+            'track=Windows XP SP3 x86 compatibility',
+            'application_restart_owner=toolkit/xre/nsAppRunner.cpp::RegisterApplicationRestartChanged',
+            'application_restart_policy=compile-time no-op for legacy XP configuration',
+            'named_pipe_owner=accessible/windows/msaa/CompatibilityUIA.cpp::GetUiaClientPidsWin11::QueryThreadProc',
+            'named_pipe_policy=dynamic GetProcAddress lookup preserving Win11 behavior without hard import',
+            'proof_level=source ownership + representative x86 link/import/runtime probe; physical XP pending'
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Build legacy-remediated and positive-control x86 probes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+
+          static void ApplicationRestartChangedLegacy() {
+          #ifdef LEGACY_XP_SOURCE_REMEDIATION
+            return;
+          #else
+            DWORD cch = 0;
+            HRESULT hr = GetApplicationRestartSettings(GetCurrentProcess(), nullptr, &cch, nullptr);
+            if (hr == S_OK) {
+              UnregisterApplicationRestart();
+            } else {
+              RegisterApplicationRestart(L"-os-restarted", RESTART_NO_CRASH | RESTART_NO_HANG);
+            }
+          #endif
+          }
+
+          using GetNamedPipeServerProcessIdFn = BOOL (WINAPI*)(HANDLE, PULONG);
+
+          static BOOL QueryNamedPipeServerPid(HANDLE pipe, PULONG pid) {
+          #ifdef LEGACY_XP_SOURCE_REMEDIATION
+            HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+            if (!kernel32) {
+              return FALSE;
+            }
+            auto fn = reinterpret_cast<GetNamedPipeServerProcessIdFn>(
+                GetProcAddress(kernel32, "GetNamedPipeServerProcessId"));
+            if (!fn) {
+              SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+              return FALSE;
+            }
+            return fn(pipe, pid);
+          #else
+            return GetNamedPipeServerProcessId(pipe, pid);
+          #endif
+          }
+
+          int main() {
+            ApplicationRestartChangedLegacy();
+            ULONG pid = 0;
+            QueryNamedPipeServerPid(INVALID_HANDLE_VALUE, &pid);
+            return 0;
+          }
+          '@ | Set-Content -Encoding ascii probe\remediation.cpp
+
+          cl.exe /nologo /std:c++20 /EHsc /O2 /DLEGACY_XP_SOURCE_REMEDIATION /c probe\remediation.cpp /Foprobe\legacy.obj
+          if ($LASTEXITCODE -ne 0) { throw 'legacy compile failed' }
+          link.exe /nologo probe\legacy.obj kernel32.lib /subsystem:console,5.01 /out:probe\legacy.exe
+          if ($LASTEXITCODE -ne 0) { throw 'legacy link failed' }
+
+          cl.exe /nologo /std:c++20 /EHsc /O2 /c probe\remediation.cpp /Foprobe\control.obj
+          if ($LASTEXITCODE -ne 0) { throw 'control compile failed' }
+          link.exe /nologo probe\control.obj kernel32.lib /subsystem:console,5.01 /out:probe\control.exe
+          if ($LASTEXITCODE -ne 0) { throw 'control link failed' }
+
+      - name: GATE - Fail closed on residual hard imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $legacy = (& dumpbin.exe /nologo /imports probe\legacy.exe 2>&1 | Out-String)
+          $control = (& dumpbin.exe /nologo /imports probe\control.exe 2>&1 | Out-String)
+          $legacy | Set-Content -Encoding utf8 diagnostics\legacy-imports.txt
+          $control | Set-Content -Encoding utf8 diagnostics\control-imports.txt
+
+          $apis = @(
+            'GetApplicationRestartSettings',
+            'RegisterApplicationRestart',
+            'UnregisterApplicationRestart',
+            'GetNamedPipeServerProcessId'
+          )
+          foreach ($api in $apis) {
+            if ($legacy -match "(?m)^\s*$api\s*$") {
+              throw "Legacy probe still hard-imports $api"
+            }
+            if ($control -notmatch "(?m)^\s*$api\s*$") {
+              throw "Positive control did not hard-import $api"
+            }
+          }
+
+          $headers = (& dumpbin.exe /nologo /headers probe\legacy.exe 2>&1 | Out-String)
+          $headers | Set-Content -Encoding utf8 diagnostics\legacy-headers.txt
+          if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw 'Legacy probe is not x86' }
+          if ($headers -notmatch '(?im)^\s*5\.01 subsystem version') { throw 'Legacy probe subsystem is not 5.01' }
+
+          'hard_import_gate=PASS' | Set-Content -Encoding ascii diagnostics\result.txt
+
+      - name: Hosted runtime sanity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\probe\legacy.exe
+          if ($LASTEXITCODE -ne 0) { throw "legacy runtime probe failed: $LASTEXITCODE" }
+          'hosted_runtime=PASS' | Add-Content -Encoding ascii diagnostics\result.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-kernel32-source-remediation-diagnostics
+          path: diagnostics
+          if-no-files-found: error
