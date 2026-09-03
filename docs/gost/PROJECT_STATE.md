@@ -93,9 +93,9 @@ The latest physical Windows XP startup progression has moved past the earlier SR
 
 `KERNEL32!InitOnceExecuteOnce`
 
-Treat `InitOnceExecuteOnce` as the current physical loader edge until a newer exact physical-XP artifact advances beyond it.
+Treat `InitOnceExecuteOnce` as the current **observed physical** loader edge until a newer exact physical-XP artifact advances beyond it.
 
-The related bounded YY-Thunks mechanism has already passed focused proof together with two other residual KERNEL32 APIs:
+The related bounded YY-Thunks mechanism has passed focused proof together with two other residual KERNEL32 APIs:
 
 - source `ffb72c4ae6988a7c4f82b4e67a9027e41afb572b`;
 - workflow `XP x86 core KERNEL32 cluster smoke`;
@@ -103,20 +103,47 @@ The related bounded YY-Thunks mechanism has already passed focused proof togethe
 - job `100516220327`;
 - focused residuals: `InitOnceExecuteOnce`, `GetThreadPreferredUILanguages`, `QueryFullProcessImageNameA`.
 
-That GREEN proves focused capability/link/import/runtime behavior only. It does not by itself prove full Firefox integration or physical-XP startup.
+The full Firefox run below advances this from focused proof to production build/import evidence: none of those three names appears in its broad forbidden-import report and the production core-browser import gate is GREEN. Physical-XP closure still requires launching the exact new runtime artifact.
 
-### Current full Firefox integration run — provisional
+### Full Firefox integration — package dependency closure GREEN, broad distribution audit RED
 
-The current full XP x32 validation run is:
+Current full XP x32 evidence point:
 
 - branch `agent/winrt-source-poc`;
 - source-under-test `4949a16e730cc15fc85b128fd62dac2a27c4d9c5`;
 - workflow `GOST TLS PoC build  XP x32`;
 - run `33718674533`;
 - job `100533128424`;
-- status at this documentation checkpoint: **in progress**.
+- run attempt `1`;
+- aggregate Actions result: **failure** because the final evidence summary intentionally propagates diagnostic RED outcomes after artifacts are preserved.
 
-The purpose of this run is to carry the current narrow XP compatibility provider into the real Firefox build while preserving package/runtime/diagnostic artifacts even when later gates are red. Do not call `InitOnceExecuteOnce` closed at full-browser or physical-XP level until this exact run completes and its resulting exact artifact is tested on physical XP.
+Substantive build/package results:
+
+- full Firefox x86 build — GREEN;
+- production core-browser import gate — GREEN;
+- CRT staging and package-survival gate — GREEN;
+- legacy `D3DCompiler_47.dll` staging/retarget/package gate — GREEN;
+- proven `xp-bcrypt-v1` staging and package-survival gate — GREEN;
+- runtime archive generation — GREEN;
+- package/runtime/diagnostics artifact uploads — GREEN;
+- broad all-PE import audit — RED, collected non-fatally with `continue-on-error: true`, then promoted to the aggregate RED by the final summary.
+
+Exact artifacts:
+
+- package `9883134667`, `327699666` bytes, digest `sha256:64b9537376b72a9e38728236b666b929e84e9c6895a022a1dd66338b9a645582`;
+- physical-test runtime `9883135451`, `74911275` bytes, digest `sha256:9a5380bfec2b05a8460f6dfef99c85a1c053e1b31f9f18f101d6a7fc5563127b`;
+- diagnostics `9883136547`, `5912540` bytes, digest `sha256:b7fb3503a258d78fec927cd0f81413d5124f6f9b4a61cd27a034ec6092607f1c`.
+
+The previous msvcr14x packaging blocker is **closed**. `packaged-crt-contract.txt` names `r3dfox-v153.0.3.win32.portable.7z` and proves pre/post-package equality for:
+
+- `ucrtbase.dll` SHA-256 `455fa6bc5ceedd89fc3650a224f96ba4dee0fbcb87e2823c1670a4704b737b2f`;
+- `msvcp140.dll` SHA-256 `a1d6099eea3b7742b86ba44a7be7fc64bf0041a80e67ef7e54641ab283285c19`.
+
+The bcrypt release-to-package contract is also **closed at automated build/package level**. The packaged library is exactly the physically proven `xp-bcrypt-v1` asset: size `520704`, SHA-1 `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`, SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`, release asset ID `539647946`.
+
+The broad audit remains a real finite compatibility backlog. Diagnostics contain 69 known post-XP findings across auxiliary/media/test PEs, including `gkcodecs.dll`, Clearkey/fake GMPs, `libGLESv2.dll`, `logalloc-replay.exe`, `mozavcodec.dll`, `mozavutil.dll`, `mozinference.dll`, and `xpcshell.exe`. The residual API set is dominated by SRW/condition-variable/FLS/InitOnce-family calls plus `GetTickCount64` and `GetThreadId`. Do not confuse this distribution-wide RED with the already-GREEN core-browser import gate or with the now-closed CRT/bcrypt packaging contracts.
+
+The exact runtime artifact `9883135451` is the next physical-XP candidate to test whether startup advances beyond the previously observed `InitOnceExecuteOnce` edge. Separately, classify the broad audit findings by shipped/runtime-required versus test-only/non-shipped PE before deciding remediation scope.
 
 ### Remaining KERNEL32 source-remediation quartet — focused strategy GREEN
 
@@ -147,8 +174,8 @@ The next low-cost step for this quartet is production source integration followe
 ### XP package/dependency closures already established
 
 - Pinned/restored msvcr14x Release x86 is the required CRT baseline; do not substitute host redistributables.
-- The selected XP bcrypt closure is the single app-local `bcrypt.dll` published as `xp-bcrypt-v1`; source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, focused run `33513084915`, job `99873297193`, physically proven on XP.
-- Legacy `D3DCompiler_47.dll` staging/packaging is closed by source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
+- The selected XP bcrypt closure is the single app-local `bcrypt.dll` published as `xp-bcrypt-v1`; its focused release-staging smoke and full package-survival gate are GREEN. Full-package evidence is run `33718674533`, job `100533128424`, source `4949a16e...`.
+- Legacy `D3DCompiler_47.dll` staging/packaging is closed by source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`, and remains GREEN in the current full build.
 - Full YY `kernel32.lib` interposition remains prohibited; keep per-PE narrow ownership.
 - Final XP acceptance must be inventory-driven across required PEs and must distinguish ordinary hard imports from delay-load dependencies. A curated known-API gate is a regression gate, not exhaustive proof.
 
