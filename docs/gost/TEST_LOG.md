@@ -8,6 +8,47 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-03 — full XP x32 package dependency closure GREEN; broad distribution import inventory remains RED
+
+Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration only. This is not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `4949a16e730cc15fc85b128fd62dac2a27c4d9c5` (`ci(xp): preserve artifacts across diagnostic reds`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33718674533`, attempt `1`;
+- job `100533128424`;
+- aggregate run/job conclusion: **failure**, intentionally propagated by the final evidence summary after non-fatal diagnostic collection.
+
+Exact artifacts:
+
+- package artifact `9883134667`, `327699666` bytes, digest `sha256:64b9537376b72a9e38728236b666b929e84e9c6895a022a1dd66338b9a645582`;
+- runtime artifact `9883135451`, `74911275` bytes, digest `sha256:9a5380bfec2b05a8460f6dfef99c85a1c053e1b31f9f18f101d6a7fc5563127b`;
+- diagnostics artifact `9883136547`, `5912540` bytes, digest `sha256:b7fb3503a258d78fec927cd0f81413d5124f6f9b4a61cd27a034ec6092607f1c`.
+
+Passed boundaries before the aggregate RED:
+
+- full Firefox x86 compile/build — **PASS**;
+- production core-browser import gate — **PASS**;
+- pinned msvcr14x staging — **PASS**;
+- legacy `D3DCompiler_47.dll` staging/retarget/package survival — **PASS**;
+- exact `xp-bcrypt-v1` staging/package survival — **PASS**;
+- `mach package` / portable package production — **PASS**;
+- msvcr14x portable-package survival contract — **PASS**;
+- physical-test runtime archive creation — **PASS**;
+- package, runtime and diagnostics artifact uploads — **PASS**.
+
+The previous CRT packaging blocker is closed. `packaged-crt-contract.txt` accepts `r3dfox-v153.0.3.win32.portable.7z` with matching staged/packaged identities: `ucrtbase.dll` SHA-256 `455fa6bc5ceedd89fc3650a224f96ba4dee0fbcb87e2823c1670a4704b737b2f` and `msvcp140.dll` SHA-256 `a1d6099eea3b7742b86ba44a7be7fc64bf0041a80e67ef7e54641ab283285c19`.
+
+The app-local bcrypt package contract is also closed at automated build/package level. The accepted archive contains the exact physically proven `xp-bcrypt-v1` binary: size `520704`, SHA-1 `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`, SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`, release asset ID `539647946`.
+
+The aggregate RED is not a compile or packaging failure. The broad all-PE import audit intentionally runs non-fatally so diagnostics and runnable artifacts survive; it produced **69 known post-XP findings** in auxiliary/media/test PEs, and the final summary promoted that diagnostic result to the run-level failure. The residual-three names `InitOnceExecuteOnce`, `GetThreadPreferredUILanguages`, and `QueryFullProcessImageNameA` are absent from that broad forbidden-import report, while the production core-browser gate is GREEN. This advances those three names to full-build/import evidence, but not physical-XP closure.
+
+Conclusion: **FULL BUILD + CRT PACKAGE + BCRYPT PACKAGE + RUNTIME ARCHIVE GREEN; BROAD DISTRIBUTION IMPORT INVENTORY RED.** The immediate compatibility blocker is now classification and closure of the 69 broad-audit findings by shipped/runtime-required versus test-only/non-shipped status. Runtime artifact `9883135451` is the next exact physical-Windows-XP candidate for startup progression beyond the previously observed `KERNEL32!InitOnceExecuteOnce` edge. No GOST TLS handshake conclusion follows from this run.
+
+---
+
 ## 2026-09-02 — full XP x32 Firefox build and package pass; portable msvcr14x survival gate remains red
 
 Track: Windows XP SP3 x86 compatibility / full Firefox build and packaging only. This is not GOST TLS runtime/handshake evidence.
