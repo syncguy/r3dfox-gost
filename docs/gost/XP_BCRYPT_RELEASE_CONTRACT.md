@@ -45,7 +45,7 @@ The identity gate is fail-closed. A download that exists but differs by one byte
 
 ## Focused smoke validation — GREEN
 
-The release/staging contract is now proven independently from a Firefox build.
+The release/staging contract is proven independently from a Firefox build.
 
 Primary current evidence:
 
@@ -68,23 +68,48 @@ The immediately preceding run also passed and serves as the initial implementati
 - staged payload artifact: `9877189099`, digest `sha256:e9165dd31477229a2c7a27c36cd8e12e9cc69005f4c1a82c1dfa9d26919e6a10`;
 - diagnostics artifact: `9877189382`, digest `sha256:52252ed0ca7aeb63ea4d3bc420d5c02ab79dad2c38afc746221a1e338d014ffa`.
 
-The second GREEN is the preferred current evidence because it validates the same workflow after the contract document was added. These runs close only the release retrieval/staging integrity prerequisite; they do not prove full Firefox package survival.
+The second GREEN is the preferred focused evidence because it validates the same workflow after the contract document was added.
 
-## Required integration sequence
+## Full Firefox package integration — GREEN
 
-The XP browser solution must follow this order:
+The required integration sequence is now closed through the portable-package boundary.
 
-1. focused `XP bcrypt release staging smoke` remains GREEN for the exact release/staging contract;
-2. reuse the same tag/asset identity and staging semantics in the full XP x32 workflow;
-3. put the exact `bcrypt.dll` into the real Firefox `obj-gost-xp-x32/dist/bin`;
-4. add an explicit Mozilla packaging entry so the DLL survives `dist/bin -> mach package -> portable archive`;
-5. add a post-package exact-one-copy/hash gate, analogous to the msvcr14x CRT package gate;
-6. only an artifact that contains the exact proven bcrypt plus the required CRT pair may be promoted to physical-XP browser startup testing.
+Exact full-build evidence:
 
-The focused smoke therefore closes only release retrieval/staging integrity. Full Firefox package survival and physical XP browser runtime remain separate mandatory evidence levels.
+- branch: `agent/winrt-source-poc`;
+- source-under-test: `4949a16e730cc15fc85b128fd62dac2a27c4d9c5`;
+- workflow: `GOST TLS PoC build  XP x32`;
+- Actions run: `33718674533`;
+- job: `100533128424`;
+- package artifact: `9883134667`, digest `sha256:64b9537376b72a9e38728236b666b929e84e9c6895a022a1dd66338b9a645582`;
+- physical-test runtime artifact: `9883135451`, digest `sha256:9a5380bfec2b05a8460f6dfef99c85a1c053e1b31f9f18f101d6a7fc5563127b`;
+- diagnostics artifact: `9883136547`, digest `sha256:b7fb3503a258d78fec927cd0f81413d5124f6f9b4a61cd27a034ec6092607f1c`.
+
+The full workflow retrieves the pinned release asset, verifies the release/tag/asset metadata and exact binary identity, stages the proven DLL into the real `obj-gost-xp-x32/dist/bin` after the general PE-retarget step, and requires the package manifest to carry it into the portable archive.
+
+`diagnostics/packaged-bcrypt-contract.txt` proves that accepted archive `r3dfox-v153.0.3.win32.portable.7z` contains exactly the same binary identity after packaging:
+
+- size `520704`;
+- SHA-1 `ae021f44edc48b03bb4d67cb5773b62bdf60cb67`;
+- SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`;
+- source tag `xp-bcrypt-v1`;
+- source asset ID `539647946`.
+
+Therefore the automated chain `release -> exact identity -> real dist/bin -> package manifest -> portable archive` is **GREEN and closed** for `bcrypt.dll`.
+
+The aggregate run is still RED for a separate reason: the distribution-wide import audit intentionally runs non-fatally to preserve evidence and found remaining post-XP imports in auxiliary/media/test PEs. That RED does not reopen the bcrypt identity/package contract.
+
+## Required integration sequence — current status
+
+1. focused `XP bcrypt release staging smoke` remains GREEN — **closed**;
+2. reuse the same tag/asset identity in the full XP x32 workflow — **closed**;
+3. put the exact `bcrypt.dll` into real Firefox `obj-gost-xp-x32/dist/bin` — **closed**;
+4. explicit Mozilla packaging entry for `bcrypt.dll` — **closed**;
+5. post-package exact-one-copy/hash gate — **closed**;
+6. physical-XP browser startup using an artifact containing the exact proven bcrypt plus required CRT pair — **pending** for the current full-browser artifact.
 
 ## Evidence boundary
 
 Historical physical proof for the underlying binary remains tied to the release metadata: source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, Actions run `33513084915`, job `99873297193`, runtime artifact `9802703271`, physical Windows XP PASS.
 
-The GREEN focused release/staging smoke does not replace that physical proof. It proves that CI retrieves and stages the same binary by exact identity.
+The focused and full-package GREEN results do not replace physical proof of the whole Firefox artifact. They prove that CI retrieves, stages, and packages exactly the same already-proven bcrypt binary. Full Firefox startup on physical XP remains a separate acceptance gate.
