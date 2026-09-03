@@ -2287,6 +2287,7 @@ nsresult XRE_GetBinaryPath(nsIFile** aResult) {
 
 typedef BOOL(WINAPI* SetProcessDEPPolicyFunc)(DWORD dwFlags);
 
+#  ifndef MOZ_XP_COMPAT
 static void RegisterApplicationRestartChanged(const char* aPref, void* aData) {
   DWORD cchCmdLine = 0;
   HRESULT rc = ::GetApplicationRestartSettings(::GetCurrentProcess(), nullptr,
@@ -2324,6 +2325,7 @@ static void RegisterApplicationRestartChanged(const char* aPref, void* aData) {
     ::UnregisterApplicationRestart();
   }
 }
+#  endif
 
 static void OnAlteredPrefetchPrefChanged(const char* aPref, void* aData) {
   int32_t prefVal = Preferences::GetInt(PREF_WIN_ALTERED_DLL_PREFETCH, 0);
@@ -6128,9 +6130,11 @@ nsresult XREMain::XRE_mainRun() {
 #endif
 
 #ifdef XP_WIN
+#  ifndef MOZ_XP_COMPAT
       Preferences::RegisterCallbackAndCall(
           RegisterApplicationRestartChanged,
           PREF_WIN_REGISTER_APPLICATION_RESTART);
+#  endif      
       SetupAlteredPrefetchPref();
 #  if defined(MOZ_LAUNCHER_PROCESS)
       SetupLauncherProcessPref();
