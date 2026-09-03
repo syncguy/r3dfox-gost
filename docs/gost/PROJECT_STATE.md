@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 This file is the authoritative **current technical synthesis**. Detailed experiment evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; formally closed milestones are in `DONE.md`; workflow roles and evidence levels are in `WORKFLOWS.md`.
 
@@ -75,7 +75,7 @@ It proves the tested coexistence of pinned msvcr14x Release x86, Rust `i686-pc-w
 
 ### Firefox synchronization closure and physical XP progression
 
-The later full Firefox line is tied to:
+The earlier full Firefox line is tied to:
 
 - source SHA `d2f15ee8f0cef8112855c4306014865e422319d3`;
 - run `33479649627`;
@@ -83,13 +83,13 @@ The later full Firefox line is tied to:
 - physical-XP package artifact `9793231118`;
 - Firefox PE/import evidence artifact `9793232359`.
 
-This evidence closes the earlier synchronization blocker. On physical Windows XP SP3 x86 the loader progresses beyond that cluster and stops at the concrete dependency:
+This evidence closes the earlier synchronization blocker. On physical Windows XP SP3 x86 the loader progressed beyond that cluster and stopped at the concrete dependency:
 
 `mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
 
 Therefore `CloseThreadpoolWork` and the synchronization family are historical blockers, not the current XP edge.
 
-The same import inventory shows `mozglue.dll` directly imports `CreateWaitableTimerExA`, `GetThreadId`, `GetTickCount64`, `InitOnceExecuteOnce` and `InitializeCriticalSectionEx`. The larger `xul.dll` inventory contains additional legacy-Windows APIs; xul-only imports must not be automatically attributed to `mozglue.dll` or promoted to the current blocker.
+The same import inventory showed `mozglue.dll` directly importing `CreateWaitableTimerExA`, `GetThreadId`, `GetTickCount64`, `InitOnceExecuteOnce` and `InitializeCriticalSectionEx`. The larger `xul.dll` inventory contains additional legacy-Windows APIs; xul-only imports must not be automatically attributed to `mozglue.dll` or promoted to the current blocker.
 
 ### YY-Thunks capability boundary
 
@@ -137,49 +137,66 @@ Provider construction, baseline helper, delta helper and representative Rust arc
 
 The earlier `_ProcessPrng@8` diagnostic RED, run `33599812797` / job `100150793264` / source `80e42dd85a2c1902de5fdce402d4983becc2f77c`, is likewise closed as a test-provider internal dependency omission; run `33600786738` restores that closure and passes.
 
-### Current XP blocker — `CreateWaitableTimerExA`; remediation implemented, validation pending
+### Full Firefox checkpoint — `CreateWaitableTimerExA` removed at build/import level; CRT packaging is the immediate blocker
 
-The current physical-XP production/runtime blocker remains the exact historical dependency:
+Current exact full-build evidence:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`;
+- workflow `GOST TLS PoC build  XP x32`;
+- run `33638897692`;
+- job `100276666021`;
+- aggregate result **failure**;
+- package artifact `9855749298`, digest `sha256:b8cd19fda1244a2f2f55ff08bbc35ca180e8d0cbf487ec67cb64d54586b9c6ad`;
+- diagnostics artifact `9855751471`, digest `sha256:bce0bbdbc778b0114b9d33e670a9bf687e4699cfda7353efebc6b92650f03eed`.
+
+The expensive Firefox boundary is now materially GREEN:
+
+- pinned msvcr14x XP x86 contract gate passes;
+- full Firefox 153 x86 configure/build/link passes;
+- the four-core-PE gate reports zero surviving direct imports from the already-proven 34-name SRW + 24-API KERNEL32 set;
+- `mach package` passes;
+- legacy XP `D3DCompiler_47.dll` still survives packaging unchanged.
+
+The `CreateWaitableTimerExA` source-cut implementation is also validated at the **full build/import** level. The workflow's 34-name gate does not itself list `CreateWaitableTimerExA`, so the conclusion is bound to independent inspection of diagnostics artifact `9855751471`: the exact `mozglue.dll`, `xul.dll`, `r3dfox.exe`, and `plugin-container.exe` import inventories contain no direct `CreateWaitableTimerExA`. Thus the historical production dependency
 
 `mozglue.dll -> KERNEL32!CreateWaitableTimerExA`
 
-The call-site investigation is now complete. The direct import comes from `mozilla::baseprofiler::SamplerThread` in `mozglue/baseprofiler/core/platform-win32.cpp` and is used only to create an unnamed high-resolution profiler sampling timer with null security attributes, `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, and `TIMER_ALL_ACCESS`.
+is removed from the exact source `17cdb459...` build.
 
-Firefox already contains the required fallback when `mHiResTimer == nullptr`: optional `timeBeginPeriod(...)`, then the existing `Sleep(...)` / sub-millisecond spin path, with `timeEndPeriod(...)` balancing the resolution change on stop. Therefore the XP build does not need a semantic emulation of `CreateWaitableTimerExA`.
+This does **not** yet close `CreateWaitableTimerExA` as a physical-XP runtime milestone. The package accepted for the next XP test must first satisfy the app-local CRT packaging contract.
 
-Selected implementation checkpoint: `70422044f90058c90d276f231457f9a08c1343ff`.
+The current immediate RED is `GATE - Verify msvcr14x CRT survived portable packaging`. Before `mach package`, exact staged identities are:
 
-The implementation deliberately follows the same legacy-source policy used for WinRT exclusions:
+- `ucrtbase.dll` SHA-256 `1d4d54cf0d59d2911367d533a6e252316c7c6f53c862de574af1701c20eed6e5`;
+- `msvcp140.dll` SHA-256 `61815cf338d36d7ccec21997e693d37ea7a2042b66b49926b64789961e0796b6`.
 
-- `MOZ_NO_WINRT` is reused as the branch's legacy-Windows build switch for Windows baseprofiler;
-- under that switch `SamplerThread` initializes `mHiResTimer` directly to `nullptr`;
-- the `CreateWaitableTimerExA` expression is compiled only in the non-legacy branch;
-- the ordinary/non-XP high-resolution behavior is unchanged;
-- no `GetProcAddress`, no new YY thunk and no `CreateWaitableTimerA` substitution are introduced.
+The post-package diagnostics contain those pre-package hashes but no successful `archive=...` record. The gate checks every produced `.7z`/`.zip` and requires exactly one matching copy of each DLL; no produced archive satisfies that contract. Independent inspection of `r3dfox-v153.0.3.win32.zip` confirms that both custom CRT DLLs are absent while `d3dcompiler_47.dll` is present.
 
-A `CreateWaitableTimerA` replacement or routing through YY's `CreateWaitableTimerExW` fallback is intentionally rejected: an ordinary non-null timer would suppress Firefox's existing `mHiResTimer == nullptr` fallback without actually preserving high-resolution semantics.
+The likely packaging mechanism is now identified: the stock Firefox package manifest includes `ucrtbase.dll` only when `MOZ_PACKAGE_WIN_UCRT_DLLS` is enabled and the MSVC C++ runtime only when `MOZ_PACKAGE_MSVC_DLLS` is enabled. The XP workflow manually stages the pinned msvcr14x DLLs after the build, but that does not by itself activate those Mozilla package predicates. Fix the product/package input contract; do not weaken the post-package identity gate.
 
-This is an **implemented candidate, not yet a closed blocker**. The immediate validation is a new exact-SHA full XP x32 build followed by PE-import inspection and then physical Windows XP startup.
+The same post-package CRT red existed in run `33610933602`; its earlier `TEST_LOG.md` interpretation has been corrected because `packaged-crt-contract.txt` from diagnostics artifact `9843568460` also contains only pre-package hashes and no successful archive record.
 
-Acceptance path now is:
+Because the current CRT survival gate fails, the dedicated runtime archive and broad final XP PE/import audit are skipped. Therefore source `17cdb459...` is **not yet the accepted physical-XP browser artifact** and no new broad surviving-import inventory may be inferred from this run.
 
-1. build/link Firefox 153 x86 from the exact current branch SHA;
-2. prove `mozglue.dll` has no direct `CreateWaitableTimerExA` import and remains XP 5.01/x86 under established gates;
-3. obtain the runnable package from that exact run;
-4. launch that exact package on physical Windows XP SP3 x86;
-5. if startup advances, record the next concrete loader/runtime edge rather than reopening the already closed baseline/24-API cluster;
-6. close `CreateWaitableTimerExA` in `DONE.md` only after exact build/import and physical-XP evidence are bound to run/job/SHA.
+Immediate acceptance path:
+
+1. make the exact pinned msvcr14x `ucrtbase.dll` + `msvcp140.dll` survive Mozilla packaging with unchanged recorded hashes;
+2. rerun the full XP x32 workflow from a new exact SHA and keep the current full-build/34-import/`CreateWaitableTimerExA` removal evidence green;
+3. require the runtime-archive and broad PE/import gates to execute and pass far enough to produce the next accepted runtime candidate;
+4. launch that exact accepted package/runtime artifact on physical Windows XP SP3 x86;
+5. only after physical XP advances beyond the old timer loader edge may `CreateWaitableTimerExA` be closed in `DONE.md`; any next loader/runtime failure becomes the new blocker.
 
 No GOST TLS runtime conclusion follows from this compatibility work.
 
 ## Windows 7 x86 compatibility — separate evidence
 
-Two independently observed Win7 issues remain separate from the XP `CreateWaitableTimerExA` target:
+Two independently observed Win7 issues remain separate from the XP package-closure target:
 
 - content-sandbox RNG/`RandomUint64OrDie` line, including the candidate pre-lockdown RNG warm-up; exact runtime proof with sandbox enabled remains required before calling that fix closed;
 - later parent/browser WinRT delay-load line where `xul.dll` attempts missing `api-ms-win-core-winrt-l1-1-0.dll` / `RoGetActivationFactory`; narrow YY WinRT exposure remains the intended compatibility direction.
 
-Neither line is evidence about the current physical-XP loader edge and neither should displace `CreateWaitableTimerExA` as the next XP target.
+Neither line is evidence about the current physical-XP loader progression and neither should displace the CRT package-survival boundary as the immediate XP target.
 
 ## Bundled government-system extensions — independent track
 
