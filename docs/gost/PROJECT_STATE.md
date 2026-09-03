@@ -2,34 +2,18 @@
 
 Last updated: 2026-09-03
 
-This file is the authoritative current technical synthesis and handoff for new chats.
-
-## Canonical documentation location — read this first
-
-All project documentation is maintained in the repository default branch `agent/gost-tls-poc`, under `docs/gost/`, regardless of which experimental/work branch contains the code being investigated.
-
-Do not look for copies of the XP contracts/status documents in `agent/winrt-source-poc` or other experiment branches. For documentation, explicitly read `agent/gost-tls-poc:docs/gost/...`. Experimental branches are for code/workflow state and exact source-under-test identity; they do not relocate the documentation source of truth.
-
-For Windows XP x86 work, the mandatory starting documents are therefore on `agent/gost-tls-poc`:
-
-- `docs/gost/PROJECT_STATE.md`;
-- `docs/gost/XP_BUILD_CONTRACT.md`;
-- `docs/gost/XP_COMPATIBILITY_STRATEGY.md` when architectural strategy is relevant;
-- `docs/gost/XP_SYNC_IMPORT_STATUS.md`, `XP_IMPORT_REMEDIATION.md`, `XP_PROPSYS_STATUS.md`, `XP_BCRYPT_STATUS.md`, `XP_CREATE_WAITABLE_TIMER_STATUS.md` as applicable;
-- `docs/gost/TEST_LOG.md`, `DONE.md`, `TODO.md`, `WORKFLOWS.md` as required by the question.
-
-Detailed experiment evidence belongs in `TEST_LOG.md` and immutable dated `TEST_LOG_*.md` volumes; forward work is in `TODO.md`; closed milestones are in `DONE.md`; workflow roles are in `WORKFLOWS.md`; Windows XP x86 dependency/build rules are in `XP_BUILD_CONTRACT.md`.
+This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
 ## Repository / branch policy
 
 - Repository: `syncguy/r3dfox-gost`.
-- Default GOST development branch and documentation source of truth: `agent/gost-tls-poc`.
-- Windows XP SP3 x86 compatibility work branch: `agent/winrt-source-poc`.
+- Default GOST development branch and canonical documentation source: `agent/gost-tls-poc`.
+- Windows XP SP3 x86 compatibility implementation branch: `agent/winrt-source-poc`.
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
-- PR #1 historically targets `win-153`; it does not define the working branch.
+- PR #1 historically targets `win-153`; it does not define the active work branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer base.
 
-When a technical question concerns a non-default work branch, verify that branch's exact HEAD and inspect its code/workflow/runtime evidence, but continue reading the canonical documentation from `agent/gost-tls-poc`.
+For Windows XP work, read `XP_BUILD_CONTRACT.md` and, for source compile-out rules, `XP_MOZ_XP_COMPAT_CONTRACT.md` before proposing build/configuration changes.
 
 ## Separation of conclusions
 
@@ -39,148 +23,142 @@ Keep these tracks independent unless a deliberately combined experiment tests bo
 2. Windows Vista/7/XP compatibility / Rust / msvcr14x / YY-Thunks / linker / PE imports / physical runtime.
 3. Bundled government-system extensions and localization/package behavior.
 
-A successful build is not a successful GOST handshake. A hosted compatibility probe is not physical-XP proof. A Win7 x86 runtime pass does not prove XP import closure. A later documentation commit is never the source-under-test SHA for an earlier binary.
+A successful build is not a successful GOST handshake. A hosted compatibility probe is not physical-XP proof. Win7 x86 runtime success is not XP import closure. A documentation commit is never the source-under-test SHA for an earlier artifact.
 
 # GOST TLS runtime
 
-## Architecture and current checkpoint
-
 Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication.
+
+Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
 
 Current runtime constraints include:
 
-- allowlist through `R3DFOX_GOST_HOSTS`;
 - TLS 1.2 / HTTP/1.1 PoC path;
 - coordinated Firefox client-auth picker as default;
-- diagnostic legacy selector/mode remains available but is not production policy;
-- `Session` is the current default positive choice and remains process-local;
+- `Session` is the current default positive certificate choice and remains process-local;
 - true persistent `Permanent` semantics remain open;
 - final fail-closed server verification remains open;
 - synchronous provider/key access can still block the shared Firefox Socket Thread during long CryptoPro waits.
 
-Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
+Current authoritative Session-default browser source is `afbdad307f63e594d3715169d6e34235280dddaf`, full build run `33073577269`, job `98521835354`, release artifact `9652941006`.
 
-Current authoritative Session-default browser:
-
-- source `afbdad307f63e594d3715169d6e34235280dddaf`;
-- full build run `33073577269`, job `98521835354`;
-- release artifact `9652941006`;
-- `r3dfox.exe` SHA-256 `75a292e0c765b076088db3cc82bb3ed357a07e53cf632b1b98a399c725a61cd1`;
-- `xul.dll` SHA-256 `38352f1a7240c5e9a3b980fcc4344e7e6a2f7d4bffb0ec9d86f242e81876e82b`.
-
-Closed runtime groups include basic Treasury GOST HTTPS, explicit-selector Treasury mTLS, coordinated client-auth lifecycle, GIS GMP isolation, Session lifetime, SD1-SD6 Session-default regression, T3 Cancel, T4 Abort, T7/T8 provider recovery, T9 provider-wait characterization and T10 picker presentation. Exact evidence is in `DONE.md` and the test logs.
-
-## Current GOST runtime work
-
-1. Implement and prove true persistent `Permanent` semantics.
-2. Continue certificate-discovery/provider-boundary tests.
-3. Compare provider-wait behavior with stock Firefox before changing Socket Thread architecture.
-4. Complete mandatory fail-closed server trust and Firefox certificate-override integration.
+Current GOST runtime work remains: persistent `Permanent` semantics, provider-boundary testing, provider-wait comparison with stock Firefox, and final fail-closed server trust / certificate-override integration.
 
 # Windows XP SP3 x86 compatibility
 
-This track is independent of GOST TLS runtime.
+This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; documentation remains on `agent/gost-tls-poc`.
 
-## Current handoff — read this before historical XP entries
+## Closed compatibility families
 
-Active work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
+Do not reopen without new contradictory evidence:
 
-The old SRW/condition-variable loader failures are **closed historical blockers**, not the current XP edge. The canonical narrow synchronization baseline remains:
+- SRW / condition-variable family: source `d65b464c74caadace97995f07a4919363c41a0ea`, run `33470957048`, job `99740439208`;
+- `CreateWaitableTimerExA`: source-level fallback closure, source `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`, run `33638897692`, job `100276666021`;
+- selected single-DLL `bcrypt.dll`: source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, run `33513084915`, job `99873297193`, physically proven on Windows XP and published as `xp-bcrypt-v1`;
+- legacy `D3DCompiler_47.dll` staging/packaging: source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
 
-- source `d65b464c74caadace97995f07a4919363c41a0ea`;
-- workflow `msvcr14x Rust YY XP x86 SRW smoke`;
-- run `33470957048`;
-- job `99740439208`;
-- runtime artifact `9786702687`.
+Full YY `kernel32.lib` interposition remains prohibited. Keep per-PE/provider ownership narrow.
 
-The later full-Firefox/physical-XP line progressed beyond that synchronization cluster. Do not reopen `AcquireSRWLockExclusive`, the SRW family, or `CloseThreadpoolWork` without new contradictory evidence.
+## Residual low-level YY line
 
-`CreateWaitableTimerExA` is also **closed** by source-level remediation. The optional base-profiler high-resolution timer is compiled out for the legacy build and Firefox uses its pre-existing fallback. Full Firefox confirmation is tied to source `17cdb459ec4f115a209fd50ac225cf867b9f3a2f`, run `33638897692`, job `100276666021`. The historical absence of a YY-Thunks `CreateWaitableTimerExA` capability is therefore not a current product blocker. Detailed closure: `XP_CREATE_WAITABLE_TIMER_STATUS.md`.
+Focused proof exists for:
 
-### Current physical-XP loader edge
+- `InitOnceExecuteOnce`;
+- `GetThreadPreferredUILanguages`;
+- `QueryFullProcessImageNameA`.
 
-The latest physical Windows XP startup progression has moved past the earlier SRW and `CreateWaitableTimerExA` edges. The current observed loader failure is:
+Evidence: source `ffb72c4ae6988a7c4f82b4e67a9027e41afb572b`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33712987285`, job `100516220327`.
 
-`r3dfox.exe - Entry Point Not Found`
+This proves focused capability only, not full Firefox integration or physical-XP startup.
 
-`KERNEL32!InitOnceExecuteOnce`
+The last documented physical XP loader edge remains `KERNEL32!InitOnceExecuteOnce` until a newer exact physical-XP artifact advances beyond it.
 
-Treat `InitOnceExecuteOnce` as the current physical loader edge until a newer exact physical-XP artifact advances beyond it.
+## KERNEL32 source-remediation quartet — source-integrated
 
-The related bounded YY-Thunks mechanism has already passed focused proof together with two other residual KERNEL32 APIs:
+The quartet:
 
-- source `ffb72c4ae6988a7c4f82b4e67a9027e41afb572b`;
-- workflow `XP x86 core KERNEL32 cluster smoke`;
-- run `33712987285`;
-- job `100516220327`;
-- focused residuals: `InitOnceExecuteOnce`, `GetThreadPreferredUILanguages`, `QueryFullProcessImageNameA`.
+- `GetApplicationRestartSettings`;
+- `RegisterApplicationRestart`;
+- `UnregisterApplicationRestart`;
+- `GetNamedPipeServerProcessId`;
 
-That GREEN proves focused capability/link/import/runtime behavior only. It does not by itself prove full Firefox integration or physical-XP startup.
+is now **SOURCE-INTEGRATED / CONDITIONALLY CLOSED** on `agent/winrt-source-poc`.
 
-### KERNEL32 source-remediation quartet — strategy GREEN, production open
+Exact implementation/configuration chain:
 
-The remaining source-remediation quartet is `GetApplicationRestartSettings`, `RegisterApplicationRestart`, `UnregisterApplicationRestart`, and `GetNamedPipeServerProcessId`. Its focused representative strategy proof is GREEN at source `0450fd8f2b22b9e0263e0755e0ea52f4dd6e2aa4`, workflow `XP KERNEL32 source remediation smoke`, run `33720100459`, job `100537300030`, diagnostics artifact `9879912839`. This does not prove production `xul.dll` or physical XP.
+1. `194496e76559e1d86e7e3f920fb3f1fc0e46c2d7` — disable Windows Application Restart under `MOZ_XP_COMPAT`;
+2. `20f00258ac59296782fbaffbf0131d636c0d3c00` — define `MOZ_XP_COMPAT` for `nsAppRunner.cpp`;
+3. `561bded451638e599fae2d57285446261f9a0035` — disable modern UIA client detection under `MOZ_XP_COMPAT`;
+4. `ebe325ad87232f68ca01d7e4c63be14f9c4ee74b` — define `MOZ_XP_COMPAT` for `CompatibilityUIA.cpp`.
 
-For the Application Restart trio, source ownership is `toolkit/xre/nsAppRunner.cpp`: the callback `RegisterApplicationRestartChanged` is registered from `XREMain::XRE_mainRun()`. The accepted XP design is now a dedicated `MOZ_XP_COMPAT` compile-time boundary: guard the complete callback definition and independently guard only its `Preferences::RegisterCallbackAndCall(...)` registration. Do not disable the surrounding Windows startup block; altered DLL prefetch, Launcher Process, Skeleton UI/default-browser-agent setup and adjacent registry synchronization remain independent facilities.
+The work branch reached exact HEAD `ebe325ad87232f68ca01d7e4c63be14f9c4ee74b` after this chain.
 
-The source design is settled but the two guards are **not yet landed**. The available direct GitHub full-file update path for the large `nsAppRunner.cpp` produced truncated writes during the 2026-09-03 edit attempt; both attempts were immediately discarded by restoring `agent/winrt-source-poc` to exact pre-edit HEAD `10e055bacbfb5f955b1fd3b6e986c841f08797b1`, and the source blob was verified restored as `8f85b5323cda4a6444e04c8d370ff1871ad16793`. Do not treat either discarded write as source-under-test evidence.
+### Application Restart
 
-`MOZ_XP_COMPAT` is accepted as the dedicated legacy-XP source guard, but its actual build-config wiring still must be implemented and verified. Existing `MOZ_NO_WINRT` remediations need not be rewritten solely for naming consistency.
+Production owner: `toolkit/xre/nsAppRunner.cpp`.
 
-For `GetNamedPipeServerProcessId`, ownership remains `accessible/windows/msaa/CompatibilityUIA.cpp` / `GetUiaClientPidsWin11::QueryThreadProc`. Preferred remediation remains bounded runtime resolution of the real native API, with failure when unavailable and no fabricated PID. Detailed plan: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
+For the XP translation unit, the complete `RegisterApplicationRestartChanged` callback and its preference registration are compiled out under `MOZ_XP_COMPAT`. The surrounding Windows startup facilities remain intact. The XP release does not emulate the Vista+ Application Restart facility.
 
-### Current full Firefox integration run — provisional
+### Modern UIA client detection
 
-The current full XP x32 validation run is:
+Production owner: `accessible/windows/msaa/CompatibilityUIA.cpp`.
 
-- branch `agent/winrt-source-poc`;
-- source-under-test `4949a16e730cc15fc85b128fd62dac2a27c4d9c5`;
-- workflow `GOST TLS PoC build  XP x32`;
-- run `33718674533`;
-- job `100533128424`;
-- status at this documentation checkpoint: **in progress**.
+For the XP translation unit, Win10/Win11 UI Automation client-detection implementations are compiled out and `Compatibility::GetUiaClientPids` is a no-op. The XP release intentionally does not preserve these newer-OS features. This supersedes the earlier proposed dynamic-resolution approach for `GetNamedPipeServerProcessId`.
 
-The purpose of this run is to carry the current narrow XP compatibility provider into the real Firefox build while preserving package/runtime/diagnostic artifacts even when later gates are red. Do not call `InitOnceExecuteOnce` closed at full-browser or physical-XP level until this exact run completes and its resulting exact artifact is tested on physical XP.
+Because `CompatibilityUIA.cpp` was a unified source, it was moved to ordinary `SOURCES` before receiving its source-local compatibility define.
 
-### XP package/dependency closures already established
+Detailed status: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
-- Pinned/restored msvcr14x Release x86 is the required CRT baseline; do not substitute host redistributables.
-- The selected XP bcrypt closure is the single app-local `bcrypt.dll` published as `xp-bcrypt-v1`; source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, focused run `33513084915`, job `99873297193`, physically proven on XP.
-- Legacy `D3DCompiler_47.dll` staging/packaging is closed by source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
-- Full YY `kernel32.lib` interposition remains prohibited; keep per-PE narrow ownership.
-- Final XP acceptance must be inventory-driven across required PEs and must distinguish ordinary hard imports from delay-load dependencies. A curated known-API gate is a regression gate, not exhaustive proof.
+## Mandatory `MOZ_XP_COMPAT` build rule
 
-Detailed residual classification is in `XP_IMPORT_REMEDIATION.md`. `XP_BUILD_CONTRACT.md` remains authoritative for build/staging/PE-floor rules.
+`MOZ_XP_COMPAT` is now the preferred project-owned compile-time signal for new XP-specific source removal where a modern Windows feature has no useful XP semantic equivalent.
 
-### Win7 x86 evidence boundary
+For every production translation unit containing an accepted `MOZ_XP_COMPAT` boundary, the XP build MUST define `MOZ_XP_COMPAT` for that exact owner. Prefer source-local configuration:
 
-A current XP-targeted x86 browser artifact can run successfully on Windows 7 x86 while still failing on XP because Win7 exports APIs that XP lacks. A Win7 x86 launch is therefore a useful general x86 runtime sanity check, but it must never be promoted to XP compatibility proof.
+```python
+SOURCES["Owner.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+```
+
+If the owner is in `UNIFIED_SOURCES`, move only that source to ordinary `SOURCES` before assigning the source-specific flag.
+
+Do not make `MOZ_XP_COMPAT` a global Firefox define without a separate architectural decision. Existing `MOZ_NO_WINRT` remediations remain valid and do not need renaming merely for consistency.
+
+Authoritative rules: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
+
+## Evidence boundary after source closure
+
+The project intentionally does not require another isolated Mozilla partial build merely to re-prove the accepted source guards. Mozilla's build graph is tightly coupled; these changes ride the next otherwise-justified full XP browser build.
+
+The next full build must still retain the inventory-driven PE/import audit. Source removal does not by itself prove final `xul.dll` import closure, package closure, or physical Windows XP startup.
+
+Final XP acceptance remains:
+
+1. exact source-under-test SHA;
+2. successful full XP x32 build/package under the established build contract;
+3. inventory-driven audit of the complete required PE closure, distinguishing hard imports from delay-loads;
+4. exact artifact identity/hashes;
+5. physical Windows XP execution.
+
+A curated known-API list remains a regression gate, not exhaustive compatibility proof.
+
+## XP dependency/build contract
+
+- pinned/restored msvcr14x Release x86 remains mandatory; do not substitute host Win7+ redistributables;
+- x86 PE subsystem must be 5.01 or lower for XP runtime PEs;
+- `editbin` header retargeting alone is never compatibility proof;
+- project-controlled modern dependencies should first be removed/remediated at source/build/subsystem boundary;
+- separately linked PEs own separate import tables;
+- successful focused/full build is not physical-XP runtime proof.
+
+`XP_BUILD_CONTRACT.md` remains authoritative.
 
 # Bundled government-system extensions / localization
 
-Current proven three-extension package checkpoint:
+Current proven three-extension packaging checkpoint remains source `b3d097de20b7a5711f161199a727bcfe9468bcc8`, run `32976571122`, job `98202641607`.
 
-- source `b3d097de20b7a5711f161199a727bcfe9468bcc8`;
-- full packaging run `32976571122`, job `98202641607`;
-- packaged-browser artifact `9614275050`;
-- evidence artifact `9614275551`.
+Current corrected Russian localization package gate is source `3e2c32386f373d4693db52b32c05aa2000878def`, workflow `CryptoPro Mozilla packaging smoke`, run `33520207057`, job `99897230730`, success. The previous mass-empty Russian payload defect and final path-shape false negative are closed.
 
-The portable archive contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlugin `1.2.8`, Gosplugin `1.3.43.0`, and Russian-first content-language preference. Clean-profile discovery/enabled state is proven for all three. Native-component behavior and update behavior remain separate work.
-
-## Russian localization
-
-The previous mass-empty Russian payload defect and final Gate D path-shape false negative are closed.
-
-Current corrected package gate:
-
-- source `3e2c32386f373d4693db52b32c05aa2000878def`;
-- workflow `CryptoPro Mozilla packaging smoke`;
-- run `33520207057`, job `99897230730`;
-- packaged-browser artifact `9812333220`;
-- evidence artifact `9812333789`;
-- conclusion: success.
-
-Manual runtime evidence on predecessor artifact `9798517225` from run `33489331410` observed Russian UI by default, localized Settings/TLS error UI, and successful switching to `en-US`. The later corrected CI source changed only the final path predicate; do not relabel that manual execution as artifact `9812333220`.
+Manual runtime evidence belongs to the exact artifact on which it was observed; do not reattribute it to later packaging-only correction builds.
 
 # Global evidence rules
 
@@ -190,4 +168,4 @@ Manual runtime evidence on predecessor artifact `9798517225` from run `334893314
 - Win7 x86 startup != XP startup.
 - Source/build removal of a hard import != physical-XP runtime closure until the exact accepted artifact advances past that edge.
 - Documentation HEADs never replace the exact source-under-test SHA for previously built or runtime-tested artifacts.
-- For an in-progress run, record it as provisional and never mark its pending gate as passed.
+- For in-progress runs, record provisional state and never mark a pending gate as passed.
