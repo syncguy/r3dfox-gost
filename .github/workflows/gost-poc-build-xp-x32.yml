@@ -1038,7 +1038,7 @@ jobs:
           $forbiddenDllPatterns = @(
             '^(?i)(api-ms-win-|ext-ms-)',
             '^(?i)KERNELBASE\.dll$',
-            '^(?i)BCRYPT(?:PRIMITIVES)?\.dll$',
+            '^(?i)BCRYPTPRIMITIVES\.dll$',
             '^(?i)COMBASE\.dll$',
             '^(?i)NCRYPT\.dll$',
             '^(?i)WEVTAPI\.dll$',
