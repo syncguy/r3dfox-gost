@@ -534,68 +534,28 @@ jobs:
 
           "NARROW_YY_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Patch core browser linkers for XP x86 compatibility layer
+      - name: Activate narrow YY XP x86 provider for all target links
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          @'
-          import os
-          from pathlib import Path
-
-          msvcr = os.environ["MSVCR14X_RELEASE"].replace("\\", "/")
-          yy_synch = os.environ["THUNK_YY_SYNCH_LIB"].replace("\\", "/")
-          narrow = os.environ["NARROW_YY_LIB"].replace("\\", "/")
-
-          def patch_once(path_name, anchor, addition):
-              path = Path(path_name)
-              text = path.read_text(encoding="utf-8")
-              if text.count(anchor) != 1:
-                  raise SystemExit(f"Expected exactly one linker anchor in {path_name}, found {text.count(anchor)}")
-              path.write_text(text.replace(anchor, anchor + addition, 1), encoding="utf-8", newline="\n")
-
-          patch_once(
-              "toolkit/library/moz.build",
-              '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n',
-              f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "-LIBPATH:{msvcr}",\n            "{yy_synch}",\n            "{narrow}",\n            "-VERBOSE",\n        ]\n''',
-          )
-
-          patch_once(
-              "browser/app/moz.build",
-              'if CONFIG["CC_TYPE"] == "clang-cl":\n    # Always enter a Windows program through wmain, whether or not we\'re\n    # a console application.\n    WIN32_EXE_LDFLAGS += ["-ENTRY:wmainCRTStartup"]\n',
-              f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += ["{narrow}"]\n''',
-          )
-
-          patch_once(
-              "ipc/app/moz.build",
-              'if CONFIG["CC_TYPE"] == "clang-cl":\n    # Always enter a Windows program through wmain, whether or not we\'re\n    # a console application.\n    WIN32_EXE_LDFLAGS += ["-ENTRY:wmainCRTStartup"]\n',
-              f'''\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += ["{narrow}"]\n''',
-          )
-
-          patch_once(
-              "mozglue/build/moz.build",
-              '    DELAYLOAD_DLLS += [\n        "advapi32.dll",\n        "crypt32.dll",\n        "dbghelp.dll",\n        "oleaut32.dll",\n        "ole32.dll",\n        "user32.dll",\n        "version.dll",\n        "winmm.dll",\n    ]\n',
-              f'''\n    LDFLAGS += ["{narrow}"]\n''',
-          )
-          '@ | python -
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          git diff -- toolkit/library/moz.build browser/app/moz.build ipc/app/moz.build mozglue/build/moz.build |
-            Tee-Object -FilePath xp-x32-core-linker-patch.diff
-          git diff --check -- toolkit/library/moz.build browser/app/moz.build ipc/app/moz.build mozglue/build/moz.build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          $patch = Get-Content xp-x32-core-linker-patch.diff -Raw
-          $patchNormalized = $patch -replace '\\', '/'
-          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB -replace '\\', '/'
-          if ($patchNormalized.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY kernel32.lib was injected into a final browser link'
+          foreach ($required in @($env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$env:THUNK_YY_KERNEL32_LIB)) {
+            if (-not $required -or -not (Test-Path $required)) { throw "Required YY linker input missing: $required" }
           }
-          foreach ($required in @($env:NARROW_YY_LIB, $env:THUNK_YY_SYNCH_LIB)) {
-            $requiredNormalized = $required -replace '\\', '/'
-            if ($patchNormalized.IndexOf($requiredNormalized, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-              throw "Expected compatibility linker input missing from generated patch: $required"
-            }
+          $yySynch = $env:THUNK_YY_SYNCH_LIB -replace '\\','/'
+          $narrow = $env:NARROW_YY_LIB -replace '\\','/'
+          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB -replace '\\','/'
+          $targetLdflags = "$env:LDFLAGS $yySynch $narrow".Trim()
+          if ($targetLdflags.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY kernel32.lib was injected into global target LDFLAGS'
           }
+          "LDFLAGS=$targetLdflags" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @(
+            'scope=all-target-links',
+            "synchronization_lib=$yySynch",
+            "narrow_provider=$narrow",
+            'full_kernel32_lib=prohibited',
+            "target_ldflags=$targetLdflags"
+          ) | Set-Content -Encoding utf8 diagnostics\xp-x32-global-yy-link-contract.txt
 
       - name: Write XP x32 mozconfig
         shell: powershell
@@ -1172,7 +1132,6 @@ jobs:
           if-no-files-found: warn
           path: |
             configure-xp-x32.log
-            xp-x32-core-linker-patch.diff
             xp-x32-retargeted-pe.txt
             xp-x32-direct-imports.txt
             xp-x32-forbidden-direct-imports.txt
@@ -1210,7 +1169,7 @@ jobs:
           "- Source-remediation quartet diagnostic: ${{ steps.source-remediation-quartet.outcome }} (informational/non-blocking)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; residual-three focused proof is run 33712987285 / job 100516220327 / SHA ffb72c4ae6988a7c4f82b4e67a9027e41afb572b." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; synchronization.lib + narrow provider are injected through global target LDFLAGS; full kernel32.lib remains prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           foreach ($item in $operations) {
