@@ -23,13 +23,15 @@ WindowsDpiInitializationResult WindowsDpiInitialization() {
     return WindowsDpiInitializationResult::Success;
   }
 
-  // SetProcessDPIAware() was introduced in Windows Vista. On Windows XP,
-  // resolving this USER32 delay import fails with ERROR_PROC_NOT_FOUND and
-  // raises the MSVC delay-load exception C06D007F during early startup.
+#ifdef MOZ_XP_COMPAT
+  // Windows XP has no process DPI-awareness API. SetProcessDPIAware() was
+  // introduced in Vista; resolving its USER32 delay import on XP fails with
+  // ERROR_PROC_NOT_FOUND and raises C06D007F during early startup.
   if (!IsVistaOrLater()) {
     return WindowsDpiInitializationResult::Success;
   }
-  
+#endif
+
   // From MSDN:
   //  SetProcessDpiAwarenessContext() was added in the Win10 Anniversary Update
   //  SetProcessDpiAwareness() was added in Windows 8.1
