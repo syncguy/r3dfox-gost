@@ -11,14 +11,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: variantcompare-xp-x86-smoke
+  cancel-in-progress: true
+
 jobs:
   variantcompare-smoke:
     runs-on: windows-2022
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
