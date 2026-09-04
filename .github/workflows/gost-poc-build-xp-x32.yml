@@ -324,7 +324,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-          targets: ${{ env.RUST_TARGET }}
+          targets: ${{ env:RUST_TARGET }}
 
       - name: Build pinned msvcr14x Release x86
         shell: powershell
@@ -416,7 +416,6 @@ jobs:
                 if ($dep -match $pattern) { throw "$dll retains forbidden XP dependency $dep" }
               }
             }
-
             $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
             $report.Add("$dll|sha256=$hash|subsystem=$version|machine=x86")
           }
@@ -572,22 +571,86 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($required in @($env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$env:THUNK_YY_KERNEL32_LIB)) {
+          $ntdll = Join-Path $env:THUNK_YY_LIB 'ntdll.lib'
+          foreach ($required in @($env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$env:THUNK_YY_KERNEL32_LIB,$ntdll)) {
             if (-not $required -or -not (Test-Path $required)) { throw "Required YY linker input missing: $required" }
           }
+
+          # Proven by run 33861819326 / job 100987750213 / SHA be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2:
+          # use only the NtCancelIoFileEx alias pair from YY ntdll.lib; the common
+          # YY_Thunks_NtCancelIoFileEx implementation is already present in NARROW_YY_LIB.
+          $members = @(& lib.exe /nologo /list $ntdll 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 ntdll.lib' }
+          $direct = @($members | Where-Object { $_ -match '(?i)[\\/]_NtCancelIoFileEx@12\.obj$' })
+          $import = @($members | Where-Object { $_ -match '(?i)[\\/]_NtCancelIoFileEx@12\.obi$' })
+          if ($direct.Count -ne 1 -or $import.Count -ne 1) {
+            throw "Expected one NtCancelIoFileEx .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)"
+          }
+          $aliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-ntcancel-alias'
+          $selected = Join-Path $aliasWork 'selected'
+          if (Test-Path $aliasWork) { Remove-Item -Recurse -Force $aliasWork }
+          New-Item -ItemType Directory -Force $selected | Out-Null
+          $aliasObjects = @()
+          foreach ($item in @($direct[0],$import[0])) {
+            $dir = Join-Path $selected ([IO.Path]::GetExtension($item).TrimStart('.'))
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$item" $ntdll *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw 'NtCancelIoFileEx alias extraction failed' }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File |
+              Where-Object { $_.Name -ne 'extract.log' } |
+              Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw 'NtCancelIoFileEx alias extraction produced no object' }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            $aliasObjects += $dst
+          }
+          $ntCancelAlias = Join-Path $aliasWork 'yy-xp-ntcancel-alias.lib'
+          & lib.exe /nologo "/out:$ntCancelAlias" @aliasObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ntCancelAlias)) { throw 'NtCancelIoFileEx alias library build failed' }
+          $aliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $ntCancelAlias 2>&1 | Out-String)
+          $aliasSymbols | Set-Content -Encoding utf8 (Join-Path $aliasWork 'alias-symbols.txt')
+          if ($aliasSymbols.IndexOf('_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) {
+            throw 'NtCancelIoFileEx alias library lacks the x86 entry symbol'
+          }
+          $providerSymbols = (& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1 | Out-String)
+          if ($providerSymbols.IndexOf('_YY_Thunks_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) {
+            throw 'Proven narrow provider lacks YY_Thunks_NtCancelIoFileEx implementation'
+          }
+          @(
+            "direct=$($direct[0])",
+            "import=$($import[0])",
+            "alias_provider=$ntCancelAlias",
+            'implementation=existing NARROW_YY_LIB common YY object',
+            'evidence_run=33861819326',
+            'evidence_job=100987750213',
+            'evidence_sha=be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2',
+            'capability=PASS'
+          ) | Set-Content -Encoding utf8 diagnostics\yy-ntcancel-capability.txt
+
           $yySynch = $env:THUNK_YY_SYNCH_LIB -replace '\\','/'
           $narrow = $env:NARROW_YY_LIB -replace '\\','/'
+          $ntCancelAliasLink = $ntCancelAlias -replace '\\','/'
           $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB -replace '\\','/'
-          $targetLdflags = "$env:LDFLAGS $yySynch $narrow".Trim()
+          $fullNtdll = $ntdll -replace '\\','/'
+          $targetLdflags = "$env:LDFLAGS $ntCancelAliasLink $narrow $yySynch".Trim()
           if ($targetLdflags.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw 'Invariant violation: full YY kernel32.lib was injected into global target LDFLAGS'
+          }
+          if ($targetLdflags.IndexOf($fullNtdll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY ntdll.lib was injected into global target LDFLAGS'
           }
           "LDFLAGS=$targetLdflags" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           @(
             'scope=all-target-links',
-            "synchronization_lib=$yySynch",
+            "ntcancel_alias_provider=$ntCancelAliasLink",
             "narrow_provider=$narrow",
+            "synchronization_lib=$yySynch",
             'full_kernel32_lib=prohibited',
+            'full_ntdll_lib=prohibited',
             "target_ldflags=$targetLdflags"
           ) | Set-Content -Encoding utf8 diagnostics\xp-x32-global-yy-link-contract.txt
 
@@ -804,7 +867,8 @@ jobs:
             'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
             'InitializeSRWLock','InitializeConditionVariable',
             'SleepConditionVariableCS','SleepConditionVariableSRW',
-            'WakeAllConditionVariable','WakeConditionVariable'
+            'WakeAllConditionVariable','WakeConditionVariable',
+            'NtCancelIoFileEx'
           )
           $targets = @('r3dfox.exe','xul.dll','mozglue.dll','plugin-container.exe')
           $hits = [System.Collections.Generic.List[string]]::new()
@@ -822,7 +886,7 @@ jobs:
           }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-sync-imports.txt')
           if ($hits.Count -gt 0) {
-            throw 'Core browser imports survived the proven SRW/KERNEL32 YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
+            throw 'Core browser imports survived the proven SRW/KERNEL32/NTDLL YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
           }
 
       - name: Stage msvcr14x XP runtime DLLs
@@ -1172,7 +1236,7 @@ jobs:
             'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
             'GetUserPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
             'GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
-            'GetNamedPipeServerProcessId','SetProcessDPIAware',
+            'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
 
@@ -1243,6 +1307,7 @@ jobs:
             xp-x32-import-audit/**
             diagnostics/**
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
+            ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
 
       - name: GATE - Summarize XP x32 full build
         if: always()
@@ -1278,7 +1343,7 @@ jobs:
           "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; synchronization.lib + narrow provider are injected through global target LDFLAGS; full kernel32.lib remains prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib and ntdll.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           foreach ($item in $operations) {
