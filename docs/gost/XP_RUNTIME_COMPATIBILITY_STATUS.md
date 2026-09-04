@@ -10,48 +10,35 @@ Implementation branch: `agent/winrt-source-poc`.
 
 Frozen baseline: `win-153`; do not modify, merge, rebase or push to it without explicit user instruction.
 
-This file is the current handoff for the transition from a full XP x86 workflow that can be GREEN to a browser that actually starts on physical Windows XP. Read it together with `PROJECT_STATE.md`, `TEST_LOG.md`, `XP_BUILD_CONTRACT.md`, and `XP_MOZ_XP_COMPAT_CONTRACT.md` before proposing runtime-compatibility changes.
+This is the current handoff for the physical-XP startup investigation. Read it together with `PROJECT_STATE.md`, `TEST_LOG.md`, `XP_BUILD_CONTRACT.md`, `XP_MOZ_XP_COMPAT_CONTRACT.md`, and `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md` before proposing runtime-compatibility changes.
 
-## Current branch/build identity
+## Exact failing browser identity
 
-At documentation time:
+All current startup-crash conclusions are bound to this exact completed browser:
 
-- default/canonical documentation branch `agent/gost-tls-poc` HEAD: `fd54ef9afd4cf611f253e07a502a57fb7cb9602f`;
-- XP implementation branch `agent/winrt-source-poc` HEAD: `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
-- current full-build workflow: `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- current run: `33831005002`;
-- current job: `100893816677`;
-- source-under-test: `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
-- run state at documentation time: **IN PROGRESS**;
-- the build had passed bootstrap/configure/export/security-manager object compilation and was in `Build release r3dfox XP x32`;
-- quartet diagnostics, final all-PE audit, packaging uploads and artifact IDs had not yet been produced.
-
-Therefore there is currently **no final-binary proof of 0/4 quartet closure for source `1a86821...`** and no new runtime artifact ID suitable for physical-XP conclusions. Do not substitute source grep, source guards or successful object compilation for the final `xul.dll` import result.
-
-Current source-under-test contains the targeted follow-up remediation for the two survivors from the predecessor build:
-
-- `widget/windows/nsWindow.cpp::GetQuitType()` excludes `GetApplicationRestartSettings` under `MOZ_XP_COMPAT`, with `nsWindow.cpp` isolated from unified compilation and given source-local XP compatibility ownership;
-- `third_party/content_analysis_sdk/browser/src/client_win.cc` keeps the pipe connection but excludes the optional `GetNamedPipeServerProcessId` PID/path metadata path under `MOZ_XP_COMPAT`, and that source is likewise isolated from `UNIFIED_SOURCES` and given source-local `-DMOZ_XP_COMPAT`.
-
-These source changes are necessary cleanup, not yet final import closure.
-
-## Last completed and physically tested browser
-
-The last completed exact full-browser result remains:
-
+- branch `agent/winrt-source-poc`;
 - source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
 - run `33757305364`;
 - job `100654730312`;
-- package artifact `9899302735`;
-- runtime artifact `9899304858`;
-- diagnostics artifact `9899307128`.
+- package artifact `9899302735`, digest `sha256:baeb2aaa2c31599da56c2b1c767bdd969914e034ab2c94826c0dd18db36d394b`;
+- runtime artifact `9899304858`, digest `sha256:7d6eff6a4af1b1358f17ed1db9f9194d03702298def5708542a6510aa10029e0`;
+- diagnostics artifact `9899307128`, digest `sha256:cb08028e3518d8834b50d50b9b68a98e3166a2c25a0177397214a8dabd6b3132`.
 
-Run `33757305364` is the first fully GREEN full XP x32 workflow in the current lineage. Its exact runtime artifact `9899304858` has separate physical results:
+Physical results for this exact runtime artifact:
 
-- Windows 7 x86: browser starts and passes the user's basic/primary checks;
-- Windows XP SP3 x86: browser fails stably immediately after launch.
+- Windows 7 x86: starts successfully and passes the user's basic/primary checks;
+- Windows XP SP3 x86: fails stably immediately after launch.
 
-XP Application Event Log for this exact runtime artifact reports:
+The physical runtime directory used in the current XP investigation is:
+
+```text
+D:\2026\09\04\r3dfox-v153.0.3.win32.portable
+```
+
+## Startup-crash evidence progression
+
+### Original Application Error record
 
 ```text
 Faulting application r3dfox.exe, version 153.0.3.3,
@@ -59,151 +46,9 @@ faulting module kernel32.dll, version 5.1.2600.5781,
 fault address 0x00012afb.
 ```
 
-For this XP `kernel32.dll` family the offset corresponds approximately to `kernel32!RaiseException+0x53`. This is the exception-raising site, not proof that `kernel32.dll` itself is defective and not proof of any specific missing API.
+For this XP `kernel32.dll` family, `+0x12afb` is the `RaiseException` site. This record alone did not identify the exception class or caller.
 
-The current root cause remains **UNCONFIRMED** because no exact launch-bound `ExceptionCode`, first/second-chance context or native faulting-thread stack has yet been captured.
-
-Do not assign the crash to `e06d7363`, `c06d007e`, `c06d007f`, `c0000005`, PROPSYS, DXGI, UIA, WinRT or any other subsystem without the corresponding runtime evidence.
-
-## KERNEL32 source-remediation quartet
-
-Predecessor final `xul.dll` diagnostics from artifact `9899307128` proved:
-
-- `GetApplicationRestartSettings` — ordinary import present;
-- `RegisterApplicationRestart` — absent;
-- `UnregisterApplicationRestart` — absent;
-- `GetNamedPipeServerProcessId` — ordinary import present.
-
-The current run `33831005002` exists specifically after source-level remediation of the two survivors. Acceptance for this line is the later exact final `xul.dll` result:
-
-```text
-GetApplicationRestartSettings    absent
-RegisterApplicationRestart       absent
-UnregisterApplicationRestart     absent
-GetNamedPipeServerProcessId      absent
-```
-
-That is **0/4 surviving ordinary imports**. Until the exact run finishes and its final diagnostics prove this, keep the quartet status provisional.
-
-## PROPSYS.dll — proven ordinary `xul.dll` dependency, root-cause status unknown
-
-Exact predecessor diagnostics artifact `9899307128` shows `PROPSYS.dll` as an **ordinary import descriptor** of final `xul.dll`, before the delay-load section. The imported exports are:
-
-```text
-PROPSYS.dll
-    PropVariantToString
-    VariantCompare
-```
-
-This is not merely a source reference and not merely a possible delay-loaded feature. The predecessor final `xul.dll` has a normal loader dependency on `PROPSYS.dll`.
-
-### Production owners
-
-`PropVariantToString` has a direct production owner in:
-
-- `browser/components/shell/nsWindowsShellService.cpp`;
-- the relevant code reads `PKEY_AppUserModel_ID` from a property store and converts the `PROPVARIANT` to text using `PropVariantToString`;
-- `browser/components/shell/moz.build` explicitly links `propsys` on Windows through `OS_LIBS`.
-
-`VariantCompare` has a direct production owner in:
-
-- `accessible/windows/uia/UiaTextRange.cpp`;
-- `CompareVariants(...)` calls `VariantCompare(...)` on the normal MSVC path;
-- the MinGW-only alternative uses `VariantToPropVariant` / `PropVariantCompareEx`, but the XP full-build workflow uses MSVC and therefore follows the `VariantCompare` path;
-- `accessible/windows/uia/moz.build` places this source into `FINAL_LIBRARY = "xul"`.
-
-The resulting proven link paths are therefore:
-
-```text
-nsWindowsShellService.cpp
-  -> PropVariantToString
-  -> propsys import library
-  -> ordinary PROPSYS.dll!PropVariantToString in xul.dll
-```
-
-and
-
-```text
-UiaTextRange.cpp::CompareVariants
-  -> VariantCompare
-  -> propsys import library
-  -> ordinary PROPSYS.dll!VariantCompare in xul.dll
-```
-
-### XP classification
-
-Do not describe these two exports themselves as strictly Vista-only. Microsoft documentation exposes XP support for this Property System surface through the Windows Desktop Search 3.0 redistributable. The important project distinction is that a clean XP SP3 installation is not guaranteed to contain the required `PROPSYS.dll` merely because the API documentation has an XP-supported redistributable path.
-
-For the project's intended clean-XP runtime closure, `PROPSYS.dll` therefore remains a **known unresolved ordinary dependency** until one of the following is proven:
-
-1. the project intentionally declares an external prerequisite and verifies it as part of the runtime contract; or
-2. the exact XP product source/build removes the dependency from final `xul.dll`; or
-3. a deliberately selected app-local compatibility DLL is built/staged and receives its own export, PE/import, provenance and physical-XP contract.
-
-The preferred remediation order is source/build first. The already identified users are narrow enough that compile-out under the established XP source contract should be evaluated before introducing a project-owned `PROPSYS.dll` clone. In particular:
-
-- shell/AUMID property-store logic should be isolated at the exact modern shell feature if XP does not need it;
-- the modern UIA provider path should be classified as required vs optional on the XP product before preserving `VariantCompare` through a new compatibility DLL;
-- if the final accepted source path no longer needs Propsys, remove the Windows `propsys` link dependency and require final `xul.dll` to prove `PROPSYS.dll` absent.
-
-`PROPSYS.dll` is a proven static closure defect for the clean-XP baseline, but it is **not yet a proven explanation of the observed `RaiseException` crash**.
-
-## Other proven/static closure defects
-
-### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`
-
-Exact predecessor diagnostics artifact `9899307128` also shows shipped `libGLESv2.dll` with an ordinary import path to:
-
-```text
-dxgi.dll
-    CreateDXGIFactory1
-```
-
-`CreateDXGIFactory1` is a Windows 7+ API. This is therefore another proven static XP closure defect in a separately linked shipped PE.
-
-Do not automatically call it the current startup root cause. `xul.dll` does not prove that `libGLESv2.dll` is part of the initial mandatory loader set, and Firefox/ANGLE graphics loading may occur dynamically with fallback behavior. The next classification question is whether this PE is startup-critical on physical XP or an optional graphics path that can be disabled/rebuilt/replaced without affecting initial browser process creation.
-
-Keep this line separate from `xul.dll` source remediation: a link fix in `xul.dll` cannot remove an ordinary import owned by `libGLESv2.dll`.
-
-## Known delay-load / optional modern surfaces in `xul.dll`
-
-The raw predecessor import diagnostics also retain real delay-load surfaces, including at least:
-
-- `api-ms-win-core-winrt-string-l1-1-0.dll` with `WindowsCreateStringReference`, `WindowsDeleteString`, `WindowsGetStringRawBuffer`;
-- `api-ms-win-core-winrt-l1-1-0.dll` with `RoActivateInstance`, `RoGetActivationFactory`;
-- `UIAutomationCore.dll` with multiple `Uia*` exports;
-- `ncrypt.dll` with `NCryptFreeObject` and `NCryptSignHash`;
-- additional delay-loaded Windows feature DLLs such as `AVRT.dll` and `dwmapi.dll`.
-
-These are not equivalent to ordinary PE imports. Classify each path as:
-
-1. ordinary import;
-2. delay import;
-3. explicit `LoadLibrary` / `GetProcAddress`;
-4. COM/WinRT activation;
-5. optional feature path;
-6. actual startup-critical path on physical XP.
-
-A missing delay-load module/procedure can be raised through the MSVC delay-load helper and surface through `RaiseException`, which is why `c06d007e` and `c06d007f` are important exception codes to capture. They remain hypotheses until an exact debugger/Watson record says so.
-
-The current workflow's curated fatal DLL patterns do not by themselves reject every XP-absent dependency. In particular, predecessor workflow GREEN did not prove that `PROPSYS.dll` or `dxgi.dll` were safe. The all-PE inventory remains useful evidence, but the fatal policy is a regression list, not exhaustive clean-XP compatibility proof.
-
-## Closed compatibility families — do not reopen without contradictory evidence
-
-The current startup crash is not a reason to restart already-proven work on:
-
-- pinned/restored msvcr14x Release x86 runtime contract;
-- narrow YY provider strategy and the closed SRW/condition-variable family;
-- `CreateWaitableTimerExA` source fallback;
-- exact app-local `xp-bcrypt-v1/bcrypt.dll`;
-- legacy `D3DCompiler_47.dll` staging/packaging;
-- the previous broad curated forbidden-import progression `69 -> 3 -> 0` for the gate's existing API list.
-
-Successful CI for these families is not proof of browser startup, but the browser startup crash also does not invalidate them without new family-specific evidence.
-
-## Physical XP debugger readiness
-
-The physical Windows XP SP3 x86 machine is now prepared for the next root-cause experiment.
+### Dr. Watson result — exception class now known
 
 The user ran:
 
@@ -223,110 +68,282 @@ OK
 ---------------------------
 ```
 
-Therefore Dr. Watson is now registered as the default application debugger on that XP system.
+After this, the same startup failure produced an additional Application log record at `2026-09-04 10:48:56.815`:
 
-The same physical XP computer also already has:
+```text
+The application, D:\2026\09\04\r3dfox-v153.0.3.win32.portable\r3dfox.exe,
+generated an application error ...
+The exception generated was c06d007f at address 7C812AFB
+(kernel32!RaiseException)
+```
+
+Therefore the previous state `RaiseException with unknown exception code` is superseded.
+
+`0xC06D007F` is the MSVC delay-load **procedure-not-found** exception class. It is consistent with a delay-loaded DLL being available while the requested export is absent.
+
+## Current leading blocker — early `USER32!SetProcessDPIAware` delay-load defect
+
+A concrete XP-incompatible startup path is now proven in the exact source and binary configuration.
+
+### Exact source path
+
+`browser/app/nsBrowserApp.cpp` invokes:
+
+```text
+mozilla::WindowsDpiInitialization()
+```
+
+very early in the default browser process, before `InitXPCOMGlue(...)` / XUL startup.
+
+`mozglue/misc/WindowsDpiInitialization.cpp` contains the OS dispatch:
+
+```text
+Win10 Anniversary+  -> dynamically resolve SetProcessDpiAwarenessContext
+Win8.1+             -> dynamically resolve Shcore!SetProcessDpiAwareness
+otherwise           -> direct call SetProcessDPIAware()
+```
+
+Windows XP therefore reaches the final `else` and attempts `SetProcessDPIAware()` unless an explicit XP/Vista floor guard is added. The source currently has no such guard.
+
+`WindowsVersion.h` already provides the necessary OS classification helpers including `IsVistaOrLater()` and `IsXPSP3OrLater()`. No new OS-version mechanism is required for a future minimal fix.
+
+### Exact link/import mode
+
+`mozglue/build/moz.build` deliberately includes:
+
+```text
+user32.dll
+```
+
+in `DELAYLOAD_DLLS`.
+
+Exact PE diagnostics from artifact `9899307128` show `mozglue.dll` delay-imports at least:
+
+```text
+USER32.dll
+    DefWindowProcW
+    PeekMessageW
+    SetProcessDPIAware
+```
+
+### Physical XP export baseline
+
+The user inspected the actual XP `USER32.dll` and confirmed:
+
+```text
+DefWindowProcW      present
+PeekMessageW        present
+SetProcessDPIAware  absent
+```
+
+Therefore this source/runtime path is a **confirmed XP startup defect**:
+
+```text
+r3dfox.exe startup
+  -> WindowsDpiInitialization()
+  -> XP takes pre-Win8.1 branch
+  -> SetProcessDPIAware()
+  -> mozglue USER32 delay-load thunk
+  -> USER32.dll loads successfully
+  -> SetProcessDPIAware export is absent
+  -> procedure resolution cannot succeed
+```
+
+This matches the observed `0xC06D007F` class exactly and is the current leading explanation of the stable startup crash.
+
+### Evidence boundary before patching
+
+Do not yet describe the individual recorded `C06D007F` event as debugger-proven `USER32!SetProcessDPIAware`. One final binding step remains: launch the application under WinDbg, break first-chance on `C06D007F`, and inspect the native stack / `DelayLoadInfo` to extract the exact DLL, procedure or ordinal, and last error.
+
+The project intentionally chooses this debugger proof before source modification because it is cheap and prevents a coincidentally matching delay-load defect from being patched on inference alone.
+
+No source fix has been applied yet.
+
+## Physical XP DLL baseline
+
+The current physical XP machine reports:
+
+```text
+%SystemRoot%\System32\propsys.dll
+    File Not Found
+
+%SystemRoot%\System32\dxgi.dll
+    File Not Found
+
+%SystemRoot%\System32\UIAutomationCore.dll
+    present
+    158048 bytes
+    2010-03-18 10:09
+
+%SystemRoot%\System32\ncrypt.dll
+    File Not Found
+```
+
+Interpretation:
+
+- `PROPSYS.dll` absence confirms that the already proven ordinary `xul.dll -> PROPSYS.dll` dependency is incompatible with this physical baseline unless source/build removes it or the project deliberately adopts a prerequisite/app-local replacement.
+- `dxgi.dll` absence confirms that shipped `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` cannot resolve if that PE/path is loaded.
+- `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but module-not-found is a different delay-load failure class from the currently observed procedure-not-found event.
+- `UIAutomationCore.dll` presence eliminates the simplest missing-module hypothesis for UIA, but exact required exports/version behavior remain separate.
+
+These are necessary compatibility-closure findings but are not automatically the current crash root cause.
+
+## PROPSYS — proven ordinary `xul.dll` dependency
+
+Exact diagnostics artifact `9899307128` shows final predecessor `xul.dll` has an ordinary import descriptor for:
+
+```text
+PROPSYS.dll
+    PropVariantToString
+    VariantCompare
+```
+
+Confirmed production owners include:
+
+- `browser/components/shell/nsWindowsShellService.cpp` for `PropVariantToString`, with an explicit Windows `propsys` link;
+- `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` for `VariantCompare` on the MSVC path.
+
+This is mandatory clean-XP static closure work because PROPSYS is absent on the current physical XP machine. It is not the current `C06D007F` explanation merely because the DLL is absent; an ordinary missing dependency and a delay-load procedure-not-found event are different boundaries.
+
+Preferred remediation order remains source/build removal at the narrow owners before an app-local PROPSYS clone.
+
+## `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`
+
+Exact diagnostics artifact `9899307128` proves shipped `libGLESv2.dll` has the ordinary dependency:
+
+```text
+dxgi.dll
+    CreateDXGIFactory1
+```
+
+`dxgi.dll` is absent on the physical XP machine. This is a proven static closure defect in a separately linked shipped PE. Startup criticality is still unknown because ANGLE/GLES loading may occur dynamically and may have fallback behavior.
+
+Do not attempt to repair this through `xul.dll` linking; `libGLESv2.dll` owns its own import table.
+
+## Other delay/dynamic surfaces still unresolved
+
+Raw predecessor diagnostics retain delay-load or optional modern surfaces including:
+
+- WinRT API-set DLLs;
+- `UIAutomationCore.dll` and several `Uia*` exports;
+- `ncrypt.dll` with `NCryptFreeObject` / `NCryptSignHash`;
+- `AVRT.dll`;
+- `dwmapi.dll`;
+- additional delayed post-XP exports inside otherwise present system DLLs.
+
+Do not mass-patch them. Continue one evidence-backed runtime boundary at a time.
+
+## KERNEL32 quartet revalidation remains separate
+
+Predecessor final `xul.dll` diagnostics proved two ordinary survivors:
+
+- `GetApplicationRestartSettings`;
+- `GetNamedPipeServerProcessId`.
+
+`RegisterApplicationRestart` and `UnregisterApplicationRestart` were absent.
+
+Current XP implementation HEAD:
+
+```text
+1a86821ccf50ac07204d1bec438e375ece4e84d6
+```
+
+contains source-local `MOZ_XP_COMPAT` remediation for the remaining owners in `nsWindow.cpp` and `client_win.cc`.
+
+Current revalidation build:
+
+- run `33831005002`;
+- job `100893816677`;
+- source-under-test `1a86821...`;
+- latest checked status: **IN PROGRESS**.
+
+Do not mark the quartet closed until final `xul.dll` diagnostics from this exact run show all four names absent.
+
+## Closed families — do not reopen for this crash
+
+Do not restart work on these families merely because the browser is not yet starting:
+
+- pinned/restored msvcr14x XP runtime contract;
+- SRW / condition-variable closure;
+- `CreateWaitableTimerExA` fallback;
+- exact app-local `xp-bcrypt-v1/bcrypt.dll`;
+- legacy `D3DCompiler_47.dll` package path;
+- narrow YY residual KERNEL32 providers including `TryAcquireSRWLockExclusive` and `FlsGetValue`;
+- the existing curated broad-gate `69 -> 3 -> 0` progression.
+
+A new family-specific contradiction is required to reopen them.
+
+# Next stage — step-by-step classic WinDbg session
+
+The physical XP computer already has:
 
 ```text
 Debugging Tools for Windows (x86) v6.12.2.633
 ```
 
-available. This gives the project a suitable classic x86 WinDbg/debugger path for a second-stage capture if Dr. Watson does not expose enough context.
+The next chat should **start from launching the application in debug mode**, not from writing a patch.
 
-## Next runtime-debugging sequence — ordered by cost
+Use exact failing runtime artifact `9899304858` / its extracted `r3dfox.exe` first so the debugger experiment is bound to the same crash already characterized by Dr. Watson.
 
-Use the exact physically failing predecessor browser `runtime artifact 9899304858` first when the goal is to identify the already observed `RaiseException` crash. Keep all captured evidence bound to source `2b1cf7e1...`, run `33757305364`, job `100654730312`, artifact `9899304858`.
+## Step 1 — launch from the beginning under WinDbg
 
-### 1. Record the physical XP DLL baseline
-
-Before changing the machine, record presence/version/hash where practical for at least:
+Open classic x86 WinDbg from Debugging Tools v6.12.2.633 and launch:
 
 ```text
-%SystemRoot%\System32\propsys.dll
-%SystemRoot%\System32\dxgi.dll
-%SystemRoot%\System32\UIAutomationCore.dll
-%SystemRoot%\System32\ncrypt.dll
+D:\2026\09\04\r3dfox-v153.0.3.win32.portable\r3dfox.exe
 ```
 
-Absence of a DLL is useful closure evidence, but still does not by itself prove that the observed exception came from that exact path.
+Do not start by attaching after the crash. We want the earliest first-chance delay-load exception and startup stack.
 
-### 2. Capture one Dr. Watson crash for exact artifact `9899304858`
+## Step 2 — configure the first-chance exception break
 
-Configure Dr. Watson to retain the application error log and crash dump/thread context, reproduce one clean launch, and preserve:
-
-- `drwtsn32.log` or the configured application error log;
-- generated user dump if enabled;
-- corresponding Application Event Log entry/timestamp;
-- exact launched browser directory/artifact identity.
-
-Required result from this experiment:
-
-- `ExceptionCode`;
-- faulting thread;
-- native stack if present;
-- loaded module list or enough addresses to reconstruct it.
-
-### 3. If Watson is insufficient, use classic WinDbg from Debugging Tools v6.12.2.633
-
-Catch the first relevant exception rather than only the final second-chance `RaiseException` site. High-value exception classes are:
+Before continuing normal startup, configure WinDbg to stop on:
 
 ```text
-0xC06D007E  MSVC delay-load module-not-found class
-0xC06D007F  MSVC delay-load procedure-not-found class
-0xE06D7363  MSVC C++ exception class
-0xC0000005  access violation
+0xC06D007F
 ```
 
-Do not assume any one of them in advance.
+The exact WinDbg command sequence should be worked through interactively in the next chat, one step at a time, because the old classic debugger UI/command behavior can differ from modern WinDbg documentation.
 
-At the first useful break preserve at minimum:
+## Step 3 — capture the first relevant break
+
+At the first `C06D007F` break, preserve at minimum:
 
 ```text
 .exr -1
-.ecxr
 kv
 lm
 ```
 
-If the exception is a delay-load failure, extract the associated `DelayLoadInfo`/last-error data far enough to identify the exact DLL and function/ordinal. That converts the current generic `RaiseException` observation into a concrete runtime blocker.
+Then inspect the exception parameter / `DelayLoadInfo` far enough to obtain:
 
-### 4. Procmon only if module-resolution history is still ambiguous
+- DLL name;
+- procedure name or ordinal;
+- `dwLastError`;
+- caller frames showing the startup path.
 
-Use an XP-compatible Procmon version to capture the module/file lookup sequence around the crash. Focus on `r3dfox.exe`, image loads and failed DLL/procedure-related filesystem lookups. Procmon is complementary evidence; it does not replace the debugger's exception code and stack.
+Expected high-confidence result from the current evidence is `USER32.dll!SetProcessDPIAware`, but treat the debugger output as authoritative.
 
-### 5. Loader snaps/gflags only after a loader/delay-load path is indicated
+## Step 4 — only after debugger proof, design the minimal source fix
 
-Do not start with loader snaps. Enable them only if the previous evidence points at module resolution and ordinary debugger output still cannot identify the failing dependency. This avoids unnecessary startup noise.
+If WinDbg confirms `USER32.dll!SetProcessDPIAware`, the likely source-level direction is an XP/Vista floor guard in `WindowsDpiInitialization()` so XP returns success/no-op before attempting the Vista+ DPI API.
 
-## Decision order from this point
+Do not implement before the debugger capture. When implemented, prefer existing Windows-version helpers and preserve Vista+ behavior. Do not add a USER32 compatibility DLL and do not route this API through broad YY interposition.
 
-Do not mass-patch every modern Windows reference at once.
+## Step 5 — rebuild, bind exact identity, retest
 
-The next decisions are ordered:
+Any source fix must produce a new exact source SHA, run/job, artifact IDs/hashes, final import evidence and physical XP launch result. Do not attribute the old `C06D007F` result to the new artifact.
 
-1. let run `33831005002` finish and require exact final quartet evidence of **0/4 ordinary imports** before closing that source-remediation line;
-2. independently capture the `ExceptionCode` and stack for exact physical failure artifact `9899304858` using the now-ready Dr. Watson/WinDbg setup;
-3. record whether the physical XP machine actually has `PROPSYS.dll` and the other named compatibility DLLs;
-4. if debugger evidence identifies a concrete startup dependency/API, remediate that exact root cause first;
-5. regardless of root cause, treat `PROPSYS.dll` as necessary clean-XP static-closure work and prefer narrow source/build removal before an app-local shim;
-6. separately classify `libGLESv2.dll -> dxgi!CreateDXGIFactory1` by startup criticality and feature ownership;
-7. only then continue through unresolved delay-load, COM/WinRT, dynamic-load and separately linked PE surfaces one evidence-backed dependency at a time.
+After the DPI edge is removed, the next observed runtime boundary may be PROPSYS, DXGI, another delay-load surface, or something unrelated. Follow the actual next failure rather than assuming the queue order.
 
-Keep three categories explicit in every follow-up:
-
-- **confirmed root cause** — requires exact runtime exception/stack/module evidence;
-- **necessary compatibility cleanup** — a proven XP-invalid or non-baseline static dependency even if it did not cause the current crash;
-- **hypothesis** — a possible delay/dynamic/optional path not yet observed as the failing runtime path.
-
-## Acceptance boundary
+# Acceptance boundary
 
 A future browser is not accepted as XP-compatible merely because the workflow is GREEN. Acceptance still requires:
 
 1. exact source-under-test SHA;
 2. exact run/job identity;
-3. final ordinary and delay-import evidence for the shipped/runtime-required PE closure;
+3. inventory-driven ordinary/delay import evidence for the shipped/runtime-required PE closure;
 4. exact package/runtime/diagnostics artifact IDs and hashes;
-5. physical Windows XP startup and representative browser use;
-6. no inference from Windows 7 x86 success alone.
+5. physical Windows XP startup and representative browser use.
 
-Likewise, successful XP startup will not establish any GOST TLS handshake result.
+Likewise, successful XP startup does not establish any GOST TLS handshake result.
