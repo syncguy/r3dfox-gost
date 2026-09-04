@@ -8,6 +8,53 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-03 — first fully GREEN XP x32 full-build workflow; prior three GMP imports closed, two xul quartet imports still diagnostic WARN
+
+Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration only. This is not GOST TLS runtime/handshake evidence and is not physical-Windows-XP runtime proof.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e` (`ci(xp): add residual YY KERNEL32 providers`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33757305364`, attempt `1`;
+- job `100654730312`;
+- aggregate run/job conclusion: **success**.
+
+Exact artifacts:
+
+- package artifact `9899302735`, `327770380` bytes, digest `sha256:baeb2aaa2c31599da56c2b1c767bdd969914e034ab2c94826c0dd18db36d394b`;
+- runtime artifact `9899304858`, `74919909` bytes, digest `sha256:7d6eff6a4af1b1358f17ed1db9f9194d03702298def5708542a6510aa10029e0`;
+- diagnostics artifact `9899307128`, `5945299` bytes, digest `sha256:cb08028e3518d8834b50d50b9b68a98e3166a2c25a0177397214a8dabd6b3132`.
+
+All hard workflow boundaries are GREEN, including:
+
+- pinned msvcr14x XP runtime contract;
+- narrow YY XP x86 provider build and all-target-link activation while the full YY `kernel32.lib` remains prohibited;
+- Firefox configure/export/security-manager object gate;
+- full release Firefox x86 build;
+- production core-browser direct-import gate;
+- D3DCompiler_47 retarget/package-survival contract;
+- staged and packaged msvcr14x CRT contract;
+- staged and packaged physically proven `xp-bcrypt-v1` contract;
+- runtime-test archive creation;
+- final inventory-driven `GATE - Audit XP x32 PE floor and direct imports`;
+- package/runtime/diagnostics uploads;
+- final `GATE - Summarize XP x32 full build`.
+
+The exact diagnostics show that the previous three broad-audit rows from run `33738262420` are gone: neither `FlsGetValue` nor `TryAcquireSRWLockExclusive` survives in the audited GMP fake/test DLL import dumps. Thus the narrow YY provider transfer for those two residual API names is proven at full-Firefox integration scale, not merely by the earlier focused smoke.
+
+However, GREEN does **not** mean complete XP hard-import closure. The intentionally informational source-remediation quartet diagnostic remains `WARN` and records two surviving hard imports in `xul.dll`:
+
+- `GetApplicationRestartSettings`;
+- `GetNamedPipeServerProcessId`.
+
+`RegisterApplicationRestart` and `UnregisterApplicationRestart` are absent from that focused quartet result. The two survivors are also visible in the raw `xul.dll` import dump. They are not currently promoted by the workflow's final forbidden-import hard gate, so the run can be GREEN while this diagnostic debt remains. Do not mark the quartet fully closed on the basis of this run.
+
+Conclusion: **FIRST FULL WORKFLOW GREEN / PREVIOUS THREE GMP IMPORT FINDINGS CLOSED / PHYSICAL XP PENDING / TWO XUL QUARTET IMPORTS STILL OPEN AS DIAGNOSTIC DEBT.** Runtime artifact `9899304858` supersedes `9891437190` as the newest exact physical-Windows-XP startup candidate. The next runtime boundary is physical XP execution of this exact artifact, while the separate source-remediation line must explain and eliminate or deliberately reclassify `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId`. No GOST TLS handshake conclusion follows from this compatibility build.
+
+---
+
 ## 2026-09-03 — broad XP x32 import inventory reduced from 69 findings to three test-GMP imports
 
 Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration only. This is not GOST TLS runtime/handshake evidence.
