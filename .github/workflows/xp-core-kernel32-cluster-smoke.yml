@@ -503,6 +503,62 @@ jobs:
           & $exe|Tee-Object diagnostics\ntcancel-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted NtCancelIoFileEx probe failed: $LASTEXITCODE"}
           Get-FileHash -Algorithm SHA256 $exe|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\ntcancel-probe-sha256.txt
 
+      - name: Build and run ADVAPI32 ETW YY probe
+        if: steps.cluster_link.outputs.link_exit_code == '0' && steps.cluster_link.outputs.exe_exists == 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $advapi=Join-Path $env:THUNK_YY_LIB 'advapi32.lib'
+          if(-not(Test-Path $advapi)){throw 'YY advapi32.lib missing'}
+          $apis=@('EventRegister','EventUnregister','EventWrite','EventWriteTransfer')
+          $members=@(& lib.exe /nologo /list $advapi 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if($LASTEXITCODE-ne 0-or-not$members.Count){throw 'Cannot enumerate YY advapi32.lib'}
+          $members|Set-Content -Encoding utf8 diagnostics\yy-advapi32-members.txt
+          $selected=Join-Path $env:RUNNER_TEMP 'yy-etw-alias';if(Test-Path $selected){Remove-Item -Recurse -Force $selected};New-Item -ItemType Directory -Force $selected|Out-Null
+          $objects=@();$evidence=[System.Collections.Generic.List[string]]::new()
+          foreach($api in $apis){
+            $escaped=[regex]::Escape($api)
+            $direct=@($members|Where-Object{$_-match"(?i)[\\/]_${escaped}@\d+\.obj$"})
+            $import=@($members|Where-Object{$_-match"(?i)[\\/]_${escaped}@\d+\.obi$"})
+            if($direct.Count-ne 1-or$import.Count-ne 1){throw "Expected one $api .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)"}
+            $evidence.Add("$api|direct=$($direct[0])|import=$($import[0])")
+            foreach($item in @($direct[0],$import[0])){
+              $kind=[IO.Path]::GetExtension($item).TrimStart('.')
+              $dir=Join-Path $selected "$api-$kind";New-Item -ItemType Directory -Force $dir|Out-Null
+              Push-Location $dir
+              try{& lib.exe /nologo "/extract:$item" $advapi|Out-Null;if($LASTEXITCODE-ne 0){throw "$api alias extraction failed"}}finally{Pop-Location}
+              $file=Get-ChildItem $dir -File|Select-Object -First 1;if(-not$file){throw "$api alias extraction produced no object"}
+              $dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst
+            }
+          }
+          $alias=Join-Path $env:RUNNER_TEMP 'yy-xp-advapi32-etw-alias.lib';& lib.exe /nologo "/out:$alias" @objects;if($LASTEXITCODE-ne 0-or-not(Test-Path $alias)){throw 'ADVAPI32 ETW alias library build failed'}
+          $aliasSymbols=(& dumpbin.exe /nologo /linkermember:1 $alias 2>&1|Out-String);$aliasSymbols|Set-Content -Encoding utf8 diagnostics\yy-etw-alias-symbols.txt
+          $providerSymbols=(& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1|Out-String)
+          foreach($api in $apis){if($aliasSymbols.IndexOf($api,[System.StringComparison]::Ordinal)-lt 0){throw "ETW alias provider missing $api"};if($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Proven narrow provider lacks $api implementation"}}
+          $evidence.Add('implementation=proven NARROW_YY_LIB common object');$evidence.Add('apis=EventRegister,EventUnregister,EventWrite,EventWriteTransfer');$evidence.Add('capability=PASS');$evidence|Set-Content -Encoding utf8 diagnostics\yy-etw-capability.txt
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #include <stdio.h>
+          typedef ULONGLONG REGHANDLE;
+          typedef struct _EVENT_DESCRIPTOR { USHORT Id; UCHAR Version; UCHAR Channel; UCHAR Level; UCHAR Opcode; USHORT Task; ULONGLONG Keyword; } EVENT_DESCRIPTOR;
+          typedef struct _EVENT_DATA_DESCRIPTOR { ULONGLONG Ptr; ULONG Size; ULONG Reserved; } EVENT_DATA_DESCRIPTOR;
+          extern "C" ULONG WINAPI EventRegister(LPCGUID,PVOID,PVOID,REGHANDLE*);
+          extern "C" ULONG WINAPI EventUnregister(REGHANDLE);
+          extern "C" ULONG WINAPI EventWrite(REGHANDLE,const EVENT_DESCRIPTOR*,ULONG,EVENT_DATA_DESCRIPTOR*);
+          extern "C" ULONG WINAPI EventWriteTransfer(REGHANDLE,const EVENT_DESCRIPTOR*,LPCGUID,LPCGUID,ULONG,EVENT_DATA_DESCRIPTOR*);
+          static int ok(ULONG s){return s==ERROR_SUCCESS||s==ERROR_NOT_SUPPORTED||s==ERROR_INVALID_HANDLE||s==ERROR_INVALID_PARAMETER;}
+          int main(){static const GUID g={0x15301530,0x1530,0x1530,{0x15,0x30,0x15,0x30,0x15,0x30,0x15,0x30}};REGHANDLE h=0;EVENT_DESCRIPTOR d={};d.Id=1;ULONG r=EventRegister(&g,0,0,&h);ULONG w=EventWrite(h,&d,0,0);ULONG t=EventWriteTransfer(h,&d,0,0,0,0);ULONG u=EventUnregister(h);printf("EventRegister: status=%lu\nEventWrite: status=%lu\nEventWriteTransfer: status=%lu\nEventUnregister: status=%lu\n",r,w,t,u);if(ok(r)&&ok(w)&&ok(t)&&ok(u)){printf("ADVAPI32 ETW family: PASS\n");return 0;}printf("ADVAPI32 ETW family: FAIL\n");return 1;}
+          '@|Set-Content -Encoding ascii etw.cpp
+          & cl.exe /nologo /c /MD /O2 /GS- /EHsc- /GR- etw.cpp /Foetw.obj 2>&1|Tee-Object diagnostics\etw-compile.log;if($LASTEXITCODE-ne 0){throw 'ADVAPI32 ETW probe compile failed'}
+          $lld=(Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source;if(-not$lld){$lld='C:\Program Files\LLVM\bin\lld-link.exe'};if(-not(Test-Path $lld)){throw 'lld-link missing'}
+          $exe=(Resolve-Path runtime).Path+'\xp-advapi32-etw.exe';$map=(Resolve-Path diagnostics).Path+'\etw.map';$args=@("-LIBPATH:$env:MSVCR14X_RELEASE",'etw.obj',$alias,$env:NARROW_YY_LIB,$env:THUNK_YY_SYNCH_LIB,'/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe");($lld+' '+($args-join' '))|Set-Content -Encoding utf8 diagnostics\etw-link-command.txt;& $lld @args 2>&1|Tee-Object diagnostics\etw-link-output.txt;if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'ADVAPI32 ETW link failed'}
+          & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe|Out-Null;if($LASTEXITCODE-ne 0){throw 'ADVAPI32 ETW XP subsystem retarget failed'}
+          $mapText=Get-Content $map -Raw;foreach($api in $apis){if($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "ETW map did not select YY thunk for $api"}}
+          $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\etw-imports.txt;foreach($api in $apis){if([regex]::IsMatch($imports,"(?im)^\s*[0-9A-F]+\s+$api\s*$")){throw "ETW probe retains direct import $api"}}
+          & $exe|Tee-Object diagnostics\etw-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted ADVAPI32 ETW probe failed: $LASTEXITCODE"}
+          Get-FileHash -Algorithm SHA256 $exe|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\etw-probe-sha256.txt
+
       - name: Build physical XP runtime bundle
         if: steps.cluster_link.outputs.link_exit_code == '0' && steps.cluster_link.outputs.exe_exists == 'true'
         shell: powershell
@@ -514,6 +570,9 @@ jobs:
           if errorlevel 1 exit /b %ERRORLEVEL%
           echo XP x86 NtCancelIoFileEx YY runtime probe
           xp-ntcanceliofileex.exe
+          if errorlevel 1 exit /b %ERRORLEVEL%
+          echo XP x86 ADVAPI32 ETW YY runtime probe
+          xp-advapi32-etw.exe
           set EC=%ERRORLEVEL%
           echo DriverExitCode=%EC%
           exit /b %EC%
@@ -524,13 +583,15 @@ jobs:
           Residual-import evidence: full Firefox run 33638897692 / job 100276666021 / SHA 17cdb459ec4f115a209fd50ac225cf867b9f3a2f.
           Required focused delta: InitOnceExecuteOnce, GetThreadPreferredUILanguages, QueryFullProcessImageNameA, TryAcquireSRWLockExclusive, FlsGetValue.
           Additional method: NtCancelIoFileEx, using only its ntdll alias pair plus the already-proven narrow YY common implementation/ProcessPrng closure.
+          Current physical-startup blocker family: ADVAPI32 EventRegister, EventUnregister, EventWrite, EventWriteTransfer; test uses only those advapi32 weak-alias pairs plus the same narrow YY common implementation.
           Run: run-xp-cluster.cmd
-          Preserve complete stdout. PASS/FAIL is per API. The five required delta APIs must not be SKIP and NtCancelIoFileEx must report PASS.
+          Preserve complete stdout. The five required delta APIs must not be SKIP; NtCancelIoFileEx and the ADVAPI32 ETW family must report PASS.
           Hosted Windows execution is not physical-XP proof. This artifact does not prove full Firefox integration.
           '@|Set-Content -Encoding ascii runtime\README-XP.txt
           Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
           Copy-Item diagnostics\required-delta.txt runtime\required-delta.txt
           Copy-Item diagnostics\yy-ntcancel-capability.txt runtime\yy-ntcancel-capability.txt
+          Copy-Item diagnostics\yy-etw-capability.txt runtime\yy-etw-capability.txt
           Get-ChildItem runtime -File|ForEach-Object{$h=Get-FileHash -Algorithm SHA256 $_.FullName;"$($h.Hash.ToLowerInvariant())  $($_.Name)"}|Set-Content -Encoding ascii runtime\SHA256SUMS.txt
           Get-FileHash -Algorithm SHA256 $env:SMOKE_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
 
