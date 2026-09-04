@@ -499,7 +499,7 @@ jobs:
           $exe=(Resolve-Path runtime).Path+'\xp-ntcanceliofileex.exe';$map=(Resolve-Path diagnostics).Path+'\ntcancel.map';$args=@("-LIBPATH:$env:MSVCR14X_RELEASE",'ntcancel.obj',$alias,$env:NARROW_YY_LIB,$env:THUNK_YY_SYNCH_LIB,'/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe");($lld+' '+($args-join' '))|Set-Content -Encoding utf8 diagnostics\ntcancel-link-command.txt;& $lld @args 2>&1|Tee-Object diagnostics\ntcancel-link-output.txt;if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'NtCancelIoFileEx link failed'}
           & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx XP subsystem retarget failed'}
           $mapText=Get-Content $map -Raw;if($mapText.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx map did not select YY thunk'}
-          $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt;if($imports.IndexOf('NtCancelIoFileEx',[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'NtCancelIoFileEx probe retains direct import'}
+          $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt;if([regex]::IsMatch($imports,'(?im)^\s*[0-9A-F]+\s+NtCancelIoFileEx\s*$')){throw 'NtCancelIoFileEx probe retains direct import'}
           & $exe|Tee-Object diagnostics\ntcancel-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted NtCancelIoFileEx probe failed: $LASTEXITCODE"}
           Get-FileHash -Algorithm SHA256 $exe|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\ntcancel-probe-sha256.txt
 
