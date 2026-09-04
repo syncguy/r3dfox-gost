@@ -100,60 +100,77 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current detailed handoff for the physical Windows XP SP3 x86 startup/runtime-closure line is [`XP_RUNTIME_COMPATIBILITY_STATUS.md`](./XP_RUNTIME_COMPATIBILITY_STATUS.md). Read it before proposing another XP patch.
 
-The current mandatory build/dependency contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md). Preserve all already-proven dependency families while investigating the browser startup failure.
+The current mandatory build/dependency contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md). Preserve all already-proven dependency families while advancing one owner/component at a time.
 
 ### Current exact boundary
 
-Last completed full browser:
-
-- source `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`;
-- run `33757305364`;
-- job `100654730312`;
-- runtime artifact `9899304858`;
-- diagnostics artifact `9899307128`;
-- full workflow **GREEN**;
-- physical Windows 7 x86 **PASS**;
-- physical Windows XP SP3 x86 **FAIL** immediately after launch at an exception reported through approximately `kernel32!RaiseException+0x53`;
-- exact `ExceptionCode` and native caller stack remain unknown.
-
-Current source-remediation revalidation:
+Latest completed full XP x32 browser:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test / branch HEAD `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
-- run `33831005002`;
-- job `100893816677`;
-- state at latest documentation check: **IN PROGRESS**;
-- no current artifact IDs yet;
-- do not mark quartet closure until final `xul.dll` proves all four names absent.
+- source-under-test / implementation HEAD `622a87625036e9c45a8650264336eceeb9be8753` (`fix(xp): restore Rust target expression`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `33864176444`, attempt `1`;
+- job `100995134125`;
+- package artifact `9937354583`, digest `sha256:9457e3d5102bd60caa4f1cdf23a432fa21444efdd34054e688c1a8f507dc5e98`;
+- runtime artifact `9937355457`, digest `sha256:5f60d06985e20282bf4a231a28e2bc5d8945c71ba6e92739ee162b510fda91dd`;
+- diagnostics artifact `9937356676`, digest `sha256:88b416d3042522a2284c33617267878bb035dd750f5275aa6de98deacd8e55f6`;
+- aggregate workflow result **RED only at final summary**, after build/package/audit/uploads all passed.
 
-The physical XP machine is ready for root-cause capture:
+Exact current static result:
 
-- `drwtsn32 -i` completed successfully and Dr. Watson is registered as the default application debugger;
-- `Debugging Tools for Windows (x86) v6.12.2.633` is installed and available for classic WinDbg work.
+```text
+NtCancelIoFileEx               CLOSED in final production xul.dll
+NtCancelIoFile                 present as the resulting XP-side native boundary
+KERNEL32 source quartet        PASS / surviving=none
+SetProcessDPIAware mode        PASS / direct=0 / delay_user32=1
+xul.dll -> PROPSYS.dll         CLOSED in current final binary
+libGLESv2.dll -> dxgi.dll      OPEN
+CreateDXGIFactory1             OPEN
+```
+
+The broad forbidden-direct-import report now contains exactly one row:
+
+```text
+libGLESv2.dll|DLL|dxgi.dll
+```
+
+The physical XP machine does not contain `dxgi.dll`.
+
+### Closed in this iteration — do not leave as backlog
+
+The following older TODO items are superseded by completed evidence and must not be repeated:
+
+- debugger localization of the `kernel32!RaiseException` startup failure: exact root cause was proven as `USER32.dll!SetProcessDPIAware` `C06D007F` on runtime artifact `9899304858`;
+- source/static DPI remediation: current full source `622a876...` revalidates the pre-Vista source guard and final delay-import mode;
+- KERNEL32 quartet revalidation: final production 0/4 is proven and remains strict-gate PASS;
+- focused `NtCancelIoFileEx` YY capability: run `33861819326`, job `100987750213`, source `be122cfc...`, PASS;
+- full Firefox `NtCancelIoFileEx` integration: run `33864176444`, job `100995134125`, source `622a876...`, final `xul.dll` contains `NtCancelIoFile` and not `NtCancelIoFileEx`;
+- `xul.dll -> PROPSYS.dll` ordinary dependency: absent from the latest broad forbidden-import report;
+- physical XP system-DLL baseline for PROPSYS/DXGI/UIAutomationCore/NCRYPT: already recorded.
 
 ### Open work, in order
 
-1. **Finish the quartet revalidation, but do not wait on it to diagnose the old exact crash.** When run `33831005002` completes, bind its final result to run `33831005002`, job `100893816677`, source `1a86821...` and exact artifact IDs. Require final `xul.dll` ordinary imports to show **0/4** for `GetApplicationRestartSettings`, `RegisterApplicationRestart`, `UnregisterApplicationRestart`, and `GetNamedPipeServerProcessId`.
-2. **Capture the actual exception from exact failing artifact `9899304858`.** First use Dr. Watson and preserve the application error log/dump, `ExceptionCode`, faulting thread/stack, module context and matching Application Event timestamp. Keep this runtime result bound to source `2b1cf7...`, run `33757305364`, job `100654730312`, artifact `9899304858`.
-3. **Use classic WinDbg if Watson is insufficient.** Catch the first relevant exception rather than only the final `RaiseException` site. Important classes to identify or rule out include `0xC06D007E`, `0xC06D007F`, `0xE06D7363`, and `0xC0000005`; do not assume any of them in advance. Preserve `.exr -1`, `.ecxr`, `kv`, and `lm`. If it is an MSVC delay-load exception, extract the exact DLL and procedure/ordinal before changing source.
-4. **Record the physical XP DLL baseline.** At minimum check presence/version/hash where practical for `propsys.dll`, `dxgi.dll`, `UIAutomationCore.dll`, and `ncrypt.dll` before installing compatibility packages or otherwise changing the machine.
-5. **Close the proven `PROPSYS.dll` ordinary dependency.** Exact predecessor `xul.dll` imports `PROPSYS.dll!PropVariantToString` and `PROPSYS.dll!VariantCompare`. Confirmed source/link owners are `browser/components/shell/nsWindowsShellService.cpp` + `browser/components/shell/moz.build` and `accessible/windows/uia/UiaTextRange.cpp`. Treat this as necessary clean-XP static cleanup, but not as the current crash root cause until debugger evidence proves it. Prefer narrow source/build removal before creating an app-local PROPSYS shim.
-6. **Classify the separately linked ANGLE/DXGI defect.** Exact predecessor shipped `libGLESv2.dll` ordinarily imports `dxgi.dll!CreateDXGIFactory1`. Determine whether this is startup-critical on XP or an optional graphics path, then rebuild/select legacy backend/disable/replace at the component boundary as appropriate. Do not try to fix a `libGLESv2.dll` import through the `xul.dll` linker.
-7. **Continue through remaining delay/dynamic/COM surfaces only after evidence classification.** Raw `xul.dll` retains WinRT API-set, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, and `dwmapi.dll` delay-load surfaces. Distinguish ordinary imports, delay imports, explicit `LoadLibrary`/`GetProcAddress`, COM/WinRT activation, optional feature paths, and actual startup-critical paths. Procmon/loader snaps are follow-up tools, not substitutes for the exception code and stack.
-8. **Improve the final clean-XP audit after the immediate root cause is localized.** The curated fatal list is a regression gate, not exhaustive compatibility proof. The predecessor workflow was GREEN while PROPSYS and DXGI defects remained visible in raw import evidence. Extend policy from evidence, without weakening existing gates or globally routing everything through YY.
-9. **Physical XP acceptance of the next exact browser.** After a concrete root-cause remediation and complete artifact identity are available, launch that exact runtime on physical XP and require successful browser startup plus representative ordinary browsing. Windows 7 x86 success remains useful localization evidence but is not XP proof.
-10. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
+1. **Trace the remaining `CreateDXGIFactory1` owner in the exact ANGLE / `libGLESv2.dll` build.** Determine the source and target/link configuration that gives final shipped `libGLESv2.dll` its ordinary `dxgi.dll!CreateDXGIFactory1` dependency. Keep this investigation at the graphics/ANGLE component boundary; `xul.dll` link changes cannot fix another PE's import table.
+2. **Choose the narrowest XP-compatible ANGLE remediation.** Prefer an existing legacy backend/build switch/source fallback or exclusion that preserves intended XP graphics behavior. Do not introduce broad YY interposition merely to hide DXGI and do not route the problem through the `xul.dll` linker.
+3. **Rebuild under a new exact source SHA and require DXGI closure without regressions.** The broad audit must remove `libGLESv2.dll|DLL|dxgi.dll`, while `NtCancelIoFileEx`, PROPSYS, quartet, DPI, msvcr14x, bcrypt and D3DCompiler gates remain closed/green.
+4. **Physical XP acceptance of the resulting exact browser.** Require successful startup plus representative ordinary browsing. If a new runtime failure appears, bind it to that exact source/run/job/artifact and diagnose the first actual boundary rather than reopening old static families.
+5. **Optional localization-only physical probe of current artifact `9937355457`.** It may be useful to see whether startup advances past the old `SetProcessDPIAware` exception before DXGI remediation, but it cannot be called an accepted clean-XP result while the exact static gate still reports DXGI.
+6. **Continue through remaining delay/dynamic/COM surfaces only when evidence reaches them.** WinRT API sets, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, `dwmapi.dll` and similar optional surfaces remain hypotheses until runtime or mandatory static policy makes them blocking.
+7. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
 
 ### Closed compatibility families — do not spend new cycles without contradictory evidence
-
-Do not reopen merely because the current browser throws during startup:
 
 - pinned/restored msvcr14x Release x86 contract;
 - narrow YY provider strategy and the closed SRW/condition-variable family;
 - `CreateWaitableTimerExA` source fallback;
 - exact app-local `xp-bcrypt-v1/bcrypt.dll`;
 - legacy `D3DCompiler_47.dll` staging/packaging;
-- the existing broad curated forbidden-import progression `69 -> 3 -> 0`.
+- narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`;
+- focused + full-integration `NtCancelIoFileEx` closure;
+- KERNEL32 source-remediation quartet at final-production 0/4;
+- current final-production `xul.dll -> PROPSYS.dll` ordinary-dependency closure;
+- historical `SetProcessDPIAware` root-cause diagnosis and current source/static DPI integration;
+- the historical broad curated forbidden-import progression `69 -> 3 -> 0`.
 
 The selected `xp-bcrypt-v1` binary remains trusted project infrastructure:
 
