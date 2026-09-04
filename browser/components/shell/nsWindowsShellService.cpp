@@ -1124,6 +1124,7 @@ nsresult CreateShellLinkObject(nsIFile* aBinary,
     link->SetIconLocation(icon.get(), aIconIndex);
   }
 
+#ifndef MOZ_XP_COMPAT
   if (!aAppUserModelId.IsEmpty()) {
     RefPtr<IPropertyStore> propStore;
     hr = link->QueryInterface(IID_IPropertyStore, getter_AddRefs(propStore));
@@ -1142,6 +1143,8 @@ nsresult CreateShellLinkObject(nsIFile* aBinary,
     hr = propStore->Commit();
     NS_ENSURE_HRESULT(hr, NS_ERROR_FAILURE);
   }
+
+#endif  // !MOZ_XP_COMPAT
 
   link.forget(aLink);
   return NS_OK;
@@ -1555,6 +1558,7 @@ static nsresult GetMatchingShortcut(int aCSIDL, const nsAString& aAUMID,
     }
     result = NS_ERROR_FILE_ALREADY_EXISTS;
 
+#ifndef MOZ_XP_COMPAT
     // Check the AUMID
     RefPtr<IPropertyStore> propStore;
     hr = link->QueryInterface(IID_IPropertyStore, getter_AddRefs(propStore));
@@ -1578,6 +1582,8 @@ static nsresult GetMatchingShortcut(int aCSIDL, const nsAString& aAUMID,
     if (!aAUMID.Equals(storedAUMID)) {
       continue;
     }
+
+#endif  // !MOZ_XP_COMPAT
 
     // Check the exe path
     static_assert(MAXPATHLEN == MAX_PATH);
@@ -1941,6 +1947,7 @@ static bool IsCurrentAppPinnedToTaskbarSync(const nsAString& aumid) {
     // have a false negative mismatch.
     if (wcsnicmp(storedExePath, exePath, MAXPATHLEN) == 0 ||
         wcsnicmp(storedExePath, pbExePath, MAXPATHLEN) == 0) {
+#ifndef MOZ_XP_COMPAT
       RefPtr<IPropertyStore> propStore;
       hr = link->QueryInterface(IID_IPropertyStore, getter_AddRefs(propStore));
       if (NS_WARN_IF(FAILED(hr))) {
@@ -1964,6 +1971,10 @@ static bool IsCurrentAppPinnedToTaskbarSync(const nsAString& aumid) {
         isPinned = true;
         break;
       }
+#else
+      isPinned = true;
+      break;
+#endif  // !MOZ_XP_COMPAT
     }
   } while (FindNextFileW(hFindFile, &findData));
 
