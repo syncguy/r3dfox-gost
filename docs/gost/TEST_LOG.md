@@ -682,7 +682,7 @@ Exact project/build identity:
 - source-under-test `3e2c32386f373d4693db52b32c05aa2000878def`;
 - workflow `CryptoPro Mozilla packaging smoke`;
 - Actions run `33520207057`;
-- job `99897230730` (`Windows x64 / r3dfox GOST / XP SP3 full build`);
+- job `99897230730` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
 - run/job conclusion: **success**;
 - pinned `firefox-l10n` source SHA remains `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`.
 
