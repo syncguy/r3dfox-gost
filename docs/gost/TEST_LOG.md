@@ -8,6 +8,49 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — first final production `xul.dll` 0/4 closure for the KERNEL32 source-remediation quartet
+
+Track: Windows XP SP3 x86 compatibility / final Firefox binary import closure only. This is not physical-XP runtime proof and not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `1a86821ccf50ac07204d1bec438e375ece4e84d6` (`client_win.cc avoid a hard GetNamedPipeServerProcessId import on Windows XP`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33831005002`, attempt `1`;
+- job `100893816677`;
+- aggregate run/job conclusion: **success**.
+
+Exact artifacts:
+
+- package artifact `9924336481`, digest `sha256:60b6cdd1c87344d467531d4541b6ec0d5ca955dae942f5b7165bd773ec2906f0`;
+- runtime artifact `9924337378`, digest `sha256:abaecbfedae0adce9f819b2f1ad05c36ed027a340c5d245a71b5fe9b8bc82e67`;
+- diagnostics artifact `9924338342`, digest `sha256:aca17ca427c5f55ccb1a7f838a9d82ae1e07bc68b12cd1061173fb81699a3b09`.
+
+The exact diagnostics artifact contains:
+
+```text
+xp-x32-source-remediation-quartet/result.txt
+result=PASS|surviving=none
+```
+
+The matching final `xul.dll` ordinary-import dump contains none of the four source-remediation names:
+
+```text
+GetApplicationRestartSettings
+RegisterApplicationRestart
+UnregisterApplicationRestart
+GetNamedPipeServerProcessId
+```
+
+This is the first recorded final-production `0/4` binary evidence in the current remediation lineage. The predecessor full-build diagnostics from source `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`, run `33757305364`, job `100654730312`, still had exactly two survivors: `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId`.
+
+Gate-history distinction: on source `1a86821...`, the quartet step was still informational (`DIAG - Check source-remediation quartet absent from xul.dll`). Starting with later workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the same quartet condition became an evidence-preserving final gate: artifacts may still upload, but any survivor makes the final verdict RED. Therefore run `33831005002` establishes the first recorded final-binary closure; later runs establish hardened regression-gate behavior and unrelated subsequent remediation.
+
+Conclusion: **PASS / FINAL PRODUCTION `xul.dll` QUARTET CLOSED AT 0/4 ORDINARY IMPORTS.** This closes only this static import-remediation line. It does not prove full clean-XP dependency closure, physical Windows XP startup, or any GOST TLS behavior.
+
+---
+
 ## 2026-09-04 — WinDbg `DelayLoadInfo` proves the immediate XP crash is `USER32.dll!SetProcessDPIAware` procedure-not-found
 
 Track: Windows XP SP3 x86 compatibility / physical startup diagnosis only. This is not GOST TLS runtime/handshake evidence.
@@ -551,7 +594,7 @@ Publication identity is separate from binary source identity:
 - Actions run `33518189052`;
 - job `99890447193`;
 - conclusion **success**;
-- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50ac07204d1bec438e375ece4e84d6`;
 - technical prerelease ID `380563342`, title `XP bcrypt primitive v1`;
 - raw release asset ID `539647946`, name `bcrypt.dll`, size `520704`, GitHub digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
 
@@ -649,7 +692,7 @@ Track: Windows XP x86 binary compatibility only. This is not GOST TLS runtime/ha
 Exact project identity:
 
 - branch `agent/gost-tls-poc`;
-- source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- source-under-test `a30a701fcf50ac07204d1bec438e375ece4e84d6`;
 - workflow `One-Core bcrypt source XP x86 smoke`;
 - Actions run `33513084915`;
 - job `99873297193`;
