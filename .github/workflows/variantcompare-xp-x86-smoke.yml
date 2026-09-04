@@ -1,0 +1,195 @@
+name: VariantCompare XP x86 smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/variantcompare-xp-x86-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  variantcompare-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Build standalone XP comparator smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #include <oleauto.h>
+          #include <stdio.h>
+          #include <wchar.h>
+
+          static bool IsEmptyOrNull(const VARIANT& v) {
+            return V_VT(&v) == VT_EMPTY || V_VT(&v) == VT_NULL;
+          }
+
+          static int Sign(int value) {
+            return value < 0 ? -1 : value > 0 ? 1 : 0;
+          }
+
+          static int CompareVariantsXP(const VARIANT& first,
+                                       const VARIANT& second) {
+            if (IsEmptyOrNull(first)) {
+              return IsEmptyOrNull(second) ? 0 : -1;
+            }
+            if (IsEmptyOrNull(second)) {
+              return 1;
+            }
+
+            VARIANT converted;
+            VariantInit(&converted);
+            const VARIANT* rhs = &second;
+            if (V_VT(&first) != V_VT(&second)) {
+              HRESULT hr = VariantChangeType(&converted,
+                                             const_cast<VARIANT*>(&second),
+                                             0, V_VT(&first));
+              if (FAILED(hr)) {
+                return -1;
+              }
+              rhs = &converted;
+            }
+
+            int result = -1;
+            switch (V_VT(&first)) {
+              case VT_I1:   result = (V_I1(&first) > V_I1(rhs)) - (V_I1(&first) < V_I1(rhs)); break;
+              case VT_UI1:  result = (V_UI1(&first) > V_UI1(rhs)) - (V_UI1(&first) < V_UI1(rhs)); break;
+              case VT_I2:   result = (V_I2(&first) > V_I2(rhs)) - (V_I2(&first) < V_I2(rhs)); break;
+              case VT_UI2:  result = (V_UI2(&first) > V_UI2(rhs)) - (V_UI2(&first) < V_UI2(rhs)); break;
+              case VT_I4:   result = (V_I4(&first) > V_I4(rhs)) - (V_I4(&first) < V_I4(rhs)); break;
+              case VT_UI4:  result = (V_UI4(&first) > V_UI4(rhs)) - (V_UI4(&first) < V_UI4(rhs)); break;
+              case VT_I8:   result = (V_I8(&first) > V_I8(rhs)) - (V_I8(&first) < V_I8(rhs)); break;
+              case VT_UI8:  result = (V_UI8(&first) > V_UI8(rhs)) - (V_UI8(&first) < V_UI8(rhs)); break;
+              case VT_R4:   result = (V_R4(&first) > V_R4(rhs)) - (V_R4(&first) < V_R4(rhs)); break;
+              case VT_R8:   result = (V_R8(&first) > V_R8(rhs)) - (V_R8(&first) < V_R8(rhs)); break;
+              case VT_BOOL: result = (V_BOOL(&first) > V_BOOL(rhs)) - (V_BOOL(&first) < V_BOOL(rhs)); break;
+              case VT_BSTR: result = Sign(wcscmp(V_BSTR(&first), V_BSTR(rhs))); break;
+              default:      result = -1; break;
+            }
+
+            VariantClear(&converted);
+            return result;
+          }
+
+          typedef int (WINAPI *VariantCompareFn)(REFVARIANT, REFVARIANT);
+
+          static VariantCompareFn ResolveVariantCompare() {
+            HMODULE propsys = LoadLibraryW(L"propsys.dll");
+            if (!propsys) return nullptr;
+            return reinterpret_cast<VariantCompareFn>(
+                GetProcAddress(propsys, "VariantCompare"));
+          }
+
+          static void SetI4(VARIANT& v, LONG x) { VariantInit(&v); V_VT(&v)=VT_I4; V_I4(&v)=x; }
+          static void SetUI4(VARIANT& v, ULONG x) { VariantInit(&v); V_VT(&v)=VT_UI4; V_UI4(&v)=x; }
+          static void SetI8(VARIANT& v, LONGLONG x) { VariantInit(&v); V_VT(&v)=VT_I8; V_I8(&v)=x; }
+          static void SetUI8(VARIANT& v, ULONGLONG x) { VariantInit(&v); V_VT(&v)=VT_UI8; V_UI8(&v)=x; }
+          static void SetR8(VARIANT& v, double x) { VariantInit(&v); V_VT(&v)=VT_R8; V_R8(&v)=x; }
+          static void SetBool(VARIANT& v, bool x) { VariantInit(&v); V_VT(&v)=VT_BOOL; V_BOOL(&v)=x?VARIANT_TRUE:VARIANT_FALSE; }
+          static void SetBstr(VARIANT& v, const wchar_t* x) { VariantInit(&v); V_VT(&v)=VT_BSTR; V_BSTR(&v)=SysAllocString(x); }
+
+          struct TestCase {
+            const char* name;
+            VARIANT a;
+            VARIANT b;
+            int expected;
+          };
+
+          int wmain() {
+            VariantCompareFn oracle = ResolveVariantCompare();
+            if (!oracle) {
+              fwprintf(stderr, L"VariantCompare oracle unavailable\n");
+              return 2;
+            }
+
+            TestCase tests[16] = {};
+            int n = 0;
+
+            VariantInit(&tests[n].a); VariantInit(&tests[n].b); tests[n].name="empty-empty"; tests[n++].expected=0;
+            VariantInit(&tests[n].a); V_VT(&tests[n].a)=VT_NULL; VariantInit(&tests[n].b); tests[n].name="null-empty"; tests[n++].expected=0;
+            SetI4(tests[n].a,-4); SetI4(tests[n].b,7); tests[n].name="i4-lt"; tests[n++].expected=-1;
+            SetI4(tests[n].a,7); SetI4(tests[n].b,7); tests[n].name="i4-eq"; tests[n++].expected=0;
+            SetUI4(tests[n].a,9); SetUI4(tests[n].b,3); tests[n].name="ui4-gt"; tests[n++].expected=1;
+            SetI8(tests[n].a,-10); SetI8(tests[n].b,-2); tests[n].name="i8-lt"; tests[n++].expected=-1;
+            SetUI8(tests[n].a,0x100000000ULL); SetUI8(tests[n].b,9); tests[n].name="ui8-gt"; tests[n++].expected=1;
+            SetR8(tests[n].a,1.25); SetR8(tests[n].b,1.5); tests[n].name="r8-lt"; tests[n++].expected=-1;
+            SetBool(tests[n].a,false); SetBool(tests[n].b,true); tests[n].name="bool-lt"; tests[n++].expected=-1;
+            SetBstr(tests[n].a,L"alpha"); SetBstr(tests[n].b,L"beta"); tests[n].name="bstr-lt"; tests[n++].expected=-1;
+            SetBstr(tests[n].a,L"same"); SetBstr(tests[n].b,L"same"); tests[n].name="bstr-eq"; tests[n++].expected=0;
+            SetI4(tests[n].a,42); SetR8(tests[n].b,42.0); tests[n].name="mixed-i4-r8-eq"; tests[n++].expected=0;
+            SetR8(tests[n].a,5.5); SetI4(tests[n].b,5); tests[n].name="mixed-r8-i4-gt"; tests[n++].expected=1;
+
+            int failures = 0;
+            for (int i=0; i<n; ++i) {
+              int local = Sign(CompareVariantsXP(tests[i].a, tests[i].b));
+              int native = Sign(oracle(tests[i].a, tests[i].b));
+              printf("%-24s expected=%d local=%d native=%d\n",
+                     tests[i].name, tests[i].expected, local, native);
+              if (local != tests[i].expected || native != tests[i].expected || local != native) {
+                ++failures;
+              }
+              VariantClear(&tests[i].a);
+              VariantClear(&tests[i].b);
+            }
+
+            if (failures) {
+              fprintf(stderr, "FAILURES=%d\n", failures);
+              return 1;
+            }
+            puts("VariantCompare XP comparator smoke: GREEN");
+            return 0;
+          }
+          '@ | Set-Content -Encoding ascii variantcompare_xp_smoke.cpp
+
+          cl.exe /nologo /EHsc /W4 /O2 /MT variantcompare_xp_smoke.cpp oleaut32.lib /link /SUBSYSTEM:CONSOLE,5.01 /OUT:variantcompare_xp_smoke.exe
+          if ($LASTEXITCODE -ne 0) { throw "compile failed: $LASTEXITCODE" }
+
+          .\variantcompare_xp_smoke.exe 2>&1 | Tee-Object -FilePath diagnostics\runtime.txt
+          if ($LASTEXITCODE -ne 0) { throw "smoke failed: $LASTEXITCODE" }
+
+      - name: PE import audit - no PROPSYS
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $imports = (& dumpbin.exe /nologo /imports variantcompare_xp_smoke.exe 2>&1 | Out-String)
+          $imports | Set-Content -Encoding utf8 diagnostics\imports.txt
+          if ($imports -match '(?im)^\s*PROPSYS\.dll\s*$') {
+            throw 'variantcompare_xp_smoke.exe has a hard PROPSYS.dll import'
+          }
+          if ($imports -match '(?im)^\s*VariantCompare\s*$') {
+            throw 'variantcompare_xp_smoke.exe has a hard VariantCompare import'
+          }
+
+          $headers = (& dumpbin.exe /nologo /headers variantcompare_xp_smoke.exe 2>&1 | Out-String)
+          $headers | Set-Content -Encoding utf8 diagnostics\headers.txt
+          if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') {
+            throw 'smoke EXE is not x86'
+          }
+          if ($headers -notmatch '(?im)^\s*5\.01 subsystem version') {
+            throw 'smoke EXE does not target subsystem 5.01'
+          }
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: variantcompare-xp-x86-smoke-diagnostics
+          path: diagnostics
+          if-no-files-found: error
