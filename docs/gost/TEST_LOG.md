@@ -8,6 +8,33 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — focused `NtCancelIoFileEx` XP x86 probe passes through narrow YY-Thunks provider
+
+Track: Windows XP SP3 x86 compatibility / focused KERNEL32 import closure only. This is not full Firefox integration, physical-XP browser runtime proof, or GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2` (`test(xp): fix NtCancelIoFileEx import gate`);
+- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core KERNEL32 cluster smoke`;
+- Actions run `33861819326`, attempt `1`;
+- job `100987750213`;
+- aggregate run/job conclusion: **success**.
+
+The exact job completed all YY provider preparation/link/import-gate steps successfully, including:
+
+- `Download YY-Thunks 1.2.2 XP x86 libraries` — **success**;
+- `Build physically narrow YY provider` — **success**;
+- `GATE - PE contract and direct imports` — **success**;
+- dedicated `Build and run NtCancelIoFileEx YY probe` — **success**;
+- physical XP runtime-bundle construction and diagnostics upload — **success**.
+
+Conclusion: **PASS / FOCUSED `NtCancelIoFileEx` YY-THUNKS CLOSURE PROVEN.** For XP x86, the project's narrow YY provider can satisfy the dedicated `NtCancelIoFileEx` probe without reopening or adopting full YY `kernel32.lib` interposition. This closes the question of whether YY-Thunks provides a viable focused implementation path for this API.
+
+Evidence boundary: this focused smoke does **not** prove that a later full Firefox `xul.dll` no longer carries an unresolved XP-incompatible `NtCancelIoFileEx` import, does not prove full-browser startup on physical XP, and does not prove any GOST TLS behavior. The next boundary is the already-following full XP x32 Firefox build containing this solution: bind that build to its own exact source SHA/run/job and require final PE/import evidence before marking the browser-level integration closed. Do not reopen the focused YY capability question unless contradictory evidence appears.
+
+---
+
 ## 2026-09-04 — DPI functional-remediation full build/packages produced; aggregate RED only on two known clean-XP DLL dependencies
 
 Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 build and static dependency closure only. This is not physical-XP runtime proof and not GOST TLS runtime/handshake evidence.
