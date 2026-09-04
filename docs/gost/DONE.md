@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-01
+Last updated: 2026-09-04
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -287,6 +287,72 @@ The Actions workflow passed representative C++ `/MD` + modern `i686-pc-windows-m
 The exact artifact was then executed three consecutive times on a physical Windows XP SP3 x86 machine reporting `Microsoft Windows XP [Version 5.1.2600]`; all three runs returned `ExitCode=0` without loader/runtime errors or antivirus intervention.
 
 This closes representative XP x86 runtime viability for the tested workload. It does not prove Firefox 153/xul startup on XP or GOST TLS behavior on XP; full 32-bit Firefox/xul integration remains the next separate compatibility milestone.
+
+### KERNEL32 source-remediation quartet final production closure — COMPLETE
+
+The four names are:
+
+- `GetApplicationRestartSettings`;
+- `RegisterApplicationRestart`;
+- `UnregisterApplicationRestart`;
+- `GetNamedPipeServerProcessId`.
+
+First recorded final-production 0/4 evidence:
+
+- source `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
+- run `33831005002`;
+- job `100893816677`;
+- diagnostics artifact `9924338342`;
+- `xp-x32-source-remediation-quartet/result.txt` = `PASS|surviving=none`.
+
+The strict regression gate is revalidated by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`, diagnostics artifact `9937356676`, again with `PASS|surviving=none`.
+
+This closes the quartet at final-production ordinary-import level. Physical XP startup remains a separate acceptance boundary.
+
+### `NtCancelIoFileEx` narrow-YY focused + full Firefox integration — COMPLETE
+
+Focused capability proof:
+
+- source `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2`;
+- workflow `XP x86 core KERNEL32 cluster smoke`;
+- run `33861819326`;
+- job `100987750213`;
+- dedicated `Build and run NtCancelIoFileEx YY probe` — PASS.
+
+Full Firefox final-PE proof:
+
+- source `622a87625036e9c45a8650264336eceeb9be8753`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
+- run `33864176444`;
+- job `100995134125`;
+- diagnostics artifact `9937356676`;
+- final production `xul.dll` contains direct `NtCancelIoFile` and contains no `NtCancelIoFileEx`.
+
+This closes the question at both focused YY capability and production Firefox link/import level. It does not prove physical-XP browser startup or GOST TLS behavior. Full YY `kernel32.lib` interposition remains prohibited; the proven strategy is the narrow provider.
+
+### Current final-production `xul.dll -> PROPSYS.dll` ordinary dependency — COMPLETE / SUPERSEDED
+
+Older full-build evidence, including source `424708f1d8e754f752e108259b331fcd2ec3615b`, run `33842067157`, job `100926221307`, diagnostics artifact `9927583461`, contained `xul.dll|DLL|PROPSYS.dll`.
+
+The latest exact full-build evidence supersedes that blocker for the current binary:
+
+- source `622a87625036e9c45a8650264336eceeb9be8753`;
+- run `33864176444`;
+- job `100995134125`;
+- diagnostics artifact `9937356676`;
+- `xp-x32-forbidden-direct-imports.txt` contains no PROPSYS row.
+
+Therefore PROPSYS is closed at current final-production ordinary-import level. Historical older binaries still retain their documented PROPSYS evidence. Physical XP runtime remains separate.
+
+### Historical `SetProcessDPIAware` startup root cause and source/static remediation — COMPLETE AT DIAGNOSIS/INTEGRATION LEVEL
+
+The exact historical physical-XP failure belongs to source `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`, run `33757305364`, job `100654730312`, runtime artifact `9899304858`.
+
+Classic x86 WinDbg proved first-chance `C06D007F` was `USER32.dll!SetProcessDPIAware` procedure-not-found with `dwLastError=0x7f`. The project then added the pre-Vista no-op/source ownership chain through `fad9ec0...`, `a784a...`, and `a3ede...`.
+
+Current source `622a876...`, run `33864176444`, job `100995134125`, revalidates both the DPI source guard and final `mozglue` import-mode gate as `PASS|direct=0|delay_user32=1`.
+
+The historical root-cause diagnosis and current source/static integration are closed. Physical XP execution of a current post-fix browser remains a separate acceptance boundary.
 
 ## Bundled government-system extensions
 
