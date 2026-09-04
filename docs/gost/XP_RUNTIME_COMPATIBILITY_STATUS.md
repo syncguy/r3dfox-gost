@@ -233,8 +233,45 @@ Current interpretation:
 
 - `propsys.dll` absence is historical context only for the latest build because current production `xul.dll` no longer carries the ordinary PROPSYS dependency;
 - `dxgi.dll` absence matches the independent broad ordinary-import blocker `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`;
-- `ncrypt.dll` absence remains relevant only if/when a delay/dynamic runtime path actually reaches it;
+- `ncrypt.dll` absence is relevant if/when runtime or mandatory static evidence reaches that surface; it is **not currently promoted to a blocker**;
 - `UIAutomationCore.dll` presence eliminates the simplest missing-module hypothesis but does not prove every required UIA export/path is XP-compatible.
+
+## Planned NCRYPT source-level remediation if evidence reaches it
+
+Status: **pre-agreed plan only.** There is no exact current run/artifact proving NCRYPT as the next startup or ordinary-browsing blocker, so do not implement this merely because the physical XP system lacks `ncrypt.dll`.
+
+Current Firefox 153 source on the XP implementation branch shows that `security/manager/ssl/osclientcerts/src/backend_windows.rs` already contains both Windows private-key paths in one backend:
+
+```text
+KeyHandle::NCrypt
+  -> NCryptSignHash
+  -> NCryptFreeObject
+
+KeyHandle::CryptoAPI
+  -> CryptSignHashW
+  -> CryptReleaseContext
+```
+
+`KeyHandle::from_cert` currently calls `CryptAcquireCertificatePrivateKey` with `CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG` and then chooses `NCrypt` versus `CryptoAPI` from the returned `key_spec`. The existing `CryptoAPI` branch is therefore the preferred XP implementation substrate; no new signing backend should be invented unless exact evidence proves it insufficient.
+
+Current build-control facts:
+
+- `security/manager/ssl/osclientcerts/Cargo.toml` has no ready-made XP / legacy-CryptoAPI-only feature;
+- the Windows Rust backend is selected only by ordinary `target_os = "windows"` / architecture `cfg` conditions;
+- `i686-pc-windows-msvc` does not encode XP versus Vista/7/modern Windows;
+- the project's C/C++ `MOZ_XP_COMPAT` define does not automatically become a Rust `cfg`.
+
+If NCRYPT becomes a real boundary, remediation order is:
+
+1. **Introduce one explicit, project-owned Rust XP condition** for the affected crate/build path, e.g. a dedicated `cfg` such as `moz_xp_compat` or an equivalently narrow Cargo/build feature. Final naming is an implementation detail; ownership and scope are the requirement.
+2. **Under that XP condition, stop preferring NCrypt during certificate private-key acquisition.** Use XP-supported `CryptAcquireCertificatePrivateKey` semantics without `CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG` so legacy CSP/CryptoAPI keys naturally stay on the already-existing `CryptoAPI` path.
+3. **Compile out the NCrypt-only branch from the XP binary where needed to eliminate hard imports.** Do not leave `NCryptSignHash` / `NCryptFreeObject` reachable only in dead source if the final PE still acquires a hard `ncrypt.dll` dependency.
+4. **Keep normal Windows builds unchanged.** The XP condition must not silently force legacy CryptoAPI on Vista/7/modern Windows builds that are outside the XP compatibility configuration.
+5. **Add a build/source gate proving the Rust XP condition is active in `osclientcerts`.** Do not accept the C/C++ define, target triple, or mozconfig intention as proof that rustc compiled the intended branch.
+6. **Add a strict final PE/import gate for the exact owner.** For the XP artifact, require no ordinary `ncrypt.dll` dependency and no hard `NCryptSignHash` / `NCryptFreeObject` imports in the shipped/runtime-required PE closure attributable to this backend.
+7. **Revalidate Firefox's ordinary OS client-certificate behavior on the exact rebuilt artifact** if that path is part of acceptance. Keep this evidence separate from the project's GOST MSSPI/SSPI/CryptoPro transport, which is a different runtime track.
+
+Architecture rule for this surface: **prefer source-level compile-time selection of Firefox's existing legacy CryptoAPI backend before any YY-Thunks solution for NCRYPT.** Only consider a narrow YY probe if source-level removal is proven insufficient for a specific remaining owner/import. Do not attempt to emulate the complete CNG/KSP subsystem on XP merely because `ncrypt.dll` is absent.
 
 ## Independent broad static blocker — separately linked ANGLE/DXGI edge
 
@@ -260,7 +297,7 @@ The static clean-XP gate must still be closed before final acceptance even if a 
 3. **Run a new full build under a new exact source SHA.** Bind source/run/job and package/runtime/diagnostics identities, while preserving `NtCancelIoFileEx`, PROPSYS, quartet, DPI, CRT, bcrypt and D3DCompiler closures.
 4. **Test that exact new runtime artifact on physical XP.** Do not retest artifact `9937355457` expecting the focused smoke to alter it. If startup advances, capture the next actual boundary.
 5. **Continue the separate ANGLE/DXGI static remediation.** Trace `CreateDXGIFactory1` ownership in the exact `libGLESv2.dll` build and choose the narrowest XP-compatible component-level path.
-6. **Only after actual runtime or mandatory static evidence reaches other modern delay/dynamic surfaces**, investigate WinRT API sets, UIAutomationCore, NCRYPT, AVRT, DWMAPI or other optional paths. Do not mass-patch them preemptively.
+6. **Only after actual runtime or mandatory static evidence reaches other modern delay/dynamic surfaces**, investigate WinRT API sets, UIAutomationCore, NCRYPT, AVRT, DWMAPI or other optional paths. Do not mass-patch them preemptively. If the evidence reaches NCRYPT, execute the source-level Rust/legacy-CryptoAPI plan above before considering YY-Thunks.
 7. **GOST TLS on XP remains later and separate.** A browser that starts and browses on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
 
 ## Closed families — do not reopen without contradictory evidence
