@@ -87,42 +87,79 @@ fault address 0x00012afb.
 
 `kernel32.dll+0x12afb` corresponds to the `RaiseException` site and by itself did not identify the cause.
 
-## Current physical-XP startup blocker — `0xC06D007F` and the early DPI delay-load path
+## Confirmed physical-XP startup root cause — `USER32.dll!SetProcessDPIAware` delay-load failure
 
-Dr. Watson is now installed as the default application debugger on the physical XP machine. A reproduced launch of the exact failing browser produced a second Application log record at `2026-09-04 10:48:56.815`:
+Dr. Watson is installed as the default application debugger on the physical XP machine. A reproduced launch of the exact failing browser produced an Application log record at `2026-09-04 10:48:56.815`:
 
 ```text
 The exception generated was c06d007f at address 7C812AFB
 (kernel32!RaiseException)
 ```
 
-This supersedes the previous state `RaiseException with unknown exception code`. `0xC06D007F` is the MSVC delay-load **procedure-not-found** class.
+`0xC06D007F` is the MSVC delay-load **procedure-not-found** class.
 
-A concrete XP-incompatible early-startup path is now proven in the exact source/build:
+The exact same runtime artifact was then launched from process start under classic x86 WinDbg `6.12.0002.633`. WinDbg stopped on the first-chance `C06D007F`; `.exr -1` reported:
+
+```text
+ExceptionCode: c06d007f
+NumberParameters: 1
+Parameter[0]: 001bfb70
+```
+
+`Parameter[0]` was decoded as the x86 `DelayLoadInfo` structure:
+
+```text
+cb              = 00000024
+szDll           = "USER32.dll"
+fImportByName   = 00000001
+szProcName      = "SetProcessDPIAware"
+hmodCur         = 7e410000
+pfnCur          = 00000000
+dwLastError     = 0000007f
+```
+
+The physical XP `USER32.dll` export baseline independently confirms `DefWindowProcW` and `PeekMessageW` are present while `SetProcessDPIAware` is absent.
+
+The exact source/build path is also established:
 
 - `browser/app/nsBrowserApp.cpp` invokes `mozilla::WindowsDpiInitialization()` before `InitXPCOMGlue(...)` / XUL startup;
-- `mozglue/misc/WindowsDpiInitialization.cpp` sends systems older than Windows 8.1 to an `else` branch that directly calls `SetProcessDPIAware()`;
-- no XP guard precedes that call;
-- `mozglue/build/moz.build` includes `user32.dll` in `DELAYLOAD_DLLS`;
-- exact PE diagnostics show `mozglue.dll` delay-imports `USER32.dll!SetProcessDPIAware`;
-- on the physical XP machine, `USER32.dll` contains `DefWindowProcW` and `PeekMessageW` but **does not export `SetProcessDPIAware`**.
+- `mozglue/misc/WindowsDpiInitialization.cpp` sends systems older than Windows 8.1 to the fallback branch that directly calls `SetProcessDPIAware()`;
+- XP therefore reaches this Vista+ call because there is no pre-Vista guard;
+- `mozglue/build/moz.build` delay-loads `user32.dll`;
+- diagnostics artifact `9899307128` proves final `mozglue.dll` contains the `USER32.dll!SetProcessDPIAware` delay import.
 
-Therefore the source/runtime path itself is a **confirmed XP startup defect**:
+Therefore the current startup crash for runtime artifact `9899304858` is no longer a hypothesis:
 
 ```text
 r3dfox.exe startup
   -> WindowsDpiInitialization()
-  -> XP enters the pre-Win8.1 branch
+  -> XP enters the pre-Win8.1 fallback branch
   -> SetProcessDPIAware()
-  -> USER32 delay-load thunk
-  -> USER32.dll loads
-  -> SetProcessDPIAware is absent on XP
-  -> procedure resolution cannot succeed
+  -> mozglue USER32 delay-load thunk
+  -> USER32.dll loads successfully
+  -> SetProcessDPIAware export is absent
+  -> GetProcAddress/procedure resolution fails with ERROR_PROC_NOT_FOUND (0x7f)
+  -> MSVC delay helper raises C06D007F
+  -> kernel32!RaiseException
 ```
 
-This path matches the observed `C06D007F` exception class and is the current leading explanation of the stable startup crash. One evidentiary boundary remains before patching: the next WinDbg session should stop first-chance on `C06D007F` and expose the exact `DelayLoadInfo`/stack so the recorded exception instance is explicitly bound to `USER32.dll!SetProcessDPIAware` rather than inferred only from the matching source/import/export chain.
+This is the **confirmed root cause of the currently observed immediate XP startup failure** for the exact artifact/run/source above.
 
-No source fix has been applied yet. Do not introduce a USER32 shim, global YY workaround or mass modern-API patch for this edge.
+When the original first-chance exception was allowed to continue before the exception filter was configured, the process later reached a secondary `C0000005` at `EIP=00000000`; that secondary access violation is not the primary blocker and should not be investigated independently unless it persists after the delay-load root cause is removed.
+
+### Next source experiment
+
+The debugger-proof requirement is complete. The next step is now source remediation, not further proof of this same edge.
+
+Preferred minimal direction in `mozglue/misc/WindowsDpiInitialization.cpp` is to return success/no-op on pre-Vista systems before any DPI-awareness API is attempted, using the existing Windows-version helpers, conceptually:
+
+```cpp
+if (!IsVistaOrLater()) {
+  return WindowsDpiInitializationResult::Success;
+}
+```
+
+This should preserve Vista+ behavior and avoid introducing a `USER32.dll` shim, broad YY interposition or global `MOZ_XP_COMPAT` change. Any actual patch must be reviewed against the current implementation-branch source before commit, then rebuilt and tied to a new exact SHA/run/artifact/physical-XP result.
 
 ## Physical XP dependency baseline recorded during the same investigation
 
@@ -139,10 +176,10 @@ Interpretation:
 
 - `PROPSYS.dll` absence confirms that the already proven ordinary final-`xul.dll` PROPSYS dependency is incompatible with this clean-machine baseline unless source/build removes it or the project deliberately adopts an external prerequisite/app-local replacement.
 - `dxgi.dll` absence confirms that shipped `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` cannot resolve if that ANGLE path is loaded; startup criticality remains separate.
-- `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but a missing module would be a different failure class from the currently observed procedure-not-found event.
+- `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but a missing module would be a different failure class from the currently confirmed USER32 procedure-not-found event.
 - `UIAutomationCore.dll` exists; its exact export/version compatibility is still a separate question.
 
-These are necessary compatibility-closure findings but are not automatically the cause of the current `C06D007F` event.
+These are necessary compatibility-closure findings but are not the cause of the confirmed current `C06D007F` event.
 
 ## KERNEL32 source-remediation quartet — current source remediated, final import closure pending
 
@@ -177,29 +214,11 @@ Treat PROPSYS as mandatory clean-XP static closure work. Prefer narrow source/bu
 
 ### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`
 
-Exact diagnostics artifact `9899307128` proves this ordinary import in shipped `libGLESv2.dll`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked PE closure defect whose startup criticality remains to be classified after the current early startup edge is understood.
+Exact diagnostics artifact `9899307128` proves this ordinary import in shipped `libGLESv2.dll`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked PE closure defect whose startup criticality remains to be classified after the current early startup edge is remediated.
 
 ### Remaining delay/dynamic surfaces
 
 Raw diagnostics retain delay-load or optional modern surfaces including WinRT API-set DLLs, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll` and `dwmapi.dll`. Continue through them only when the physical runtime reaches them or a static required-closure rule makes them independently blocking.
-
-## Physical debugger readiness and next experiment
-
-The XP machine is ready for the next stage:
-
-- `drwtsn32 -i` successfully installed Dr. Watson as the default application debugger;
-- `Debugging Tools for Windows (x86) v6.12.2.633` is installed and available.
-
-The **next stage is debugger-first and begins with launching the application under classic WinDbg**. Do not patch source before this capture.
-
-Ordered next steps:
-
-1. launch exact runtime artifact `9899304858` / its extracted `r3dfox.exe` under classic WinDbg from process start;
-2. configure a first-chance break on `0xC06D007F` before continuing startup;
-3. at the first relevant break, preserve `.exr -1`, `kv`, module context and enough `DelayLoadInfo` data to identify the exact DLL, procedure/ordinal and last error;
-4. if WinDbg explicitly confirms `USER32.dll!SetProcessDPIAware`, implement the minimal source-level XP guard in `WindowsDpiInitialization()`; the existing `IsVistaOrLater()`/XP version helpers should be preferred over a shim or global compatibility layer;
-5. rebuild and retest the exact new artifact on physical XP;
-6. then advance to the next actual runtime boundary while independently continuing PROPSYS/DXGI and quartet closure.
 
 ## Mandatory `MOZ_XP_COMPAT` build rule
 
