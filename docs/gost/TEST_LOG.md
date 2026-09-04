@@ -8,6 +8,39 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — first full-workflow GREEN browser fails physical XP startup at `kernel32!RaiseException`; same build starts on Win7 x86
+
+Track: Windows XP SP3 x86 compatibility / physical browser runtime only. This is not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e` (`ci(xp): add residual YY KERNEL32 providers`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33757305364`, attempt `1`;
+- job `100654730312`;
+- runtime artifact `9899304858`, digest `sha256:7d6eff6a4af1b1358f17ed1db9f9194d03702298def5708542a6510aa10029e0`.
+
+Physical runtime observation supplied by the user:
+
+- Windows XP SP3 x86: the browser does not start successfully; the failure is stable across repeated launches;
+- Application log reports `Faulting application r3dfox.exe, version 153.0.3.3, faulting module kernel32.dll, version 5.1.2600.5781, fault address 0x00012afb`;
+- no ordinary missing-entry-point/linker dialog is observed;
+- the same build starts successfully on Windows 7 x86 and passes the user's basic/primary runtime checks.
+
+Address classification:
+
+- for XP `kernel32.dll` in this version family, module offset `0x12afb` maps to `kernel32!RaiseException+0x53` in public symbolized crash records;
+- therefore the Application log identifies the exception-raising site, not the underlying failing caller/API;
+- the exception code and a stack are still required before assigning the crash to a specific subsystem;
+- possible classes include an uncaught C++ exception and MSVC delay-load failure, both of which can surface through `RaiseException`.
+
+Important import evidence from the exact diagnostics artifact `9899307128` remains unchanged: the final `xul.dll` ordinary KERNEL32 import table still contains two Vista+ APIs, `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId`. Both APIs have Windows Vista as their minimum supported client. `GetApplicationRestartSettings` now has a second confirmed production owner in `widget/windows/nsWindow.cpp` (`GetQuitType()`), independent of the previously guarded `toolkit/xre/nsAppRunner.cpp` owner. These hard imports remain valid remediation targets and can prevent successful XP loading of `xul.dll`; however the `RaiseException` fault address alone is not sufficient evidence to prove that either one is the exact thrown failure.
+
+Conclusion: **PHYSICAL XP FAIL / WIN7 X86 PASS / CURRENT XP BLOCKER IS EARLY STARTUP EXCEPTION, NOT BUILD OR PACKAGE FAILURE.** The earlier status `PHYSICAL XP PENDING` is superseded for runtime artifact `9899304858`. The current highest-value follow-up is to capture the paired XP exception code/stack (for example Dr. Watson/Application Error detail) while independently removing the two known Vista+ hard imports from final `xul.dll`. Do not reopen already-proven msvcr14x, bcrypt, D3DCompiler, or narrow-YY dependency families on the basis of this crash alone. No GOST TLS conclusion follows.
+
+---
+
 ## 2026-09-03 — first fully GREEN XP x32 full-build workflow; prior three GMP imports closed, two xul quartet imports still diagnostic WARN
 
 Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration only. This is not GOST TLS runtime/handshake evidence and is not physical-Windows-XP runtime proof.
