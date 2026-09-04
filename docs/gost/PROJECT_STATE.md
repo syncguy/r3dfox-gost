@@ -56,6 +56,7 @@ Detailed current runtime/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 - legacy `D3DCompiler_47.dll` staging/packaging: source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`: focused run `33741674218`, job `100604798167`, then full integration run `33757305364`, job `100654730312`.
 - `NtCancelIoFileEx` YY-Thunks closure: focused source `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2`, run `33861819326`, job `100987750213`, proved the dedicated narrow-YY probe; full Firefox integration is then proven by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`, diagnostics artifact `9937356676`, where final production `xul.dll` contains `NtCancelIoFile` and not `NtCancelIoFileEx`. Do not reopen the focused or full-integration capability without contradictory evidence.
+- focused ADVAPI32 ETW YY-Thunks capability is closed for `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer`: source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33882235341`, job `101053403554`, aggregate success. Diagnostics artifact `9940665687` proves all four exact `AdvAPI32.Lib_WeakAlias` `.obj/.obi` pairs were selected, the existing narrow YY common implementation supplies all four `YY_Thunks_*` bodies, the linker map selected all four thunks, the focused executable retained none of the four direct imports, and the hosted ETW probe passed. This closes focused capability only; full production `xul.dll` integration remains open.
 - the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its historical list on run `33757305364`; this is not an exhaustive XP API/DLL proof and the current audit list is broader.
 - KERNEL32 source-remediation quartet in final production `xul.dll`: first recorded strict `0/4` binary evidence is source `1a86821ccf50ac07204d1bec438e375ece4e84d6`, run `33831005002`, job `100893816677`, diagnostics artifact `9924338342`.
 - final production `xul.dll -> PROPSYS.dll` ordinary dependency is closed at current full-build static-import level by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`: the exact broad forbidden-import report contains no PROPSYS row. Historical predecessor evidence remains valid for the older binaries that did import it.
@@ -211,6 +212,21 @@ The same diagnostics contain `diagnostics/yy-ntcancel-capability.txt` with `capa
 
 This later build also contains the later project-owned DPI implementation descendants and revalidates the DPI source/import gates, but physical Windows XP execution remains a separate acceptance boundary. No GOST TLS conclusion follows.
 
+## Current physical-XP startup blocker after the latest full build — `ADVAPI32!EventRegister`
+
+The latest full browser above was subsequently executed on the physical Windows XP SP3 x86 machine. For exact runtime artifact `9937355457` from source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`, the loader now advances past the previously closed `SetProcessDPIAware` and `NtCancelIoFileEx` edges and stops with:
+
+```text
+r3dfox.exe - Entry Point Not Found
+The procedure entry point EventRegister could not be located in the dynamic link library ADVAPI32.dll.
+```
+
+The exact final-production import inventory from diagnostics artifact `9937356676` shows that `xul.dll` owns an ordinary ADVAPI32 ETW family consisting of `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer`. Therefore the immediate observed physical-XP startup blocker for artifact `9937355457` is the ETW family in production `xul.dll`; `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` remains a separate known static blocker and was not reached by this loader failure.
+
+Focused remediation capability is now proven independently by source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, run `33882235341`, job `101053403554`: the dedicated ADVAPI32 ETW YY probe is GREEN for all four APIs through physically narrow weak-alias pairs plus the already-proven common `NARROW_YY_LIB` implementation. Runtime artifact `9940665095` has digest `sha256:0fa3b523fb949bc364fc70abd1496b15f2e92590062077600135ff55bd731b01`; diagnostics artifact `9940665687` has digest `sha256:e853d7128c092420c3d2e1da0184137fcd7ae42d0b439f5ead8acbc3e243964f`.
+
+This focused PASS closes the question of whether the selected YY-Thunks 1.2.2 path can satisfy the four ETW APIs in the XP x86 compatibility environment. It does **not** close production Firefox integration. The next mandatory full-build boundary is to inject only those four ADVAPI32 weak-alias pairs into the production target-link path, keep the common narrow YY implementation, add a strict final-`xul.dll` gate requiring all four ordinary imports absent, rebuild under a new exact source SHA, and then repeat the physical XP startup test on that exact new runtime artifact.
+
 ## Physical XP dependency baseline recorded during the same investigation
 
 The current physical XP machine has:
@@ -284,7 +300,7 @@ Diagnostics artifact `9937356676` from source `622a876...`, run `33864176444`, j
 libGLESv2.dll|DLL|dxgi.dll
 ```
 
-The corresponding direct-import inventory records `CreateDXGIFactory1`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked ANGLE/graphics PE closure defect and is now the only current broad ordinary-import blocker reported by this workflow. Its startup criticality is still a runtime question; remediate it at the `libGLESv2.dll`/ANGLE component boundary rather than through the `xul.dll` linker.
+The corresponding direct-import inventory records `CreateDXGIFactory1`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked ANGLE/graphics PE closure defect and is now the only current broad ordinary-import blocker reported by this workflow. Its startup criticality is still a runtime question; remediate it at the `libGLESv2.dll`/ANGLE component boundary rather than through the `xul.dll` linker. It is independent of the currently observed physical `xul.dll -> ADVAPI32!EventRegister` loader blocker.
 
 ### Remaining delay/dynamic surfaces
 
