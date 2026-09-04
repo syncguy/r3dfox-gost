@@ -148,33 +148,52 @@ This is the **confirmed root cause of the observed immediate XP startup failure*
 
 When the original first-chance exception was allowed to continue before the exception filter was configured, the process later reached a secondary `C0000005` at `EIP=00000000`; that secondary access violation is not the primary blocker and should not be investigated independently unless it persists after the delay-load root cause is removed.
 
-### Current DPI remediation chain and active build
+### DPI remediation chain and completed revalidation run
 
-The root-cause proof is complete. Source remediation is now implemented on `agent/winrt-source-poc`.
+The root-cause proof is complete. Source remediation is implemented on `agent/winrt-source-poc`.
 
-Implementation chain:
+Implementation chain relevant to the completed revalidation:
 
 - `fad9ec0b5a09c50f6cff39a00a3ea4cedd99cdf2` — initial pre-Vista success/no-op in `WindowsDpiInitialization()`;
 - `424708f1d8e754f752e108259b331fcd2ec3615b` — workflow evidence update: pre-build DPI guard check, strict quartet final gate, `mozglue` `SetProcessDPIAware` import-mode gate, separate delay-import inventory, and broader ordinary import audit including `PROPSYS.dll` / `DXGI.dll`;
 - `a784a7660b23f8270179f5464c2ac3033d7e0652` — wrap the pre-Vista DPI no-op in `#ifdef MOZ_XP_COMPAT` so the compatibility change is explicitly project-owned;
 - `a3ede2576cbc7e92ffae58ba0c49d2c38e580335` — add source-local `-DMOZ_XP_COMPAT` for `mozglue/misc/WindowsDpiInitialization.cpp` in `mozglue/misc/moz.build`.
 
-Current implementation-branch HEAD at this handoff is `a3ede2576cbc7e92ffae58ba0c49d2c38e580335`.
+The implementation branch has since advanced beyond those commits; exact current HEAD at the documentation check is `ece185c271c1c9cc46fcd1d76eb0cadb47d8dc1d`. Do not attribute later branch changes to the older build below.
 
-A full build was deliberately started before the two ownership-refinement commits and is being allowed to continue:
+The deliberately earlier full build has now completed:
 
-- run `33842067157`;
+- run `33842067157`, attempt `1`;
 - job `100926221307`;
-- source SHA `424708f1d8e754f752e108259b331fcd2ec3615b`;
+- source-under-test `424708f1d8e754f752e108259b331fcd2ec3615b`;
 - branch `agent/winrt-source-poc`;
-- status at the latest exact check: **IN PROGRESS**;
-- its `GATE - Verify XP DPI pre-Vista source guard` already passed.
+- aggregate conclusion: **failure**, but only at final `GATE - Summarize XP x32 full build` after evidence collection;
+- package artifact `9927581628`, digest `sha256:ba0e7d77368e1503288902854ab8542a4aa5beda0f307f4aafffff5ee9200bc7`;
+- runtime artifact `9927582490`, digest `sha256:03d099306dd2632eabc604e1333001eca3b149c4b7b798e0f2c88269139c70a6`;
+- diagnostics artifact `9927583461`, digest `sha256:c85c7a837b7772d89bd5bef1cf750b889165e73fc6f4755b89bcd9bda5068483`.
 
-Evidence boundary: run `33842067157` tests the functional pre-Vista remediation present through `fad9ec0...` plus the workflow gates in `424708f...`. It **does not** test the later `#ifdef MOZ_XP_COMPAT` wrapper or the source-local owner rule from `a784a...` / `a3ede...`. Do not attribute its eventual artifacts to `a3ede...`.
+All decisive build/remediation boundaries before the final summary are GREEN: full release build, strict quartet gate, `mozglue` DPI delay-import gate, curated core-browser import gate, package creation, runtime archive creation, broad audit collection, and all three artifact uploads.
 
-The run remains useful: if it reaches packaging and physical XP advances past the former `SetProcessDPIAware` edge, it validates the functional remediation concept. Final acceptance of the project-owned implementation still requires a later exact build from `a3ede257...` or a descendant containing both ownership commits.
+Exact diagnostics from artifact `9927583461` prove:
 
-No `USER32.dll` shim, broad YY interposition, or replacement DPI API layer is part of this remediation.
+```text
+xp-dpi-source-guard.txt: result=PASS
+xp-x32-source-remediation-quartet/result.txt: result=PASS|surviving=none
+xp-x32-dpi-delay-import/result.txt: result=PASS|direct=0|delay_user32=1
+```
+
+The aggregate RED is intentional evidence from the expanded clean-XP audit. `xp-x32-forbidden-direct-imports.txt` contains exactly two rows:
+
+```text
+libGLESv2.dll|DLL|dxgi.dll
+xul.dll|DLL|PROPSYS.dll
+```
+
+Thus run `33842067157` does **not** represent a compilation, packaging, DPI-guard, or quartet regression. It revalidates the functional pre-Vista DPI remediation through source `424708f...`, preserves `SetProcessDPIAware` only as a USER32 delay import in `mozglue.dll`, and confirms the quartet remains `0/4`; the final RED is the deliberately broadened clean-XP dependency policy catching the already-known PROPSYS and DXGI ordinary DLL dependencies.
+
+Evidence boundary: run `33842067157` tests the functional pre-Vista remediation present through `fad9ec0...` plus the workflow gates in `424708f...`. It **does not** test the later `#ifdef MOZ_XP_COMPAT` wrapper or source-local owner rule from `a784a...` / `a3ede...`, nor any still-later implementation-branch changes. Final acceptance of project-owned DPI implementation still requires an exact later build containing those commits or descendants.
+
+The runtime artifact remains useful only as a deliberately bounded physical-XP probe: if it advances past the former `SetProcessDPIAware` exception, it validates the functional remediation concept. It is not an accepted clean-XP browser because its exact static audit still contains PROPSYS and DXGI blockers. No `USER32.dll` shim, broad YY interposition, or replacement DPI API layer is part of this remediation.
 
 ## Physical XP dependency baseline recorded during the same investigation
 
@@ -196,7 +215,7 @@ Interpretation:
 
 These are necessary compatibility-closure findings but are not the cause of the confirmed `C06D007F` event above.
 
-## KERNEL32 source-remediation quartet — final production `xul.dll` 0/4 proven; strict regression gate active on later workflow
+## KERNEL32 source-remediation quartet — final production `xul.dll` 0/4 proven; strict regression gate revalidated
 
 Predecessor final `xul.dll` diagnostics from artifact `9899307128` proved two surviving ordinary KERNEL32 imports:
 
@@ -233,9 +252,7 @@ and the matching final `xul.dll` ordinary-import dump contains none of:
 
 Therefore the quartet is **closed at final-binary ordinary-import level for source `1a86821...`**. This is static/full-build evidence only; it does not prove physical-XP runtime success or any GOST TLS behavior.
 
-Important gate-history distinction: on source `1a86821...`, the quartet step was still informational (`DIAG`). Starting with later workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the same quartet condition is an evidence-preserving final gate: artifacts can still upload, but any survivor makes the final verdict RED. Thus run `33831005002` is the first recorded binary `0/4` closure; later runs validate the hardened regression-gate semantics rather than establish the first closure.
-
-Current active run `33842067157`, job `100926221307`, source `424708f...` remains relevant to the separate DPI remediation and to revalidation under the strict quartet gate, but it is not the first quartet-closure evidence.
+Important gate-history distinction: on source `1a86821...`, the quartet step was still informational (`DIAG`). Starting with workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the same quartet condition is an evidence-preserving final gate: artifacts can still upload, but any survivor makes the final verdict RED. Run `33842067157`, job `100926221307`, source `424708f...`, then revalidated that hardened gate as **PASS / surviving=none**. Its overall failure came from the separate broadened PROPSYS/DXGI audit, not from the quartet.
 
 Detailed quartet history: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
@@ -243,7 +260,7 @@ Detailed quartet history: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
 ### PROPSYS
 
-Exact diagnostics artifact `9899307128` proves final predecessor `xul.dll` has an **ordinary** `PROPSYS.dll` import with at least:
+Exact diagnostics artifact `9927583461` from source `424708f...`, run `33842067157`, job `100926221307` re-confirms final `xul.dll` has an **ordinary** `PROPSYS.dll` dependency. Earlier diagnostics establish required exports including:
 
 - `PropVariantToString`;
 - `VariantCompare`.
@@ -254,7 +271,7 @@ Treat PROPSYS as mandatory clean-XP static closure work. Prefer narrow source/bu
 
 ### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`
 
-Exact diagnostics artifact `9899307128` proves this ordinary import in shipped `libGLESv2.dll`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked PE closure defect whose startup criticality remains to be classified after the current early startup edge is remediated.
+Exact diagnostics artifact `9927583461` from source `424708f...`, run `33842067157`, job `100926221307` re-confirms the ordinary `libGLESv2.dll -> dxgi.dll` dependency; predecessor diagnostics establish `CreateDXGIFactory1` as the imported API. `dxgi.dll` is absent on the physical XP machine. This is a separately linked PE closure defect whose startup criticality remains to be classified after the current early startup edge is remediated.
 
 ### Remaining delay/dynamic surfaces
 
