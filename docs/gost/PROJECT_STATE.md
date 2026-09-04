@@ -55,13 +55,13 @@ Detailed current runtime/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 - selected single-DLL `bcrypt.dll`: source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, run `33513084915`, job `99873297193`, physically proven on Windows XP and published as `xp-bcrypt-v1`.
 - legacy `D3DCompiler_47.dll` staging/packaging: source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`: focused run `33741674218`, job `100604798167`, then full integration run `33757305364`, job `100654730312`.
-- the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its existing list on run `33757305364`; this is not an exhaustive XP API/DLL proof.
+- the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its historical list on run `33757305364`; this is not an exhaustive XP API/DLL proof and the current audit list is broader.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep per-PE/provider ownership narrow.
 
 ## Exact physically failing browser
 
-The current physical-XP startup investigation is bound to:
+The physical-XP startup root-cause investigation is bound to:
 
 - branch `agent/winrt-source-poc`;
 - source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`;
@@ -120,15 +120,15 @@ dwLastError     = 0000007f
 
 The physical XP `USER32.dll` export baseline independently confirms `DefWindowProcW` and `PeekMessageW` are present while `SetProcessDPIAware` is absent.
 
-The exact source/build path is also established:
+The exact source/build path in the failing browser is established:
 
 - `browser/app/nsBrowserApp.cpp` invokes `mozilla::WindowsDpiInitialization()` before `InitXPCOMGlue(...)` / XUL startup;
-- `mozglue/misc/WindowsDpiInitialization.cpp` sends systems older than Windows 8.1 to the fallback branch that directly calls `SetProcessDPIAware()`;
-- XP therefore reaches this Vista+ call because there is no pre-Vista guard;
+- the failing `mozglue/misc/WindowsDpiInitialization.cpp` sent systems older than Windows 8.1 to the fallback branch that directly called `SetProcessDPIAware()`;
+- XP therefore reached this Vista+ call because that source had no pre-Vista guard;
 - `mozglue/build/moz.build` delay-loads `user32.dll`;
 - diagnostics artifact `9899307128` proves final `mozglue.dll` contains the `USER32.dll!SetProcessDPIAware` delay import.
 
-Therefore the current startup crash for runtime artifact `9899304858` is no longer a hypothesis:
+Therefore the startup crash for runtime artifact `9899304858` is no longer a hypothesis:
 
 ```text
 r3dfox.exe startup
@@ -143,23 +143,37 @@ r3dfox.exe startup
   -> kernel32!RaiseException
 ```
 
-This is the **confirmed root cause of the currently observed immediate XP startup failure** for the exact artifact/run/source above.
+This is the **confirmed root cause of the observed immediate XP startup failure** for the exact artifact/run/source above.
 
 When the original first-chance exception was allowed to continue before the exception filter was configured, the process later reached a secondary `C0000005` at `EIP=00000000`; that secondary access violation is not the primary blocker and should not be investigated independently unless it persists after the delay-load root cause is removed.
 
-### Next source experiment
+### Current DPI remediation chain and active build
 
-The debugger-proof requirement is complete. The next step is now source remediation, not further proof of this same edge.
+The root-cause proof is complete. Source remediation is now implemented on `agent/winrt-source-poc`.
 
-Preferred minimal direction in `mozglue/misc/WindowsDpiInitialization.cpp` is to return success/no-op on pre-Vista systems before any DPI-awareness API is attempted, using the existing Windows-version helpers, conceptually:
+Implementation chain:
 
-```cpp
-if (!IsVistaOrLater()) {
-  return WindowsDpiInitializationResult::Success;
-}
-```
+- `fad9ec0b5a09c50f6cff39a00a3ea4cedd99cdf2` — initial pre-Vista success/no-op in `WindowsDpiInitialization()`;
+- `424708f1d8e754f752e108259b331fcd2ec3615b` — workflow evidence update: pre-build DPI guard check, strict quartet final gate, `mozglue` `SetProcessDPIAware` import-mode gate, separate delay-import inventory, and broader ordinary import audit including `PROPSYS.dll` / `DXGI.dll`;
+- `a784a7660b23f8270179f5464c2ac3033d7e0652` — wrap the pre-Vista DPI no-op in `#ifdef MOZ_XP_COMPAT` so the compatibility change is explicitly project-owned;
+- `a3ede2576cbc7e92ffae58ba0c49d2c38e580335` — add source-local `-DMOZ_XP_COMPAT` for `mozglue/misc/WindowsDpiInitialization.cpp` in `mozglue/misc/moz.build`.
 
-This should preserve Vista+ behavior and avoid introducing a `USER32.dll` shim, broad YY interposition or global `MOZ_XP_COMPAT` change. Any actual patch must be reviewed against the current implementation-branch source before commit, then rebuilt and tied to a new exact SHA/run/artifact/physical-XP result.
+Current implementation-branch HEAD at this handoff is `a3ede2576cbc7e92ffae58ba0c49d2c38e580335`.
+
+A full build was deliberately started before the two ownership-refinement commits and is being allowed to continue:
+
+- run `33842067157`;
+- job `100926221307`;
+- source SHA `424708f1d8e754f752e108259b331fcd2ec3615b`;
+- branch `agent/winrt-source-poc`;
+- status at the latest exact check: **IN PROGRESS**;
+- its `GATE - Verify XP DPI pre-Vista source guard` already passed.
+
+Evidence boundary: run `33842067157` tests the functional pre-Vista remediation present through `fad9ec0...` plus the workflow gates in `424708f...`. It **does not** test the later `#ifdef MOZ_XP_COMPAT` wrapper or the source-local owner rule from `a784a...` / `a3ede...`. Do not attribute its eventual artifacts to `a3ede...`.
+
+The run remains useful: if it reaches packaging and physical XP advances past the former `SetProcessDPIAware` edge, it validates the functional remediation concept. Final acceptance of the project-owned implementation still requires a later exact build from `a3ede257...` or a descendant containing both ownership commits.
+
+No `USER32.dll` shim, broad YY interposition, or replacement DPI API layer is part of this remediation.
 
 ## Physical XP dependency baseline recorded during the same investigation
 
@@ -176,12 +190,12 @@ Interpretation:
 
 - `PROPSYS.dll` absence confirms that the already proven ordinary final-`xul.dll` PROPSYS dependency is incompatible with this clean-machine baseline unless source/build removes it or the project deliberately adopts an external prerequisite/app-local replacement.
 - `dxgi.dll` absence confirms that shipped `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` cannot resolve if that ANGLE path is loaded; startup criticality remains separate.
-- `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but a missing module would be a different failure class from the currently confirmed USER32 procedure-not-found event.
+- `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but a missing module would be a different failure class from the confirmed USER32 procedure-not-found event.
 - `UIAutomationCore.dll` exists; its exact export/version compatibility is still a separate question.
 
-These are necessary compatibility-closure findings but are not the cause of the confirmed current `C06D007F` event.
+These are necessary compatibility-closure findings but are not the cause of the confirmed `C06D007F` event above.
 
-## KERNEL32 source-remediation quartet — current source remediated, final import closure pending
+## KERNEL32 source-remediation quartet — source remediated, strict final 0/4 gate active
 
 Predecessor final `xul.dll` diagnostics from artifact `9899307128` proved two surviving ordinary KERNEL32 imports:
 
@@ -190,12 +204,14 @@ Predecessor final `xul.dll` diagnostics from artifact `9899307128` proved two su
 
 `RegisterApplicationRestart` and `UnregisterApplicationRestart` were absent.
 
-The current XP implementation branch HEAD is `1a86821ccf50ac07204d1bec438e375ece4e84d6`. The follow-up chain source-remediates the remaining owners:
+The implementation chain source-remediates the remaining owners:
 
 - `widget/windows/nsWindow.cpp::GetQuitType()` excludes `GetApplicationRestartSettings` under source-local `MOZ_XP_COMPAT`;
 - `third_party/content_analysis_sdk/browser/src/client_win.cc` preserves the pipe connection but excludes optional `GetNamedPipeServerProcessId` PID/path metadata under source-local `MOZ_XP_COMPAT`.
 
-Exact revalidation run `33831005002`, job `100893816677`, source `1a86821...` remains **IN PROGRESS** at the latest check. Therefore quartet acceptance remains provisional until final `xul.dll` diagnostics prove all four names absent. Do not infer quartet closure from source guards alone.
+Starting with workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the quartet check is an evidence-preserving final gate: the step may continue so later artifacts are uploaded, but any survivor makes the final verdict RED. Required acceptance is strict `0/4` in final `xul.dll`.
+
+Current active run `33842067157`, job `100926221307`, source `424708f...` will provide a new exact quartet result if it reaches the post-build gate. Until then, do not infer quartet closure from source guards alone.
 
 Detailed quartet history: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
@@ -210,7 +226,7 @@ Exact diagnostics artifact `9899307128` proves final predecessor `xul.dll` has a
 
 Confirmed production ownership includes `browser/components/shell/nsWindowsShellService.cpp` plus the Windows `propsys` link and `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` on the MSVC path.
 
-Treat PROPSYS as mandatory clean-XP static closure work. Prefer narrow source/build removal before introducing an app-local PROPSYS clone. It is not reclassified as the current `C06D007F` root cause merely because the DLL is absent.
+Treat PROPSYS as mandatory clean-XP static closure work. Prefer narrow source/build removal before introducing an app-local PROPSYS clone. It is not reclassified as the confirmed `C06D007F` root cause merely because the DLL is absent.
 
 ### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`
 
@@ -222,17 +238,24 @@ Raw diagnostics retain delay-load or optional modern surfaces including WinRT AP
 
 ## Mandatory `MOZ_XP_COMPAT` build rule
 
-`MOZ_XP_COMPAT` remains the preferred project-owned compile-time signal where an XP release intentionally removes a modern Windows feature with no useful XP semantic equivalent.
+`MOZ_XP_COMPAT` remains the preferred project-owned compile-time signal where an XP release intentionally removes or bypasses a modern Windows feature/runtime edge with no useful XP semantic equivalent.
 
-For every production translation unit containing an accepted `MOZ_XP_COMPAT` boundary, the XP build MUST define the macro for that exact owner. Prefer source-local configuration:
+The canonical XP full-build workflow intentionally supplies build-wide XP identity:
+
+```sh
+export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+```
+
+In addition, every production translation unit containing a dedicated accepted `MOZ_XP_COMPAT` boundary must record source-local ownership where practical:
 
 ```python
 SOURCES["Owner.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 ```
 
-If the owner is in `UNIFIED_SOURCES`, move only that source to ordinary `SOURCES` before assigning the source-specific flag. Do not globalize `MOZ_XP_COMPAT` without a separate architectural decision.
+The source-local rule is defense-in-depth and owner documentation; it does not replace the workflow-wide XP build identity. If the owner is in `UNIFIED_SOURCES`, move only that source to ordinary `SOURCES` before assigning the source-specific flag. Do not add XP compatibility defines to ordinary non-XP build configurations merely for convenience.
 
-Authoritative rules: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
+Authoritative rules and current owners: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
 
 ## XP acceptance boundary
 
