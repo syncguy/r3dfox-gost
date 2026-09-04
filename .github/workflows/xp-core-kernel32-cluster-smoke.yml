@@ -96,12 +96,15 @@ jobs:
           $yyLib = Get-ChildItem -Path $root -Recurse -Directory | Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } | Select-Object -First 1
           if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
           $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $ntdll = Join-Path $yyLib.FullName 'ntdll.lib'
           $synch = Join-Path $yyLib.FullName 'synchronization.lib'
-          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch)) { throw 'Required YY libraries missing' }
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $ntdll) -or -not (Test-Path $synch)) { throw 'Required YY libraries missing' }
           "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_NTDLL_LIB=$ntdll" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Get-FileHash -Algorithm SHA256 $kernel32 | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\yy-kernel32-sha256.txt
+          Get-FileHash -Algorithm SHA256 $ntdll | Format-List | Out-String | Set-Content -Encoding utf8 diagnostics\yy-ntdll-sha256.txt
 
       - name: Inventory YY KERNEL32 capability without early failure
         shell: powershell
@@ -368,6 +371,40 @@ jobs:
           & $env:SMOKE_EXE | Tee-Object diagnostics\hosted-run.txt
           if($LASTEXITCODE-ne 0){throw "Hosted probe failed: $LASTEXITCODE"}
 
+      - name: Build and run NtCancelIoFileEx narrow YY probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $members=@(& lib.exe /nologo /list $env:THUNK_YY_NTDLL_LIB 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if($LASTEXITCODE-ne 0-or-not$members.Count){throw 'Cannot enumerate YY ntdll.lib'}
+          $members|Set-Content -Encoding utf8 diagnostics\yy-ntdll-members.txt
+          $api='NtCancelIoFileEx';$escaped=[regex]::Escape($api);$objects=@();$selected=Join-Path $env:RUNNER_TEMP 'yy-ntcancel-selected';if(Test-Path $selected){Remove-Item -Recurse -Force $selected};New-Item -ItemType Directory -Force $selected|Out-Null
+          $report=[System.Collections.Generic.List[string]]::new();$report.Add("API`tDirectMember`tImportMember`tYYSymbol`tProviderCapability")
+          $direct=@($members|Where-Object{$_-match"(?i)[\\/]_${escaped}@12\.obj$"});$import=@($members|Where-Object{$_-match"(?i)[\\/]_${escaped}@12\.obi$"})
+          if($direct.Count-ne 1-or$import.Count-ne 1){$report.Add("$api`t$($direct -join ',')`t$($import -join ',')`tfalse`tmissing");$report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv;throw "YY ntdll.lib does not expose the expected $api x86 members"}
+          foreach($item in @($direct[0],$import[0])){$dir=Join-Path $selected ([IO.Path]::GetFileNameWithoutExtension($item));New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir;try{& lib.exe /nologo "/extract:$item" $env:THUNK_YY_NTDLL_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx member extract failed'}}finally{Pop-Location};$file=Get-ChildItem $dir -File|Select-Object -First 1;$dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst}
+          $impl=@($members|Where-Object{$_-match('(?i)[\\/]YY_Thunks_for_'+[regex]::Escape($env:YY_THUNKS_TARGET)+'\.obj$')});if($impl.Count-ne 1){throw "Expected one YY ntdll common implementation; found $($impl.Count)"}
+          $dir=Join-Path $selected 'implementation';New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir;try{& lib.exe /nologo "/extract:$($impl[0])" $env:THUNK_YY_NTDLL_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx implementation extract failed'}}finally{Pop-Location};$file=Get-ChildItem $dir -File|Select-Object -First 1;$dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst
+          $narrow=Join-Path $env:RUNNER_TEMP 'yy-xp-ntcancel.lib';& lib.exe /nologo "/out:$narrow" @objects;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx narrow provider build failed'}
+          $symbols=(& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1|Out-String);$symbols|Set-Content -Encoding utf8 diagnostics\ntcancel-provider-symbols.txt
+          $yy=$symbols.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-ge 0;$report.Add("$api`t$($direct[0])`t$($import[0])`t$($yy.ToString().ToLowerInvariant())`t$(if($yy){'capable'}else{'missing'})");$report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv;if(-not$yy){throw 'Narrow provider missing YY_Thunks_NtCancelIoFileEx'}
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          typedef LONG NTSTATUS;
+          typedef struct _IO_STATUS_BLOCK { union { NTSTATUS Status; PVOID Pointer; }; ULONG_PTR Information; } IO_STATUS_BLOCK, *PIO_STATUS_BLOCK;
+          extern "C" NTSTATUS NTAPI NtCancelIoFileEx(HANDLE, PIO_STATUS_BLOCK, PIO_STATUS_BLOCK);
+          int main(){WCHAR p[MAX_PATH];DWORD n=GetTempPathW(MAX_PATH,p);const WCHAR s[]=L"r3dfox-yy-ntcancel.tmp";DWORD i=n;for(DWORD j=0;s[j]&&i+1<MAX_PATH;++j)p[i++]=s[j];p[i]=0;HANDLE f=CreateFileW(p,GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,0,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL|FILE_FLAG_DELETE_ON_CLOSE,0);if(f==INVALID_HANDLE_VALUE){return 2;}IO_STATUS_BLOCK iosb={};NTSTATUS st=NtCancelIoFileEx(f,0,&iosb);CloseHandle(f);if(st==0||(ULONG)st==0xC0000225UL){printf("NtCancelIoFileEx: PASS status=0x%08lX\n",(ULONG)st);return 0;}printf("NtCancelIoFileEx: FAIL status=0x%08lX\n",(ULONG)st);return 1;}
+          '@|Set-Content -Encoding ascii ntcancel.cpp
+          & cl.exe /nologo /c /MD /O2 /GS- /EHsc- /GR- ntcancel.cpp /Fontcancel.obj 2>&1|Tee-Object diagnostics\ntcancel-compile.log;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx probe compile failed'}
+          $lld=(Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source;if(-not$lld){$lld='C:\Program Files\LLVM\bin\lld-link.exe'};if(-not(Test-Path $lld)){throw 'lld-link missing'}
+          $exe=(Resolve-Path runtime).Path+'\xp-ntcanceliofileex.exe';$map=(Resolve-Path diagnostics).Path+'\ntcancel.map';$args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$narrow,'ntcancel.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe");($lld+' '+($args-join' '))|Set-Content -Encoding utf8 diagnostics\ntcancel-link-command.txt;& $lld @args 2>&1|Tee-Object diagnostics\ntcancel-link-output.txt;if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'NtCancelIoFileEx link failed'}
+          & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx XP subsystem retarget failed'}
+          $mapText=Get-Content $map -Raw;if($mapText.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx map did not select YY thunk'}
+          $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt;if($imports.IndexOf('NtCancelIoFileEx',[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'NtCancelIoFileEx probe retains direct import'}
+          & $exe|Tee-Object diagnostics\ntcancel-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted NtCancelIoFileEx probe failed: $LASTEXITCODE"}
+          "NTCANCEL_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build physical XP runtime bundle
         shell: powershell
         run: |
@@ -375,6 +412,9 @@ jobs:
           @echo off
           echo XP x86 core KERNEL32 cluster runtime probe
           xp-core-kernel32-cluster.exe
+          if errorlevel 1 exit /b %ERRORLEVEL%
+          echo XP x86 NtCancelIoFileEx YY runtime probe
+          xp-ntcanceliofileex.exe
           set EC=%ERRORLEVEL%
           echo DriverExitCode=%EC%
           exit /b %EC%
@@ -384,12 +424,14 @@ jobs:
           =======================================
           Candidate evidence: full Firefox run 33479649627 / job 99766203250 / SHA d2f15ee8f0cef8112855c4306014865e422319d3.
           Run: run-xp-cluster.cmd
-          Preserve complete stdout. PASS/FAIL is per API. SKIP means no YY 1.2.2 narrow capability (or paired safe setup missing).
+          Preserve complete stdout. The bundle now also tests YY-Thunks 1.2.2 NtCancelIoFileEx from a physically narrow ntdll provider.
           Hosted Windows execution is not physical-XP proof. This artifact does not choose production remediation.
           '@|Set-Content -Encoding ascii runtime\README-XP.txt
           Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
+          Copy-Item diagnostics\yy-ntdll-capability.tsv runtime\yy-ntdll-capability.tsv
           Get-ChildItem runtime -File|ForEach-Object{$h=Get-FileHash -Algorithm SHA256 $_.FullName;"$($h.Hash.ToLowerInvariant())  $($_.Name)"}|Set-Content -Encoding ascii runtime\SHA256SUMS.txt
           Get-FileHash -Algorithm SHA256 $env:SMOKE_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
+          Get-FileHash -Algorithm SHA256 $env:NTCANCEL_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\ntcancel-probe-sha256.txt
 
       - name: Upload XP x86 cluster runtime
         uses: actions/upload-artifact@v4
