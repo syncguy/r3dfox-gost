@@ -13,7 +13,7 @@ This file is the authoritative current technical synthesis and handoff for new c
 - PR #1 historically targets `win-153`; it does not define the active work branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer base.
 
-For Windows XP work, read `XP_BUILD_CONTRACT.md` and, for source compile-out rules, `XP_MOZ_XP_COMPAT_CONTRACT.md` before proposing build/configuration changes.
+For Windows XP work, read `XP_BUILD_CONTRACT.md` and, for source compile-out rules, `XP_MOZ_XP_COMPAT_CONTRACT.md` before proposing build/configuration changes. For the current physical-XP startup/runtime-closure investigation, also read `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 
 ## Separation of conclusions
 
@@ -47,6 +47,8 @@ Current GOST runtime work remains: persistent `Permanent` semantics, provider-bo
 # Windows XP SP3 x86 compatibility
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; documentation remains on `agent/gost-tls-poc`.
+
+Detailed current runtime-closure/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 
 ## Closed compatibility families
 
@@ -95,15 +97,39 @@ This GREEN CI result still does **not** establish complete Windows XP import/run
 
 Both are Windows Vista+ APIs and are absent on XP. `RegisterApplicationRestart` and `UnregisterApplicationRestart` are absent. The two surviving names are not currently promoted by the final forbidden-import hard gate, so the workflow can be GREEN while these known XP-invalid hard imports remain.
 
-`GetApplicationRestartSettings` now has a second confirmed production owner in `widget/windows/nsWindow.cpp`: `GetQuitType()` directly calls `::GetApplicationRestartSettings(...)`. This is independent of the previously guarded owner in `toolkit/xre/nsAppRunner.cpp` and explains why the import survives that earlier remediation. The actual remaining source/link owner for `GetNamedPipeServerProcessId` still requires confirmation against the current work branch.
+The two surviving source owners have now been remediated on `agent/winrt-source-poc`:
+
+- `widget/windows/nsWindow.cpp::GetQuitType()` excludes `GetApplicationRestartSettings` under `MOZ_XP_COMPAT` and `nsWindow.cpp` is isolated for source-local XP flags;
+- `third_party/content_analysis_sdk/browser/src/client_win.cc` excludes the optional `GetNamedPipeServerProcessId` PID/path metadata path under `MOZ_XP_COMPAT` while retaining the pipe connection, and the source is isolated for source-local XP flags.
+
+Current implementation HEAD is `1a86821ccf50ac07204d1bec438e375ece4e84d6`. Full build run `33831005002`, job `100893816677`, source-under-test `1a86821...` is **IN PROGRESS** at documentation time. Its final quartet diagnostic, all-PE audit and artifacts do not yet exist, so **0/4 final-binary closure is not yet proven**.
 
 Current compatibility next steps are separate and ordered:
 
-1. capture the XP exception code and stack for the stable `kernel32!RaiseException+0x53` crash (for example paired Dr. Watson/Application Error detail) and bind it to runtime artifact `9899304858` / run `33757305364` / source `2b1cf7e...`;
-2. independently remove `GetApplicationRestartSettings` from `widget/windows/nsWindow.cpp` under the source-local `MOZ_XP_COMPAT` contract and identify/eliminate the remaining `GetNamedPipeServerProcessId` owner;
-3. rebuild, require both known Vista+ hard imports to disappear from the final ordinary `xul.dll` import table, then repeat physical XP startup.
+1. let exact run `33831005002` finish and require final `xul.dll` evidence that all four quartet members are absent before closing that line;
+2. independently capture the XP `ExceptionCode` and faulting-thread stack for exact physically failing runtime artifact `9899304858` / run `33757305364` / source `2b1cf7e...`;
+3. the physical XP machine is now debugger-ready: `drwtsn32 -i` successfully installed Dr. Watson as the default application debugger, and `Debugging Tools for Windows (x86) v6.12.2.633` is available for classic WinDbg capture if Watson is insufficient;
+4. record the physical XP DLL baseline and continue the static runtime-closure queue, starting with the proven `PROPSYS.dll` ordinary `xul.dll` dependency and separately the `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` dependency;
+5. do not call PROPSYS, DXGI, WinRT/UIA delay loads or any exception class the current crash root cause until exact runtime evidence identifies it.
 
 Do not reopen already-proven msvcr14x, bcrypt, D3DCompiler, or narrow-YY families merely because the browser currently throws during XP startup. No GOST TLS runtime or handshake conclusion follows from this compatibility result.
+
+## Current static/runtime closure findings beyond the KERNEL32 quartet
+
+Exact predecessor diagnostics artifact `9899307128` proves that final `xul.dll` has an **ordinary** `PROPSYS.dll` import with at least:
+
+- `PropVariantToString`;
+- `VariantCompare`.
+
+Confirmed production paths include `browser/components/shell/nsWindowsShellService.cpp` plus the explicit Windows `propsys` link in `browser/components/shell/moz.build`, and `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` on the normal MSVC path. Clean XP SP3 is not guaranteed to provide Propsys merely because Microsoft exposes an XP-supported redistributable path through Windows Desktop Search 3.0. Treat PROPSYS as necessary clean-XP static closure work, but **not as the confirmed `RaiseException` root cause**.
+
+The same exact diagnostics also prove shipped `libGLESv2.dll` has an ordinary dependency on `dxgi.dll!CreateDXGIFactory1`, a Windows 7+ surface. This is a proven separately linked PE closure defect; its startup criticality remains open because graphics/ANGLE loading may be dynamic/optional.
+
+The raw `xul.dll` diagnostics retain delay-load surfaces including WinRT API-set DLLs, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll` and `dwmapi.dll`. Missing delay-load DLL/procedure resolution is therefore a valid hypothesis for an exception raised through `RaiseException`, but no particular delay-load code such as `c06d007e`/`c06d007f` may be assigned without a debugger/Watson capture.
+
+The current workflow's curated forbidden DLL/API lists are regression gates, not exhaustive clean-XP dependency proof; aggregate workflow GREEN did not reject PROPSYS or DXGI.
+
+Detailed classification, source paths, debugger sequence and acceptance boundary are in `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 
 ## Residual low-level YY line
 
@@ -126,7 +152,7 @@ Full-Firefox integration evidence now also exists for these two APIs: source `2b
 
 The previous physical-XP loader edge `KERNEL32!InitOnceExecuteOnce` is superseded for runtime artifact `9899304858`. The current exact physical-XP boundary is the stable startup exception reported at XP `kernel32.dll+0x12afb`, corresponding to `kernel32!RaiseException+0x53`; the underlying exception code/caller remains open.
 
-## KERNEL32 source-remediation quartet — source-integrated but not import-closed
+## KERNEL32 source-remediation quartet — current source remediated, final import closure pending
 
 The quartet:
 
@@ -135,37 +161,38 @@ The quartet:
 - `UnregisterApplicationRestart`;
 - `GetNamedPipeServerProcessId`;
 
-is **SOURCE-INTEGRATED, BUT FULL-BUILD DIAGNOSTICS REOPEN TWO NAMES** on `agent/winrt-source-poc`.
+is **SOURCE-REMEDIATED ON THE CURRENT IMPLEMENTATION BRANCH / FINAL-BINARY REVALIDATION IN PROGRESS**.
 
-Exact implementation/configuration chain:
+Earlier implementation/configuration chain:
 
-1. `194496e76559e1d86e7e3f920fb3f1fc0e46c2d7` — disable Windows Application Restart under `MOZ_XP_COMPAT`;
+1. `194496e76559e1d86e7e3f920fb3f1fc0e46c2d7` — disable Windows Application Restart under `MOZ_XP_COMPAT` in `nsAppRunner.cpp`;
 2. `20f00258ac59296782fbaffbf0131d636c0d3c00` — define `MOZ_XP_COMPAT` for `nsAppRunner.cpp`;
 3. `561bded451638e599fae2d57285446261f9a0035` — disable modern UIA client detection under `MOZ_XP_COMPAT`;
 4. `ebe325ad87232f68ca01d7e4c63be14f9c4ee74b` — define `MOZ_XP_COMPAT` for `CompatibilityUIA.cpp`.
 
-The work branch reached exact HEAD `ebe325ad87232f68ca01d7e4c63be14f9c4ee74b` after this chain.
+The predecessor full build later proved two additional/redundant final-link paths. Current follow-up chain after source `2b1cf7...` is:
+
+5. `50ae0e470bef93f341b9e512bd2d6d684c9aa812` — isolate `nsWindow.cpp` for source-local `MOZ_XP_COMPAT` ownership;
+6. `5f6c95d0645e8bdfb2add54147bbb3a4da310f81` — exclude `GetApplicationRestartSettings` in `nsWindow.cpp::GetQuitType()` for XP;
+7. `ad63965ee8e77bf624a201948e1213de2c16bbae` — isolate `client_win.cc` for source-local `MOZ_XP_COMPAT` ownership;
+8. `1a86821ccf50ac07204d1bec438e375ece4e84d6` — keep the content-analysis pipe connection but exclude optional `GetNamedPipeServerProcessId` PID/path metadata for XP.
 
 ### Application Restart
 
-Known production owners now include:
+Known production owners are now guarded for the XP build:
 
-- `toolkit/xre/nsAppRunner.cpp` — previously guarded under `MOZ_XP_COMPAT`;
-- `widget/windows/nsWindow.cpp` — `GetQuitType()` still directly calls `::GetApplicationRestartSettings(...)` in current source and therefore remains an open XP owner.
+- `toolkit/xre/nsAppRunner.cpp` — earlier `MOZ_XP_COMPAT` remediation;
+- `widget/windows/nsWindow.cpp::GetQuitType()` — current follow-up `MOZ_XP_COMPAT` remediation.
 
-For XP, the Application Restart feature has no useful semantic equivalent and should be compiled out at each actual owner under the source-local `MOZ_XP_COMPAT` contract. The surrounding Windows startup/window facilities should remain intact.
+For XP, the Application Restart feature has no useful semantic equivalent and is compiled out at the actual owners while surrounding Windows startup/window facilities remain intact. Final closure still requires exact run `33831005002` to show the three Application Restart names absent from final `xul.dll` ordinary imports.
 
-### Modern UIA client detection
+### Modern UIA/content-analysis named-pipe paths
 
-Production owner previously remediated: `accessible/windows/msaa/CompatibilityUIA.cpp`.
+`accessible/windows/msaa/CompatibilityUIA.cpp` remains source-remediated so Win10/Win11 UIA client-detection implementations are absent and `Compatibility::GetUiaClientPids` is a no-op for the XP translation unit.
 
-For the XP translation unit, Win10/Win11 UI Automation client-detection implementations are intended to be compiled out and `Compatibility::GetUiaClientPids` is a no-op. The XP release intentionally does not preserve these newer-OS features. This supersedes the earlier proposed dynamic-resolution approach for `GetNamedPipeServerProcessId`.
+The predecessor final build nevertheless retained `GetNamedPipeServerProcessId`; the additional owner was found in `third_party/content_analysis_sdk/browser/src/client_win.cc`. Current source `1a86821...` excludes only the optional agent PID/path metadata call under `MOZ_XP_COMPAT` while preserving the pipe connection. Final closure still requires the exact current full build to show `GetNamedPipeServerProcessId` absent from final `xul.dll` ordinary imports.
 
-Because `CompatibilityUIA.cpp` was a unified source, it was moved to ordinary `SOURCES` before receiving its source-local compatibility define.
-
-Full-build diagnostics from run `33757305364`, job `100654730312`, source `2b1cf7e...` show that the intended source closure is not sufficient in the final linked `xul.dll`: `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId` still survive, while `RegisterApplicationRestart` and `UnregisterApplicationRestart` do not. Treat the first two names as open until their actual remaining owners/link paths are corrected or their status is deliberately reclassified.
-
-Detailed status: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
+Detailed quartet status remains in `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
 ## Mandatory `MOZ_XP_COMPAT` build rule
 
@@ -187,7 +214,9 @@ Authoritative rules: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
 
 Run `33757305364` proves that the full Firefox x32 build/package/runtime-archive pipeline and all current hard gates complete successfully with the established dependency/package contract, and that the previous three GMP hard-gate findings are absent. Physical XP now disproves startup compatibility for exact runtime artifact `9899304858`: the browser fails stably at an exception raised through XP `kernel32!RaiseException+0x53`. The same build's Windows 7 x86 success confirms that this is an XP-specific runtime boundary, not a general inability of the binary to start.
 
-The current CI audit also does not prove absence of every post-XP import because the separate quartet diagnostic exposes two surviving ordinary `xul.dll` imports outside the current hard-gate set.
+The current CI audit does not prove absence of every post-XP dependency. The predecessor quartet diagnostic exposed two surviving ordinary `xul.dll` KERNEL32 imports outside the hard-gate set, and the broader raw diagnostics additionally expose PROPSYS, DXGI and delay-load surfaces that require clean-XP classification.
+
+Run `33831005002`, job `100893816677`, source `1a86821...` is a provisional source-remediation revalidation only until it finishes. Do not document pending quartet/final-audit gates as passed and do not assign artifact IDs before uploads exist.
 
 Future full builds must retain the inventory-driven PE/import audit. Source removal, a GREEN curated core gate, or aggregate workflow GREEN does not by itself prove physical Windows XP startup.
 
