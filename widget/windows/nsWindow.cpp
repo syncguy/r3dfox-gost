@@ -1205,6 +1205,7 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
         Preferences::GetBool("browser.privateWindowSeparation.enabled", true) &&
         aInitData.mIsPrivate &&
         !StaticPrefs::browser_privatebrowsing_autostart();
+#ifndef MOZ_XP_COMPAT
     RefPtr<IPropertyStore> pPropStore;
 const wchar_t kShellLibraryName[] =  L"shell32.dll";
 
@@ -1247,6 +1248,7 @@ const wchar_t kShellLibraryName[] =  L"shell32.dll";
       }
     }
     ::FreeLibrary(hDLL);
+#endif  // !MOZ_XP_COMPAT
     HICON smallIcon;
     smallIcon = (HICON)::LoadImageW(
         ::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(usePrivateAumid ? IDI_PBMODE : IDI_APPICON), IMAGE_ICON,
