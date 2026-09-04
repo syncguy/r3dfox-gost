@@ -122,7 +122,6 @@ UNIFIED_SOURCES += [
     "WinMouseScrollHandler.cpp",
     "WinPointerEvents.cpp",
     "WinRegistry.cpp",
-    "WinTaskbar.cpp",
     "WinTextEventDispatcherListener.cpp",
     "WinUtils.cpp",
     "WinWindowOcclusionTracker.cpp",
@@ -143,8 +142,10 @@ SOURCES += [
     "WinCompositorWidget.cpp",
     "WindowsSMTCProvider.cpp",
     "WindowsUIUtils.cpp",
+    "WinTaskbar.cpp",
 ]
 SOURCES["nsWindow.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["WinTaskbar.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["WindowsUIUtils.cpp"].flags += ["-DMOZ_NO_WINRT"]
 
 # Needs INITGUID and we don't allow INITGUID in unified sources since bug 970429.
@@ -200,9 +201,9 @@ if CONFIG["MOZ_BUILD_APP"] == "browser":
     DEFINES["MOZ_BUILD_APP_IS_BROWSER"] = True
 
 DEFINES["MOZ_UNICODE"] = True
-DEFINES["MOZ_APP_NAME"] = '"%s"' % CONFIG["MOZ_APP_NAME"]
+DEFINES["MOZ_APP_NAME"] = '\"%s\"' % CONFIG["MOZ_APP_NAME"]
 # Turn `firefox` into `Firefox`.
-DEFINES["MOZ_TOAST_APP_NAME"] = '"%s"' % CONFIG["MOZ_APP_NAME"].title()
+DEFINES["MOZ_TOAST_APP_NAME"] = '\"%s\"' % CONFIG["MOZ_APP_NAME"].title()
 
 USE_LIBS += [
     "jsoncpp",
