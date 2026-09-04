@@ -8,6 +8,88 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — XP runtime-closure review proves PROPSYS/DXGI static gaps; physical XP debugger path prepared
+
+Track: Windows XP SP3 x86 compatibility / runtime closure and startup-crash diagnosis only. This is not GOST TLS runtime/handshake evidence.
+
+Exact predecessor binary/evidence identity used for the static closure review:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33757305364`;
+- job `100654730312`;
+- runtime artifact `9899304858`;
+- diagnostics artifact `9899307128`.
+
+Current source-remediation revalidation is separate and still provisional:
+
+- implementation HEAD/source-under-test `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
+- run `33831005002`;
+- job `100893816677`;
+- run state at documentation time: **IN PROGRESS**;
+- build had reached `Build release r3dfox XP x32` after bootstrap/configure/export/security-manager object gates passed;
+- final quartet diagnostic, all-PE audit and uploads had not run, therefore no artifact IDs existed yet and **0/4 quartet closure was not yet proven**.
+
+The current source under test contains the follow-up fixes for the two predecessor quartet survivors:
+
+- `widget/windows/nsWindow.cpp::GetQuitType()` excludes `GetApplicationRestartSettings` under `MOZ_XP_COMPAT` with source-local build ownership;
+- `third_party/content_analysis_sdk/browser/src/client_win.cc` excludes the optional `GetNamedPipeServerProcessId` PID/path metadata path under `MOZ_XP_COMPAT` while retaining the named-pipe connection, also with source-local build ownership.
+
+Static closure findings from exact diagnostics artifact `9899307128`:
+
+1. Final predecessor `xul.dll` has an **ordinary** `PROPSYS.dll` import descriptor, not merely a delay-load or source reference. Required exports include `PropVariantToString` and `VariantCompare`.
+2. Confirmed production ownership for `PropVariantToString` is `browser/components/shell/nsWindowsShellService.cpp`, with `browser/components/shell/moz.build` explicitly linking `propsys` on Windows.
+3. Confirmed production ownership for `VariantCompare` is `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` on the normal MSVC branch; `accessible/windows/uia/moz.build` links that source into `xul`.
+4. Do not classify those exports themselves as strictly Vista-only: Microsoft exposes XP support through the Windows Desktop Search 3.0 redistributable. The project blocker is that a clean XP SP3 baseline is not guaranteed to contain the needed `PROPSYS.dll` without such an additional prerequisite.
+5. Therefore PROPSYS is a **proven unresolved ordinary clean-XP dependency**, but it is **not proven to be the root cause of the current `RaiseException` crash**. Preferred remediation remains source/build removal at the narrow owners before introducing an app-local PROPSYS compatibility DLL.
+6. Shipped `libGLESv2.dll` has an ordinary dependency on `dxgi.dll!CreateDXGIFactory1`, a Windows 7+ surface. This is a separately linked PE closure defect; startup criticality remains unproven because ANGLE/GLES loading may be dynamic/optional.
+7. Raw `xul.dll` diagnostics also retain delay-load surfaces including WinRT API-set DLLs, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll` and `dwmapi.dll`. These are hypotheses until the physical startup path actually touches one of them.
+8. The current workflow's curated forbidden DLL/API lists are regression gates rather than exhaustive clean-XP dependency proof; aggregate GREEN did not reject PROPSYS or DXGI.
+
+Physical startup diagnosis remains bound to exact runtime artifact `9899304858` from run `33757305364`. Its XP Application Event Log reports the stable `kernel32.dll+0x12afb` fault site, corresponding approximately to `kernel32!RaiseException+0x53`, but there is still no exact launch-bound exception code or native caller stack.
+
+The physical Windows XP SP3 x86 machine is now prepared for the next experiment. The user ran:
+
+```text
+drwtsn32 -i
+```
+
+and received:
+
+```text
+---------------------------
+Dr. Watson
+---------------------------
+Dr. Watson has been installed as the default application debugger
+---------------------------
+OK
+---------------------------
+```
+
+Therefore Dr. Watson is now registered as the default application debugger on that machine.
+
+The same XP computer also already has:
+
+```text
+Debugging Tools for Windows (x86) v6.12.2.633
+```
+
+available for classic WinDbg capture if Dr. Watson does not expose enough context.
+
+Next experiment order:
+
+1. record the XP system-DLL baseline, at least `propsys.dll`, `dxgi.dll`, `UIAutomationCore.dll` and `ncrypt.dll` presence/version/hash where practical;
+2. reproduce exact artifact `9899304858` once under Dr. Watson and preserve `ExceptionCode`, faulting thread/stack, application error log, dump and matching Event Log timestamp;
+3. if Watson is insufficient, attach/launch with classic WinDbg from Debugging Tools v6.12.2.633 and catch the first relevant exception, with special attention to but no prior assumption of `0xC06D007E`, `0xC06D007F`, `0xE06D7363` or `0xC0000005`; preserve `.exr -1`, `.ecxr`, `kv` and `lm`;
+4. if a delay-load exception is confirmed, extract the exact failing DLL/function/ordinal from delay-load context before patching;
+5. use Procmon or loader snaps only if the debugger evidence points to module resolution but does not identify the failing path;
+6. separately let run `33831005002` finish and require exact final `xul.dll` evidence of all four quartet names absent before closing that source-remediation line.
+
+Conclusion: **ROOT CAUSE STILL UNCONFIRMED / STATIC CLEANUP QUEUE EXPANDED / PHYSICAL DEBUGGER READY.** Separate confirmed categories going forward: the current root cause requires debugger evidence; PROPSYS and `libGLESv2 -> DXGI` are necessary static compatibility cleanup; delay-load/WinRT/UIA/NCRYPT paths remain hypotheses until runtime evidence touches them. Do not mass-patch all modern Windows surfaces and do not reopen already-proven msvcr14x, bcrypt, D3DCompiler or narrow-YY families without contradictory evidence. Detailed handoff is in `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
+
+---
+
 ## 2026-09-04 — first full-workflow GREEN browser fails physical XP startup at `kernel32!RaiseException`; same build starts on Win7 x86
 
 Track: Windows XP SP3 x86 compatibility / physical browser runtime only. This is not GOST TLS runtime/handshake evidence.
