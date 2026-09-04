@@ -8,6 +8,116 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — WinDbg `DelayLoadInfo` proves the immediate XP crash is `USER32.dll!SetProcessDPIAware` procedure-not-found
+
+Track: Windows XP SP3 x86 compatibility / physical startup diagnosis only. This is not GOST TLS runtime/handshake evidence.
+
+Exact failing browser identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33757305364`;
+- job `100654730312`;
+- runtime artifact `9899304858`;
+- diagnostics artifact `9899307128`;
+- physical runtime directory `D:\2026\09\04\r3dfox-v153.0.3.win32.portable`.
+
+Debugger environment:
+
+```text
+Microsoft (R) Windows Debugger Version 6.12.0002.633 X86
+```
+
+The exact browser was launched from process start under WinDbg. At the first-chance delay-load exception WinDbg reported:
+
+```text
+Unknown exception - code c06d007f (first chance)
+```
+
+`.exr -1` at that exact break produced:
+
+```text
+ExceptionAddress: 7c812afb (kernel32!RaiseException+0x53)
+ExceptionCode: c06d007f
+ExceptionFlags: 00000000
+NumberParameters: 1
+Parameter[0]: 001bfb70
+```
+
+`Parameter[0]` was then decoded as the x86 `DelayLoadInfo` structure. Raw memory:
+
+```text
+0:000> dd 001bfb70 L9
+001bfb70  00000024 1008a5c4 100943cc 1008ab72
+001bfb80  00000001 1008aaf4 7e410000 00000000
+001bfb90  0000007f
+```
+
+String fields:
+
+```text
+0:000> da 1008ab72
+1008ab72  "USER32.dll"
+
+0:000> da 1008aaf4
+1008aaf4  "SetProcessDPIAware"
+```
+
+Decoded values:
+
+```text
+cb              = 00000024
+szDll           = "USER32.dll"
+fImportByName   = 00000001
+szProcName      = "SetProcessDPIAware"
+hmodCur         = 7e410000
+pfnCur          = 00000000
+dwLastError     = 0000007f
+```
+
+Interpretation:
+
+- `USER32.dll` is successfully loaded in the failing process (`hmodCur=7e410000`);
+- the delayed import is being resolved by name;
+- the exact requested procedure is `SetProcessDPIAware`;
+- resolution failed (`pfnCur=0`);
+- the last error is `0x7f`, `ERROR_PROC_NOT_FOUND`;
+- the delay-load helper raises `0xC06D007F` as observed by Dr. Watson and WinDbg.
+
+This is independently consistent with the physical XP export check: the actual `USER32.dll` contains `DefWindowProcW` and `PeekMessageW` but does not export `SetProcessDPIAware`.
+
+Exact source/build evidence for the same path remains:
+
+- `browser/app/nsBrowserApp.cpp` invokes `mozilla::WindowsDpiInitialization()` before `InitXPCOMGlue(...)` / XUL startup;
+- `mozglue/misc/WindowsDpiInitialization.cpp` sends pre-Windows-8.1 systems to a fallback that directly calls `SetProcessDPIAware()`;
+- XP therefore attempts a Vista+ API because no explicit pre-Vista guard exists;
+- `mozglue/build/moz.build` places `user32.dll` in `DELAYLOAD_DLLS`;
+- diagnostics artifact `9899307128` proves final `mozglue.dll` delay-imports `USER32.dll!SetProcessDPIAware`.
+
+The complete current root-cause chain for runtime artifact `9899304858` is therefore confirmed:
+
+```text
+r3dfox.exe startup
+  -> WindowsDpiInitialization()
+  -> XP enters the pre-Win8.1 fallback
+  -> SetProcessDPIAware()
+  -> mozglue USER32 delay-load thunk
+  -> USER32.dll loads
+  -> SetProcessDPIAware is absent
+  -> ERROR_PROC_NOT_FOUND (0x7f)
+  -> C06D007F
+  -> kernel32!RaiseException
+```
+
+An earlier debugger attempt allowed the delay-load exception to continue and then observed a secondary `C0000005` with `EIP=00000000`. That later access violation is classified as downstream of the unhandled confirmed delay-load failure, not as the primary blocker, unless it remains after the root cause is removed.
+
+Conclusion: **CONFIRMED ROOT CAUSE for the immediate physical-XP startup failure of exact runtime artifact `9899304858`: `USER32.dll!SetProcessDPIAware` delay-load procedure-not-found.** The previous status `exact DelayLoadInfo confirmation pending` is superseded.
+
+Next experiment: review the current `agent/winrt-source-poc` implementation of `mozglue/misc/WindowsDpiInitialization.cpp` and apply the narrowest pre-Vista no-op guard using the existing Windows-version helpers, conceptually `if (!IsVistaOrLater()) return Success;`. Do not add a USER32 shim, broad YY provider or global `MOZ_XP_COMPAT` change. Rebuild under a new exact source SHA and bind the next physical-XP result to that new run/artifact before interpreting the next startup boundary.
+
+---
+
 ## 2026-09-04 — Dr. Watson identifies `0xC06D007F`; XP startup contains a proven `USER32!SetProcessDPIAware` delay-load defect
 
 Track: Windows XP SP3 x86 compatibility / physical startup diagnosis only. This is not GOST TLS runtime/handshake evidence.
