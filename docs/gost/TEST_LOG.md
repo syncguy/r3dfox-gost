@@ -413,7 +413,7 @@ Static closure findings from exact diagnostics artifact `9899307128`:
 
 1. Final predecessor `xul.dll` has an **ordinary** `PROPSYS.dll` import descriptor, not merely a delay-load or source reference. Required exports include `PropVariantToString` and `VariantCompare`.
 2. Confirmed production ownership for `PropVariantToString` is `browser/components/shell/nsWindowsShellService.cpp`, with `browser/components/shell/moz.build` explicitly linking `propsys` on Windows.
-3. Confirmed production ownership for `VariantCompare` is `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` on the normal MSVC branch; `accessible/windows/uia/moz.build` links that source into `xul`.
+3. Confirmed production ownership for `VariantCompare` is `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` on the normal MSVC path; `accessible/windows/uia/moz.build` links that source into `xul`.
 4. Do not classify those exports themselves as strictly Vista-only: Microsoft exposes XP support through the Windows Desktop Search 3.0 redistributable. The project blocker is that a clean XP SP3 baseline is not guaranteed to contain the needed `PROPSYS.dll` without such an additional prerequisite.
 5. Therefore PROPSYS is a **proven unresolved ordinary clean-XP dependency**, but it is **not proven to be the root cause of the current `RaiseException` crash**. Preferred remediation remains source/build removal at the narrow owners before introducing an app-local PROPSYS compatibility DLL.
 6. Shipped `libGLESv2.dll` has an ordinary dependency on `dxgi.dll!CreateDXGIFactory1`, a Windows 7+ surface. This is a separately linked PE closure defect; startup criticality remains unproven because ANGLE/GLES loading may be dynamic/optional.
@@ -682,7 +682,7 @@ Exact project/build identity:
 - source-under-test `3e2c32386f373d4693db52b32c05aa2000878def`;
 - workflow `CryptoPro Mozilla packaging smoke`;
 - Actions run `33520207057`;
-- job `99897230730` (`Windows x64 / CryptoPro real Firefox packaging / ru + en-US`);
+- job `99897230730` (`Windows x64 / r3dfox GOST / XP SP3 full build`);
 - run/job conclusion: **success**;
 - pinned `firefox-l10n` source SHA remains `4273d99ccdc4a516ec6abd742a272ad1d385ddf4`.
 
@@ -734,7 +734,7 @@ Publication identity is separate from binary source identity:
 - Actions run `33518189052`;
 - job `99890447193`;
 - conclusion **success**;
-- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50ac07204d1bec438e375ece4e84d6`;
+- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
 - technical prerelease ID `380563342`, title `XP bcrypt primitive v1`;
 - raw release asset ID `539647946`, name `bcrypt.dll`, size `520704`, GitHub digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
 
