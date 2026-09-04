@@ -98,64 +98,74 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 ## Windows compatibility — independent
 
-The current mandatory Windows XP x86 build contract is defined in [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md). Its physically proven reference is source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`, run `33387080767`, job `99472017220`, runtime artifact `9756275917`: the newly generated app-local CRT + representative C++ `/MD` + Rust libstd + narrow YY/SRW runtime starts and executes successfully on a real Windows XP machine. Preserve this contract while remediating the full browser; do not regress a dependency family once it has been brought under the contract.
+Current detailed handoff for the physical Windows XP SP3 x86 startup/runtime-closure line is [`XP_RUNTIME_COMPATIBILITY_STATUS.md`](./XP_RUNTIME_COMPATIBILITY_STATUS.md). Read it before proposing another XP patch.
 
-### Trusted project primitive — `bcrypt.dll`
+The current mandatory build/dependency contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md). Preserve all already-proven dependency families while investigating the browser startup failure.
 
-The selected single-DLL One-Core bcrypt result is not an open implementation hypothesis anymore. Within this project, exact `xp-bcrypt-v1/bcrypt.dll` is an **approved/trusted XP x86 runtime primitive** and may be consumed directly by browser workflows and experiment branches without repeating the One-Core/mbedTLS build or the focused BCrypt research.
+### Current exact boundary
 
-Trust identity:
+Last completed full browser:
 
-- binary source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
-- focused run `33513084915`, job `99873297193`, runtime artifact `9802703271`;
-- physical Windows XP 5.1.2600 PASS through both exact-local dynamic loading and ordinary linked/IAT resolution;
-- technical release/tag `xp-bcrypt-v1`, raw asset `bcrypt.dll`;
+- source `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`;
+- run `33757305364`;
+- job `100654730312`;
+- runtime artifact `9899304858`;
+- diagnostics artifact `9899307128`;
+- full workflow **GREEN**;
+- physical Windows 7 x86 **PASS**;
+- physical Windows XP SP3 x86 **FAIL** immediately after launch at an exception reported through approximately `kernel32!RaiseException+0x53`;
+- exact `ExceptionCode` and native caller stack remain unknown.
+
+Current source-remediation revalidation:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test / branch HEAD `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
+- run `33831005002`;
+- job `100893816677`;
+- state at latest documentation check: **IN PROGRESS**;
+- no current artifact IDs yet;
+- do not mark quartet closure until final `xul.dll` proves all four names absent.
+
+The physical XP machine is ready for root-cause capture:
+
+- `drwtsn32 -i` completed successfully and Dr. Watson is registered as the default application debugger;
+- `Debugging Tools for Windows (x86) v6.12.2.633` is installed and available for classic WinDbg work.
+
+### Open work, in order
+
+1. **Finish the quartet revalidation, but do not wait on it to diagnose the old exact crash.** When run `33831005002` completes, bind its final result to run `33831005002`, job `100893816677`, source `1a86821...` and exact artifact IDs. Require final `xul.dll` ordinary imports to show **0/4** for `GetApplicationRestartSettings`, `RegisterApplicationRestart`, `UnregisterApplicationRestart`, and `GetNamedPipeServerProcessId`.
+2. **Capture the actual exception from exact failing artifact `9899304858`.** First use Dr. Watson and preserve the application error log/dump, `ExceptionCode`, faulting thread/stack, module context and matching Application Event timestamp. Keep this runtime result bound to source `2b1cf7...`, run `33757305364`, job `100654730312`, artifact `9899304858`.
+3. **Use classic WinDbg if Watson is insufficient.** Catch the first relevant exception rather than only the final `RaiseException` site. Important classes to identify or rule out include `0xC06D007E`, `0xC06D007F`, `0xE06D7363`, and `0xC0000005`; do not assume any of them in advance. Preserve `.exr -1`, `.ecxr`, `kv`, and `lm`. If it is an MSVC delay-load exception, extract the exact DLL and procedure/ordinal before changing source.
+4. **Record the physical XP DLL baseline.** At minimum check presence/version/hash where practical for `propsys.dll`, `dxgi.dll`, `UIAutomationCore.dll`, and `ncrypt.dll` before installing compatibility packages or otherwise changing the machine.
+5. **Close the proven `PROPSYS.dll` ordinary dependency.** Exact predecessor `xul.dll` imports `PROPSYS.dll!PropVariantToString` and `PROPSYS.dll!VariantCompare`. Confirmed source/link owners are `browser/components/shell/nsWindowsShellService.cpp` + `browser/components/shell/moz.build` and `accessible/windows/uia/UiaTextRange.cpp`. Treat this as necessary clean-XP static cleanup, but not as the current crash root cause until debugger evidence proves it. Prefer narrow source/build removal before creating an app-local PROPSYS shim.
+6. **Classify the separately linked ANGLE/DXGI defect.** Exact predecessor shipped `libGLESv2.dll` ordinarily imports `dxgi.dll!CreateDXGIFactory1`. Determine whether this is startup-critical on XP or an optional graphics path, then rebuild/select legacy backend/disable/replace at the component boundary as appropriate. Do not try to fix a `libGLESv2.dll` import through the `xul.dll` linker.
+7. **Continue through remaining delay/dynamic/COM surfaces only after evidence classification.** Raw `xul.dll` retains WinRT API-set, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, and `dwmapi.dll` delay-load surfaces. Distinguish ordinary imports, delay imports, explicit `LoadLibrary`/`GetProcAddress`, COM/WinRT activation, optional feature paths, and actual startup-critical paths. Procmon/loader snaps are follow-up tools, not substitutes for the exception code and stack.
+8. **Improve the final clean-XP audit after the immediate root cause is localized.** The curated fatal list is a regression gate, not exhaustive compatibility proof. The predecessor workflow was GREEN while PROPSYS and DXGI defects remained visible in raw import evidence. Extend policy from evidence, without weakening existing gates or globally routing everything through YY.
+9. **Physical XP acceptance of the next exact browser.** After a concrete root-cause remediation and complete artifact identity are available, launch that exact runtime on physical XP and require successful browser startup plus representative ordinary browsing. Windows 7 x86 success remains useful localization evidence but is not XP proof.
+10. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
+
+### Closed compatibility families — do not spend new cycles without contradictory evidence
+
+Do not reopen merely because the current browser throws during startup:
+
+- pinned/restored msvcr14x Release x86 contract;
+- narrow YY provider strategy and the closed SRW/condition-variable family;
+- `CreateWaitableTimerExA` source fallback;
+- exact app-local `xp-bcrypt-v1/bcrypt.dll`;
+- legacy `D3DCompiler_47.dll` staging/packaging;
+- the existing broad curated forbidden-import progression `69 -> 3 -> 0`.
+
+The selected `xp-bcrypt-v1` binary remains trusted project infrastructure:
+
+- source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
+- run `33513084915`, job `99873297193`, runtime artifact `9802703271`;
+- technical release/tag `xp-bcrypt-v1`;
 - size `520704` bytes;
 - SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`;
-- no runtime `mbedtls.dll`; the required mbedTLS implementation is embedded in `bcrypt.dll`.
+- physical XP dynamic + ordinary linked/IAT PASS;
+- no runtime `mbedtls.dll`.
 
-For future work, **do not rebuild or re-prove this library merely to use it in another branch or a heavy Firefox build**. Consume the raw `xp-bcrypt-v1` asset, optionally through an Actions cache, and require exact size/SHA-256 before staging. On cache miss, fetch the canonical Release asset; do not fall back to rebuilding One-Core. Reopen the focused bcrypt implementation only if the approved binary identity changes, a future replacement is intentionally being produced, or full-browser integration produces new evidence attributable to this exact DLL.
-
-The full XP import audit must also distinguish an unresolved stock-XP dependency from an approved app-local replacement. `BCRYPT.dll` must not remain unconditionally forbidden by name once exact `xp-bcrypt-v1/bcrypt.dll` is staged: a browser PE import of `BCRYPT.dll` is acceptable only when the approved app-local DLL is present and hash/size verified. Missing or mismatched app-local `bcrypt.dll` remains a hard failure; `bcryptprimitives.dll` and unrelated post-XP dependencies remain forbidden. The official portable package and the direct `dist/bin` runtime archive must both preserve the same exact approved DLL.
-
-The earlier two-DLL source-built result, source `fdd4d4dac5a7d9611ec71975ae800437f45c47dd`, run `33493625367`, job `99810642354`, runtime artifact `9794971087`, remains valid historical fallback/baseline evidence but is no longer the selected packaging contract.
-
-The earlier representative Windows XP SP3 x86 coexistence question also remains closed for source `d78137a931145af877dc458b01e494ad0467723d`, run `33138244191`, job `98743029100`, runtime artifact `9673057839`: the exact probe with bundled msvcr14x `ucrtbase.dll` and `msvcp140.dll` ran three times on physical Windows XP SP3 x86 with `ExitCode=0`.
-
-The current full Firefox import baseline is now the sandbox-disabled `agent/winrt-source-poc` build:
-
-- source-under-test `1635d28360ee35d47c1d8237bcf8f5864cc1144f`;
-- run `33310150314`;
-- job `99253613546`;
-- runtime artifact `9733280458`;
-- diagnostics artifact `9733280937`;
-- full browser build/package/runtime staging succeeded; the run is red only at the broad XP import gate.
-
-The curated current gate reports 103 rows, 26 unique forbidden API names across 15 PEs, with `xul.dll` contributing 19 API rows + `bcrypt.dll` and `mozglue.dll` contributing 11 API rows + `bcrypt.dll`.
-
-**Inherited x86 sandbox baseline:** official upstream r3dfox `v153.0.3` ships the 32-bit build with `--disable-sandbox`. A sandbox-enabled Win7/Vista x86 pass is not an XP-port prerequisite. Keep build-time sandbox disablement on the XP/x86 product path unless sandbox restoration is explicitly reprioritized.
-
-**Old physical-XP `CloseThreadpoolWork` blocker:** the earlier exact artifact from run `33141004769` failed before UI startup on hard `KERNEL32!CloseThreadpoolWork`. The current run `33310150314` direct-import inventory and raw per-PE import diagnostics contain no `CloseThreadpoolWork`. Therefore that specific import blocker is no longer expected in the current artifact, but only an exact physical-XP launch can close the runtime boundary.
-
-**Legacy `D3DCompiler_47.dll` packaging boundary — CLOSED.** Source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336` passes preparation, staging, dedicated retarget validation, package creation, and the post-package survival gate for the pinned legacy Firefox XP `D3DCompiler_47.dll`. The run remains red only because the later broad XP PE-floor/direct-import audit reports independent compatibility violations. Do not schedule another full build merely to re-prove this packaging hypothesis on unchanged source.
-
-Open work, in order:
-
-1. **Prove the unified XP contract inside the full-build workflow.** The default-branch `gost-poc-build-xp-x32.yml` now builds pinned msvcr14x with restore/binlog and has a pre-Firefox `GATE - Require proven XP x86 msvcr14x runtime contract`. Run it from the current default-branch source, bind the run/job/SHA, and require the CRT gate to pass before accepting another multi-hour build. This is the first controlled dependency family migrated from post-build retargeting to build-time XP compatibility.
-2. **Turn the broad audit into a component-by-component dependency-removal queue.** After the CRT contract is green in the full workflow, regenerate the surviving forbidden-import inventory and distinguish project-built/Firefox-owned PEs from separately built/shipped third-party PEs. For every dependency family we control, prefer source/build/dependency remediation and add a focused fail-fast gate so later work cannot regress it.
-3. **Caller/owner classification for the core browser PEs.** Use diagnostics `9733280937` initially, then replace them with the next full-build diagnostics, to identify exact callers/owning abstractions for the surviving `xul.dll`, `mozglue.dll`, `r3dfox.exe`, and `plugin-container.exe` imports. Do not map all gate API names directly to YY.
-4. **Prefer XP-native/source/backend solutions before YY.** For current candidates such as `CancelIoEx`, `CompareStringOrdinal`, `GetCurrentProcessorNumber`, `GetFileInformationByHandleEx`, `GetFinalPathNameByHandleW`, the locale-name/LCID family, `GetTickCount64`, `SetFileInformationByHandle`, and `InitializeCriticalSectionEx`, evaluate caller semantics and an XP-native implementation or owned legacy backend first. These are candidate directions, not pre-approved replacements.
-5. **Classify the synchronization family by ownership.** SRW/condition-variable imports appear in multiple PEs. Mozilla-owned abstractions may justify one XP synchronization backend; unavoidable Rust/MSVC/toolchain surfaces are strong narrow-YY candidates; separately linked DLLs require their own build/dependency solution. The CRT-side SRW/FLS regression is already covered by the mandatory msvcr14x contract and must not be reintroduced.
-6. **Classify separately linked shipping/feature DLLs independently.** `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `gkcodecs.dll`, `mozinference.dll`, and `gmp-clearkey` cannot be fixed merely by adding an archive to the `xul.dll` link. Decide required vs optional, then rebuild/select legacy version/replace/disable per component. The legacy `d3dcompiler_47.dll` staging/packaging boundary is already closed by run `33349340069`; only reopen it if a later exact import/runtime result shows a D3DCompiler-specific regression.
-7. **Exclude test/developer/fake artifacts from the product blocker budget.** `gmp-fake`, `gmp-fakeopenh264`, `logalloc-replay.exe`, and `xpcshell.exe` remain visible diagnostically but are not automatic XP product blockers.
-8. **Regenerate the exhaustive XP SP3 inventory from the next contract-compliant full-build diagnostics.** The old ~57 `xul.dll` / ~73 whole-`dist/bin` estimates predate sandbox removal and the now-physical CRT contract and are no longer current planning counts.
-9. **Keep YY physically narrow.** Run `33316988353`, job `99272141403`, source `39ce8453be32557dfb709bce8ee412c16f78a72f` successfully proved that YY 1.2.2 can cover the current 26-name API set at representative-link scale. Treat this only as upper-bound capability evidence; production YY membership must be derived after caller classification. Never reintroduce full YY `kernel32.lib` interposition.
-10. **Consume the trusted `xp-bcrypt-v1` primitive in the full XP x32 browser.** Do not reproduce the One-Core/mbedTLS build in the heavy workflow. Obtain raw `bcrypt.dll` from the canonical `xp-bcrypt-v1` Release asset, optionally via cache; verify exact size `520704` and SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`; stage only that DLL; adapt the broad import gate so `BCRYPT.dll` is accepted only when this approved app-local binary is present; require survival with the same hash in both `dist/bin` runtime output and the official portable package; then bind the resulting exact browser artifact to a physical-XP startup test. Treat the library itself as trusted project infrastructure unless new evidence specifically invalidates it.
-11. **Focused smokes before each expensive full Firefox retry.** Prove each chosen source fallback, owned backend, component rebuild, and final narrow YY membership cheaply, then transfer the proven contract/gate to the full build.
-12. **Physical XP startup/browsing.** Test the resulting exact artifact on physical XP. The current artifact `9733280458` may also be used as an intermediate runtime probe to confirm that the former `CloseThreadpoolWork` boundary has moved, but do not infer a browser pass from import tables alone.
-13. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
-
-Detailed classification policy and current component matrix are authoritative in [`XP_COMPATIBILITY_STRATEGY.md`](./XP_COMPATIBILITY_STRATEGY.md).
+Do not rebuild/re-prove it inside heavy Firefox work unless its identity changes or new exact evidence specifically implicates that DLL.
 
 ### Deferred optional hardening — restore x86 sandbox
 
