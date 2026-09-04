@@ -8,6 +8,57 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — DPI functional-remediation full build/packages produced; aggregate RED only on two known clean-XP DLL dependencies
+
+Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 build and static dependency closure only. This is not physical-XP runtime proof and not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `424708f1d8e754f752e108259b331fcd2ec3615b`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33842067157`, attempt `1`;
+- job `100926221307` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate job conclusion: **failure** at the final `GATE - Summarize XP x32 full build`.
+
+Exact artifacts:
+
+- package artifact `9927581628`, `327758670` bytes, digest `sha256:ba0e7d77368e1503288902854ab8542a4aa5beda0f307f4aafffff5ee9200bc7`;
+- runtime artifact `9927582490`, `74916467` bytes, digest `sha256:03d099306dd2632eabc604e1333001eca3b149c4b7b798e0f2c88269139c70a6`;
+- diagnostics artifact `9927583461`, `5953888` bytes, digest `sha256:c85c7a837b7772d89bd5bef1cf750b889165e73fc6f4755b89bcd9bda5068483`.
+
+All substantive build/package/upload boundaries before the aggregate RED completed successfully, including the DPI source guard, pinned msvcr14x contract, narrow YY provider, Firefox configure/export and SSL target-object gate, full release build, strict source-remediation quartet gate, `mozglue` DPI import-mode gate, production core-browser direct-import gate, D3DCompiler/CRT/bcrypt staging and package-survival gates, portable package, physical-test runtime archive, final PE/import inventory collection, and all three artifact uploads.
+
+Exact diagnostics from artifact `9927583461` establish:
+
+```text
+xp-x32-source-remediation-quartet/result.txt
+result=PASS|surviving=none
+
+xp-x32-dpi-delay-import/result.txt
+result=PASS|direct=0|delay_user32=1
+
+xp-x32-dpi-delay-import/setprocessdpiaware-import-mode.txt
+delay|USER32.dll|... SetProcessDPIAware
+```
+
+Thus the hardened quartet remains closed at 0/4 in the final `xul.dll`, and `SetProcessDPIAware` is not an ordinary `mozglue.dll` import; the expected USER32 delay-load entry remains present. The source-level pre-Vista DPI guard also passed before the build.
+
+The broad clean-XP import inventory is the reason this otherwise build-complete run is aggregate RED. Its exact `xp-x32-forbidden-direct-imports.txt` contains only two rows:
+
+```text
+libGLESv2.dll|DLL|dxgi.dll
+xul.dll|DLL|PROPSYS.dll
+```
+
+These are the already identified static clean-XP dependency gaps: shipped `libGLESv2.dll -> dxgi.dll` and final `xul.dll -> PROPSYS.dll`. They are not evidence that either path is the next physical startup failure; that requires runtime evidence from the exact artifact.
+
+Important evidence boundary: this run tests the functional pre-Vista DPI remediation present through `fad9ec0b5a09c50f6cff39a00a3ea4cedd99cdf2` plus the hardened workflow gates in source `424708f...`. It does **not** test the later project-ownership refinements `a784a7660b23f8270179f5464c2ac3033d7e0652` (`#ifdef MOZ_XP_COMPAT`) and `a3ede2576cbc7e92ffae58ba0c49d2c38e580335` (source-local `-DMOZ_XP_COMPAT`). Do not attribute this run or its artifacts to those later commits.
+
+Conclusion: **FUNCTIONAL DPI REMEDIATION FULL-BUILD/PACKAGE PASS; AGGREGATE STATIC-CLOSURE RED ON EXACTLY PROPSYS + DXGI.** Runtime artifact `9927582490` is valid for a narrowly scoped physical-XP check of whether startup advances past the previously confirmed `USER32.dll!SetProcessDPIAware` delay-load failure, but a successful result would validate only the functional remediation concept. Final acceptance of the project-owned implementation still requires a later exact build from `a3ede257...` or a descendant containing both ownership commits. No GOST TLS conclusion follows.
+
+---
+
 ## 2026-09-04 — first final production `xul.dll` 0/4 closure for the KERNEL32 source-remediation quartet
 
 Track: Windows XP SP3 x86 compatibility / final Firefox binary import closure only. This is not physical-XP runtime proof and not GOST TLS runtime/handshake evidence.
