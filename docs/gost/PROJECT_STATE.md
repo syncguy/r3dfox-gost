@@ -59,7 +59,7 @@ Do not reopen without new contradictory evidence:
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep per-PE/provider ownership narrow.
 
-## Latest completed full XP x32 build/package evidence — first workflow GREEN
+## Latest completed full XP x32 build/package evidence — first workflow GREEN, physical XP startup FAIL
 
 The latest completed full-browser compatibility run is:
 
@@ -67,7 +67,7 @@ The latest completed full-browser compatibility run is:
 - exact source-under-test `2b1cf7e1b59881b935c7f695a54edd6b92c8066e` (`ci(xp): add residual YY KERNEL32 providers`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
 - Actions run `33757305364`, job `100654730312`, attempt `1`;
-- aggregate conclusion: **success** — the first fully GREEN run of the current XP x32 full-build workflow lineage.
+- aggregate CI conclusion: **success** — the first fully GREEN run of the current XP x32 full-build workflow lineage.
 
 Exact artifacts from this run:
 
@@ -79,21 +79,31 @@ The complete hard-gate chain is GREEN: pinned msvcr14x contract, narrow YY provi
 
 The source change adds `TryAcquireSRWLockExclusive` and `FlsGetValue` to the physically narrow YY KERNEL32 provider selection. Exact diagnostics confirm that the three residual rows from predecessor run `33738262420` are gone: neither API survives in the audited `gmp-fake` / `gmp-fakeopenh264` imports. This closes the previous **69 -> 3 -> 0** progression for the workflow's current broad forbidden-import hard-gate set without weakening or excluding the all-PE audit.
 
-This GREEN result does **not** establish complete Windows XP import/runtime closure. The informational source-remediation quartet diagnostic still reports `WARN` and finds two hard imports in `xul.dll`:
+Physical runtime evidence now exists for exact runtime artifact `9899304858`:
+
+- on Windows XP SP3 x86, startup fails stably across repeated launches;
+- Application log: `Faulting application r3dfox.exe, version 153.0.3.3, faulting module kernel32.dll, version 5.1.2600.5781, fault address 0x00012afb`;
+- the user observes no ordinary missing-entry-point/linker dialog;
+- on Windows 7 x86, the same build starts successfully and passes the user's basic/primary checks.
+
+For XP `kernel32.dll` in this version family, module offset `0x12afb` maps in public symbolized crash records to `kernel32!RaiseException+0x53`. Therefore the current physical-XP blocker is an early startup exception whose underlying exception code/caller is still unknown; the faulting module line alone does not identify the failing API.
+
+This GREEN CI result still does **not** establish complete Windows XP import/runtime closure. The informational source-remediation quartet diagnostic reports `WARN` and finds two ordinary hard imports in the final `xul.dll` KERNEL32 import table:
 
 - `GetApplicationRestartSettings`;
 - `GetNamedPipeServerProcessId`.
 
-`RegisterApplicationRestart` and `UnregisterApplicationRestart` are absent. The two surviving names are visible in the raw `xul.dll` import dump but are not currently promoted by the final forbidden-import hard gate. Therefore the workflow can be GREEN while this separate diagnostic debt remains; do not mark the quartet fully closed.
+Both are Windows Vista+ APIs and are absent on XP. `RegisterApplicationRestart` and `UnregisterApplicationRestart` are absent. The two surviving names are not currently promoted by the final forbidden-import hard gate, so the workflow can be GREEN while these known XP-invalid hard imports remain.
 
-Runtime artifact `9899304858` supersedes `9891437190` as the newest exact physical-Windows-XP startup candidate. Physical XP must determine whether this exact artifact starts and advances beyond the last documented loader edge `KERNEL32!InitOnceExecuteOnce`.
+`GetApplicationRestartSettings` now has a second confirmed production owner in `widget/windows/nsWindow.cpp`: `GetQuitType()` directly calls `::GetApplicationRestartSettings(...)`. This is independent of the previously guarded owner in `toolkit/xre/nsAppRunner.cpp` and explains why the import survives that earlier remediation. The actual remaining source/link owner for `GetNamedPipeServerProcessId` still requires confirmation against the current work branch.
 
-Current compatibility next steps are separate:
+Current compatibility next steps are separate and ordered:
 
-1. physically execute exact runtime artifact `9899304858` on Windows XP SP3 x86 and bind the observation to run `33757305364` / source `2b1cf7e...`;
-2. investigate why `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId` remain in `xul.dll` despite the accepted source-remediation guards, then eliminate them or explicitly change their classification with evidence rather than treating workflow GREEN as closure.
+1. capture the XP exception code and stack for the stable `kernel32!RaiseException+0x53` crash (for example paired Dr. Watson/Application Error detail) and bind it to runtime artifact `9899304858` / run `33757305364` / source `2b1cf7e...`;
+2. independently remove `GetApplicationRestartSettings` from `widget/windows/nsWindow.cpp` under the source-local `MOZ_XP_COMPAT` contract and identify/eliminate the remaining `GetNamedPipeServerProcessId` owner;
+3. rebuild, require both known Vista+ hard imports to disappear from the final ordinary `xul.dll` import table, then repeat physical XP startup.
 
-No GOST TLS runtime or handshake conclusion follows from this compatibility build.
+Do not reopen already-proven msvcr14x, bcrypt, D3DCompiler, or narrow-YY families merely because the browser currently throws during XP startup. No GOST TLS runtime or handshake conclusion follows from this compatibility result.
 
 ## Residual low-level YY line
 
@@ -112,9 +122,9 @@ Focused proof also exists for the two API names that produced the last three bro
 
 Focused evidence: source `d6391b43f6af91ed2548372a59fc7a5bfe26a5e9`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33741674218`, job `100604798167`, result GREEN.
 
-Full-Firefox integration evidence now also exists for these two APIs: source `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`, run `33757305364`, job `100654730312`, result GREEN. The predecessor three GMP rows are absent from the exact diagnostics. Physical XP remains the final runtime boundary.
+Full-Firefox integration evidence now also exists for these two APIs: source `2b1cf7e1b59881b935c7f695a54edd6b92c8066e`, run `33757305364`, job `100654730312`, result GREEN. The predecessor three GMP rows are absent from the exact diagnostics.
 
-The last documented physical XP loader edge remains `KERNEL32!InitOnceExecuteOnce` until a newer exact physical-XP artifact advances beyond it.
+The previous physical-XP loader edge `KERNEL32!InitOnceExecuteOnce` is superseded for runtime artifact `9899304858`. The current exact physical-XP boundary is the stable startup exception reported at XP `kernel32.dll+0x12afb`, corresponding to `kernel32!RaiseException+0x53`; the underlying exception code/caller remains open.
 
 ## KERNEL32 source-remediation quartet — source-integrated but not import-closed
 
@@ -138,19 +148,22 @@ The work branch reached exact HEAD `ebe325ad87232f68ca01d7e4c63be14f9c4ee74b` af
 
 ### Application Restart
 
-Production owner: `toolkit/xre/nsAppRunner.cpp`.
+Known production owners now include:
 
-For the XP translation unit, the complete `RegisterApplicationRestartChanged` callback and its preference registration are intended to be compiled out under `MOZ_XP_COMPAT`. The surrounding Windows startup facilities remain intact. The XP release does not emulate the Vista+ Application Restart facility.
+- `toolkit/xre/nsAppRunner.cpp` — previously guarded under `MOZ_XP_COMPAT`;
+- `widget/windows/nsWindow.cpp` — `GetQuitType()` still directly calls `::GetApplicationRestartSettings(...)` in current source and therefore remains an open XP owner.
+
+For XP, the Application Restart feature has no useful semantic equivalent and should be compiled out at each actual owner under the source-local `MOZ_XP_COMPAT` contract. The surrounding Windows startup/window facilities should remain intact.
 
 ### Modern UIA client detection
 
-Production owner: `accessible/windows/msaa/CompatibilityUIA.cpp`.
+Production owner previously remediated: `accessible/windows/msaa/CompatibilityUIA.cpp`.
 
 For the XP translation unit, Win10/Win11 UI Automation client-detection implementations are intended to be compiled out and `Compatibility::GetUiaClientPids` is a no-op. The XP release intentionally does not preserve these newer-OS features. This supersedes the earlier proposed dynamic-resolution approach for `GetNamedPipeServerProcessId`.
 
 Because `CompatibilityUIA.cpp` was a unified source, it was moved to ordinary `SOURCES` before receiving its source-local compatibility define.
 
-Full-build diagnostics from run `33757305364`, job `100654730312`, source `2b1cf7e...` show that the intended source closure is not sufficient in the final linked `xul.dll`: `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId` still survive, while `RegisterApplicationRestart` and `UnregisterApplicationRestart` do not. Treat the first two names as open until their actual remaining owner/link path is identified and corrected or their status is deliberately reclassified.
+Full-build diagnostics from run `33757305364`, job `100654730312`, source `2b1cf7e...` show that the intended source closure is not sufficient in the final linked `xul.dll`: `GetApplicationRestartSettings` and `GetNamedPipeServerProcessId` still survive, while `RegisterApplicationRestart` and `UnregisterApplicationRestart` do not. Treat the first two names as open until their actual remaining owners/link paths are corrected or their status is deliberately reclassified.
 
 Detailed status: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
@@ -172,9 +185,11 @@ Authoritative rules: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
 
 ## Evidence boundary after first full workflow GREEN
 
-Run `33757305364` proves that the full Firefox x32 build/package/runtime-archive pipeline and all current hard gates complete successfully with the established dependency/package contract, and that the previous three GMP hard-gate findings are absent. It does not prove physical Windows XP startup, and it does not prove absence of every post-XP import because the separate quartet diagnostic still exposes two surviving `xul.dll` imports outside the current hard-gate set.
+Run `33757305364` proves that the full Firefox x32 build/package/runtime-archive pipeline and all current hard gates complete successfully with the established dependency/package contract, and that the previous three GMP hard-gate findings are absent. Physical XP now disproves startup compatibility for exact runtime artifact `9899304858`: the browser fails stably at an exception raised through XP `kernel32!RaiseException+0x53`. The same build's Windows 7 x86 success confirms that this is an XP-specific runtime boundary, not a general inability of the binary to start.
 
-Future full builds must retain the inventory-driven PE/import audit. Source removal, a GREEN curated core gate, or even aggregate workflow GREEN does not by itself prove physical Windows XP startup.
+The current CI audit also does not prove absence of every post-XP import because the separate quartet diagnostic exposes two surviving ordinary `xul.dll` imports outside the current hard-gate set.
+
+Future full builds must retain the inventory-driven PE/import audit. Source removal, a GREEN curated core gate, or aggregate workflow GREEN does not by itself prove physical Windows XP startup.
 
 Final XP acceptance remains:
 
@@ -182,7 +197,7 @@ Final XP acceptance remains:
 2. successful full XP x32 build/package under the established build contract;
 3. inventory-driven audit of the complete required PE closure, distinguishing hard imports from delay-loads and shipped/runtime-required PEs from test-only/non-shipped PEs;
 4. exact artifact identity/hashes;
-5. physical Windows XP execution.
+5. physical Windows XP execution through successful browser startup and representative runtime use.
 
 A curated known-API list remains a regression gate, not exhaustive compatibility proof.
 
