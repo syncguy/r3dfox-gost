@@ -594,7 +594,7 @@ Publication identity is separate from binary source identity:
 - Actions run `33518189052`;
 - job `99890447193`;
 - conclusion **success**;
-- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50ac07204d1bec438e375ece4e84d6`;
+- tag `xp-bcrypt-v1` points directly to binary source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
 - technical prerelease ID `380563342`, title `XP bcrypt primitive v1`;
 - raw release asset ID `539647946`, name `bcrypt.dll`, size `520704`, GitHub digest `sha256:f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`.
 
@@ -692,7 +692,7 @@ Track: Windows XP x86 binary compatibility only. This is not GOST TLS runtime/ha
 Exact project identity:
 
 - branch `agent/gost-tls-poc`;
-- source-under-test `a30a701fcf50ac07204d1bec438e375ece4e84d6`;
+- source-under-test `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
 - workflow `One-Core bcrypt source XP x86 smoke`;
 - Actions run `33513084915`;
 - job `99873297193`;
