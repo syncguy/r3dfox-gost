@@ -324,7 +324,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-          targets: ${{ env:RUST_TARGET }}
+          targets: ${{ env.RUST_TARGET }}
 
       - name: Build pinned msvcr14x Release x86
         shell: powershell
@@ -1078,7 +1078,7 @@ jobs:
               if ($found.Count -ne 1) { $candidateOk = $false; break }
               $hash = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
               if ($hash -ne $expected[$dll]) {
-                throw "$dll packaged hash mismatch in $($archive.Name): expected=$($expected[$dll]) actual=$hash"
+                throw "$dll packaged hash mismatch in $($archive.Name): expected=$expected[$dll] actual=$hash"
               }
               $matches[$dll] = $hash
             }
