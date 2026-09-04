@@ -55,9 +55,10 @@ Detailed current runtime/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 - selected single-DLL `bcrypt.dll`: source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, run `33513084915`, job `99873297193`, physically proven on Windows XP and published as `xp-bcrypt-v1`.
 - legacy `D3DCompiler_47.dll` staging/packaging: source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`: focused run `33741674218`, job `100604798167`, then full integration run `33757305364`, job `100654730312`.
-- focused `NtCancelIoFileEx` YY-Thunks closure: source `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33861819326`, job `100987750213`, aggregate **success**; the dedicated `Build and run NtCancelIoFileEx YY probe` step passed. This proves the narrow YY provider can satisfy the focused XP x86 `NtCancelIoFileEx` probe; full Firefox integration/final-PE closure remains a separate build boundary.
+- `NtCancelIoFileEx` YY-Thunks closure: focused source `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2`, run `33861819326`, job `100987750213`, proved the dedicated narrow-YY probe; full Firefox integration is then proven by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`, diagnostics artifact `9937356676`, where final production `xul.dll` contains `NtCancelIoFile` and not `NtCancelIoFileEx`. Do not reopen the focused or full-integration capability without contradictory evidence.
 - the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its historical list on run `33757305364`; this is not an exhaustive XP API/DLL proof and the current audit list is broader.
 - KERNEL32 source-remediation quartet in final production `xul.dll`: first recorded strict `0/4` binary evidence is source `1a86821ccf50ac07204d1bec438e375ece4e84d6`, run `33831005002`, job `100893816677`, diagnostics artifact `9924338342`.
+- final production `xul.dll -> PROPSYS.dll` ordinary dependency is closed at current full-build static-import level by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`: the exact broad forbidden-import report contains no PROPSYS row. Historical predecessor evidence remains valid for the older binaries that did import it.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep per-PE/provider ownership narrow.
 
@@ -149,7 +150,7 @@ This is the **confirmed root cause of the observed immediate XP startup failure*
 
 When the original first-chance exception was allowed to continue before the exception filter was configured, the process later reached a secondary `C0000005` at `EIP=00000000`; that secondary access violation is not the primary blocker and should not be investigated independently unless it persists after the delay-load root cause is removed.
 
-### DPI remediation chain and completed revalidation run
+### DPI remediation chain and completed revalidation runs
 
 The root-cause proof is complete. Source remediation is implemented on `agent/winrt-source-poc`.
 
@@ -160,9 +161,7 @@ Implementation chain relevant to the completed revalidation:
 - `a784a7660b23f8270179f5464c2ac3033d7e0652` — wrap the pre-Vista DPI no-op in `#ifdef MOZ_XP_COMPAT` so the compatibility change is explicitly project-owned;
 - `a3ede2576cbc7e92ffae58ba0c49d2c38e580335` — add source-local `-DMOZ_XP_COMPAT` for `mozglue/misc/WindowsDpiInitialization.cpp` in `mozglue/misc/moz.build`.
 
-The implementation branch has since advanced beyond those commits; exact current HEAD at the documentation check is `ece185c271c1c9cc46fcd1d76eb0cadb47d8dc1d`. Do not attribute later branch changes to the older build below.
-
-The deliberately earlier full build has now completed:
+The earlier full build is:
 
 - run `33842067157`, attempt `1`;
 - job `100926221307`;
@@ -173,28 +172,44 @@ The deliberately earlier full build has now completed:
 - runtime artifact `9927582490`, digest `sha256:03d099306dd2632eabc604e1333001eca3b149c4b7b798e0f2c88269139c70a6`;
 - diagnostics artifact `9927583461`, digest `sha256:c85c7a837b7772d89bd5bef1cf750b889165e73fc6f4755b89bcd9bda5068483`.
 
-All decisive build/remediation boundaries before the final summary are GREEN: full release build, strict quartet gate, `mozglue` DPI delay-import gate, curated core-browser import gate, package creation, runtime archive creation, broad audit collection, and all three artifact uploads.
-
-Exact diagnostics from artifact `9927583461` prove:
-
-```text
-xp-dpi-source-guard.txt: result=PASS
-xp-x32-source-remediation-quartet/result.txt: result=PASS|surviving=none
-xp-x32-dpi-delay-import/result.txt: result=PASS|direct=0|delay_user32=1
-```
-
-The aggregate RED is intentional evidence from the expanded clean-XP audit. `xp-x32-forbidden-direct-imports.txt` contains exactly two rows:
+All decisive build/remediation boundaries before the final summary were GREEN. Its broad clean-XP import inventory contained exactly two rows:
 
 ```text
 libGLESv2.dll|DLL|dxgi.dll
 xul.dll|DLL|PROPSYS.dll
 ```
 
-Thus run `33842067157` does **not** represent a compilation, packaging, DPI-guard, or quartet regression. It revalidates the functional pre-Vista DPI remediation through source `424708f...`, preserves `SetProcessDPIAware` only as a USER32 delay import in `mozglue.dll`, and confirms the quartet remains `0/4`; the final RED is the deliberately broadened clean-XP dependency policy catching the already-known PROPSYS and DXGI ordinary DLL dependencies.
+The later full integration build now advances this state:
 
-Evidence boundary: run `33842067157` tests the functional pre-Vista remediation present through `fad9ec0...` plus the workflow gates in `424708f...`. It **does not** test the later `#ifdef MOZ_XP_COMPAT` wrapper or source-local owner rule from `a784a...` / `a3ede...`, nor any still-later implementation-branch changes. Final acceptance of project-owned DPI implementation still requires an exact later build containing those commits or descendants.
+- source-under-test `622a87625036e9c45a8650264336eceeb9be8753` (`fix(xp): restore Rust target expression`);
+- branch `agent/winrt-source-poc`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `33864176444`, attempt `1`;
+- job `100995134125`;
+- aggregate conclusion: **failure** only at final `GATE - Summarize XP x32 full build` after evidence collection;
+- package artifact `9937354583`, `327799880` bytes, digest `sha256:9457e3d5102bd60caa4f1cdf23a432fa21444efdd34054e688c1a8f507dc5e98`;
+- runtime artifact `9937355457`, `74916090` bytes, digest `sha256:5f60d06985e20282bf4a231a28e2bc5d8945c71ba6e92739ee162b510fda91dd`;
+- diagnostics artifact `9937356676`, `5960909` bytes, digest `sha256:88b416d3042522a2284c33617267878bb035dd750f5275aa6de98deacd8e55f6`.
 
-The runtime artifact remains useful only as a deliberately bounded physical-XP probe: if it advances past the former `SetProcessDPIAware` exception, it validates the functional remediation concept. It is not an accepted clean-XP browser because its exact static audit still contains PROPSYS and DXGI blockers. No `USER32.dll` shim, broad YY interposition, or replacement DPI API layer is part of this remediation.
+All substantive steps through build, packaging, PE audit and all three uploads are GREEN. Exact diagnostics establish:
+
+```text
+xp-x32-source-remediation-quartet/result.txt
+result=PASS|surviving=none
+
+xp-x32-dpi-delay-import/result.txt
+result=PASS|direct=0|delay_user32=1
+
+xp-x32-direct-imports.txt
+xul.dll|API|NtCancelIoFile
+
+xp-x32-forbidden-direct-imports.txt
+libGLESv2.dll|DLL|dxgi.dll
+```
+
+The same diagnostics contain `diagnostics/yy-ntcancel-capability.txt` with `capability=PASS` bound to focused evidence run `33861819326`, job `100987750213`, source `be122cfc...`. Therefore the focused `NtCancelIoFileEx` YY solution is now transferred successfully into the full Firefox build: final production `xul.dll` no longer carries `NtCancelIoFileEx` and instead retains the XP-present `NtCancelIoFile` import. The previous PROPSYS row is also absent. The aggregate RED is now **only** the separately linked ANGLE/DXGI ordinary DLL dependency.
+
+This later build also contains the later project-owned DPI implementation descendants and revalidates the DPI source/import gates, but physical Windows XP execution remains a separate acceptance boundary. No GOST TLS conclusion follows.
 
 ## Physical XP dependency baseline recorded during the same investigation
 
@@ -209,12 +224,10 @@ The current physical XP machine has:
 
 Interpretation:
 
-- `PROPSYS.dll` absence confirms that the already proven ordinary final-`xul.dll` PROPSYS dependency is incompatible with this clean-machine baseline unless source/build removes it or the project deliberately adopts an external prerequisite/app-local replacement.
-- `dxgi.dll` absence confirms that shipped `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` cannot resolve if that ANGLE path is loaded; startup criticality remains separate.
+- `PROPSYS.dll` was absent on the physical baseline and was an ordinary dependency of older `xul.dll` artifacts, but the latest full-build static evidence from run `33864176444` no longer contains a PROPSYS forbidden-import row. Treat that old direct dependency as superseded/closed at current final-binary static level; do not infer physical-XP runtime success from static removal alone.
+- `dxgi.dll` remains absent and the latest shipped `libGLESv2.dll` still ordinarily imports `dxgi.dll!CreateDXGIFactory1`; this is now the sole row in the current broad forbidden-direct-import report.
 - `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but a missing module would be a different failure class from the confirmed USER32 procedure-not-found event.
 - `UIAutomationCore.dll` exists; its exact export/version compatibility is still a separate question.
-
-These are necessary compatibility-closure findings but are not the cause of the confirmed `C06D007F` event above.
 
 ## KERNEL32 source-remediation quartet — final production `xul.dll` 0/4 proven; strict regression gate revalidated
 
@@ -251,28 +264,27 @@ and the matching final `xul.dll` ordinary-import dump contains none of:
 - `UnregisterApplicationRestart`;
 - `GetNamedPipeServerProcessId`.
 
-Therefore the quartet is **closed at final-binary ordinary-import level for source `1a86821...`**. This is static/full-build evidence only; it does not prove physical-XP runtime success or any GOST TLS behavior.
-
-Important gate-history distinction: on source `1a86821...`, the quartet step was still informational (`DIAG`). Starting with workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the same quartet condition is an evidence-preserving final gate: artifacts can still upload, but any survivor makes the final verdict RED. Run `33842067157`, job `100926221307`, source `424708f...`, then revalidated that hardened gate as **PASS / surviving=none**. Its overall failure came from the separate broadened PROPSYS/DXGI audit, not from the quartet.
+Therefore the quartet is **closed at final-binary ordinary-import level for source `1a86821...`**. Run `33864176444`, job `100995134125`, source `622a876...` revalidates the hardened quartet gate as **PASS / surviving=none**. This is static/full-build evidence only; it does not prove physical-XP runtime success or any GOST TLS behavior.
 
 Detailed quartet history: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
 ## Other proven static/runtime-closure defects
 
-### PROPSYS
+### PROPSYS — closed in latest full-build static evidence
 
-Exact diagnostics artifact `9927583461` from source `424708f...`, run `33842067157`, job `100926221307` re-confirms final `xul.dll` has an **ordinary** `PROPSYS.dll` dependency. Earlier diagnostics establish required exports including:
+Older exact diagnostics, including artifact `9927583461` from source `424708f...`, run `33842067157`, job `100926221307`, proved final `xul.dll` had an ordinary `PROPSYS.dll` dependency involving `PropVariantToString` and `VariantCompare`.
 
-- `PropVariantToString`;
-- `VariantCompare`.
+That finding is superseded for the latest final binary. Diagnostics artifact `9937356676` from source `622a876...`, run `33864176444`, job `100995134125` contains no PROPSYS row in `xp-x32-forbidden-direct-imports.txt`. Therefore PROPSYS is no longer an active current static direct-import blocker. Preserve the older evidence for historical binaries, but do not queue a new PROPSYS remediation cycle unless a later build regresses it or physical runtime evidence identifies a distinct PROPSYS path.
 
-Confirmed production ownership includes `browser/components/shell/nsWindowsShellService.cpp` plus the Windows `propsys` link and `accessible/windows/uia/UiaTextRange.cpp::CompareVariants` on the MSVC path.
+### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` — current broad static blocker
 
-Treat PROPSYS as mandatory clean-XP static closure work. Prefer narrow source/build removal before introducing an app-local PROPSYS clone. It is not reclassified as the confirmed `C06D007F` root cause merely because the DLL is absent.
+Diagnostics artifact `9937356676` from source `622a876...`, run `33864176444`, job `100995134125` contains exactly one broad forbidden direct-import row:
 
-### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1`
+```text
+libGLESv2.dll|DLL|dxgi.dll
+```
 
-Exact diagnostics artifact `9927583461` from source `424708f...`, run `33842067157`, job `100926221307` re-confirms the ordinary `libGLESv2.dll -> dxgi.dll` dependency; predecessor diagnostics establish `CreateDXGIFactory1` as the imported API. `dxgi.dll` is absent on the physical XP machine. This is a separately linked PE closure defect whose startup criticality remains to be classified after the current early startup edge is remediated.
+The corresponding direct-import inventory records `CreateDXGIFactory1`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked ANGLE/graphics PE closure defect and is now the only current broad ordinary-import blocker reported by this workflow. Its startup criticality is still a runtime question; remediate it at the `libGLESv2.dll`/ANGLE component boundary rather than through the `xul.dll` linker.
 
 ### Remaining delay/dynamic surfaces
 
@@ -315,7 +327,7 @@ A curated known-API list is a regression gate, not exhaustive compatibility proo
 
 Current proven three-extension packaging checkpoint remains source `b3d097de20b7a5711f161199a727bcfe9468bcc8`, run `32976571122`, job `98202641607`.
 
-Current corrected Russian localization package gate is source `3e2c32386f373d4693db52b32c05aa2000878def`, workflow `CryptoPro Mozilla packaging smoke`, run `33520207057`, job `99897230730`, success. The previous mass-empty Russian payload defect and final path-shape false negative are closed.
+Current corrected Russian localization package gate is source `3e2c32386f373d4693db52b32c05aa2000878def`, workflow `CryptoPro Mozilla packaging smoke`, run `33520207057`, job `99897230730`, success. The previous mass-empty-Russian-payload defect and final path-shape false negative are closed.
 
 Manual runtime evidence belongs to the exact artifact on which it was observed; do not reattribute it to later packaging-only correction builds.
 
