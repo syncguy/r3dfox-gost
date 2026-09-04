@@ -67,6 +67,39 @@ jobs:
           python config\check_spidermonkey_style.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: GATE - Verify XP DPI pre-Vista source guard
+        id: dpi-source-guard
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $path = 'mozglue\misc\WindowsDpiInitialization.cpp'
+          if (-not (Test-Path $path)) { throw "DPI initialization source missing: $path" }
+          $source = [System.IO.File]::ReadAllText($path)
+          $guardPattern = 'if\s*\(\s*!IsVistaOrLater\(\)\s*\)\s*\{\s*return\s+WindowsDpiInitializationResult::Success;\s*\}'
+          $guard = [regex]::Match(
+            $source,
+            $guardPattern,
+            [System.Text.RegularExpressions.RegexOptions]::Singleline
+          )
+          if (-not $guard.Success) {
+            throw 'XP DPI contract missing pre-Vista success/no-op guard.'
+          }
+          $directCall = $source.IndexOf(
+            'if (!SetProcessDPIAware())',
+            [System.StringComparison]::Ordinal
+          )
+          if ($directCall -lt 0) { throw 'Expected SetProcessDPIAware fallback call was not found.' }
+          if ($guard.Index -gt $directCall) {
+            throw 'XP DPI pre-Vista guard occurs after SetProcessDPIAware fallback.'
+          }
+          @(
+            "source=$path",
+            "guard_index=$($guard.Index)",
+            "setprocessdpiaware_call_index=$directCall",
+            'result=PASS'
+          ) | Set-Content -Encoding utf8 diagnostics\xp-dpi-source-guard.txt
+
       - name: Plan pagefile placement
         id: pagefile-plan
         shell: powershell
@@ -659,7 +692,7 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: DIAG - Check source-remediation quartet absent from xul.dll
+      - name: GATE - Require source-remediation quartet absent from xul.dll
         id: source-remediation-quartet
         if: steps.build-release.outcome == 'success'
         continue-on-error: true
@@ -670,17 +703,15 @@ jobs:
           $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-source-remediation-quartet'
           New-Item -ItemType Directory -Force $diag | Out-Null
           if (-not (Test-Path $xul)) {
-            'result=WARN|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            Write-Warning "xul.dll missing for source-remediation quartet diagnostic: $xul"
-            exit 0
+            'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            throw "xul.dll missing for source-remediation quartet gate: $xul"
           }
           $raw = (& dumpbin.exe /nologo /imports $xul 2>&1 | Out-String)
           $dumpbinExit = $LASTEXITCODE
           $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
           if ($dumpbinExit -ne 0) {
-            "result=WARN|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            Write-Warning "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
-            exit 0
+            "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
           }
           $apis = @(
             'GetApplicationRestartSettings',
@@ -696,12 +727,60 @@ jobs:
           }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-quartet-imports.txt')
           if ($hits.Count -gt 0) {
-            ("result=WARN|surviving=" + ($hits -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            Write-Warning ("xul.dll still imports source-remediation quartet members: " + ($hits -join ', '))
-          } else {
-            'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            Write-Host 'xul.dll contains none of the four source-remediation imports.'
+            ("result=FAIL|surviving=" + ($hits -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+            throw ("xul.dll still imports source-remediation quartet members: " + ($hits -join ', '))
           }
+          'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+          Write-Host 'xul.dll contains none of the four source-remediation imports.'
+
+      - name: GATE - Verify mozglue SetProcessDPIAware stays delay-loaded
+        id: dpi-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Join-Path $env:OBJDIR 'dist\bin\mozglue.dll'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-dpi-delay-import'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          if (-not (Test-Path $dll)) { throw "mozglue.dll missing for DPI import-mode gate: $dll" }
+          $raw = @(& dumpbin.exe /nologo /imports $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for mozglue.dll' }
+          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'mozglue.dll-imports.txt')
+
+          $mode = 'none'
+          $currentDll = ''
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($line in $raw) {
+            if ($line -match '^\s*Section contains the following imports:\s*$') {
+              $mode = 'direct'
+              $currentDll = ''
+              continue
+            }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
+              $mode = 'delay'
+              $currentDll = ''
+              continue
+            }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
+              $currentDll = $matches[1]
+              continue
+            }
+            if ($line.IndexOf('SetProcessDPIAware', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              $hits.Add("$mode|$currentDll|$($line.Trim())")
+            }
+          }
+          $hits | Set-Content -Encoding utf8 (Join-Path $diag 'setprocessdpiaware-import-mode.txt')
+          $directHits = @($hits | Where-Object { $_ -like 'direct|*' })
+          $delayUser32Hits = @($hits | Where-Object { $_ -match '(?i)^delay\|USER32\.dll\|' })
+          if ($directHits.Count -gt 0) {
+            throw 'mozglue.dll has an ordinary SetProcessDPIAware import; XP startup would remain loader-incompatible.'
+          }
+          if ($delayUser32Hits.Count -ne 1 -or $hits.Count -ne 1) {
+            throw "Expected exactly one USER32.dll delay import for SetProcessDPIAware; observed: $($hits -join '; ')"
+          }
+          'result=PASS|direct=0|delay_user32=1' |
+            Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
 
       - name: GATE - Reject proven core browser XP direct imports
         id: sync-import-gate
@@ -1034,16 +1113,25 @@ jobs:
             $importsRaw | Set-Content -Encoding utf8 (Join-Path $diagRoot "$safe-imports.txt")
             $dlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
             $apis = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $delayDlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $delayApis = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
             $mode = 'none'
             foreach ($line in $importsRaw) {
               if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
               if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
-              if ($mode -ne 'direct') { continue }
-              if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { [void]$dlls.Add($matches[1]); continue }
+              if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
+                if ($mode -eq 'direct') { [void]$dlls.Add($matches[1]) }
+                elseif ($mode -eq 'delay') { [void]$delayDlls.Add($matches[1]) }
+                continue
+              }
               $entry = $line.Trim()
-              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') { [void]$apis.Add((Normalize-Api $matches[1])) }
+              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+                $api = Normalize-Api $matches[1]
+                if ($mode -eq 'direct') { [void]$apis.Add($api) }
+                elseif ($mode -eq 'delay') { [void]$delayApis.Add($api) }
+              }
             }
-            return @{ Dlls=$dlls; Apis=$apis }
+            return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis }
           }
 
           $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-import-audit'
@@ -1062,6 +1150,8 @@ jobs:
             '^(?i)SHCORE\.dll$',
             '^(?i)PATHCCH\.dll$',
             '^(?i)NORMALIZ\.dll$',
+            '^(?i)PROPSYS\.dll$',
+            '^(?i)DXGI\.dll$',
             '^(?i)VCRUNTIME140(?:_1)?\.dll$'
           )
           $forbiddenApis = @(
@@ -1081,11 +1171,14 @@ jobs:
             'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation',
             'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
             'GetUserPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
+            'GetNamedPipeServerProcessId','SetProcessDPIAware',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
 
           $hits = [System.Collections.Generic.List[string]]::new()
           $rows = [System.Collections.Generic.List[string]]::new()
+          $delayRows = [System.Collections.Generic.List[string]]::new()
           foreach ($target in $targets) {
             $imports = Read-Binary $target $diagRoot
             foreach ($dll in @($imports.Dlls | Sort-Object)) {
@@ -1098,9 +1191,16 @@ jobs:
               $rows.Add("$($target.FullName)|API|$api")
               if ($forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") }
             }
+            foreach ($dll in @($imports.DelayDlls | Sort-Object)) {
+              $delayRows.Add("$($target.FullName)|DLL|$dll")
+            }
+            foreach ($api in @($imports.DelayApis | Sort-Object)) {
+              $delayRows.Add("$($target.FullName)|API|$api")
+            }
           }
 
           $rows | Set-Content -Encoding utf8 xp-x32-direct-imports.txt
+          $delayRows | Set-Content -Encoding utf8 xp-x32-delay-imports.txt
           $hits | Sort-Object -Unique | Set-Content -Encoding utf8 xp-x32-forbidden-direct-imports.txt
           if ($hits.Count -gt 0) { throw 'Known direct post-XP imports survived; see xp-x32-forbidden-direct-imports.txt' }
 
@@ -1135,8 +1235,10 @@ jobs:
             configure-xp-x32.log
             xp-x32-retargeted-pe.txt
             xp-x32-direct-imports.txt
+            xp-x32-delay-imports.txt
             xp-x32-forbidden-direct-imports.txt
             xp-x32-source-remediation-quartet/**
+            xp-x32-dpi-delay-import/**
             xp-x32-sync-import-gate/**
             xp-x32-import-audit/**
             diagnostics/**
@@ -1148,6 +1250,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $checks = @(
+            @{ Name='dpi-source-guard'; Outcome='${{ steps.dpi-source-guard.outcome }}' },
+            @{ Name='source-remediation-quartet'; Outcome='${{ steps.source-remediation-quartet.outcome }}' },
+            @{ Name='dpi-import-mode'; Outcome='${{ steps.dpi-import-gate.outcome }}' },
             @{ Name='core-import'; Outcome='${{ steps.sync-import-gate.outcome }}' },
             @{ Name='retargeted-d3dcompiler'; Outcome='${{ steps.verify-retargeted-d3dcompiler.outcome }}' },
             @{ Name='packaged-d3dcompiler'; Outcome='${{ steps.verify-legacy-d3dcompiler.outcome }}' },
@@ -1167,7 +1272,10 @@ jobs:
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP source defines: MOZ_NO_WINRT + MOZ_XP_COMPAT via CFLAGS/CXXFLAGS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Source-remediation quartet diagnostic: ${{ steps.source-remediation-quartet.outcome }} (informational/non-blocking)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- DPI pre-Vista source guard: ${{ steps.dpi-source-guard.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-remediation quartet gate: ${{ steps.source-remediation-quartet.outcome }} (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- mozglue SetProcessDPIAware import-mode gate: ${{ steps.dpi-import-gate.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; synchronization.lib + narrow provider are injected through global target LDFLAGS; full kernel32.lib remains prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
