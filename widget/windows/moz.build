@@ -94,7 +94,6 @@ UNIFIED_SOURCES += [
     "nsToolkit.cpp",
     "nsUserIdleServiceWin.cpp",
     "nsUXThemeData.cpp",
-    "nsWindow.cpp",
     "nsWindowDbg.cpp",
     "nsWindowGfx.cpp",
     "nsWindowLoggedMessages.cpp",
@@ -139,11 +138,13 @@ SOURCES += [
     "nsFilePicker.cpp",
     "nsSharePicker.cpp",
     "nsWidgetFactory.cpp",
+    "nsWindow.cpp",
     "OSKInputPaneManagerLegacy.cpp",
     "WinCompositorWidget.cpp",
     "WindowsSMTCProvider.cpp",
     "WindowsUIUtils.cpp",
 ]
+SOURCES["nsWindow.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["WindowsUIUtils.cpp"].flags += ["-DMOZ_NO_WINRT"]
 
 # Needs INITGUID and we don't allow INITGUID in unified sources since bug 970429.
