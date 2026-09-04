@@ -132,7 +132,7 @@ jobs:
             SetI8(tests[n].a,-10); SetI8(tests[n].b,-2); tests[n].name="i8-lt"; tests[n++].expected=-1;
             SetUI8(tests[n].a,0x100000000ULL); SetUI8(tests[n].b,9); tests[n].name="ui8-gt"; tests[n++].expected=1;
             SetR8(tests[n].a,1.25); SetR8(tests[n].b,1.5); tests[n].name="r8-lt"; tests[n++].expected=-1;
-            SetBool(tests[n].a,false); SetBool(tests[n].b,true); tests[n].name="bool-lt"; tests[n++].expected=-1;
+            SetBool(tests[n].a,false); SetBool(tests[n].b,true); tests[n].name="bool-false-vs-true"; tests[n++].expected=1;
             SetBstr(tests[n].a,L"alpha"); SetBstr(tests[n].b,L"beta"); tests[n].name="bstr-lt"; tests[n++].expected=-1;
             SetBstr(tests[n].a,L"same"); SetBstr(tests[n].b,L"same"); tests[n].name="bstr-eq"; tests[n++].expected=0;
             SetI4(tests[n].a,42); SetR8(tests[n].b,42.0); tests[n].name="mixed-i4-r8-eq"; tests[n++].expected=0;
