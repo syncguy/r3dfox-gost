@@ -258,6 +258,13 @@ ClientWin::ClientWin(Config config, int* rc) : ClientBase(std::move(config)) {
     internal::GetPipeNameForClient(configuration().name,
                                    configuration().user_specific);
   if (!pipename.empty()) {
+  #ifdef MOZ_XP_COMPAT
+    // GetNamedPipeServerProcessId is unavailable on Windows XP. The pipe
+    // connection remains usable without the optional agent PID/path metadata.
+    if (ConnectToPipe(pipename, &hPipe_) == ERROR_SUCCESS) {
+      *rc = 0;
+    }
+  #else
     unsigned long pid = 0;
     if (ConnectToPipe(pipename, &hPipe_) == ERROR_SUCCESS &&
         GetNamedPipeServerProcessId(hPipe_, &pid)) {
@@ -270,6 +277,7 @@ ClientWin::ClientWin(Config config, int* rc) : ClientBase(std::move(config)) {
         agent_info().binary_path = std::move(binary_path);
       }
     }
+  #endif
   }
 
   if (*rc != 0) {
