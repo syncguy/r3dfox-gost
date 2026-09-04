@@ -56,6 +56,7 @@ Detailed current runtime/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 - legacy `D3DCompiler_47.dll` staging/packaging: source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`: focused run `33741674218`, job `100604798167`, then full integration run `33757305364`, job `100654730312`.
 - the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its historical list on run `33757305364`; this is not an exhaustive XP API/DLL proof and the current audit list is broader.
+- KERNEL32 source-remediation quartet in final production `xul.dll`: first recorded strict `0/4` binary evidence is source `1a86821ccf50ac07204d1bec438e375ece4e84d6`, run `33831005002`, job `100893816677`, diagnostics artifact `9924338342`.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep per-PE/provider ownership narrow.
 
@@ -195,7 +196,7 @@ Interpretation:
 
 These are necessary compatibility-closure findings but are not the cause of the confirmed `C06D007F` event above.
 
-## KERNEL32 source-remediation quartet — source remediated, strict final 0/4 gate active
+## KERNEL32 source-remediation quartet — final production `xul.dll` 0/4 proven; strict regression gate active on later workflow
 
 Predecessor final `xul.dll` diagnostics from artifact `9899307128` proved two surviving ordinary KERNEL32 imports:
 
@@ -204,14 +205,37 @@ Predecessor final `xul.dll` diagnostics from artifact `9899307128` proved two su
 
 `RegisterApplicationRestart` and `UnregisterApplicationRestart` were absent.
 
-The implementation chain source-remediates the remaining owners:
+The implementation chain source-remediated the remaining owners:
 
 - `widget/windows/nsWindow.cpp::GetQuitType()` excludes `GetApplicationRestartSettings` under source-local `MOZ_XP_COMPAT`;
 - `third_party/content_analysis_sdk/browser/src/client_win.cc` preserves the pipe connection but excludes optional `GetNamedPipeServerProcessId` PID/path metadata under source-local `MOZ_XP_COMPAT`.
 
-Starting with workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the quartet check is an evidence-preserving final gate: the step may continue so later artifacts are uploaded, but any survivor makes the final verdict RED. Required acceptance is strict `0/4` in final `xul.dll`.
+The first recorded final-production `0/4` proof in this remediation lineage is:
 
-Current active run `33842067157`, job `100926221307`, source `424708f...` will provide a new exact quartet result if it reaches the post-build gate. Until then, do not infer quartet closure from source guards alone.
+- source-under-test `1a86821ccf50ac07204d1bec438e375ece4e84d6`;
+- run `33831005002`;
+- job `100893816677`;
+- aggregate run/job conclusion **success**;
+- diagnostics artifact `9924338342`, digest `sha256:aca17ca427c5f55ccb1a7f838a9d82ae1e07bc68b12cd1061173fb81699a3b09`.
+
+Inside that exact diagnostics artifact, `xp-x32-source-remediation-quartet/result.txt` reports:
+
+```text
+result=PASS|surviving=none
+```
+
+and the matching final `xul.dll` ordinary-import dump contains none of:
+
+- `GetApplicationRestartSettings`;
+- `RegisterApplicationRestart`;
+- `UnregisterApplicationRestart`;
+- `GetNamedPipeServerProcessId`.
+
+Therefore the quartet is **closed at final-binary ordinary-import level for source `1a86821...`**. This is static/full-build evidence only; it does not prove physical-XP runtime success or any GOST TLS behavior.
+
+Important gate-history distinction: on source `1a86821...`, the quartet step was still informational (`DIAG`). Starting with later workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, the same quartet condition is an evidence-preserving final gate: artifacts can still upload, but any survivor makes the final verdict RED. Thus run `33831005002` is the first recorded binary `0/4` closure; later runs validate the hardened regression-gate semantics rather than establish the first closure.
+
+Current active run `33842067157`, job `100926221307`, source `424708f...` remains relevant to the separate DPI remediation and to revalidation under the strict quartet gate, but it is not the first quartet-closure evidence.
 
 Detailed quartet history: `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md`.
 
