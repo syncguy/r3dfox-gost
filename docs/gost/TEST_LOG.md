@@ -8,6 +8,81 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-04 — focused ADVAPI32 ETW XP x86 probe passes through narrow YY-Thunks provider after physical `EventRegister` startup failure
+
+Track: Windows XP SP3 x86 compatibility / focused ADVAPI32 ETW import closure only. This is not full Firefox integration, physical-XP browser acceptance, or GOST TLS runtime/handshake evidence.
+
+The focused experiment was motivated by a new physical startup failure of the immediately preceding full browser. Exact failing-browser identity:
+
+- branch `agent/winrt-source-poc`;
+- full-browser source-under-test `622a87625036e9c45a8650264336eceeb9be8753`;
+- full-build run `33864176444`, job `100995134125`;
+- exact runtime artifact `9937355457`, digest `sha256:5f60d06985e20282bf4a231a28e2bc5d8945c71ba6e92739ee162b510fda91dd`.
+
+On physical Windows XP SP3 x86, that exact browser advances beyond the previously closed `SetProcessDPIAware` and `NtCancelIoFileEx` edges but the loader stops with:
+
+```text
+r3dfox.exe - Entry Point Not Found
+The procedure entry point EventRegister could not be located in the dynamic link library ADVAPI32.dll.
+```
+
+The matching production diagnostics artifact `9937356676` shows that final `xul.dll` owns an ordinary ADVAPI32 ETW family containing all four names targeted by the focused test:
+
+```text
+EventRegister
+EventUnregister
+EventWrite
+EventWriteTransfer
+```
+
+Exact focused source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `53971dcfdf12e7bcd7f35692ff2c02fb3360d792` (`test(xp): add focused ADVAPI32 ETW YY probe`);
+- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core KERNEL32 cluster smoke`;
+- Actions run `33882235341`, attempt `1`;
+- job `101053403554` (`Core post-XP API cluster / XP x86`);
+- aggregate run/job conclusion: **success**.
+
+Exact focused artifacts:
+
+- runtime artifact `9940665095` (`xp-core-kernel32-cluster-runtime`), `664101` bytes, digest `sha256:0fa3b523fb949bc364fc70abd1496b15f2e92590062077600135ff55bd731b01`;
+- diagnostics artifact `9940665687` (`xp-core-kernel32-cluster-diagnostics`), `1059759` bytes, digest `sha256:e853d7128c092420c3d2e1da0184137fcd7ae42d0b439f5ead8acbc3e243964f`.
+
+The exact job is fully GREEN. In particular, `Build and run ADVAPI32 ETW YY probe` completed successfully after the existing KERNEL32 cluster, PE/import gate and `NtCancelIoFileEx` YY probe, and the runtime/diagnostics uploads and final verdict also completed successfully.
+
+Diagnostics artifact `9940665687` proves the physically narrow alias/provider contract. `yy-etw-capability.txt` records one exact `AdvAPI32.Lib_WeakAlias` direct/import pair for each API:
+
+```text
+EventRegister      -> _EventRegister@16.obj / _EventRegister@16.obi
+EventUnregister    -> _EventUnregister@8.obj / _EventUnregister@8.obi
+EventWrite         -> _EventWrite@20.obj / _EventWrite@20.obi
+EventWriteTransfer -> _EventWriteTransfer@28.obj / _EventWriteTransfer@28.obi
+implementation=proven NARROW_YY_LIB common object
+capability=PASS
+```
+
+The focused linker map selects all four YY bodies:
+
+```text
+_YY_Thunks_EventRegister@16
+_YY_Thunks_EventUnregister@8
+_YY_Thunks_EventWrite@20
+_YY_Thunks_EventWriteTransfer@28
+```
+
+The final focused executable import gate retains none of the four native ETW entry points. Hosted execution reports status `0` for all four calls and:
+
+```text
+ADVAPI32 ETW family: PASS
+```
+
+Conclusion: **PASS / FOCUSED ADVAPI32 ETW YY-THUNKS CLOSURE PROVEN FOR ALL FOUR PRODUCTION NAMES.** The selected YY-Thunks 1.2.2 weak-alias pairs plus the already-proven common narrow implementation can satisfy `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer` without broad ADVAPI32 interposition.
+
+Evidence boundary: this focused smoke does **not** prove that production Firefox `xul.dll` has stopped importing these four APIs. The exact full browser that motivated this test still physically fails on `ADVAPI32!EventRegister`. Full-integration closure therefore remains open until a new full XP x32 Firefox build, tied to its own exact source/run/job, injects only these four aliases, requires all four absent from final `xul.dll`, and is then tested on physical XP. The independent `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` static blocker remains separate and must not be conflated with this `xul.dll` ETW line.
+
+---
+
 ## 2026-09-04 — full XP x32 Firefox integrates `NtCancelIoFileEx` YY closure; aggregate RED only on DXGI
 
 Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration and static dependency closure only. This is not physical-XP browser runtime proof and not GOST TLS runtime/handshake evidence.
