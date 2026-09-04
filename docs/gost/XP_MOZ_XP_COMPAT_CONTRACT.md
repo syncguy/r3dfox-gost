@@ -1,6 +1,6 @@
 # Windows XP x86 — MOZ_XP_COMPAT build contract
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 Track: Windows XP SP3 x86 compatibility only. This document does not describe or prove GOST TLS runtime behavior.
 
@@ -81,6 +81,36 @@ Because `CompatibilityUIA.cpp` originally belonged to `UNIFIED_SOURCES`, the bui
 SOURCES["CompatibilityUIA.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 ```
 
+### `mozglue/misc/WindowsDpiInitialization.cpp`
+
+The physical-XP startup failure of runtime artifact `9899304858` from run `33757305364` was debugger-confirmed as the MSVC delay-load exception `C06D007F` for `USER32.dll!SetProcessDPIAware`, with `pfnCur == 0` and `dwLastError == ERROR_PROC_NOT_FOUND (0x7f)`.
+
+Current implementation commits on `agent/winrt-source-poc`:
+
+- `fad9ec0b5a09c50f6cff39a00a3ea4cedd99cdf2` — initial pre-Vista success/no-op source remediation;
+- `a784a7660b23f8270179f5464c2ac3033d7e0652` — `fix(xp): scope DPI startup guard to MOZ_XP_COMPAT`;
+- `a3ede2576cbc7e92ffae58ba0c49d2c38e580335` — `build(xp): mark WindowsDpiInitialization as XP-owned`.
+
+The project-owned boundary is intentionally visible in source:
+
+```cpp
+#ifdef MOZ_XP_COMPAT
+  if (!IsVistaOrLater()) {
+    return WindowsDpiInitializationResult::Success;
+  }
+#endif
+```
+
+`WindowsDpiInitialization.cpp` is already an ordinary `SOURCES` entry, so no unified-source extraction is required. Its owner rule is:
+
+```python
+SOURCES["WindowsDpiInitialization.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+```
+
+The source-local flag is retained even though the canonical XP workflow also supplies the build-wide macro. This makes the exact translation unit visibly project-owned and protects the compatibility boundary from becoming dependent only on an external workflow definition.
+
+Normal non-XP builds retain the upstream DPI path because the pre-Vista no-op is compiled only under `MOZ_XP_COMPAT`.
+
 ## Relationship to `MOZ_NO_WINRT`
 
 Existing `MOZ_NO_WINRT` source remediations remain valid and must not be rewritten merely for naming consistency.
@@ -94,29 +124,31 @@ The canonical full XP x32 workflow activates both macros because both classes of
 
 Future XP-specific source exclusions should normally use `MOZ_XP_COMPAT` unless a narrower existing subsystem flag is semantically more correct.
 
-## Non-blocking quartet diagnostic
+## Evidence-preserving quartet gate
 
-The canonical XP full-build workflow performs an informational post-build check of `dist/bin/xul.dll` for the source-remediation quartet:
+The canonical XP full-build workflow checks final `dist/bin/xul.dll` for the source-remediation quartet:
 
 - `GetApplicationRestartSettings`;
 - `RegisterApplicationRestart`;
 - `UnregisterApplicationRestart`;
 - `GetNamedPipeServerProcessId`.
 
-This diagnostic records `dumpbin /imports` output and any surviving names under `xp-x32-source-remediation-quartet/`. It is intentionally non-blocking: a surviving name is reported as `WARN`, not used as the final workflow verdict. The inventory-driven broad PE/import audit and physical-XP runtime remain the authoritative acceptance boundaries.
+Starting with workflow commit `424708f1d8e754f752e108259b331fcd2ec3615b`, this is no longer merely informational. The step remains `continue-on-error: true` so packaging and diagnostics can still be collected, but a surviving quartet member makes that gate fail and is included in the final RED verdict. The required accepted result is strict `0/4` in final `xul.dll`.
+
+The same workflow revision also records delay-import inventory separately from ordinary imports and checks the `mozglue.dll` `SetProcessDPIAware` import mode independently. Delay-import presence alone is not an XP failure; runtime reachability and source guards remain separate acceptance facts.
 
 ## Acceptance rules
 
 A `MOZ_XP_COMPAT` remediation is considered source-integrated when all of the following are true:
 
-1. the source boundary excludes the complete modern feature/reference which must not exist in the XP translation unit;
+1. the source boundary excludes the complete modern feature/reference or runtime edge which must not execute in the XP build;
 2. the owning production `moz.build` records `MOZ_XP_COMPAT` for that exact source where a source-local boundary was introduced;
 3. the canonical full XP workflow activates both `MOZ_NO_WINRT` and `MOZ_XP_COMPAT` for C/C++ compilation;
-4. neighboring functionality outside the selected feature is not unintentionally disabled;
+4. neighboring functionality outside the selected compatibility boundary is not unintentionally disabled;
 5. ordinary non-XP Windows compilation retains the original source path;
 6. no broad YY-Thunks or global shim is introduced merely to preserve a feature which the XP release does not require.
 
-Source integration does not by itself close final binary compatibility. The next full XP browser build must still pass the inventory-driven PE/import audit, and the exact accepted artifact must still be exercised on physical Windows XP.
+Source integration does not by itself close final binary compatibility. The next full XP browser build must still pass the relevant PE/import evidence gates, and the exact accepted artifact must still be exercised on physical Windows XP.
 
 ## Build-review checklist
 
@@ -124,7 +156,7 @@ When adding a new XP source remediation:
 
 - identify the exact production owner and translation unit;
 - determine whether the feature has meaningful XP semantics;
-- if it does not, prefer compile-out under `MOZ_XP_COMPAT`;
+- if it does not, prefer compile-out or runtime no-op under `MOZ_XP_COMPAT`;
 - ensure the exact owner records `-DMOZ_XP_COMPAT` in its production build configuration when it has a dedicated boundary;
 - if the owner is unified and requires source-specific flags, move only that file from `UNIFIED_SOURCES` to `SOURCES` before assigning them;
 - preserve the canonical full XP workflow's global `MOZ_NO_WINRT` + `MOZ_XP_COMPAT` build mode;
