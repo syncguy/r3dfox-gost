@@ -104,10 +104,10 @@ The current mandatory build/dependency contract remains [`XP_BUILD_CONTRACT.md`]
 
 ### Current exact boundary
 
-Latest completed full XP x32 browser:
+Latest completed full XP x32 browser remains:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test / implementation HEAD `622a87625036e9c45a8650264336eceeb9be8753` (`fix(xp): restore Rust target expression`);
+- source-under-test `622a87625036e9c45a8650264336eceeb9be8753` (`fix(xp): restore Rust target expression`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
 - run `33864176444`, attempt `1`;
 - job `100995134125`;
@@ -116,7 +116,7 @@ Latest completed full XP x32 browser:
 - diagnostics artifact `9937356676`, digest `sha256:88b416d3042522a2284c33617267878bb035dd750f5275aa6de98deacd8e55f6`;
 - aggregate workflow result **RED only at final summary**, after build/package/audit/uploads all passed.
 
-Exact current static result:
+Its static result remains:
 
 ```text
 NtCancelIoFileEx               CLOSED in final production xul.dll
@@ -128,13 +128,16 @@ libGLESv2.dll -> dxgi.dll      OPEN
 CreateDXGIFactory1             OPEN
 ```
 
-The broad forbidden-direct-import report now contains exactly one row:
+Physical XP execution of exact runtime artifact `9937355457` has now advanced the runtime boundary and fails with `ADVAPI32.dll!EventRegister` missing. The matching full-build diagnostics show final production `xul.dll` directly imports the four-name ETW family `EventRegister`, `EventUnregister`, `EventWrite`, `EventWriteTransfer`.
 
-```text
-libGLESv2.dll|DLL|dxgi.dll
-```
+Focused YY capability for that complete four-name family is now closed by:
 
-The physical XP machine does not contain `dxgi.dll`.
+- source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`;
+- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml`;
+- run `33882235341`, job `101053403554`;
+- runtime artifact `9940665095`, digest `sha256:0fa3b523fb949bc364fc70abd1496b15f2e92590062077600135ff55bd731b01`;
+- diagnostics artifact `9940665687`, digest `sha256:e853d7128c092420c3d2e1da0184137fcd7ae42d0b439f5ead8acbc3e243964f`;
+- aggregate and dedicated ADVAPI32 ETW probe result **PASS**.
 
 ### Closed in this iteration — do not leave as backlog
 
@@ -146,15 +149,16 @@ The following older TODO items are superseded by completed evidence and must not
 - focused `NtCancelIoFileEx` YY capability: run `33861819326`, job `100987750213`, source `be122cfc...`, PASS;
 - full Firefox `NtCancelIoFileEx` integration: run `33864176444`, job `100995134125`, source `622a876...`, final `xul.dll` contains `NtCancelIoFile` and not `NtCancelIoFileEx`;
 - `xul.dll -> PROPSYS.dll` ordinary dependency: absent from the latest broad forbidden-import report;
+- focused ADVAPI32 ETW YY capability for `EventRegister`, `EventUnregister`, `EventWrite`, `EventWriteTransfer`: run `33882235341`, job `101053403554`, source `53971dcf...`, PASS;
 - physical XP system-DLL baseline for PROPSYS/DXGI/UIAutomationCore/NCRYPT: already recorded.
 
 ### Open work, in order
 
-1. **Trace the remaining `CreateDXGIFactory1` owner in the exact ANGLE / `libGLESv2.dll` build.** Determine the source and target/link configuration that gives final shipped `libGLESv2.dll` its ordinary `dxgi.dll!CreateDXGIFactory1` dependency. Keep this investigation at the graphics/ANGLE component boundary; `xul.dll` link changes cannot fix another PE's import table.
-2. **Choose the narrowest XP-compatible ANGLE remediation.** Prefer an existing legacy backend/build switch/source fallback or exclusion that preserves intended XP graphics behavior. Do not introduce broad YY interposition merely to hide DXGI and do not route the problem through the `xul.dll` linker.
-3. **Rebuild under a new exact source SHA and require DXGI closure without regressions.** The broad audit must remove `libGLESv2.dll|DLL|dxgi.dll`, while `NtCancelIoFileEx`, PROPSYS, quartet, DPI, msvcr14x, bcrypt and D3DCompiler gates remain closed/green.
-4. **Physical XP acceptance of the resulting exact browser.** Require successful startup plus representative ordinary browsing. If a new runtime failure appears, bind it to that exact source/run/job/artifact and diagnose the first actual boundary rather than reopening old static families.
-5. **Optional localization-only physical probe of current artifact `9937355457`.** It may be useful to see whether startup advances past the old `SetProcessDPIAware` exception before DXGI remediation, but it cannot be called an accepted clean-XP result while the exact static gate still reports DXGI.
+1. **Transfer the proven four-name ADVAPI32 ETW alias set into the full XP x32 Firefox target-link path.** Reuse only the exact weak-alias pairs for `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer` plus the already-proven common `NARROW_YY_LIB` implementation. Do not inject full YY `advapi32.lib` or broaden interposition beyond this observed production family.
+2. **Add a strict final-production `xul.dll` ETW regression gate.** The next full build must prove all four names absent as ordinary `ADVAPI32.dll` imports before the result can be treated as browser-level integration closure.
+3. **Rebuild under a new exact source SHA and preserve all already-closed families.** Require the ETW gate, `NtCancelIoFileEx`, PROPSYS, quartet, DPI, msvcr14x, bcrypt and D3DCompiler evidence to remain green. Bind package/runtime/diagnostics artifacts to that exact run/job.
+4. **Run the exact new runtime artifact on physical XP.** The current runtime artifact `9937355457` is already classified as FAIL at `ADVAPI32!EventRegister`; do not retest it as if the focused smoke changed that binary. A successful new startup advances to the next actual runtime boundary.
+5. **Continue the independent ANGLE/DXGI static closure.** Trace the exact `CreateDXGIFactory1` owner in `libGLESv2.dll`, choose the narrowest XP-compatible graphics/backend remediation, and require `libGLESv2.dll|DLL|dxgi.dll` to disappear from the broad audit. This is a separate PE ownership line from `xul.dll` ETW integration.
 6. **Continue through remaining delay/dynamic/COM surfaces only when evidence reaches them.** WinRT API sets, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, `dwmapi.dll` and similar optional surfaces remain hypotheses until runtime or mandatory static policy makes them blocking.
 7. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
 
@@ -167,6 +171,7 @@ The following older TODO items are superseded by completed evidence and must not
 - legacy `D3DCompiler_47.dll` staging/packaging;
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`;
 - focused + full-integration `NtCancelIoFileEx` closure;
+- focused ADVAPI32 ETW YY capability for the four observed production names — **focused only; full Firefox integration still open**;
 - KERNEL32 source-remediation quartet at final-production 0/4;
 - current final-production `xul.dll -> PROPSYS.dll` ordinary-dependency closure;
 - historical `SetProcessDPIAware` root-cause diagnosis and current source/static DPI integration;
