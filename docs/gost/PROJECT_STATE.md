@@ -55,6 +55,7 @@ Detailed current runtime/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 - selected single-DLL `bcrypt.dll`: source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`, run `33513084915`, job `99873297193`, physically proven on Windows XP and published as `xp-bcrypt-v1`.
 - legacy `D3DCompiler_47.dll` staging/packaging: source `b77b22ef1e35564dfe76997d3d393d45ee697e49`, run `33349340069`, job `99359475336`.
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`: focused run `33741674218`, job `100604798167`, then full integration run `33757305364`, job `100654730312`.
+- focused `NtCancelIoFileEx` YY-Thunks closure: source `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33861819326`, job `100987750213`, aggregate **success**; the dedicated `Build and run NtCancelIoFileEx YY probe` step passed. This proves the narrow YY provider can satisfy the focused XP x86 `NtCancelIoFileEx` probe; full Firefox integration/final-PE closure remains a separate build boundary.
 - the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its historical list on run `33757305364`; this is not an exhaustive XP API/DLL proof and the current audit list is broader.
 - KERNEL32 source-remediation quartet in final production `xul.dll`: first recorded strict `0/4` binary evidence is source `1a86821ccf50ac07204d1bec438e375ece4e84d6`, run `33831005002`, job `100893816677`, diagnostics artifact `9924338342`.
 
