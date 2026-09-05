@@ -14,7 +14,7 @@ The Firefox repository is very big and so it isn't advised to blindly run rg or 
 searchfox-cli --define 'AudioContext::AudioContext' # get function impl
 searchfox-cli --define 'AudioSink' # get class definition
 searchfox-cli --path ipdl -q 'MySearchTerm' # search for a text string, restrict on path
-searchfox-cli --id AudioSink -l 150 --cpp # search for identifier audio sink in C++ code, 150 results max
+searchfox-cli --id AudioSink -l 150 --cpp # search for identifier AudioSink
 ```
 - For C++, Rust and Java code, prefer searching for identifiers with `searchfox-cli`. Use text search restricted by path otherwise.
 - Do not try to use identifier search for front-end identifiers like JS object or function names, CSS classes or HTML custom element names.
@@ -52,6 +52,160 @@ You can find the review identifier by inspecting the commit log with:
 - Ask if you should run a test. If you do, you probably want to run the test with `--headless`
 - Never submit patches to Phabricator without explicit user approval.
 - In commit messages, group reviewers use a `#` prefix: `r?#group-name` (e.g. `r?#linter-reviewers`), while individual reviewers do not: `r?username`
-- Never put `DONTBUILD` (or `CLOSED TREE`) in the `-m` message of `mach try fuzzy` / `mach try compare` when you want builds to actually run. The Gecko decision task scans the message and on `DONTBUILD` strips every task from the graph: the decision task itself succeeds (Treeherder shows green) but no builds are scheduled.
+- Never put `DONTBUILD` (or `CLOSED TREE`) in the `-m` message of `mach try fuzzy` when you want builds to actually run. The Gecko decision task scans the message and on `DONTBUILD` strips every task from the graph: the decision task itself succeeds (Treeherder shows green) but no builds are scheduled.
 - When doing Android and Desktop front-end-only changes, use the special `./mach build faster` to skip all C++/Rust compilation.
 - Conversely, for C/C++/Obj-C/Rust only changes you can use the special `./mach build binaries` to skip all front-end-related tasks.
+
+## r3dfox GOST TLS project-specific instructions
+
+These rules supplement the global Firefox instructions above and are authoritative for this fork. Treat this section as the entry point for project context recovery; it should contain durable rules and document topology, not a snapshot of the current experiment.
+
+### Repository and branch policy
+- Repository: `syncguy/r3dfox-gost`.
+- Default and active development branch: `agent/gost-tls-poc`.
+- Frozen baseline branch: `win-153`.
+- `win-153` is a protected reference snapshot. NEVER commit, push, merge, rebase, force-push, delete, fork-sync, or otherwise modify `win-153` unless the user explicitly requests that exact operation.
+- Do not infer the active working branch from an old pull request base. PR #1 historically targets `win-153`; active development remains on `agent/gost-tls-poc`.
+
+### GitHub repository mutation policy
+- If a direct repository tool exists for the requested mutation, MUST use that direct tool. The existence of an indirect workaround is not permission to use it.
+- To modify an existing UTF-8 repository file, MUST fetch the exact target file and current blob SHA, then use the direct file-update operation for that same path.
+- To create or delete a repository file, MUST use the direct file-create or file-delete operation respectively when available.
+- NEVER create a temporary GitHub Actions workflow in order to edit another repository file, commit or push repository changes, dispatch another workflow, work around GitHub App or `GITHUB_TOKEN` permissions, or delete itself after performing such an operation.
+- NEVER use a GitHub Actions runner as a surrogate repository editor when direct repository mutation tools are available.
+- NEVER use low-level Git data operations such as blob/tree/commit/ref construction to work around a failed or unavailable direct file operation unless the user explicitly authorizes that exact approach.
+- A requested change to `.github/workflows/<name>.yml` must modify only that requested workflow unless the user explicitly requests additional workflow files.
+- Before every write under `.github/workflows/`, identify and fetch the exact existing target file and its current blob SHA. After the write, verify the resulting commit and changed filenames.
+- If a workflow is `workflow_dispatch`-only and no direct workflow-dispatch operation is available, commit the requested workflow change and STOP. Ask the user to start it manually. NEVER synthesize a dispatcher workflow as a workaround.
+- Whenever asking the user to start a workflow manually, MUST provide the direct GitHub Actions workflow page in the form `https://github.com/<owner>/<repo>/actions/workflows/<workflow-file>.yml`, where the `Run workflow` control is available.
+- In the same manual-launch instruction, MUST state the exact branch name/ref the user should select in `Run workflow`; never leave the branch implicit.
+- Do not substitute a repository tree/blob link to `.github/workflows/...` or the generic Actions page for the direct workflow Actions page when manual launch is required.
+
+### Project invariants
+- Add GOST TLS support to r3dfox/Firefox through `deemru/msspi` and the Windows CryptoPro/SSPI stack.
+- Ordinary HTTPS must continue to use Firefox NSS. Only explicitly selected/allowlisted GOST TLS hosts use the MSSPI-backed transport.
+- A successful build does not prove a successful GOST TLS handshake.
+- A successful loader/import or Windows compatibility result does not prove GOST TLS runtime behavior.
+- Successful extension staging or packaging does not prove either GOST TLS behavior or Windows Vista/7 compatibility.
+- Current blockers, active implementation details, and next experiments belong in `docs/gost/PROJECT_STATE.md` and `docs/gost/TODO.md`, not in this file.
+
+### Mandatory context recovery
+At the start of every new technical chat, and again before making a technical change if the branch may have moved:
+1. Verify the repository default branch and exact current HEAD/ref relevant to the question.
+2. Read this `AGENTS.md` project-specific section.
+3. Read `docs/gost/PROJECT_STATE.md` from the current default branch for the current technical synthesis.
+4. Read `docs/gost/TODO.md` for pending, deferred, and future work.
+5. Read `docs/gost/DONE.md` when the question concerns a completed milestone, closed blocker, already-proven baseline, or hypothesis that might otherwise be reopened.
+6. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs.
+7. If the question concerns a previous build, runtime test, regression, error, failed experiment, or discarded approach, read the relevant entry in the active `docs/gost/TEST_LOG.md` and, when necessary, the dated `docs/gost/TEST_LOG_*.md` volume containing that event.
+8. If the question concerns Windows XP x86 building, staging, dependency remediation, PE imports, or physical-XP testing, read and follow `docs/gost/XP_BUILD_CONTRACT.md` before proposing or making changes.
+9. Prefer verified repository, code, workflow, run, and log state over conversational memory.
+
+Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any current or historical test-log volume without new evidence.
+
+### Evidence identity
+- Associate every GitHub Actions conclusion with the exact run ID, job ID when relevant, and source-under-test commit SHA.
+- Associate runtime logs with the exact browser/build artifact and source-under-test SHA before drawing technical conclusions.
+- Keep source-under-test identity separate from later documentation-only HEADs. A docs commit must never be cited as the binary/source SHA for an earlier build or runtime result.
+- When a run is still in progress, describe its state as provisional. Do not document a pending gate as passed or close the corresponding task before the exact run finishes.
+
+### Mandatory focused-build dependency preflight
+- When creating or repairing a focused build for a generated-object-directory target whose prerequisite closure is not already proven, MUST run a bulk non-executing dependency preflight before starting a sequence of repeated expensive real builds.
+- For Mozilla make targets, prefer the equivalent of `mozmake -C <generated-target-dir> -n -k compile` (or the target's actual final make goal): `-n` exposes the command/dependency graph without compiling and `-k` continues after dependency errors so more than the first missing edge can be collected.
+- Capture and summarize all available `No rule to make target` / `needed by` diagnostics in one pass and use that inventory to close the prerequisite set as a batch. Do not intentionally discover one missing prerequisite per long CI build when a bulk dry-run can expose the set.
+- A nonzero dry-run exit is diagnostic when the preflight is intentionally probing an incomplete closure; it MUST NOT by itself be treated as the real target failure. Keep the preflight non-gating or explicitly interpret its result as diagnostic.
+- The dry-run never replaces the real build. After prerequisite remediation, MUST execute the actual focused compile/link target and its output/binary/import gates; only those real gates prove that the target builds.
+- Dry-run dependency discovery cannot expose failures that occur only while compile/link commands execute. If it does not reveal the blocker, improve the diagnostic or proceed to the real focused gate rather than weakening that gate or claiming closure.
+- Proven reference for this methodology: `XP ANGLE libGLESv2 smoke`, run `33976858570`, job `101334969800`, workflow/head SHA `720085a648254ce4e1aa6457be71681163a7836e`, source-under-test `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31`; detailed evidence is in `docs/gost/TEST_LOG.md`.
+
+### Long-running GitHub Actions handoff
+- After creating or triggering a GitHub Actions run, verify once that the intended run exists and record its source-under-test commit SHA, run ID, job ID when available, and current state such as `queued` or `in_progress`.
+- Do **not** keep the interactive chat alive by repeatedly polling an in-progress GitHub Actions run unless the user explicitly asks to watch that run live. Long Firefox builds may take hours; repeated `queued`/`in_progress` checks add no technical evidence and are not the default workflow.
+- Once a long-running run has been successfully created and its identity is recorded, finish the current interactive task instead of waiting for the run to complete.
+- When later result checking would be useful, offer the user an optional scheduled or conditional task that will check the exact run later and report only when there is a meaningful state/result to report. Create such a task only after the user agrees; never create it implicitly merely because a build is long-running.
+- If the user does not request an automated follow-up, leave the run for a later chat/request. A later technical chat can recover it by the recorded run ID/job ID/source SHA.
+- For a genuinely short smoke test, one additional status check can be reasonable when completion is already near and the result is immediately useful, but do not enter an open-ended polling loop without explicit user direction.
+- If further technical work strictly depends on the CI result, state that dependency, hand off the running build as above, and stop. Do not turn waiting time into repeated status polling.
+
+### Mandatory GOST runtime-test preflight
+- Every GOST TLS runtime test sequence must pass the exact binary/environment/profile preflight defined in `docs/gost/STAGE2_RUNTIME_TEST_PLAN.md` before its result is accepted as evidence.
+- Verify the launched `r3dfox.exe` and `xul.dll` SHA-256 values against the authoritative build artifact for the source under test. A mismatch invalidates the test until the correct binary is launched.
+- Use the documented baseline GOST environment with diagnostic selector/mode/cipher overrides cleared unless the named test explicitly requires an override. Record any intentional deviation with the test result.
+- Start each independent runtime test sequence from a new clean test-specific Firefox profile. Reuse a process/profile only when continuity is part of the test semantics, such as Session reuse, restart-boundary, Once-fanout, or cross-host isolation experiments.
+- Bind each runtime result to source SHA, Actions run/job, artifact ID, binary hashes, profile/test identity, environment state, and sanitized capture/log identity where applicable.
+- A runtime log produced without a successful preflight is invalid evidence and must not be used to pass/fail a named SD/T test or change the current technical conclusion.
+
+### Keep project tracks separate
+There are three independent project tracks. Evidence from one track must not be used as proof for another unless a deliberately combined experiment tests both.
+
+1. **GOST TLS runtime / handshake**
+   - `nsGostSSLIOLayer`, NSPR, MSSPI, SSPI, CryptoPro, proxy lifecycle, TLS handshake, server verification, client certificates, mTLS, runtime application traffic.
+2. **Windows Vista/7 binary compatibility**
+   - Rust, YY-Thunks, VC-LTL, thunk-rs, msvcr14x, linker behavior, PE imports, loader/startup compatibility, real Windows runtime coverage.
+3. **Bundled government-system extensions**
+   - extension updater/fallback behavior, Mozilla build-system staging, installer/package manifests, portable archive contents, Firefox extension discovery/install/update runtime behavior.
+
+A workflow may reuse infrastructure from another track without changing the meaning of its evidence. Use `docs/gost/WORKFLOWS.md` to determine each workflow's intended role.
+
+### Mandatory Windows XP x86 build contract
+- `docs/gost/XP_BUILD_CONTRACT.md` is authoritative for project-built/staged Windows XP x86 dependencies and full-build migration. New chats must read it before changing this track.
+- The current physically proven reference is source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`, Actions run `33387080767`, job `99472017220`, runtime artifact `9756275917`, successfully executed on a real Windows XP machine.
+- Preserve the proven pinned/restored msvcr14x Release x86 build procedure and its dependency provenance. Do not replace it with host Win7+ redistributables or an unrestored build.
+- Require x86 PE subsystem 5.01-or-lower and audit the complete app-local runtime closure for hard post-XP imports before accepting or staging a project-built dependency.
+- `editbin` PE subsystem retargeting is never sufficient evidence of XP compatibility. It may adjust a header only after the dependency/import closure is known to be XP-safe.
+- For dependencies built from source under project control, prefer removing modern API dependencies at their source/build/dependency boundary before adding YY-Thunks or custom shims.
+- Keep per-component gates fail-fast. Once a dependency family is brought under the XP contract, do not allow a later full build to regress it while working on unrelated remaining imports.
+- A new build-contract variant is not authoritative merely because CI is green; preserve focused evidence and obtain physical XP runtime confirmation before it supersedes the current reference.
+
+### Sensitive certificate and test data
+- The repository is public. Treat all client-certificate, credential, and user-originated test data as sensitive by default.
+- NEVER commit or publish a complete client-certificate thumbprint/fingerprint, including full SHA-1, SHA-256, or other certificate hash values.
+- NEVER commit or publish client-certificate serial numbers, full subject/issuer DNs that identify the user or organization, certificate key IDs, private-key container/provider identifiers, PINs/passwords, private-key material, PFX/PKCS#12 contents, or equivalent identifying credential metadata.
+- NEVER commit or publish contents of user-filled forms, personal-cabinet responses, account identifiers, or other private application data observed during runtime tests.
+- Do not paste raw client certificates, raw private mTLS captures, or unsanitized diagnostic dumps into `PROJECT_STATE.md`, `TODO.md`, `DONE.md`, `TEST_LOG.md`, dated historical `TEST_LOG_*.md` volumes, issues, PR comments, commit messages, or CI logs.
+- Before publishing any mTLS/certificate experiment result, sanitize it. Record only protocol facts required to reproduce the engineering conclusion, such as host, build run/commit, TLS state, certificate-request presence, acceptable-CA count, abstract selector type, success/failure class, and sanitized error codes.
+- If a diagnostic selector needs a certificate identifier locally, keep the concrete value outside the repository and outside CI logs. Documentation may say `known-good client certificate`, `<local-cert-id>`, or equivalent; it must not contain the real identifier.
+- Full Git commit SHAs, GitHub Actions run/job IDs, artifact hashes, and hashes of non-sensitive build/log artifacts may still be recorded when useful for reproducibility. This exception does NOT apply to certificate fingerprints/thumbprints or other credential-derived identifiers.
+- If existing logs contain sensitive certificate/user data, summarize sanitized evidence rather than uploading or quoting the raw data.
+
+### Upstream/version policy
+- This project is based on the maintained fork `Eclipse-Community/r3dfox`, not directly on Mozilla Firefox upstream.
+- The project remains on the r3dfox/Firefox 153 baseline represented by `win-153` until the user explicitly decides to evaluate a newer r3dfox baseline.
+- Mozilla Firefox upstream advancing to 154 or later is not by itself a reason to migrate this project.
+- Monitor `Eclipse-Community/r3dfox` for its next maintained baseline. Do not migrate, rebase, or retarget this project to a 154-or-later base until r3dfox itself publishes that baseline and the user explicitly decides to evaluate the upgrade.
+
+### Documentation topology
+- `docs/gost/PROJECT_STATE.md` — current technical synthesis: architecture, confirmed current behavior, active blockers, pinned dependencies, and immediate next experiment.
+- `docs/gost/TODO.md` — forward-looking backlog only: pending, deferred, and future work.
+- `docs/gost/DONE.md` — compact registry of formally closed milestones, blockers, and conclusions. It is not a second experiment log.
+- `docs/gost/WORKFLOWS.md` — authoritative workflow-role map. Detailed run histories belong in the test logs, not here.
+- `docs/gost/TEST_LOG.md` — active append-oriented experiment/evidence log.
+- `docs/gost/TEST_LOG_*.md` — immutable dated historical evidence volumes.
+- `docs/gost/XP_BUILD_CONTRACT.md` — mandatory Windows XP x86 build/dependency contract and its physically proven reference.
+- Track-specific design documents such as `docs/gost/STAGE2_PLAN.md` and `docs/gost/EXTENSIONS.md` may contain detailed active plans/contracts for their subsystem; they do not replace `PROJECT_STATE.md`, `TODO.md`, `DONE.md`, or the test logs.
+
+### Documentation maintenance
+After a meaningful experiment:
+- Append exact evidence and the conclusion to the active `docs/gost/TEST_LOG.md`.
+- Keep completed historical `docs/gost/TEST_LOG_*.md` volumes immutable except for an explicit correction that preserves the original conclusion and explains the correction.
+- Update `docs/gost/PROJECT_STATE.md` only when the current understanding, blocker, architecture, pinned dependency, confirmed behavior, or immediate next experiment changes.
+- Keep `docs/gost/TODO.md` forward-looking. Add/reprioritize/remove pending work as evidence changes. Completed narrative must not accumulate there.
+- Update `docs/gost/DONE.md` when a milestone, blocker, or research conclusion is formally closed or reopened. Keep entries concise and point to authoritative evidence rather than duplicating the test log.
+- When a milestone closes: record the detailed evidence in `TEST_LOG.md`, update `PROJECT_STATE.md` if the current synthesis changes, remove the completed work from `TODO.md`, and add a concise closure entry to `DONE.md`.
+- When new evidence reopens a closed item: append the new evidence to `TEST_LOG.md`, restore the open work to `TODO.md`, update `PROJECT_STATE.md` if needed, and amend the corresponding `DONE.md` entry instead of silently deleting history.
+- Keep failed/rejected approaches in the active or historical test logs so future agents do not repeat them blindly.
+
+### TEST_LOG rotation procedure
+Rotate the active experiment log proactively when `docs/gost/TEST_LOG.md` becomes large enough that routine fetch/update operations are cumbersome, truncated, or risky. Rotation is normal documentation maintenance and does not require a separate user decision unless the user has requested a different archival scheme.
+
+Use this procedure:
+1. Verify the current default branch and exact HEAD immediately before rotation and fetch the current `TEST_LOG.md` blob SHA.
+2. Create `docs/gost/TEST_LOG_YYYY-MM-DD_YYYY-MM-DD.md` covering the first and last experiment dates in the active volume.
+3. Preserve the completed volume byte-for-byte when no correction is intended. Do not summarize, compact, reorder, or delete old failures during rotation.
+4. Replace `docs/gost/TEST_LOG.md` with a small new active volume linking to the immediately preceding dated volume plus `PROJECT_STATE.md`, `TODO.md`, and `DONE.md`; retain the sanitization and append-only rules.
+5. If a meaningful experiment triggered rotation, record that experiment in the new active volume in the same documentation operation.
+6. Update `PROJECT_STATE.md`, `TODO.md`, and `DONE.md` only as required by the experiment or changed evidence topology.
+7. Verify that the historical file exists, the preserved blob is unchanged when intended, links are current, and the branch HEAD is the expected docs-only descendant.
+8. Keep source-under-test identity separate from the rotation/docs commit.
+
+For later rotations, never rename or chain-rewrite older historical volumes. Create one new dated volume from the then-current active log and keep all previous dated volumes authoritative and immutable.

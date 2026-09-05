@@ -1,0 +1,191 @@
+name: Russian localization payload smoke
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/ru-localization-payload-smoke.yml"
+      - "browser/locales/**"
+      - "toolkit/locales/**"
+      - "python/mozbuild/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ru-l10n-payload:
+    name: Linux / Firefox 153 ru merge payload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      L10N_BASE: .l10n/firefox-l10n
+      MERGE_DIR: .l10n/merge-dir
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Checkout current unified Firefox Russian localization
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/mozilla-l10n/firefox-l10n.git "$L10N_BASE"
+          git -C "$L10N_BASE" sparse-checkout set ru
+          git -C "$L10N_BASE" rev-parse HEAD | tee ru-l10n-source-sha.txt
+          test -s "$L10N_BASE/ru/browser/browser/browser.ftl"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ['L10N_BASE']) / 'ru'
+          ftl = sorted(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          zero = [p for p in ftl if p.stat().st_size == 0]
+          cyr = [p for p in nonempty if any('\u0400' <= ch <= '\u04ff' for ch in p.read_text(encoding='utf-8', errors='ignore'))]
+
+          print(f'ru source: ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+          print('SOURCE EMPTY FTL PATHS:')
+          for p in zero:
+              print(p.resolve())
+          if not zero:
+              print('(none)')
+
+          Path('ru-l10n-source-empty-paths.txt').write_text(
+              ''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8'
+          )
+
+          if len(ftl) < 200:
+              raise SystemExit('Russian source tree unexpectedly small')
+          if len(nonempty) / len(ftl) < 0.98:
+              raise SystemExit('Russian source tree has too many empty Fluent files')
+          if len(cyr) / len(nonempty) < 0.90:
+              raise SystemExit('Russian source tree has too few Cyrillic Fluent files')
+          PY
+
+      - name: Run exact Firefox l10n merge primitive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf "$MERGE_DIR"
+          VENDORED_PYTHONPATH="$({
+            python3 - <<'PY'
+          from pathlib import Path
+          roots = [
+              str(p.resolve())
+              for p in sorted(Path('third_party/python').iterdir())
+              if p.is_dir() and p.name != '_venv'
+          ]
+          print(':'.join(roots))
+          PY
+          } )"
+          export PYTHONPATH="$VENDORED_PYTHONPATH${PYTHONPATH:+:$PYTHONPATH}"
+          ./mach python -c 'import moz.l10n, gitignorant; print("vendored l10n imports OK")'
+          ./mach python -m moz.l10n.bin.build \
+            --config browser/locales/l10n.toml \
+            --base "$(pwd)/$L10N_BASE" \
+            --target "$(pwd)/$MERGE_DIR" \
+            --locales ru \
+            --coverage
+
+      - name: GATE - Merged Russian tree contains real Fluent payload
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import re
+
+          root = Path(os.environ['MERGE_DIR']) / 'ru'
+          if not root.is_dir():
+              raise SystemExit(f'Merged locale directory missing: {root}')
+
+          ftl = sorted(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          zero = [p for p in ftl if p.stat().st_size == 0]
+          cyr = []
+          for p in nonempty:
+              text = p.read_text(encoding='utf-8', errors='ignore')
+              if re.search('[А-Яа-яЁё]', text):
+                  cyr.append(p)
+
+          samples = [
+              p for p in nonempty
+              if p.as_posix().endswith('browser/browser/browser.ftl')
+              or p.as_posix().endswith('browser/preferences/preferences.ftl')
+              or p.name == 'netError.ftl'
+          ]
+
+          print(f'merged ru: ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+          print('representative=' + json.dumps([str(p.resolve()) for p in samples[:20]], ensure_ascii=False))
+          print('MERGED EMPTY FTL PATHS:')
+          for p in zero:
+              print(p.resolve())
+          if not zero:
+              print('(none)')
+
+          Path('ru-merged-empty-paths.txt').write_text(
+              ''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8'
+          )
+
+          if len(ftl) < 200:
+              raise SystemExit('Merged Russian tree unexpectedly small')
+          if len(nonempty) / len(ftl) < 0.90:
+              raise SystemExit('Merged Russian Fluent payload is mostly empty')
+          if len(cyr) / len(nonempty) < 0.50:
+              raise SystemExit('Merged Russian tree contains too few Cyrillic Fluent resources')
+          if not samples:
+              raise SystemExit('No representative browser/preferences/error Fluent resource found after merge')
+
+          Path('ru-l10n-payload-summary.txt').write_text(
+              f'browser_source_sha={os.environ.get("GITHUB_SHA", "unknown")}\n'
+              f'l10n_source_sha={Path("ru-l10n-source-sha.txt").read_text().strip()}\n'
+              f'merge_root={root.resolve()}\n'
+              f'ftl_total={len(ftl)}\n'
+              f'ftl_nonempty={len(nonempty)}\n'
+              f'ftl_zero={len(zero)}\n'
+              f'ftl_cyrillic={len(cyr)}\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload localization smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ru-localization-payload-smoke-evidence
+          path: |
+            ru-l10n-source-sha.txt
+            ru-l10n-source-empty-paths.txt
+            ru-merged-empty-paths.txt
+            ru-l10n-payload-summary.txt
+            .l10n/merge-dir/ru/**
+          if-no-files-found: warn
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo '## Russian localization payload smoke' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo 'Purpose: execute the exact Firefox 153 l10n merge primitive without configuring or compiling Firefox.' >> "$GITHUB_STEP_SUMMARY"
+          echo "browser source: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          if test -f ru-l10n-source-sha.txt; then echo "firefox-l10n source: $(cat ru-l10n-source-sha.txt)" >> "$GITHUB_STEP_SUMMARY"; fi
+          if test -f ru-l10n-payload-summary.txt; then cat ru-l10n-payload-summary.txt >> "$GITHUB_STEP_SUMMARY"; fi
+          if test -s ru-l10n-source-empty-paths.txt; then
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo 'Source empty Fluent paths:' >> "$GITHUB_STEP_SUMMARY"
+            cat ru-l10n-source-empty-paths.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if test -s ru-merged-empty-paths.txt; then
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo 'Merged empty Fluent paths:' >> "$GITHUB_STEP_SUMMARY"
+            cat ru-merged-empty-paths.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
