@@ -1,0 +1,16 @@
+name: Trigger XP ANGLE libGLESv2 smoke
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - "gfx/angle/**"
+      - ".github/workflows/xp-angle-smoke-trigger.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-angle:
+    uses: syncguy/r3dfox-gost/.github/workflows/xp-angle-libglesv2-smoke.yml@agent/gost-tls-poc
