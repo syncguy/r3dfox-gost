@@ -76,3 +76,36 @@ Harness remediation on canonical/default branch `agent/gost-tls-poc`:
 Conclusion: **FAIL / HARNESS DEFECT CONFIRMED; ANGLE/DXGI EXPERIMENT NOT YET EXECUTED.** The next valid experiment must first prove that the focused harness actually produces an x86 `libGLESv2.dll`, then inspect its real PE imports. Only after that baseline is valid should the D3D11-OFF / D3D9-ON source experiment begin.
 
 Status: **current harness diagnosis; replacement validation run pending.**
+
+---
+
+## 2026-09-05 — focused ANGLE build reaches real link prerequisite and exposes missing `pure_virtual.lib`
+
+Track: Windows XP SP3 x86 compatibility / ANGLE-DXGI focused build harness only. This is not GOST TLS runtime evidence and the failed run still does not establish the final `libGLESv2.dll` import table.
+
+Exact identity:
+
+- canonical workflow branch: `agent/gost-tls-poc`;
+- workflow-trigger SHA: `6a817ae8bbfedf5b48179081a32b76a897760d4a` (`ci(xp): preserve ANGLE native warnings in smoke`);
+- checked-out source branch: `agent/winrt-source-poc`;
+- actual source-under-test SHA recorded after checkout: `3106657906d2d93e12530308982f866b81065519`;
+- workflow `.github/workflows/xp-angle-libglesv2-smoke.yml` / `XP ANGLE libGLESv2 smoke`;
+- Actions run `33965678827`, attempt `1`;
+- job `101305268403`;
+- conclusion: **failure**;
+- diagnostics artifact `9969684836` (`xp-angle-libglesv2-smoke`), digest `sha256:e36a23da111b968b3dd44c59650d887996e0f3cefe8c2e58d21d9514a1b30792`.
+
+The preceding PowerShell/native-stderr harness defect is fixed: ordinary clang warnings no longer terminate the build. The focused `libGLESv2` compile proceeds through ANGLE source compilation and resource generation, then stops at a real generated-build dependency:
+
+```text
+mozmake: *** No rule to make target '../../../../build/pure_virtual/pure_virtual.lib', needed by
+'../../../../dist/bin/libGLESv2.dll'.  Stop.
+```
+
+At the exact source-under-test SHA, `build/pure_virtual/moz.build` defines `Library("pure_virtual")`, `FORCE_STATIC_LIB = True`, so `pure_virtual.lib` is a normal sibling static-library prerequisite. The focused harness had run only `recurse_pre-export`, `recurse_export`, then direct `mozmake` in `gfx/angle/targets/libGLESv2`; that direct subdirectory invocation assumes the sibling library artifact already exists and has no rule to construct it from there.
+
+Conclusion: **FAIL / FOCUSED BUILD PREREQUISITE GAP CONFIRMED.** This is a harness/build-graph prerequisite issue, not evidence that ANGLE source cannot compile, not a `CreateDXGIFactory1` result, and not a GOST TLS result. The final `libGLESv2.dll` link/import inspection has still not been reached.
+
+Remediation: canonical workflow commit `82e4da3cb9e681d9c24c4f6e1aa2e9a3a7677bc9` explicitly builds `obj-angle-xp-x32/build/pure_virtual` and verifies `pure_virtual.lib` before invoking the focused `libGLESv2` compile. The next experiment is the automatic run triggered by that workflow commit; only its exact run/source identity may advance the ANGLE/DXGI conclusion.
+
+Status: **current focused blocker remediated in harness; validation run pending.**
