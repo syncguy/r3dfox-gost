@@ -232,7 +232,6 @@ SOURCES += [
     "../../checkout/src/libANGLE/renderer/d3d/d3d11/Program11.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d11/ProgramPipeline11.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d11/Query11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Renderer11.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d11/renderer11_utils.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d11/RenderStateCache.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d11/RenderTarget11.cpp",
