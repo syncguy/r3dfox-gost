@@ -175,3 +175,51 @@ Evidence boundary: this is a focused component build on a hosted runner. It does
 Next experiment: make the narrow XP ANGLE source/build change that disables the D3D11/DXGI path while retaining D3D9, rebuild this same focused target, and require a real x86 `libGLESv2.dll` whose import gate shows `dxgi.dll=False` / `CreateDXGIFactory1=False` while the intended D3D9 path remains present. Only after that focused result should the change move to a full XP Firefox build.
 
 Status: **current authoritative focused ANGLE/DXGI baseline; remediation still open.**
+
+---
+
+## 2026-09-05 — diagnostic-enabled focused ANGLE build is GREEN and proves bulk prerequisite preflight
+
+Track: Windows XP SP3 x86 compatibility / focused build-harness methodology using the ANGLE `libGLESv2` target. This is build-graph diagnostic evidence only; it is not physical-XP runtime proof and not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- canonical workflow branch/ref: `agent/gost-tls-poc`;
+- workflow/head SHA: `720085a648254ce4e1aa6457be71681163a7836e` (`ci(xp): add fast dependency dry-run diagnostics`);
+- checked-out source branch: `agent/winrt-source-poc`;
+- actual source-under-test SHA recorded by the artifact after checkout: `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31`;
+- workflow `.github/workflows/xp-angle-libglesv2-smoke.yml` / `XP ANGLE libGLESv2 smoke`;
+- Actions run `33976858570`, attempt `1`;
+- job `101334969800`;
+- run/job conclusion: **success**.
+
+Exact evidence artifact:
+
+- artifact `9972991054` (`xp-angle-libglesv2-smoke`), digest `sha256:b53521859aa86b88ab16a8d16f5492fbf810b1a7b67c2c9f3f62aa4772c5d043`.
+
+The new `Quick dependency dry-run diagnostics` step executes `mozmake -n -k compile` against the generated `mozglue\build` and `gfx\angle\targets\libGLESv2` target directories after configure/export setup. It records all unique lines matching `No rule to make target|needed by` rather than stopping at the first missing build-graph edge. For this exact run the summary reported:
+
+```text
+mozglue|dry_run_exit=2|missing_lines=87
+libGLESv2|dry_run_exit=2|missing_lines=422
+```
+
+These counts are matched diagnostic lines, not a count of unique prerequisite files. The nonzero dry-run exit is expected when the purpose is to inventory incomplete focused-target closure; it is diagnostic state and not the acceptance gate.
+
+The same job then executed the real prerequisite closure and build. `Build libGLESv2 link prerequisites`, `Inspect focused mozglue binary`, `Build libGLESv2 only`, and `GATE - Inspect focused libGLESv2 binary` all completed successfully. Therefore the dry-run can expose a large unresolved prerequisite set in one pass without falsely implying that the target itself cannot build once its contributors are constructed.
+
+The final PE result remains the already-established baseline:
+
+```text
+machine_x86=True
+dxgi_dll=True
+d3d9_dll=True
+CreateDXGIFactory=False
+CreateDXGIFactory1=True
+```
+
+Conclusion: **PASS / DIAGNOSTIC-ENABLED FOCUSED BUILD GREEN; BULK MISSING-PREREQUISITE PREFLIGHT PROVEN USEFUL.** For new focused generated-object-directory targets, dependency discovery should no longer proceed by repeated long builds that expose one `No rule to make target` edge at a time. A non-gating `-n -k` preflight should first collect the available missing-prerequisite inventory, then the real build and its output/binary gates remain authoritative.
+
+Evidence boundary: the preflight does not execute compilation/linking and cannot discover failures that occur only while commands run. A clean or informative dry-run is never build proof. If the dry-run cannot expose the actual blocker, improve the diagnostic or proceed to the real focused build rather than weakening its gate.
+
+Status: **current build-harness methodology baseline; generalized as a project rule in `/AGENTS.md`.**
