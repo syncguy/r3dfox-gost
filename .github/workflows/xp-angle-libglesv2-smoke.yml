@@ -192,8 +192,6 @@ jobs:
           Invoke-FocusedCompile 'build\pure_virtual'
 
           # Complete static USE_LIBS closure for gfx/angle/targets/libGLESv2.
-          # angle_common is the common root; translator additionally needs
-          # preprocessor; compression_utils_portable additionally needs zlib.
           Invoke-FocusedCompile 'gfx\angle\targets\angle_common'
           Invoke-FocusedCompile 'gfx\angle\targets\preprocessor'
           Invoke-FocusedCompile 'gfx\angle\targets\translator'
@@ -203,15 +201,56 @@ jobs:
           Invoke-FocusedCompile 'config\external\zlib'
           Invoke-FocusedCompile 'gfx\angle\targets\compression_utils_portable'
 
+          # GeckoSharedLibrary links against mozglue.lib on Windows. Build every
+          # known FINAL_LIBRARY="mozglue" contributor first, then the shared
+          # mozglue target itself, instead of discovering one missing object per run.
+          Invoke-FocusedCompile 'mfbt'
+          Invoke-FocusedCompile 'memory\build'
+          Invoke-FocusedCompile 'mozglue\baseprofiler'
+          Invoke-FocusedCompile 'mozglue\misc'
+          Invoke-FocusedCompile 'third_party\fmt'
+          Invoke-FocusedCompile 'mozglue\build'
+
           $requiredSentinels = @(
             (Join-Path $env:OBJDIR 'build\pure_virtual\pure_virtual.lib'),
-            (Join-Path $env:OBJDIR 'gfx\angle\targets\angle_common\xxhash.obj')
+            (Join-Path $env:OBJDIR 'gfx\angle\targets\angle_common\xxhash.obj'),
+            (Join-Path $env:OBJDIR 'mozglue\build\mozglue.lib')
           )
           foreach ($sentinel in $requiredSentinels) {
             if (-not (Test-Path $sentinel)) {
               throw "Focused prerequisite completed but expected output is missing: $sentinel"
             }
           }
+
+      - name: Inspect focused mozglue binary
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            (Join-Path $env:OBJDIR 'dist\bin\mozglue.dll'),
+            (Join-Path $env:OBJDIR 'mozglue\build\mozglue.dll')
+          )
+          $dll = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $dll) {
+            $dll = Get-ChildItem -Path $env:OBJDIR -Recurse -File -Filter 'mozglue.dll' | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $dll) { throw 'mozglue.lib exists but mozglue.dll was not found' }
+
+          $headers = @(& dumpbin.exe /nologo /headers $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /headers failed for mozglue.dll' }
+          $imports = @(& dumpbin.exe /nologo /imports $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for mozglue.dll' }
+          $headers | Set-Content -Encoding utf8 diagnostics\mozglue-headers.txt
+          $imports | Set-Content -Encoding utf8 diagnostics\mozglue-imports.txt
+
+          $sha256 = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          $machineX86 = [bool]($headers -match '(?im)^\s*14C machine \(x86\)')
+          @(
+            "path=$dll",
+            "sha256=$sha256",
+            "machine_x86=$machineX86"
+          ) | Set-Content -Encoding utf8 diagnostics\mozglue-result.txt
+          if (-not $machineX86) { throw 'Focused mozglue.dll is not x86' }
 
       - name: Build libGLESv2 only
         id: build-libglesv2
@@ -223,9 +262,6 @@ jobs:
           $targetMakefile = Join-Path $targetDir 'Makefile'
           if (-not (Test-Path $targetMakefile)) { throw "Generated libGLESv2 Makefile missing: $targetMakefile" }
 
-          # Windows PowerShell 5.1 wraps native stderr as NativeCommandError.
-          # Compiler warnings are expected on stderr, so do not let
-          # ErrorActionPreference=Stop terminate the smoke before mozmake exits.
           $savedErrorActionPreference = $ErrorActionPreference
           $ErrorActionPreference = 'Continue'
           try {
@@ -304,6 +340,11 @@ jobs:
           "- Branch/ref: $env:GITHUB_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Build gate: ${{ steps.build-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Binary inspection: ${{ steps.inspect-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if (Test-Path diagnostics\mozglue-result.txt) {
+            Get-Content diagnostics\mozglue-result.txt | ForEach-Object {
+              "- mozglue $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+          }
           if (Test-Path diagnostics\libGLESv2-result.txt) {
             Get-Content diagnostics\libGLESv2-result.txt | ForEach-Object {
               "- $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
