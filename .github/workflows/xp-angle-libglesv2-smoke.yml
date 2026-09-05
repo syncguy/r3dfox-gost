@@ -1,0 +1,227 @@
+name: XP ANGLE libGLESv2 smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libglesv2-x86:
+    name: ANGLE libGLESv2 / XP x86 focused build
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-angle-xp-x32
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      OBJDIR: "obj-angle-xp-x32"
+
+    steps:
+      - name: Checkout XP source branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Record experiment identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            "repo=$env:GITHUB_REPOSITORY",
+            "source=$env:GITHUB_SHA",
+            "ref=$env:GITHUB_REF",
+            'scope=focused ANGLE libGLESv2 build only'
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Record current ANGLE baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gles = 'gfx\angle\targets\libGLESv2\moz.build'
+          $gpu = 'gfx\angle\targets\angle_gpu_info_util\moz.build'
+          foreach ($path in @($gles,$gpu)) {
+            if (-not (Test-Path $path)) { throw "ANGLE generated target missing: $path" }
+          }
+          $glesText = [System.IO.File]::ReadAllText($gles)
+          $gpuText = [System.IO.File]::ReadAllText($gpu)
+          @(
+            "ANGLE_ENABLE_D3D9=$($glesText.Contains('DEFINES[\"ANGLE_ENABLE_D3D9\"] = True'))",
+            "ANGLE_ENABLE_D3D11=$($glesText.Contains('DEFINES[\"ANGLE_ENABLE_D3D11\"] = True'))",
+            "libGLESv2_dxgi_link=$($glesText -match '(?m)^\s*\"dxgi\",\s*$')",
+            "gpu_info_dxgi_link=$($gpuText -match '(?m)^\s*\"dxgi\",\s*$')",
+            "Renderer9=$($glesText.Contains('renderer/d3d/d3d9/Renderer9.cpp'))",
+            "Renderer11=$($glesText.Contains('renderer/d3d/d3d11/Renderer11.cpp'))"
+          ) | Set-Content -Encoding utf8 diagnostics\angle-source-baseline.txt
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if ($text.Contains($stale)) {
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+          }
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Write focused XP x86 mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-angle-xp-x32
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --disable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-updater
+          export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          '@ | Set-Content '.mozconfig-angle-xp-x32'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure focused x86 object directory
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 configure 2>&1 | Tee-Object diagnostics\configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C $env:OBJDIR recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C $env:OBJDIR recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build libGLESv2 only
+        id: build-libglesv2
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build gfx/angle/targets/libGLESv2 2>&1 | Tee-Object diagnostics\libglesv2-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Inspect focused libGLESv2 binary
+        id: inspect-libglesv2
+        if: steps.build-libglesv2.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            (Join-Path $env:OBJDIR 'dist\bin\libGLESv2.dll'),
+            (Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2\libGLESv2.dll')
+          )
+          $dll = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $dll) {
+            $dll = Get-ChildItem -Path $env:OBJDIR -Recurse -File -Filter 'libGLESv2.dll' | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $dll) { throw 'Focused build succeeded but libGLESv2.dll was not found' }
+
+          Copy-Item -Force $dll diagnostics\libGLESv2.dll
+          $headers = @(& dumpbin.exe /nologo /headers $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /headers failed for libGLESv2.dll' }
+          $imports = @(& dumpbin.exe /nologo /imports $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for libGLESv2.dll' }
+          $headers | Set-Content -Encoding utf8 diagnostics\libGLESv2-headers.txt
+          $imports | Set-Content -Encoding utf8 diagnostics\libGLESv2-imports.txt
+
+          $text = $imports -join "`n"
+          $machineX86 = [bool]($headers -match '(?im)^\s*14C machine \(x86\)')
+          $hasDxgi = [bool]($text -match '(?im)^\s*dxgi\.dll\s*$')
+          $hasD3d9 = [bool]($text -match '(?im)^\s*d3d9\.dll\s*$')
+          $hasFactory = [bool]($text -match '(?m)\bCreateDXGIFactory\b')
+          $hasFactory1 = [bool]($text -match '(?m)\bCreateDXGIFactory1\b')
+          $sha256 = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          @(
+            "path=$dll",
+            "sha256=$sha256",
+            "machine_x86=$machineX86",
+            "dxgi_dll=$hasDxgi",
+            "d3d9_dll=$hasD3d9",
+            "CreateDXGIFactory=$hasFactory",
+            "CreateDXGIFactory1=$hasFactory1"
+          ) | Set-Content -Encoding utf8 diagnostics\libGLESv2-result.txt
+
+          if (-not $machineX86) { throw 'Focused libGLESv2.dll is not x86' }
+          Write-Host "libGLESv2.dll SHA256: $sha256"
+          Write-Host "DXGI=$hasDxgi CreateDXGIFactory=$hasFactory CreateDXGIFactory1=$hasFactory1 D3D9=$hasD3d9"
+
+      - name: Upload focused ANGLE evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-angle-libglesv2-smoke
+          path: diagnostics
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          "## XP ANGLE libGLESv2 focused smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Branch/ref: $env:GITHUB_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Build gate: ${{ steps.build-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Binary inspection: ${{ steps.inspect-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if (Test-Path diagnostics\libGLESv2-result.txt) {
+            Get-Content diagnostics\libGLESv2-result.txt | ForEach-Object {
+              "- $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+          }
