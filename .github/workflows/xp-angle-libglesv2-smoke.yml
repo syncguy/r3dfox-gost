@@ -160,6 +160,45 @@ jobs:
           & $mozmake -C $env:OBJDIR recurse_export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Quick dependency dry-run diagnostics
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $targets = @(
+            @{ Name = 'mozglue'; Dir = 'mozglue\build' },
+            @{ Name = 'libGLESv2'; Dir = 'gfx\angle\targets\libGLESv2' }
+          )
+          $summary = New-Object System.Collections.Generic.List[string]
+
+          foreach ($target in $targets) {
+            $targetDir = Join-Path $env:OBJDIR $target.Dir
+            $targetMakefile = Join-Path $targetDir 'Makefile'
+            if (-not (Test-Path $targetMakefile)) {
+              $summary.Add("$($target.Name)|missing_makefile=$targetMakefile")
+              continue
+            }
+
+            $log = "diagnostics\quick-deps-$($target.Name).log"
+            Write-Host "=== Dry-run dependency scan: $($target.Dir) ==="
+            & $mozmake -C $targetDir -n -k compile 2>&1 | Tee-Object $log
+            $dryRunExitCode = $LASTEXITCODE
+            $missing = @(
+              Select-String -Path $log -Pattern 'No rule to make target|needed by' |
+                ForEach-Object { $_.Line.Trim() } |
+                Sort-Object -Unique
+            )
+
+            $summary.Add("$($target.Name)|dry_run_exit=$dryRunExitCode|missing_lines=$($missing.Count)")
+            foreach ($line in $missing) {
+              $summary.Add("$($target.Name)|$line")
+            }
+          }
+
+          $summary | Set-Content -Encoding utf8 diagnostics\quick-missing-prerequisites.txt
+          $summary | ForEach-Object { Write-Host $_ }
+
       - name: Build libGLESv2 link prerequisites
         shell: powershell
         run: |
@@ -346,6 +385,12 @@ jobs:
           "- Branch/ref: $env:GITHUB_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Build gate: ${{ steps.build-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Binary inspection: ${{ steps.inspect-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if (Test-Path diagnostics\quick-missing-prerequisites.txt) {
+            "### Quick dependency dry-run" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content diagnostics\quick-missing-prerequisites.txt | ForEach-Object {
+              "- $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+          }
           if (Test-Path diagnostics\mozglue-result.txt) {
             Get-Content diagnostics\mozglue-result.txt | ForEach-Object {
               "- mozglue $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
