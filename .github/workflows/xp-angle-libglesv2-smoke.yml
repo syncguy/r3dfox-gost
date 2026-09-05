@@ -38,9 +38,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $checkoutSource = (& git.exe rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $checkoutSource) { throw 'Cannot resolve checked-out source SHA' }
           @(
             "repo=$env:GITHUB_REPOSITORY",
-            "source=$env:GITHUB_SHA",
+            "workflow_sha=$env:GITHUB_SHA",
+            "checkout_source=$checkoutSource",
             "ref=$env:GITHUB_REF",
             'scope=focused ANGLE libGLESv2 build only'
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
@@ -166,8 +169,20 @@ jobs:
           $targetDir = Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2'
           $targetMakefile = Join-Path $targetDir 'Makefile'
           if (-not (Test-Path $targetMakefile)) { throw "Generated libGLESv2 Makefile missing: $targetMakefile" }
-          & $mozmake -C $targetDir compile 2>&1 | Tee-Object diagnostics\libglesv2-build.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Windows PowerShell 5.1 wraps native stderr as NativeCommandError.
+          # Compiler warnings are expected on stderr, so do not let
+          # ErrorActionPreference=Stop terminate the smoke before mozmake exits.
+          $savedErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          try {
+            & $mozmake -C $targetDir compile 2>&1 | Tee-Object diagnostics\libglesv2-build.log
+            $buildExitCode = $LASTEXITCODE
+          }
+          finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+          }
+          if ($buildExitCode -ne 0) { exit $buildExitCode }
           if (Select-String -Path diagnostics\libglesv2-build.log -SimpleMatch 'is a subdirectory and was ignored' -Quiet) {
             throw 'Focused libGLESv2 target was ignored by the build system'
           }
@@ -229,8 +244,10 @@ jobs:
         if: always()
         shell: powershell
         run: |
+          $checkoutSource = (& git.exe rev-parse HEAD).Trim()
           "## XP ANGLE libGLESv2 focused smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Workflow SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Checkout source SHA: $checkoutSource" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Branch/ref: $env:GITHUB_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Build gate: ${{ steps.build-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Binary inspection: ${{ steps.inspect-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
