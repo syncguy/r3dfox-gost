@@ -160,6 +160,19 @@ jobs:
           & $mozmake -C $env:OBJDIR recurse_export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Build pure_virtual prerequisite
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $pureVirtualDir = Join-Path $env:OBJDIR 'build\pure_virtual'
+          $pureVirtualMakefile = Join-Path $pureVirtualDir 'Makefile'
+          if (-not (Test-Path $pureVirtualMakefile)) { throw "Generated pure_virtual Makefile missing: $pureVirtualMakefile" }
+          & $mozmake -C $pureVirtualDir compile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $pureVirtualLib = Join-Path $pureVirtualDir 'pure_virtual.lib'
+          if (-not (Test-Path $pureVirtualLib)) { throw "pure_virtual compile completed but library is missing: $pureVirtualLib" }
+
       - name: Build libGLESv2 only
         id: build-libglesv2
         shell: powershell
