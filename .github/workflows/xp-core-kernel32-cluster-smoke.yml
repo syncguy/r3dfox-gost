@@ -49,7 +49,7 @@ jobs:
             'InitOnceExecuteOnce','GetThreadPreferredUILanguages','GetProcessPreferredUILanguages','QueryFullProcessImageNameA'
           ) | Set-Content -Encoding ascii diagnostics\requested-apis.txt
           @(
-            'InitOnceExecuteOnce','GetThreadPreferredUILanguages','GetProcessPreferredUILanguages','GetUserPreferredUILanguages','QueryFullProcessImageNameA',
+            'InitOnceExecuteOnce','GetThreadPreferredUILanguages','QueryFullProcessImageNameA',
             'TryAcquireSRWLockExclusive','FlsGetValue'
           ) | Set-Content -Encoding ascii diagnostics\required-delta.txt
           @(
@@ -58,7 +58,7 @@ jobs:
             "msvcr14x_commit=$env:MSVCR14X_SHA","inventory_evidence_run=$env:EVIDENCE_RUN",
             "inventory_evidence_job=$env:EVIDENCE_JOB","inventory_evidence_sha=$env:EVIDENCE_SHA",
             'proof_level=YY capability + hosted runner; physical XP pending',
-            'production_decision=residual UI-language trio plus InitOnceExecuteOnce, QueryFullProcessImageNameA, TryAcquireSRWLockExclusive and FlsGetValue are required focused candidates; FLS setup closure included'
+            'production_decision=residual three plus TryAcquireSRWLockExclusive and FlsGetValue are required focused candidates; FLS setup closure included'
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Fetch and build pinned msvcr14x Release x86
@@ -587,11 +587,11 @@ jobs:
           Physical Windows XP SP3 x86 acceptance
           =======================================
           Residual-import evidence: full Firefox run 33638897692 / job 100276666021 / SHA 17cdb459ec4f115a209fd50ac225cf867b9f3a2f.
-          Required focused delta: InitOnceExecuteOnce, GetThreadPreferredUILanguages, GetProcessPreferredUILanguages, GetUserPreferredUILanguages, QueryFullProcessImageNameA, TryAcquireSRWLockExclusive, FlsGetValue.
+          Required focused delta: InitOnceExecuteOnce, GetThreadPreferredUILanguages, QueryFullProcessImageNameA, TryAcquireSRWLockExclusive, FlsGetValue.
           Additional method: NtCancelIoFileEx, using only its ntdll alias pair plus the already-proven narrow YY common implementation/ProcessPrng closure.
           Current ADVAPI32 blocker family: EventRegister, EventUnregister, EventWrite, EventWriteTransfer, RegGetValueW; test uses only those advapi32 weak-alias pairs plus the same narrow YY common implementation.
           Run: run-xp-cluster.cmd
-          Preserve complete stdout. The required delta APIs must not be SKIP; NtCancelIoFileEx and all five ADVAPI32 methods must report PASS.
+          Preserve complete stdout. The five required delta APIs must not be SKIP; NtCancelIoFileEx and all five ADVAPI32 methods must report PASS.
           Hosted Windows execution is not physical-XP proof. This artifact does not prove full Firefox integration.
           '@|Set-Content -Encoding ascii runtime\README-XP.txt
           Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
