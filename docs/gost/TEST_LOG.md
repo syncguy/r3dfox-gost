@@ -35,3 +35,44 @@ Evidence boundary: this focused smoke proves capability only. It does **not** pr
 Next integration boundary: transfer only the proven `RegGetValueW` provider/alias solution into a new full XP x32 Firefox build, bind that build to its own exact source SHA/run/job, and require final PE/import evidence for the production binaries before declaring browser-level closure. Then test the exact resulting runtime on physical XP. Keep the independent `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` static compatibility line separate.
 
 Status: **current focused solution; full-browser integration still open.**
+
+---
+
+## 2026-09-05 — first two focused ANGLE `libGLESv2` runs expose a harness target-selection defect
+
+Track: Windows XP SP3 x86 compatibility / ANGLE-DXGI focused build harness only. This is not GOST TLS runtime evidence and neither failed run is valid evidence about the final `libGLESv2.dll` import table.
+
+Exact source/run identity shared by both manual dispatches:
+
+- source branch/ref: `agent/winrt-source-poc`;
+- source-under-test SHA: `2e4da5002f77b5cedf7285ee302da3a4bca07cea` (`test(xp): add focused ANGLE libGLESv2 smoke`);
+- workflow: `.github/workflows/xp-angle-libglesv2-smoke.yml` / `XP ANGLE libGLESv2 smoke`;
+- run `33949834809`, job `101262393084`, conclusion **failure**;
+- run `33952062351`, job `101268597022`, conclusion **failure**.
+
+Exact evidence:
+
+- run `33949834809` diagnostics artifact `9964674275` (`xp-angle-libglesv2-smoke`), digest `sha256:4c0c4a5aeee9ff331cbc861cee7aff65b7aae2e119a835c28ad2115c139ff0db`;
+- run `33952062351` diagnostics artifact `9965329387` (`xp-angle-libglesv2-smoke`), digest `sha256:e2ff47eee0b4e9cfe7856474180ea103a2f80a640f5d5e34d2610bb7691dce60`.
+
+In both jobs, step `Build libGLESv2 only` was reported GREEN and the following `GATE - Inspect focused libGLESv2 binary` failed because `libGLESv2.dll` was absent. The build log resolves the apparent contradiction. `mach build gfx/angle/targets/libGLESv2` emitted:
+
+```text
+Build argument 'gfx/angle/targets/libGLESv2' is a subdirectory and was ignored.
+...
+Your build was successful!
+```
+
+Therefore the build system did not build the requested ANGLE shared-library target at all; the subsequent missing-DLL exception is a harness consequence, not an ANGLE compile/link failure. No DXGI or D3D9 conclusion may be drawn from either run.
+
+A second diagnostics defect was also identified: `angle-source-baseline.txt` incorrectly recorded `ANGLE_ENABLE_D3D9=False` and `ANGLE_ENABLE_D3D11=False` because the PowerShell literal search contained erroneous quote escaping. The source file at this SHA actually contains both `DEFINES["ANGLE_ENABLE_D3D9"] = True` and `DEFINES["ANGLE_ENABLE_D3D11"] = True`.
+
+Harness remediation on canonical/default branch `agent/gost-tls-poc`:
+
+- commit `9b942b831b4a10da2d78556170482f946c4df35e` replaces the ignored directory-form `mach build` invocation with an explicit generated-objdir `mozmake -C obj-angle-xp-x32\gfx\angle\targets\libGLESv2 libs` target and adds a guard against the prior ignored-target warning;
+- commit `6034d61a7efdfb4903bd2e2570b2abde7a345ca2` fixes the D3D9/D3D11 baseline literal detection;
+- the focused workflow is now reusable through `workflow_call` as well as manually dispatchable, so a minimal XP-branch trigger can invoke the canonical workflow without duplicating its build logic.
+
+Conclusion: **FAIL / HARNESS DEFECT CONFIRMED; ANGLE/DXGI EXPERIMENT NOT YET EXECUTED.** The next valid experiment must first prove that the focused harness actually produces an x86 `libGLESv2.dll`, then inspect its real PE imports. Only after that baseline is valid should the D3D11-OFF / D3D9-ON source experiment begin.
+
+Status: **current harness diagnosis; replacement validation run pending.**
