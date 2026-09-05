@@ -8,6 +8,46 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-05 — full XP x32 build integrates ADVAPI32 ETW closure; build/package evidence passes and aggregate RED is final-summary only
+
+Track: Windows XP SP3 x86 compatibility / full Firefox 153 x32 integration and static dependency closure only. This is separate from the GOST TLS runtime/handshake line.
+
+Exact source/build identity:
+
+- experiment branch `agent/winrt-source-poc`;
+- source-under-test `71906b7e38e34b9c6488bc3b17468a558bdacb39`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `33901308443`, attempt `1`;
+- job `101115790491` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate job conclusion: **failure** at final `GATE - Summarize XP x32 full build` after evidence collection.
+
+Exact artifacts:
+
+- package artifact `9952185413`, `327812170` bytes, digest `sha256:6221a822a75504da9a6843f601a2fd2fc5a815c130efca64a67ee0ecc50c682d`;
+- runtime artifact `9952186334`, `74919310` bytes, digest `sha256:e9ec96752d3b138e5ee0376e5ee5592b5b8c6992282d81d86feeaff4541e36c2`;
+- diagnostics artifact `9952187613`, `5985964` bytes, digest `sha256:1f1dc82a3d8c8445c3825492ea411c94127131494c18fb54e0e3aaeb628ca046`.
+
+All substantive build/package/evidence boundaries before the aggregate RED completed successfully. In particular:
+
+- SpiderMonkey style, XP DPI pre-Vista source guard, pinned msvcr14x contract, narrow YY provider preparation/activation, Firefox configure/export and SSL target-object compilation — **PASS**;
+- full `Build release r3dfox XP x32` — **PASS**;
+- source-remediation quartet absent from final `xul.dll` gate — **PASS**;
+- ADVAPI32 ETW family absent from final `xul.dll` gate — **PASS**;
+- `mozglue` `SetProcessDPIAware` delay-load gate — **PASS**;
+- production core-browser direct-import gate — **PASS**;
+- D3DCompiler_47, CRT and proven bcrypt staging/package-survival gates — **PASS**;
+- portable package and physical-test runtime archive creation — **PASS**;
+- final XP x32 PE floor/direct-import audit step — **PASS**;
+- package, runtime and diagnostics uploads — **PASS**.
+
+The only failed workflow step is the final `GATE - Summarize XP x32 full build`. Therefore the run-level RED must not be described as a compile, link, packaging, ETW integration, DPI, CRT, bcrypt, artifact-upload or GOST TLS failure. The exact diagnostics artifact above is the authoritative evidence for any residual condition promoted by the final summary gate.
+
+Conclusion: **FULL BUILD/PACKAGE EVIDENCE PASS; ADVAPI32 ETW FULL-INTEGRATION GATE PASS; AGGREGATE RED ONLY AT FINAL SUMMARY.** This run advances the Windows XP compatibility line beyond the focused ETW capability proof from run `33882235341`: the final production `xul.dll` gate now accepts the ETW family as absent. This does not establish physical-XP browser acceptance for runtime artifact `9952186334` and establishes nothing about a GOST TLS handshake.
+
+Evidence status: **current for source `71906b7e38e34b9c6488bc3b17468a558bdacb39` / run `33901308443` / job `101115790491`.** Any next runtime or static-closure conclusion must remain bound to this exact identity or to a later explicitly recorded build.
+
+---
+
 ## 2026-09-04 — focused ADVAPI32 ETW XP x86 probe passes through narrow YY-Thunks provider after physical `EventRegister` startup failure
 
 Track: Windows XP SP3 x86 compatibility / focused ADVAPI32 ETW import closure only. This is not full Firefox integration, physical-XP browser acceptance, or GOST TLS runtime/handshake evidence.
