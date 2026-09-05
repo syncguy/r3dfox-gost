@@ -2,12 +2,7 @@ name: XP ANGLE libGLESv2 smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent/winrt-source-poc
-    paths:
-      - ".github/workflows/xp-angle-libglesv2-smoke.yml"
-      - "gfx/angle/**"
+  workflow_call:
 
 permissions:
   contents: read
@@ -56,10 +51,10 @@ jobs:
           $glesText = [System.IO.File]::ReadAllText($gles)
           $gpuText = [System.IO.File]::ReadAllText($gpu)
           @(
-            "ANGLE_ENABLE_D3D9=$($glesText.Contains('DEFINES[\"ANGLE_ENABLE_D3D9\"] = True'))",
-            "ANGLE_ENABLE_D3D11=$($glesText.Contains('DEFINES[\"ANGLE_ENABLE_D3D11\"] = True'))",
-            "libGLESv2_dxgi_link=$($glesText -match '(?m)^\s*\"dxgi\",\s*$')",
-            "gpu_info_dxgi_link=$($gpuText -match '(?m)^\s*\"dxgi\",\s*$')",
+            "ANGLE_ENABLE_D3D9=$($glesText.Contains('DEFINES[""ANGLE_ENABLE_D3D9""] = True'))",
+            "ANGLE_ENABLE_D3D11=$($glesText.Contains('DEFINES[""ANGLE_ENABLE_D3D11""] = True'))",
+            "libGLESv2_dxgi_link=$($glesText -match '(?m)^\s*"dxgi",\s*$')",
+            "gpu_info_dxgi_link=$($gpuText -match '(?m)^\s*"dxgi",\s*$')",
             "Renderer9=$($glesText.Contains('renderer/d3d/d3d9/Renderer9.cpp'))",
             "Renderer11=$($glesText.Contains('renderer/d3d/d3d11/Renderer11.cpp'))"
           ) | Set-Content -Encoding utf8 diagnostics\angle-source-baseline.txt
@@ -161,8 +156,15 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          .\mach.ps1 build gfx/angle/targets/libGLESv2 2>&1 | Tee-Object diagnostics\libglesv2-build.log
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $targetDir = Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2'
+          $targetMakefile = Join-Path $targetDir 'Makefile'
+          if (-not (Test-Path $targetMakefile)) { throw "Generated libGLESv2 Makefile missing: $targetMakefile" }
+          & $mozmake -C $targetDir libs 2>&1 | Tee-Object diagnostics\libglesv2-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String -Path diagnostics\libglesv2-build.log -SimpleMatch 'is a subdirectory and was ignored' -Quiet) {
+            throw 'Focused libGLESv2 target was ignored by the build system'
+          }
 
       - name: GATE - Inspect focused libGLESv2 binary
         id: inspect-libglesv2
@@ -178,7 +180,7 @@ jobs:
           if (-not $dll) {
             $dll = Get-ChildItem -Path $env:OBJDIR -Recurse -File -Filter 'libGLESv2.dll' | Select-Object -First 1 -ExpandProperty FullName
           }
-          if (-not $dll) { throw 'Focused build succeeded but libGLESv2.dll was not found' }
+          if (-not $dll) { throw 'Focused libGLESv2 target completed but libGLESv2.dll was not found' }
 
           Copy-Item -Force $dll diagnostics\libGLESv2.dll
           $headers = @(& dumpbin.exe /nologo /headers $dll 2>&1)
