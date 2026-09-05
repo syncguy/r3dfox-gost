@@ -2,6 +2,12 @@ name: XP ANGLE libGLESv2 smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-angle-libglesv2-smoke.yml"
+      - "gfx/angle/**"
 
 permissions:
   contents: read
