@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -241,7 +241,7 @@ The current physical XP machine has:
 Interpretation:
 
 - `PROPSYS.dll` was absent on the physical baseline and was an ordinary dependency of older `xul.dll` artifacts, but the latest full-build static evidence from run `33864176444` no longer contains a PROPSYS forbidden-import row. Treat that old direct dependency as superseded/closed at current final-binary static level; do not infer physical-XP runtime success from static removal alone.
-- `dxgi.dll` remains absent and the latest shipped `libGLESv2.dll` still ordinarily imports `dxgi.dll!CreateDXGIFactory1`; this is now the sole row in the current broad forbidden-direct-import report.
+- `dxgi.dll` remains absent. The latest full-browser audit reports `libGLESv2.dll -> dxgi.dll`, and the later valid focused ANGLE baseline run `33976374784`, job `101333682681`, actual source-under-test `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31`, independently confirms the built x86 `libGLESv2.dll` directly imports `dxgi.dll!CreateDXGIFactory1`.
 - `ncrypt.dll` absence keeps the NCRYPT delay-load surface unresolved, but a missing module would be a different failure class from the confirmed USER32 procedure-not-found event.
 - `UIAutomationCore.dll` exists; its exact export/version compatibility is still a separate question.
 
@@ -292,15 +292,36 @@ Older exact diagnostics, including artifact `9927583461` from source `424708f...
 
 That finding is superseded for the latest final binary. Diagnostics artifact `9937356676` from source `622a876...`, run `33864176444`, job `100995134125` contains no PROPSYS row in `xp-x32-forbidden-direct-imports.txt`. Therefore PROPSYS is no longer an active current static direct-import blocker. Preserve the older evidence for historical binaries, but do not queue a new PROPSYS remediation cycle unless a later build regresses it or physical runtime evidence identifies a distinct PROPSYS path.
 
-### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` — current broad static blocker
+### `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` — current broad static blocker, focused PE baseline confirmed
 
-Diagnostics artifact `9937356676` from source `622a876...`, run `33864176444`, job `100995134125` contains exactly one broad forbidden direct-import row:
+The latest full-browser diagnostics artifact `9937356676` from source `622a876...`, run `33864176444`, job `100995134125` contains exactly one broad forbidden direct-import row:
 
 ```text
 libGLESv2.dll|DLL|dxgi.dll
 ```
 
-The corresponding direct-import inventory records `CreateDXGIFactory1`. `dxgi.dll` is absent on the physical XP machine. This is a separately linked ANGLE/graphics PE closure defect and is now the only current broad ordinary-import blocker reported by this workflow. Its startup criticality is still a runtime question; remediate it at the `libGLESv2.dll`/ANGLE component boundary rather than through the `xul.dll` linker. It is independent of the currently observed physical `xul.dll -> ADVAPI32!EventRegister` loader blocker.
+That full-build inventory records `CreateDXGIFactory1`. The independent focused ANGLE experiment has now converted this from a broad-audit/source-level finding into a direct component build/import proof:
+
+- workflow `.github/workflows/xp-angle-libglesv2-smoke.yml` / `XP ANGLE libGLESv2 smoke`;
+- workflow/head SHA `94849e95211a2a3dd4ff7df6e694b3c86f5a7f39`;
+- actual checked-out source-under-test `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31` on `agent/winrt-source-poc`;
+- run `33976374784`, attempt `1`, job `101333682681`, aggregate **success**;
+- evidence artifact `9972876541`, digest `sha256:3bd464b4e1376a9cc727bdc2756a7e5543a0c39acac64aad4504e6b386e6386d`;
+- produced x86 `libGLESv2.dll` SHA-256 `677eec30aaa4ceee734ebef818f44cfc855a7f6c8c9241c997ed7e933736d7ca`.
+
+The focused result records:
+
+```text
+machine_x86=True
+dxgi_dll=True
+d3d9_dll=True
+CreateDXGIFactory=False
+CreateDXGIFactory1=True
+```
+
+and the source baseline records both `ANGLE_ENABLE_D3D9=True` and `ANGLE_ENABLE_D3D11=True`, with both `Renderer9=True` and `Renderer11=True`. Therefore the current XP-focused ANGLE configuration genuinely builds an x86 `libGLESv2.dll` that retains both the D3D9 path and the incompatible ordinary `dxgi.dll!CreateDXGIFactory1` dependency. `dxgi.dll` is absent on the physical XP baseline.
+
+The focused build baseline is now valid and should not be re-opened as a harness problem without contradictory evidence. The next experiment is owner-boundary remediation: disable the D3D11/DXGI path for the XP build while preserving D3D9, then require the same focused build to produce a real x86 `libGLESv2.dll` with `dxgi.dll` / `CreateDXGIFactory1` absent and the intended D3D9 surface retained. Only after a focused PASS should that change move to a full XP Firefox build. This line remains independent of the currently observed physical `xul.dll -> ADVAPI32!EventRegister` blocker and of GOST TLS runtime.
 
 ### Remaining delay/dynamic surfaces
 
