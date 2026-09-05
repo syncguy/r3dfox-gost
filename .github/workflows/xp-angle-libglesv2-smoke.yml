@@ -160,18 +160,58 @@ jobs:
           & $mozmake -C $env:OBJDIR recurse_export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build pure_virtual prerequisite
+      - name: Build libGLESv2 link prerequisites
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
-          $pureVirtualDir = Join-Path $env:OBJDIR 'build\pure_virtual'
-          $pureVirtualMakefile = Join-Path $pureVirtualDir 'Makefile'
-          if (-not (Test-Path $pureVirtualMakefile)) { throw "Generated pure_virtual Makefile missing: $pureVirtualMakefile" }
-          & $mozmake -C $pureVirtualDir compile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $pureVirtualLib = Join-Path $pureVirtualDir 'pure_virtual.lib'
-          if (-not (Test-Path $pureVirtualLib)) { throw "pure_virtual compile completed but library is missing: $pureVirtualLib" }
+
+          function Invoke-FocusedCompile([string]$relativeDir) {
+            $targetDir = Join-Path $env:OBJDIR $relativeDir
+            $targetMakefile = Join-Path $targetDir 'Makefile'
+            if (-not (Test-Path $targetMakefile)) {
+              throw "Generated prerequisite Makefile missing: $targetMakefile"
+            }
+
+            Write-Host "=== Building prerequisite: $relativeDir ==="
+            $savedErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+              & $mozmake -C $targetDir compile 2>&1 | Tee-Object -FilePath diagnostics\libglesv2-prerequisites.log -Append
+              $compileExitCode = $LASTEXITCODE
+            }
+            finally {
+              $ErrorActionPreference = $savedErrorActionPreference
+            }
+            if ($compileExitCode -ne 0) {
+              throw "Prerequisite compile failed ($compileExitCode): $relativeDir"
+            }
+          }
+
+          # GeckoSharedLibrary("libGLESv2") link prerequisite.
+          Invoke-FocusedCompile 'build\pure_virtual'
+
+          # Complete static USE_LIBS closure for gfx/angle/targets/libGLESv2.
+          # angle_common is the common root; translator additionally needs
+          # preprocessor; compression_utils_portable additionally needs zlib.
+          Invoke-FocusedCompile 'gfx\angle\targets\angle_common'
+          Invoke-FocusedCompile 'gfx\angle\targets\preprocessor'
+          Invoke-FocusedCompile 'gfx\angle\targets\translator'
+          Invoke-FocusedCompile 'gfx\angle\targets\angle_gpu_info_util'
+          Invoke-FocusedCompile 'gfx\angle\targets\angle_image_util'
+          Invoke-FocusedCompile 'modules\zlib\src'
+          Invoke-FocusedCompile 'config\external\zlib'
+          Invoke-FocusedCompile 'gfx\angle\targets\compression_utils_portable'
+
+          $requiredSentinels = @(
+            (Join-Path $env:OBJDIR 'build\pure_virtual\pure_virtual.lib'),
+            (Join-Path $env:OBJDIR 'gfx\angle\targets\angle_common\xxhash.obj')
+          )
+          foreach ($sentinel in $requiredSentinels) {
+            if (-not (Test-Path $sentinel)) {
+              throw "Focused prerequisite completed but expected output is missing: $sentinel"
+            }
+          }
 
       - name: Build libGLESv2 only
         id: build-libglesv2
