@@ -75,7 +75,7 @@ Harness remediation on canonical/default branch `agent/gost-tls-poc`:
 
 Conclusion: **FAIL / HARNESS DEFECT CONFIRMED; ANGLE/DXGI EXPERIMENT NOT YET EXECUTED.** The next valid experiment must first prove that the focused harness actually produces an x86 `libGLESv2.dll`, then inspect its real PE imports. Only after that baseline is valid should the D3D11-OFF / D3D9-ON source experiment begin.
 
-Status: **current harness diagnosis; replacement validation run pending.**
+Status: **historical harness diagnosis; superseded by the later valid focused baseline run `33976374784`.**
 
 ---
 
@@ -108,4 +108,70 @@ Conclusion: **FAIL / FOCUSED BUILD PREREQUISITE GAP CONFIRMED.** This is a harne
 
 Remediation: canonical workflow commit `82e4da3cb9e681d9c24c4f6e1aa2e9a3a7677bc9` explicitly builds `obj-angle-xp-x32/build/pure_virtual` and verifies `pure_virtual.lib` before invoking the focused `libGLESv2` compile. The next experiment is the automatic run triggered by that workflow commit; only its exact run/source identity may advance the ANGLE/DXGI conclusion.
 
-Status: **current focused blocker remediated in harness; validation run pending.**
+Status: **historical prerequisite diagnosis; superseded by the later valid focused baseline run `33976374784`.**
+
+---
+
+## 2026-09-05 — focused ANGLE `libGLESv2` baseline fully builds and confirms `dxgi.dll!CreateDXGIFactory1`
+
+Track: Windows XP SP3 x86 compatibility / ANGLE-DXGI focused PE/import baseline only. This is independent of the `xul.dll` ADVAPI32 runtime line and is not GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- canonical workflow branch/ref: `agent/gost-tls-poc`;
+- workflow/head SHA: `94849e95211a2a3dd4ff7df6e694b3c86f5a7f39` (`ci(xp): prebuild dllservices mozglue contributor`);
+- checked-out source branch: `agent/winrt-source-poc`;
+- actual source-under-test SHA recorded by the artifact after checkout: `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31`;
+- workflow `.github/workflows/xp-angle-libglesv2-smoke.yml` / `XP ANGLE libGLESv2 smoke`;
+- Actions run `33976374784`, attempt `1`;
+- job `101333682681`;
+- run/job conclusion: **success**.
+
+Exact evidence artifact:
+
+- artifact `9972876541` (`xp-angle-libglesv2-smoke`), `1797735` bytes, digest `sha256:3bd464b4e1376a9cc727bdc2756a7e5543a0c39acac64aad4504e6b386e6386d`.
+
+The job is fully GREEN through the decisive focused boundaries:
+
+- `Build libGLESv2 link prerequisites` — success;
+- `Inspect focused mozglue binary` — success;
+- `Build libGLESv2 only` — success;
+- `GATE - Inspect focused libGLESv2 binary` — success.
+
+The artifact contains the actual focused output `obj-angle-xp-x32\dist\bin\libGLESv2.dll`, SHA-256 `677eec30aaa4ceee734ebef818f44cfc855a7f6c8c9241c997ed7e933736d7ca`. `libGLESv2-result.txt` records:
+
+```text
+machine_x86=True
+dxgi_dll=True
+d3d9_dll=True
+CreateDXGIFactory=False
+CreateDXGIFactory1=True
+```
+
+The raw `dumpbin` import inventory independently shows the ordinary import:
+
+```text
+dxgi.dll
+    CreateDXGIFactory1
+```
+
+and also retains the expected D3D9 surface, including `d3d9.dll!Direct3DCreate9`.
+
+The matching source baseline records:
+
+```text
+ANGLE_ENABLE_D3D9=True
+ANGLE_ENABLE_D3D11=True
+libGLESv2_dxgi_link=True
+gpu_info_dxgi_link=True
+Renderer9=True
+Renderer11=True
+```
+
+Conclusion: **PASS / VALID FOCUSED ANGLE BASELINE; `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` CONFIRMED DIRECTLY IN THE BUILT PE.** The earlier focused failures were harness/prerequisite failures; this run is the first valid focused build/import result in this line. The DXGI blocker is therefore no longer inferred only from a full-browser audit or source inspection.
+
+Evidence boundary: this is a focused component build on a hosted runner. It does **not** prove full Firefox integration, physical-XP runtime behavior, or any GOST TLS behavior. `dxgi.dll` is absent on the recorded physical XP baseline, so the direct dependency remains incompatible with that XP environment until remediated at the ANGLE/`libGLESv2.dll` owner boundary.
+
+Next experiment: make the narrow XP ANGLE source/build change that disables the D3D11/DXGI path while retaining D3D9, rebuild this same focused target, and require a real x86 `libGLESv2.dll` whose import gate shows `dxgi.dll=False` / `CreateDXGIFactory1=False` while the intended D3D9 path remains present. Only after that focused result should the change move to a full XP Firefox build.
+
+Status: **current authoritative focused ANGLE/DXGI baseline; remediation still open.**
