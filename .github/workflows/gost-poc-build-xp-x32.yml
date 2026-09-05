@@ -555,7 +555,7 @@ jobs:
             'YY_Thunks_SleepConditionVariableCS','YY_Thunks_SleepConditionVariableSRW',
             'YY_Thunks_WakeAllConditionVariable','YY_Thunks_WakeConditionVariable',
             'YY_Thunks_EventRegister','YY_Thunks_EventUnregister',
-            'YY_Thunks_EventWrite','YY_Thunks_EventWriteTransfer'
+            'YY_Thunks_EventWrite','YY_Thunks_EventWriteTransfer','YY_Thunks_RegGetValueW'
           )) {
             if ($symbols.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "Narrow provider missing $required" }
           }
@@ -634,10 +634,10 @@ jobs:
             'capability=PASS'
           ) | Set-Content -Encoding utf8 diagnostics\yy-ntcancel-capability.txt
 
-          # Proven by run 33882235341 / job 101053403554 / SHA 53971dcfdf12e7bcd7f35692ff2c02fb3360d792:
-          # use only the four observed ADVAPI32 ETW weak-alias pairs; the common
-          # YY_Thunks_Event* implementations are already present in NARROW_YY_LIB.
-          $etwApis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer')
+          # ETW four-name capability: run 33882235341 / job 101053403554 / SHA 53971dcfdf12e7bcd7f35692ff2c02fb3360d792.
+          # RegGetValueW capability: run 33946751857 / job 101254130849 / SHA 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4.
+          # Use only these five observed ADVAPI32 weak-alias pairs; the common implementations are already present in NARROW_YY_LIB.
+          $etwApis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
           $advapiMembers = @(& lib.exe /nologo /list $advapi 2>&1 |
             ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $advapiMembers.Count -eq 0) { throw 'Cannot enumerate YY XP x86 advapi32.lib' }
@@ -675,12 +675,12 @@ jobs:
           }
           $advapiEtwAlias = Join-Path $etwAliasWork 'yy-xp-advapi32-etw-alias.lib'
           & lib.exe /nologo "/out:$advapiEtwAlias" @etwAliasObjects
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $advapiEtwAlias)) { throw 'ADVAPI32 ETW alias library build failed' }
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $advapiEtwAlias)) { throw 'ADVAPI32 alias library build failed' }
           $etwAliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $advapiEtwAlias 2>&1 | Out-String)
           $etwAliasSymbols | Set-Content -Encoding utf8 (Join-Path $etwAliasWork 'alias-symbols.txt')
           foreach ($api in $etwApis) {
             if ($etwAliasSymbols.IndexOf($api,[System.StringComparison]::Ordinal) -lt 0) {
-              throw "ADVAPI32 ETW alias provider missing $api"
+              throw "ADVAPI32 alias provider missing $api"
             }
             if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) {
               throw "Proven narrow provider lacks YY_Thunks_$api implementation"
@@ -688,10 +688,13 @@ jobs:
           }
           $etwEvidence.Add("alias_provider=$advapiEtwAlias")
           $etwEvidence.Add('implementation=existing NARROW_YY_LIB common YY object')
-          $etwEvidence.Add('apis=EventRegister,EventUnregister,EventWrite,EventWriteTransfer')
-          $etwEvidence.Add('evidence_run=33882235341')
-          $etwEvidence.Add('evidence_job=101053403554')
-          $etwEvidence.Add('evidence_sha=53971dcfdf12e7bcd7f35692ff2c02fb3360d792')
+          $etwEvidence.Add('apis=EventRegister,EventUnregister,EventWrite,EventWriteTransfer,RegGetValueW')
+          $etwEvidence.Add('etw_evidence_run=33882235341')
+          $etwEvidence.Add('etw_evidence_job=101053403554')
+          $etwEvidence.Add('etw_evidence_sha=53971dcfdf12e7bcd7f35692ff2c02fb3360d792')
+          $etwEvidence.Add('reggetvaluew_evidence_run=33946751857')
+          $etwEvidence.Add('reggetvaluew_evidence_job=101254130849')
+          $etwEvidence.Add('reggetvaluew_evidence_sha=8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4')
           $etwEvidence.Add('capability=PASS')
           $etwEvidence | Set-Content -Encoding utf8 diagnostics\yy-etw-capability.txt
 
@@ -867,7 +870,7 @@ jobs:
           'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
           Write-Host 'xul.dll contains none of the four source-remediation imports.'
 
-      - name: GATE - Require ADVAPI32 ETW family absent from xul.dll
+      - name: GATE - Require ADVAPI32 compatibility family absent from xul.dll
         id: advapi32-etw-import-gate
         if: steps.build-release.outcome == 'success'
         continue-on-error: true
@@ -879,7 +882,7 @@ jobs:
           New-Item -ItemType Directory -Force $diag | Out-Null
           if (-not (Test-Path $xul)) {
             'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw "xul.dll missing for ADVAPI32 ETW gate: $xul"
+            throw "xul.dll missing for ADVAPI32 compatibility gate: $xul"
           }
           $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
           $dumpbinExit = $LASTEXITCODE
@@ -888,7 +891,7 @@ jobs:
             "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
             throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
           }
-          $apis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer')
+          $apis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
           $mode = 'none'
           $currentDll = ''
           $hits = [System.Collections.Generic.List[string]]::new()
@@ -917,7 +920,7 @@ jobs:
           $hits | Sort-Object -Unique | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-etw-imports.txt')
           if ($hits.Count -gt 0) {
             ("result=FAIL|surviving=" + (($hits | Sort-Object -Unique) -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw ("xul.dll still imports ADVAPI32 ETW family members: " + (($hits | Sort-Object -Unique) -join ', '))
+            throw ("xul.dll still imports ADVAPI32 compatibility family members: " + (($hits | Sort-Object -Unique) -join ', '))
           }
           'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
 
@@ -1362,7 +1365,7 @@ jobs:
             'GetUserPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
             'GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
             'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx',
-            'EventRegister','EventUnregister','EventWrite','EventWriteTransfer',
+            'EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
 
@@ -1445,7 +1448,7 @@ jobs:
           $checks = @(
             @{ Name='dpi-source-guard'; Outcome='${{ steps.dpi-source-guard.outcome }}' },
             @{ Name='source-remediation-quartet'; Outcome='${{ steps.source-remediation-quartet.outcome }}' },
-            @{ Name='advapi32-etw-import'; Outcome='${{ steps.advapi32-etw-import-gate.outcome }}' },
+            @{ Name='advapi32-compat-import'; Outcome='${{ steps.advapi32-etw-import-gate.outcome }}' },
             @{ Name='dpi-import-mode'; Outcome='${{ steps.dpi-import-gate.outcome }}' },
             @{ Name='core-import'; Outcome='${{ steps.sync-import-gate.outcome }}' },
             @{ Name='retargeted-d3dcompiler'; Outcome='${{ steps.verify-retargeted-d3dcompiler.outcome }}' },
@@ -1468,12 +1471,12 @@ jobs:
           "- XP source defines: MOZ_NO_WINRT + MOZ_XP_COMPAT via CFLAGS/CXXFLAGS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- DPI pre-Vista source guard: ${{ steps.dpi-source-guard.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source-remediation quartet gate: ${{ steps.source-remediation-quartet.outcome }} (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- ADVAPI32 ETW final xul.dll gate: ${{ steps.advapi32-etw-import-gate.outcome }}; focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- ADVAPI32 compatibility final xul.dll gate: ${{ steps.advapi32-etw-import-gate.outcome }}; ETW focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554; RegGetValueW focused capability source 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4 / run 33946751857 / job 101254130849." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- mozglue SetProcessDPIAware import-mode gate: ${{ steps.dpi-import-gate.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + four-name ADVAPI32 ETW alias family + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib, ntdll.lib and advapi32.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + five-name ADVAPI32 alias family + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib, ntdll.lib and advapi32.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           foreach ($item in $operations) {
