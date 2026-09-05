@@ -206,6 +206,7 @@ jobs:
           # mozglue target itself, instead of discovering one missing object per run.
           Invoke-FocusedCompile 'mfbt'
           Invoke-FocusedCompile 'memory\build'
+          Invoke-FocusedCompile 'memory\mozalloc'
           Invoke-FocusedCompile 'mozglue\baseprofiler'
           Invoke-FocusedCompile 'mozglue\misc'
           Invoke-FocusedCompile 'third_party\fmt'
@@ -214,6 +215,7 @@ jobs:
           $requiredSentinels = @(
             (Join-Path $env:OBJDIR 'build\pure_virtual\pure_virtual.lib'),
             (Join-Path $env:OBJDIR 'gfx\angle\targets\angle_common\xxhash.obj'),
+            (Join-Path $env:OBJDIR 'memory\mozalloc\cxxalloc.obj'),
             (Join-Path $env:OBJDIR 'mozglue\build\mozglue.lib')
           )
           foreach ($sentinel in $requiredSentinels) {
