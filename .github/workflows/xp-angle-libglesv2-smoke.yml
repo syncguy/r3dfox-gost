@@ -3,6 +3,11 @@ name: XP ANGLE libGLESv2 smoke
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/xp-angle-libglesv2-smoke.yml"
 
 permissions:
   contents: read
