@@ -43,8 +43,9 @@ jobs:
             'GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
             'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
-            'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
-            'InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+            'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetThreadPreferredUILanguages',
+            'GetProcessPreferredUILanguages','GetUserPreferredUILanguages','InitOnceBeginInitialize','InitOnceComplete',
+            'QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           ) | Set-Content -Encoding ascii diagnostics\requested-apis.txt
           @(
             "repo=$env:GITHUB_REPOSITORY","test_commit=$env:GITHUB_SHA","compatibility_target=Windows XP SP3 x86",
@@ -287,6 +288,16 @@ jobs:
             if(GetThreadId(GetCurrentThread())==GetCurrentThreadId())PASS(GetThreadId);else FAIL(GetThreadId);
           #else
             SKIP(GetThreadId);
+          #endif
+          #if HAVE_GetThreadPreferredUILanguages
+            {ULONG c=0,ch=0;if(GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME,&c,0,&ch)&&ch>0)PASS(GetThreadPreferredUILanguages);else FAIL(GetThreadPreferredUILanguages);}
+          #else
+            SKIP(GetThreadPreferredUILanguages);
+          #endif
+          #if HAVE_GetProcessPreferredUILanguages
+            {ULONG c=0,ch=0;if(GetProcessPreferredUILanguages(MUI_LANGUAGE_NAME,&c,0,&ch)&&ch>0)PASS(GetProcessPreferredUILanguages);else FAIL(GetProcessPreferredUILanguages);}
+          #else
+            SKIP(GetProcessPreferredUILanguages);
           #endif
           #if HAVE_GetUserPreferredUILanguages
             {ULONG c=0,ch=0;if(GetUserPreferredUILanguages(MUI_LANGUAGE_NAME,&c,0,&ch)&&ch>0)PASS(GetUserPreferredUILanguages);else FAIL(GetUserPreferredUILanguages);}
