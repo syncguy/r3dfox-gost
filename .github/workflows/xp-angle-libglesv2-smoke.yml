@@ -165,7 +165,7 @@ jobs:
           $targetDir = Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2'
           $targetMakefile = Join-Path $targetDir 'Makefile'
           if (-not (Test-Path $targetMakefile)) { throw "Generated libGLESv2 Makefile missing: $targetMakefile" }
-          & $mozmake -C $targetDir libs 2>&1 | Tee-Object diagnostics\libglesv2-build.log
+          & $mozmake -C $targetDir compile 2>&1 | Tee-Object diagnostics\libglesv2-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path diagnostics\libglesv2-build.log -SimpleMatch 'is a subdirectory and was ignored' -Quiet) {
             throw 'Focused libGLESv2 target was ignored by the build system'
