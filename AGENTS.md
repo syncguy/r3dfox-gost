@@ -109,6 +109,15 @@ Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any
 - Keep source-under-test identity separate from later documentation-only HEADs. A docs commit must never be cited as the binary/source SHA for an earlier build or runtime result.
 - When a run is still in progress, describe its state as provisional. Do not document a pending gate as passed or close the corresponding task before the exact run finishes.
 
+### Mandatory focused-build dependency preflight
+- When creating or repairing a focused build for a generated-object-directory target whose prerequisite closure is not already proven, MUST run a bulk non-executing dependency preflight before starting a sequence of repeated expensive real builds.
+- For Mozilla make targets, prefer the equivalent of `mozmake -C <generated-target-dir> -n -k compile` (or the target's actual final make goal): `-n` exposes the command/dependency graph without compiling and `-k` continues after dependency errors so more than the first missing edge can be collected.
+- Capture and summarize all available `No rule to make target` / `needed by` diagnostics in one pass and use that inventory to close the prerequisite set as a batch. Do not intentionally discover one missing prerequisite per long CI build when a bulk dry-run can expose the set.
+- A nonzero dry-run exit is diagnostic when the preflight is intentionally probing an incomplete closure; it MUST NOT by itself be treated as the real target failure. Keep the preflight non-gating or explicitly interpret its result as diagnostic.
+- The dry-run never replaces the real build. After prerequisite remediation, MUST execute the actual focused compile/link target and its output/binary/import gates; only those real gates prove that the target builds.
+- Dry-run dependency discovery cannot expose failures that occur only while compile/link commands execute. If it does not reveal the blocker, improve the diagnostic or proceed to the real focused gate rather than weakening that gate or claiming closure.
+- Proven reference for this methodology: `XP ANGLE libGLESv2 smoke`, run `33976858570`, job `101334969800`, workflow/head SHA `720085a648254ce4e1aa6457be71681163a7836e`, source-under-test `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31`; detailed evidence is in `docs/gost/TEST_LOG.md`.
+
 ### Long-running GitHub Actions handoff
 - After creating or triggering a GitHub Actions run, verify once that the intended run exists and record its source-under-test commit SHA, run ID, job ID when available, and current state such as `queued` or `in_progress`.
 - Do **not** keep the interactive chat alive by repeatedly polling an in-progress GitHub Actions run unless the user explicitly asks to watch that run live. Long Firefox builds may take hours; repeated `queued`/`in_progress` checks add no technical evidence and are not the default workflow.
