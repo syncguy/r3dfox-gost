@@ -30,6 +30,7 @@ jobs:
       - name: Checkout XP source branch
         uses: actions/checkout@v4
         with:
+          ref: agent/winrt-source-poc
           fetch-depth: 1
 
       - name: Record experiment identity
