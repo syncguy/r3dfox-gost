@@ -468,7 +468,7 @@ jobs:
             'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
             'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
-            'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
             'TryAcquireSRWLockExclusive','FlsGetValue'
           )
@@ -989,8 +989,9 @@ jobs:
             'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
             'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
             'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
-            'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
+            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
             'AcquireSRWLockExclusive','AcquireSRWLockShared',
             'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
             'InitializeSRWLock','InitializeConditionVariable',
@@ -1362,7 +1363,7 @@ jobs:
             'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable',
             'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation',
             'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
-            'GetUserPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
             'GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
             'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx',
             'EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW',
