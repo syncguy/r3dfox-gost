@@ -291,7 +291,7 @@ jobs:
             SKIP(CancelSynchronousIo);
           #endif
           #if HAVE_GetDynamicTimeZoneInformation
-            {DYNAMIC_TIME_ZONE_INFORMATION z;if(GetDynamicTimeZoneInformation(&z)!=TIME_ZONE_ID_INVALID)PASS(GetDynamicTimeZoneInformation);else FAIL(GetDynamicTimeZoneInformation);
+            {DYNAMIC_TIME_ZONE_INFORMATION z;if(GetDynamicTimeZoneInformation(&z)!=TIME_ZONE_ID_INVALID)PASS(GetDynamicTimeZoneInformation);else FAIL(GetDynamicTimeZoneInformation);}
           #else
             SKIP(GetDynamicTimeZoneInformation);
           #endif
@@ -350,22 +350,22 @@ jobs:
             SKIP(QueryFullProcessImageNameW);
           #endif
           #if HAVE_QueryFullProcessImageNameA
-            {CHAR q[512];DWORD z=512;if(QueryFullProcessImageNameA(GetCurrentProcess(),0,q,&z)&&z&&q[0])PASS(QueryFullProcessImageNameA);else FAIL(QueryFullProcessImageNameA);
+            {CHAR q[512];DWORD z=512;if(QueryFullProcessImageNameA(GetCurrentProcess(),0,q,&z)&&z&&q[0])PASS(QueryFullProcessImageNameA);else FAIL(QueryFullProcessImageNameA);}
           #else
             SKIP(QueryFullProcessImageNameA);
           #endif
           #if HAVE_QueryProcessCycleTime
-            {ULONG64 c=0;if(QueryProcessCycleTime(GetCurrentProcess(),&c))PASS(QueryProcessCycleTime);else FAIL(QueryProcessCycleTime);
+            {ULONG64 c=0;if(QueryProcessCycleTime(GetCurrentProcess(),&c))PASS(QueryProcessCycleTime);else FAIL(QueryProcessCycleTime);}
           #else
             SKIP(QueryProcessCycleTime);
           #endif
           #if HAVE_QueryThreadCycleTime
-            {ULONG64 c=0;if(QueryThreadCycleTime(GetCurrentThread(),&c))PASS(QueryThreadCycleTime);else FAIL(QueryThreadCycleTime);
+            {ULONG64 c=0;if(QueryThreadCycleTime(GetCurrentThread(),&c))PASS(QueryThreadCycleTime);else FAIL(QueryThreadCycleTime);}
           #else
             SKIP(QueryThreadCycleTime);
           #endif
           #if HAVE_GetTimeZoneInformationForYear && HAVE_GetDynamicTimeZoneInformation
-            {SYSTEMTIME st;GetSystemTime(&st);DYNAMIC_TIME_ZONE_INFORMATION dz;TIME_ZONE_INFORMATION tz;if(GetDynamicTimeZoneInformation(&dz)!=TIME_ZONE_ID_INVALID&&GetTimeZoneInformationForYear(st.wYear,&dz,&tz))PASS(GetTimeZoneInformationForYear);else FAIL(GetTimeZoneInformationForYear);
+            {SYSTEMTIME st;GetSystemTime(&st);DYNAMIC_TIME_ZONE_INFORMATION dz;TIME_ZONE_INFORMATION tz;if(GetDynamicTimeZoneInformation(&dz)!=TIME_ZONE_ID_INVALID&&GetTimeZoneInformationForYear(st.wYear,&dz,&tz))PASS(GetTimeZoneInformationForYear);else FAIL(GetTimeZoneInformationForYear);}
           #else
             printf("GetTimeZoneInformationForYear: SKIP (setup capability missing)\n");
           #endif
