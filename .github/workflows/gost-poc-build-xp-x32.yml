@@ -803,6 +803,43 @@ jobs:
             "target_ldflags=$targetLdflags"
           ) | Set-Content -Encoding utf8 diagnostics\xp-x32-global-yy-link-contract.txt
 
+      - name: Apply YY-Thunks XP DLL TLS entry point to xul.dll
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'toolkit\library\moz.build'
+          $text = [System.IO.File]::ReadAllText($path)
+          $pattern = '(?m)^    if name == "xul-real":\r?\n        SYMBOLS_FILE = "\.\./libxul\.symbols"\r?$'
+          $replacement = @'
+          if name == "xul-real":
+              SYMBOLS_FILE = "../libxul.symbols"
+              if CONFIG["OS_ARCH"] == "WINNT":
+                  LDFLAGS += [
+                      "-ENTRY:DllMainCRTStartupForYY_Thunks",
+                      "-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12",
+                  ]
+          '@
+          $regex = [regex]::new($pattern)
+          if ($regex.Matches($text).Count -ne 1) { throw 'Expected unique xul-real SYMBOLS_FILE anchor was not found.' }
+          $updated = $regex.Replace($text, $replacement, 1)
+          foreach ($required in @(
+            '-ENTRY:DllMainCRTStartupForYY_Thunks',
+            '-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
+          )) {
+            if ($updated.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) {
+              throw "xul.dll YY TLS entry-point contract missing linker flag: $required"
+            }
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $updated, $utf8NoBom)
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            'scope=toolkit/library Libxul xul-real only',
+            'entry=-ENTRY:DllMainCRTStartupForYY_Thunks',
+            'alternate=-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12',
+            'global_target_ldflags=unchanged'
+          ) | Set-Content -Encoding utf8 diagnostics\xul-yy-dll-entrypoint-source.txt
+
       - name: Write XP x32 mozconfig
         shell: powershell
         run: |
