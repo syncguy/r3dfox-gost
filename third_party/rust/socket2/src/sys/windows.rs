@@ -23,9 +23,10 @@ use std::{process, ptr, slice};
 use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
 use windows_sys::Win32::Networking::WinSock::{
     self, tcp_keepalive, FIONBIO, IN6_ADDR, IN6_ADDR_0, INVALID_SOCKET, IN_ADDR, IN_ADDR_0,
-    POLLERR, POLLHUP, POLLRDNORM, POLLWRNORM, SD_BOTH, SD_RECEIVE, SD_SEND, SIO_KEEPALIVE_VALS,
-    SOCKET_ERROR, WSABUF, WSAEMSGSIZE, WSAESHUTDOWN, WSAPOLLFD, WSAPROTOCOL_INFOW,
-    WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED, WSA_FLAG_REGISTERED_IO,
+    LPFN_WSASENDMSG, POLLERR, POLLHUP, POLLRDNORM, POLLWRNORM, SD_BOTH, SD_RECEIVE, SD_SEND,
+    SIO_GET_EXTENSION_FUNCTION_POINTER, SIO_KEEPALIVE_VALS, SOCKET_ERROR, WSABUF, WSAEMSGSIZE,
+    WSAESHUTDOWN, WSAID_WSASENDMSG, WSAPOLLFD, WSAPROTOCOL_INFOW, WSA_FLAG_NO_HANDLE_INHERIT,
+    WSA_FLAG_OVERLAPPED, WSA_FLAG_REGISTERED_IO,
 };
 
 #[cfg(feature = "all")]
@@ -713,20 +714,53 @@ pub(crate) fn sendmsg(
     msg: &MsgHdr<'_, '_, '_>,
     flags: c_int,
 ) -> io::Result<usize> {
-    let mut nsent = 0;
+    let guid = WSAID_WSASENDMSG;
+    let mut sendmsg: LPFN_WSASENDMSG = None;
+    let mut bytes = 0;
     syscall!(
-        WSASendMsg(
+        WSAIoctl(
+            socket,
+            SIO_GET_EXTENSION_FUNCTION_POINTER,
+            &guid as *const _ as *mut _,
+            mem::size_of_val(&guid) as u32,
+            &mut sendmsg as *mut _ as *mut _,
+            mem::size_of_val(&sendmsg) as u32,
+            &mut bytes,
+            ptr::null_mut(),
+            None,
+        ),
+        PartialEq::eq,
+        SOCKET_ERROR
+    )?;
+    if bytes as usize != mem::size_of::<LPFN_WSASENDMSG>() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "WSASendMsg extension pointer size mismatch",
+        ));
+    }
+    let sendmsg = sendmsg.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Winsock provider does not support WSASendMsg",
+        )
+    })?;
+
+    let mut nsent = 0;
+    let res = unsafe {
+        sendmsg(
             socket,
             &msg.inner,
             flags as u32,
             &mut nsent,
             ptr::null_mut(),
             None,
-        ),
-        PartialEq::eq,
-        SOCKET_ERROR
-    )
-    .map(|_| nsent as usize)
+        )
+    };
+    if res == SOCKET_ERROR {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(nsent as usize)
+    }
 }
 
 /// Wrapper around `getsockopt` to deal with platform specific timeouts.
