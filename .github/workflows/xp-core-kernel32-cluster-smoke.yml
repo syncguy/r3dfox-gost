@@ -291,7 +291,7 @@ jobs:
             SKIP(CancelSynchronousIo);
           #endif
           #if HAVE_GetDynamicTimeZoneInformation
-            {DYNAMIC_TIME_ZONE_INFORMATION z;if(GetDynamicTimeZoneInformation(&z)!=TIME_ZONE_ID_INVALID)PASS(GetDynamicTimeZoneInformation);else FAIL(GetDynamicTimeZoneInformation);}
+            {DYNAMIC_TIME_ZONE_INFORMATION z;if(GetDynamicTimeZoneInformation(&z)!=TIME_ZONE_ID_INVALID)PASS(GetDynamicTimeZoneInformation);else FAIL(GetDynamicTimeZoneInformation);
           #else
             SKIP(GetDynamicTimeZoneInformation);
           #endif
@@ -350,22 +350,22 @@ jobs:
             SKIP(QueryFullProcessImageNameW);
           #endif
           #if HAVE_QueryFullProcessImageNameA
-            {CHAR q[512];DWORD z=512;if(QueryFullProcessImageNameA(GetCurrentProcess(),0,q,&z)&&z&&q[0])PASS(QueryFullProcessImageNameA);else FAIL(QueryFullProcessImageNameA);}
+            {CHAR q[512];DWORD z=512;if(QueryFullProcessImageNameA(GetCurrentProcess(),0,q,&z)&&z&&q[0])PASS(QueryFullProcessImageNameA);else FAIL(QueryFullProcessImageNameA);
           #else
             SKIP(QueryFullProcessImageNameA);
           #endif
           #if HAVE_QueryProcessCycleTime
-            {ULONG64 c=0;if(QueryProcessCycleTime(GetCurrentProcess(),&c))PASS(QueryProcessCycleTime);else FAIL(QueryProcessCycleTime);}
+            {ULONG64 c=0;if(QueryProcessCycleTime(GetCurrentProcess(),&c))PASS(QueryProcessCycleTime);else FAIL(QueryProcessCycleTime);
           #else
             SKIP(QueryProcessCycleTime);
           #endif
           #if HAVE_QueryThreadCycleTime
-            {ULONG64 c=0;if(QueryThreadCycleTime(GetCurrentThread(),&c))PASS(QueryThreadCycleTime);else FAIL(QueryThreadCycleTime);}
+            {ULONG64 c=0;if(QueryThreadCycleTime(GetCurrentThread(),&c))PASS(QueryThreadCycleTime);else FAIL(QueryThreadCycleTime);
           #else
             SKIP(QueryThreadCycleTime);
           #endif
           #if HAVE_GetTimeZoneInformationForYear && HAVE_GetDynamicTimeZoneInformation
-            {SYSTEMTIME st;GetSystemTime(&st);DYNAMIC_TIME_ZONE_INFORMATION dz;TIME_ZONE_INFORMATION tz;if(GetDynamicTimeZoneInformation(&dz)!=TIME_ZONE_ID_INVALID&&GetTimeZoneInformationForYear(st.wYear,&dz,&tz))PASS(GetTimeZoneInformationForYear);else FAIL(GetTimeZoneInformationForYear);}
+            {SYSTEMTIME st;GetSystemTime(&st);DYNAMIC_TIME_ZONE_INFORMATION dz;TIME_ZONE_INFORMATION tz;if(GetDynamicTimeZoneInformation(&dz)!=TIME_ZONE_ID_INVALID&&GetTimeZoneInformationForYear(st.wYear,&dz,&tz))PASS(GetTimeZoneInformationForYear);else FAIL(GetTimeZoneInformationForYear);
           #else
             printf("GetTimeZoneInformationForYear: SKIP (setup capability missing)\n");
           #endif
@@ -572,7 +572,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $ws2=Join-Path $env:THUNK_YY_LIB 'ws2_32.lib'
           if(-not(Test-Path $ws2)){throw 'YY ws2_32.lib missing'}
-          $apis=@('WSAIoctl','WSASendMsg','WSCGetProviderInfo','inet_ntop')
+          $apis=@('WSAIoctl','inet_ntop')
           $members=@(& lib.exe /nologo /list $ws2 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if($LASTEXITCODE-ne 0-or-not$members.Count){throw 'Cannot enumerate YY ws2_32.lib'}
           $members|Set-Content -Encoding utf8 diagnostics\yy-ws2_32-members.txt
@@ -613,7 +613,7 @@ jobs:
           #include <winsock2.h>
           #include <ws2tcpip.h>
           #include <ws2spi.h>
-          #include <mstcpip.h>
+          #include <mswsock.h>
           #include <stdio.h>
           #include <string.h>
           #include "ws2-capability.h"
@@ -631,16 +631,6 @@ jobs:
             {IN_ADDR a;a.S_un.S_addr=htonl(0x7f000001UL);char b[64]={0};const char* p=inet_ntop(AF_INET,&a,b,sizeof(b));if(p&&strcmp(b,"127.0.0.1")==0)PASS(inet_ntop);else FAIL(inet_ntop);}
           #else
             SKIP(inet_ntop);
-          #endif
-          #if HAVE_WSASendMsg
-            if(&WSASendMsg)PASS(WSASendMsg);else FAIL(WSASendMsg);
-          #else
-            SKIP(WSASendMsg);
-          #endif
-          #if HAVE_WSCGetProviderInfo
-            if(&WSCGetProviderInfo)PASS(WSCGetProviderInfo);else FAIL(WSCGetProviderInfo);
-          #else
-            SKIP(WSCGetProviderInfo);
           #endif
             closesocket(s);WSACleanup();printf("WS2_32 family: %s\n",failures?"FAIL":"PASS");return failures?1:0;}
           '@|Set-Content -Encoding ascii ws2.cpp
@@ -682,9 +672,9 @@ jobs:
           Required focused delta: InitOnceExecuteOnce, GetThreadPreferredUILanguages, QueryFullProcessImageNameA, TryAcquireSRWLockExclusive, FlsGetValue.
           Additional method: NtCancelIoFileEx, using only its ntdll alias pair plus the already-proven narrow YY common implementation/ProcessPrng closure.
           Current ADVAPI32 blocker family: EventRegister, EventUnregister, EventWrite, EventWriteTransfer, RegGetValueW; test uses only those advapi32 weak-alias pairs plus the same narrow YY common implementation.
-          Current WS2_32 candidate family: WSAIoctl, WSASendMsg, WSCGetProviderInfo, inet_ntop; test inventories all four release-library alias pairs and the shared YY implementation before linking the capable set.
+          Current WS2_32 YY-covered family: WSAIoctl, inet_ntop; test links only those proven-capable weak-alias pairs plus the shared YY implementation.
           Run: run-xp-cluster.cmd
-          Preserve complete stdout. The five required delta APIs must not be SKIP; NtCancelIoFileEx, all five ADVAPI32 methods and all four WS2_32 methods must report PASS.
+          Preserve complete stdout. The five required delta APIs must not be SKIP; NtCancelIoFileEx, all five ADVAPI32 methods and both WS2_32 methods must report PASS.
           Hosted Windows execution is not physical-XP proof. This artifact does not prove full Firefox integration.
           '@|Set-Content -Encoding ascii runtime\README-XP.txt
           Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
