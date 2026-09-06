@@ -8,6 +8,60 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-06 — ANGLE `Renderer11` DXGI late-binding removes the static `dxgi.dll` dependency while retaining D3D9
+
+Track: Windows XP SP3 x86 compatibility / ANGLE `libGLESv2` focused PE/import remediation only. This is not full Firefox integration, physical-XP browser acceptance, or GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- implementation branch: `agent/winrt-source-poc`;
+- source-under-test: `4aceb9ea7216b61805789b96de536e53aed73d01` (`test(xp): late-bind DXGI factory in ANGLE Renderer11`);
+- auto-trigger workflow `.github/workflows/xp-angle-smoke-trigger.yml` / `Trigger XP ANGLE libGLESv2 smoke`;
+- reusable focused workflow `.github/workflows/xp-angle-libglesv2-smoke.yml@agent/gost-tls-poc`, resolved workflow SHA `d431b6c9d7c4caa9b79c0bbd9a8784c90e283bdf`;
+- Actions run `34012302206`, attempt `1`;
+- job `101430096691`;
+- run/job conclusion: **success**.
+
+Exact evidence artifact:
+
+- artifact `9983181080` (`xp-angle-libglesv2-smoke`), `1861140` bytes, digest `sha256:2cc68a6faf74398757bf2cdf7f310739e4c741ee0d43db6cc72515554442c8bd`;
+- built focused `libGLESv2.dll`: SHA-256 `adbf93bc37f9d222b5c650cc0acaaa896da7c31be4709864319cc07cbe7bd4bf`, size `4579840` bytes.
+
+The experiment preserves the generated target state left by the immediately preceding negative test (`Renderer11=False` in `gfx/angle/targets/libGLESv2/moz.build`), but compiles the full `Renderer11.cpp` implementation through the already-built `Trim11.cpp` translation unit. During that diagnostic inclusion, the two direct `CreateDXGIFactory1` call sites are redirected to `ANGLECreateDXGIFactory1`, which resolves `dxgi.dll!CreateDXGIFactory1` at runtime using `LoadLibraryW` / `GetProcAddress` and returns an HRESULT failure when DXGI is unavailable.
+
+The source baseline recorded by the artifact is:
+
+```text
+ANGLE_ENABLE_D3D9=True
+ANGLE_ENABLE_D3D11=True
+libGLESv2_dxgi_link=True
+gpu_info_dxgi_link=True
+Renderer9=True
+Renderer11=False
+```
+
+The decisive focused PE gate records:
+
+```text
+machine_x86=True
+dxgi_dll=False
+d3d9_dll=True
+CreateDXGIFactory=False
+CreateDXGIFactory1=False
+```
+
+This advances the prior valid baseline run `33976374784` / job `101333682681` / source `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31`, whose focused binary had `dxgi_dll=True`, `d3d9_dll=True`, and `CreateDXGIFactory1=True`. Therefore the static `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` XP loader blocker is experimentally localized to the direct `Renderer11.cpp` factory references and can be removed without removing the D3D9 backend or the D3D11 implementation.
+
+Renderer fallback semantics were checked in the exact source-under-test. For the default ANGLE D3D display, `DisplayD3D.cpp` queues `CreateRenderer11` before `CreateRenderer9` when both backends are enabled. It calls each candidate's `initialize()` in order; on an initialization error it deletes that renderer and tries the next candidate. Thus a D3D11 initialization failure can fall through to D3D9 for the default display. This is **not** universal: explicit D3D11-only / explicitly requested D3D11 configurations do not gain an automatic D3D9 candidate merely from this late-binding change.
+
+Conclusion: **PASS / FOCUSED STATIC DXGI IMPORT CLOSURE PROVEN.** The late-binding experiment produces a real x86 `libGLESv2.dll` with no ordinary `dxgi.dll` dependency and no `CreateDXGIFactory1` import while retaining `d3d9.dll`. This closes the focused static-import hypothesis, but the current implementation is deliberately diagnostic because it includes `Renderer11.cpp` from `Trim11.cpp` while the generated target list still says `Renderer11=False`.
+
+Next integration boundary: convert the diagnostic proof into a source-clean production-shaped ANGLE change on `agent/winrt-source-poc` (restore ordinary `Renderer11.cpp` target ownership and retain the proven runtime resolution semantics), then rerun the focused PE gate. After that passes, transfer the exact change into a full XP x32 Firefox build and require the final packaged `libGLESv2.dll` import audit before physical-XP runtime testing. Preserve the D3D9 fallback path; do not interpret focused build success as physical-XP runtime proof.
+
+Status: **current focused ANGLE/DXGI remediation proof; production-shaped integration and full-browser validation remain open.**
+
+---
+
 ## 2026-09-05 — focused `ADVAPI32!RegGetValueW` XP x86 probe passes through narrow YY-Thunks provider
 
 Track: Windows XP SP3 x86 compatibility / focused ADVAPI32 registry import closure only. This is not full Firefox integration, physical-XP browser acceptance, or GOST TLS runtime/handshake evidence.
