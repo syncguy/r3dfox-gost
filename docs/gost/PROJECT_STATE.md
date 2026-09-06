@@ -57,6 +57,7 @@ Detailed current runtime/debugger handoff: `XP_RUNTIME_COMPATIBILITY_STATUS.md`.
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`: focused run `33741674218`, job `100604798167`, then full integration run `33757305364`, job `100654730312`.
 - `NtCancelIoFileEx` YY-Thunks closure: focused source `be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2`, run `33861819326`, job `100987750213`, proved the dedicated narrow-YY probe; full Firefox integration is then proven by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`, diagnostics artifact `9937356676`, where final production `xul.dll` contains `NtCancelIoFile` and not `NtCancelIoFileEx`. Do not reopen the focused or full-integration capability without contradictory evidence.
 - focused ADVAPI32 ETW YY-Thunks capability is closed for `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer`: source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, workflow `XP x86 core KERNEL32 cluster smoke`, run `33882235341`, job `101053403554`, aggregate success. Diagnostics artifact `9940665687` proves all four exact `AdvAPI32.Lib_WeakAlias` `.obj/.obi` pairs were selected, the existing narrow YY common implementation supplies all four `YY_Thunks_*` bodies, the linker map selected all four thunks, the focused executable retained none of the four direct imports, and the hosted ETW probe passed. This closes focused capability only; full production `xul.dll` integration remains open.
+- focused WS2_32 YY-Thunks capability/link/import/hosted execution is closed for `WSAIoctl` and `inet_ntop`: source `5451673565030445262f5b6ef48b4059e0e0501e`, workflow `XP x86 core DLLs cluster smoke`, run `34021400841`, job `101454550948`, aggregate success. Runtime artifact `9985727110` and diagnostics artifact `9985727651` are the authoritative focused evidence. `WSASendMsg` and `WSCGetProviderInfo` are explicitly not part of this closure because the pinned YY-Thunks 1.2.2 release library lacks their weak-alias/provider capability.
 - the workflow's curated broad forbidden-import progression `69 -> 3 -> 0` is closed for its historical list on run `33757305364`; this is not an exhaustive XP API/DLL proof and the current audit list is broader.
 - KERNEL32 source-remediation quartet in final production `xul.dll`: first recorded strict `0/4` binary evidence is source `1a86821ccf50ac07204d1bec438e375ece4e84d6`, run `33831005002`, job `100893816677`, diagnostics artifact `9924338342`.
 - final production `xul.dll -> PROPSYS.dll` ordinary dependency is closed at current full-build static-import level by source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`: the exact broad forbidden-import report contains no PROPSYS row. Historical predecessor evidence remains valid for the older binaries that did import it.
@@ -235,18 +236,29 @@ The procedure entry point WSASendMsg could not be located in the dynamic link li
 
 The matching full-build diagnostics show that only production `xul.dll` carries the ordinary `WS2_32.dll` dependency in this build. Its relevant named import cluster includes `WSAIoctl`, `WSASendMsg`, `WSCEnumProtocols`, `WSCGetProviderInfo`, `WSCGetProviderPath`, and `inet_ntop`; the remaining recorded ordinal Winsock imports are old XP-era exports. `WSASendMsg`, `WSCGetProviderInfo`, and `inet_ntop` are post-XP missing-export risks; `WSAIoctl` exists on XP but modern `SIO_BASE_HANDLE` behavior requires compatibility handling.
 
-Focused YY-Thunks release-library capability for the four active compatibility cases is now bound to source `dfec00655c27b3a0243a34cd4d108f689414eaf0`, workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core DLLs cluster smoke`, run `34019895772`, job `101450411855`, diagnostics artifact `9985211686`, digest `sha256:cfe49ba86b5515ae7f780573e0cf226e9e4d6eaec261fdda01c12f0bd04f2a2b`. The decisive inventory completed successfully before the later probe compile failure and proves:
+The WS2_32 investigation is now split into a closed focused YY pair and two open implementation cases.
+
+Focused YY closure for the supported pair is bound to:
+
+- source `5451673565030445262f5b6ef48b4059e0e0501e`;
+- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core DLLs cluster smoke`;
+- run `34021400841`, job `101454550948`;
+- runtime artifact `9985727110`, digest `sha256:363c17acb8ef808457a0bd1d71c6cd7e4314ff354c2c2379efa2b128fdbedc9b`;
+- diagnostics artifact `9985727651`, digest `sha256:3b7762569b27d3e30c8051575da4765a7f5bbbde1889f5b04d7459fb7168c56f`;
+- aggregate result **success**.
+
+The exact job is GREEN through `Build and run WS2_32 YY probe`, PE/direct-import gating, hosted execution, physical-XP bundle creation, both artifact uploads and final verdict. Therefore `WSAIoctl` and `inet_ntop` are closed at focused YY capability/link/import/hosted-execution scale.
+
+The earlier inventory run `34019895772`, job `101450411855`, source `dfec00655c27b3a0243a34cd4d108f689414eaf0` remains authoritative for the unsupported release-library cases:
 
 ```text
-WSAIoctl            capable  (_WSAIoctl@36.obj / _WSAIoctl@36.obi)
+WSAIoctl            capable
 WSASendMsg          missing
 WSCGetProviderInfo  missing
-inet_ntop           capable  (_inet_ntop@16.obj / _inet_ntop@16.obi)
+inet_ntop           capable
 ```
 
-The same job then failed in `Build and run WS2_32 YY probe` at compile time because `SIO_BASE_HANDLE` was undeclared in the selected SDK/header context (`ws2.cpp(16): error C2065`). That is a harness/header declaration defect, not evidence against the completed capability inventory. No WS2_32 functional probe executed in this run, so it proves neither hosted `WSAIoctl` semantics nor physical-XP runtime behavior.
-
-Current remediation split is therefore explicit: keep the YY solution narrow to the two physically proven-capable release-library APIs, `WSAIoctl` and `inet_ntop`; `WSASendMsg` and `WSCGetProviderInfo` require a separate source fallback/late-binding or deliberately implemented narrow compatibility-thunk path. After those owner-boundary changes, require final production `xul.dll` import evidence and then retry the exact resulting runtime on physical XP. Do not interpret the focused capability result as full-browser closure.
+Current implementation focus is therefore only `WSASendMsg` and `WSCGetProviderInfo`. Do not attempt to force either through the pinned YY-Thunks 1.2.2 release library. Investigate their exact Firefox/xul owners and semantics, then choose the narrowest source fallback/late-binding or deliberately implemented compatibility-thunk path. After those are solved, transfer all four WS2_32 compatibility cases into the production `xul.dll` link, require final ordinary-import evidence, and retest the exact resulting browser on physical XP.
 
 ## Physical XP dependency baseline recorded during the same investigation
 
