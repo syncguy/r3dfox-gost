@@ -79,7 +79,6 @@ UNIFIED_SOURCES += [
     "JumpListBuilder.cpp",
     "KeyboardLayout.cpp",
     "LegacyJumpListItem.cpp",
-    "LSPAnnotator.cpp",
     "nsAppShell.cpp",
     "nsClipboard.cpp",
     "nsColorPicker.cpp",
@@ -132,6 +131,7 @@ SOURCES += [
     "CompositorWidgetParent.cpp",
     "InProcessWinCompositorWidget.cpp",
     "LegacyJumpListBuilder.cpp",
+    "LSPAnnotator.cpp",
     "MediaKeysEventSourceFactory.cpp",
     "nsBidiKeyboard.cpp",
     "nsFilePicker.cpp",
@@ -144,6 +144,7 @@ SOURCES += [
     "WindowsUIUtils.cpp",
     "WinTaskbar.cpp",
 ]
+SOURCES["LSPAnnotator.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["nsWindow.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["WinTaskbar.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["WindowsUIUtils.cpp"].flags += ["-DMOZ_NO_WINRT"]
