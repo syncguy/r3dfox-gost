@@ -811,13 +811,13 @@ jobs:
           $text = [System.IO.File]::ReadAllText($path)
           $pattern = '(?m)^    if name == "xul-real":\r?\n        SYMBOLS_FILE = "\.\./libxul\.symbols"\r?$'
           $replacement = @'
-          if name == "xul-real":
-              SYMBOLS_FILE = "../libxul.symbols"
-              if CONFIG["OS_ARCH"] == "WINNT":
-                  LDFLAGS += [
-                      "-ENTRY:DllMainCRTStartupForYY_Thunks",
-                      "-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12",
-                  ]
+              if name == "xul-real":
+                  SYMBOLS_FILE = "../libxul.symbols"
+                  if CONFIG["OS_ARCH"] == "WINNT":
+                      LDFLAGS += [
+                          "-ENTRY:DllMainCRTStartupForYY_Thunks",
+                          "-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12",
+                      ]
           '@
           $regex = [regex]::new($pattern)
           if ($regex.Matches($text).Count -ne 1) { throw 'Expected unique xul-real SYMBOLS_FILE anchor was not found.' }
