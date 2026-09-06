@@ -442,10 +442,12 @@ jobs:
 
           $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
           $synch = Join-Path $yyLib.FullName 'synchronization.lib'
-          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch)) { throw 'Required YY XP x86 libraries are missing' }
+          $ws2 = Join-Path $yyLib.FullName 'ws2_32.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch) -or -not (Test-Path $ws2)) { throw 'Required YY XP x86 libraries are missing' }
           "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_WS2_32_LIB=$ws2" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build narrow YY XP x86 provider
         shell: powershell
@@ -575,7 +577,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $ntdll = Join-Path $env:THUNK_YY_LIB 'ntdll.lib'
           $advapi = Join-Path $env:THUNK_YY_LIB 'advapi32.lib'
-          foreach ($required in @($env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$env:THUNK_YY_KERNEL32_LIB,$ntdll,$advapi)) {
+          $ws2 = $env:THUNK_YY_WS2_32_LIB
+          foreach ($required in @($env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$env:THUNK_YY_KERNEL32_LIB,$ntdll,$advapi,$ws2)) {
             if (-not $required -or -not (Test-Path $required)) { throw "Required YY linker input missing: $required" }
           }
 
@@ -698,14 +701,81 @@ jobs:
           $etwEvidence.Add('capability=PASS')
           $etwEvidence | Set-Content -Encoding utf8 diagnostics\yy-etw-capability.txt
 
+          # Proven by run 34021400841 / job 101454550948 / SHA 5451673565030445262f5b6ef48b4059e0e0501e.
+          # Use only WSAIoctl and inet_ntop weak-alias pairs from YY ws2_32.lib; the shared implementations are already present in NARROW_YY_LIB.
+          $ws2Apis = @(
+            @{ Name='WSAIoctl'; Stack=36 },
+            @{ Name='inet_ntop'; Stack=16 }
+          )
+          $ws2Members = @(& lib.exe /nologo /list $ws2 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $ws2Members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 ws2_32.lib' }
+          $ws2AliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-ws2_32-alias'
+          $ws2Selected = Join-Path $ws2AliasWork 'selected'
+          if (Test-Path $ws2AliasWork) { Remove-Item -Recurse -Force $ws2AliasWork }
+          New-Item -ItemType Directory -Force $ws2Selected | Out-Null
+          $ws2AliasObjects = @()
+          $ws2Evidence = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $ws2Apis) {
+            $api = $spec.Name
+            $stack = $spec.Stack
+            $escaped = [regex]::Escape($api)
+            $direct = @($ws2Members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@$stack\.obj$" })
+            $import = @($ws2Members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@$stack\.obi$" })
+            if ($direct.Count -ne 1 -or $import.Count -ne 1) {
+              throw "Expected one proven $api @$stack .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)"
+            }
+            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) {
+              throw "Proven narrow provider lacks YY_Thunks_$api implementation"
+            }
+            $ws2Evidence.Add("$api|direct=$($direct[0])|import=$($import[0])")
+            foreach ($item in @($direct[0],$import[0])) {
+              $kind = [IO.Path]::GetExtension($item).TrimStart('.')
+              $dir = Join-Path $ws2Selected "$api-$kind"
+              New-Item -ItemType Directory -Force $dir | Out-Null
+              Push-Location $dir
+              try {
+                & lib.exe /nologo "/extract:$item" $ws2 *> extract.log
+                if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" }
+              } finally { Pop-Location }
+              $file = Get-ChildItem -LiteralPath $dir -File |
+                Where-Object { $_.Name -ne 'extract.log' } |
+                Sort-Object Length -Descending | Select-Object -First 1
+              if (-not $file) { throw "$api alias extraction produced no object" }
+              $dst = Join-Path $dir 'member.obj'
+              Copy-Item -Force $file.FullName $dst
+              $ws2AliasObjects += $dst
+            }
+          }
+          $ws2Alias = Join-Path $ws2AliasWork 'yy-xp-ws2_32-alias.lib'
+          & lib.exe /nologo "/out:$ws2Alias" @ws2AliasObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ws2Alias)) { throw 'WS2_32 alias library build failed' }
+          $ws2AliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $ws2Alias 2>&1 | Out-String)
+          $ws2AliasSymbols | Set-Content -Encoding utf8 (Join-Path $ws2AliasWork 'alias-symbols.txt')
+          foreach ($spec in $ws2Apis) {
+            if ($ws2AliasSymbols.IndexOf($spec.Name,[System.StringComparison]::Ordinal) -lt 0) {
+              throw "WS2_32 alias provider missing $($spec.Name)"
+            }
+          }
+          $ws2Evidence.Add("alias_provider=$ws2Alias")
+          $ws2Evidence.Add('implementation=existing NARROW_YY_LIB common YY object')
+          $ws2Evidence.Add('apis=WSAIoctl,inet_ntop')
+          $ws2Evidence.Add('evidence_run=34021400841')
+          $ws2Evidence.Add('evidence_job=101454550948')
+          $ws2Evidence.Add('evidence_sha=5451673565030445262f5b6ef48b4059e0e0501e')
+          $ws2Evidence.Add('capability=PASS')
+          $ws2Evidence | Set-Content -Encoding utf8 diagnostics\yy-ws2_32-capability.txt
+
           $yySynch = $env:THUNK_YY_SYNCH_LIB -replace '\\','/'
           $narrow = $env:NARROW_YY_LIB -replace '\\','/'
           $ntCancelAliasLink = $ntCancelAlias -replace '\\','/'
           $advapiEtwAliasLink = $advapiEtwAlias -replace '\\','/'
+          $ws2AliasLink = $ws2Alias -replace '\\','/'
           $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB -replace '\\','/'
           $fullNtdll = $ntdll -replace '\\','/'
           $fullAdvapi = $advapi -replace '\\','/'
-          $targetLdflags = "$env:LDFLAGS $ntCancelAliasLink $advapiEtwAliasLink $narrow $yySynch".Trim()
+          $fullWs2 = $ws2 -replace '\\','/'
+          $targetLdflags = "$env:LDFLAGS $ntCancelAliasLink $advapiEtwAliasLink $ws2AliasLink $narrow $yySynch".Trim()
           if ($targetLdflags.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw 'Invariant violation: full YY kernel32.lib was injected into global target LDFLAGS'
           }
@@ -715,16 +785,21 @@ jobs:
           if ($targetLdflags.IndexOf($fullAdvapi, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw 'Invariant violation: full YY advapi32.lib was injected into global target LDFLAGS'
           }
+          if ($targetLdflags.IndexOf($fullWs2, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY ws2_32.lib was injected into global target LDFLAGS'
+          }
           "LDFLAGS=$targetLdflags" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           @(
             'scope=all-target-links',
             "ntcancel_alias_provider=$ntCancelAliasLink",
             "advapi32_etw_alias_provider=$advapiEtwAliasLink",
+            "ws2_32_alias_provider=$ws2AliasLink",
             "narrow_provider=$narrow",
             "synchronization_lib=$yySynch",
             'full_kernel32_lib=prohibited',
             'full_ntdll_lib=prohibited',
             'full_advapi32_lib=prohibited',
+            'full_ws2_32_lib=prohibited',
             "target_ldflags=$targetLdflags"
           ) | Set-Content -Encoding utf8 diagnostics\xp-x32-global-yy-link-contract.txt
 
@@ -1367,6 +1442,7 @@ jobs:
             'GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
             'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx',
             'EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW',
+            'WSAIoctl','inet_ntop','WSASendMsg','WSCGetProviderInfo',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
 
@@ -1440,6 +1516,7 @@ jobs:
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
             ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
+            ${{ runner.temp }}/r3dfox-xp-x32-ws2_32-alias/**
 
       - name: GATE - Summarize XP x32 full build
         if: always()
@@ -1473,11 +1550,13 @@ jobs:
           "- DPI pre-Vista source guard: ${{ steps.dpi-source-guard.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source-remediation quartet gate: ${{ steps.source-remediation-quartet.outcome }} (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- ADVAPI32 compatibility final xul.dll gate: ${{ steps.advapi32-etw-import-gate.outcome }}; ETW focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554; RegGetValueW focused capability source 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4 / run 33946751857 / job 101254130849." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- WS2_32 focused YY capability: WSAIoctl + inet_ntop from source 5451673565030445262f5b6ef48b4059e0e0501e / run 34021400841 / job 101454550948; production link uses only their weak-alias pairs plus the shared narrow YY implementation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- WSASendMsg is source late-bound and WSCGetProviderInfo LSP-category diagnostics are compiled out under MOZ_XP_COMPAT; all four WS2_32 names are forbidden as ordinary final imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- mozglue SetProcessDPIAware import-mode gate: ${{ steps.dpi-import-gate.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + five-name ADVAPI32 alias family + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib, ntdll.lib and advapi32.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + five-name ADVAPI32 alias family + two-name WS2_32 alias family + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib, ntdll.lib, advapi32.lib and ws2_32.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           foreach ($item in $operations) {
