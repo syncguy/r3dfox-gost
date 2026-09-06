@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -212,20 +212,41 @@ The same diagnostics contain `diagnostics/yy-ntcancel-capability.txt` with `capa
 
 This later build also contains the later project-owned DPI implementation descendants and revalidates the DPI source/import gates, but physical Windows XP execution remains a separate acceptance boundary. No GOST TLS conclusion follows.
 
-## Current physical-XP startup blocker after the latest full build — `ADVAPI32!EventRegister`
+## Current physical-XP startup blocker after the latest full build — `WS2_32!WSASendMsg`
 
-The latest full browser above was subsequently executed on the physical Windows XP SP3 x86 machine. For exact runtime artifact `9937355457` from source `622a87625036e9c45a8650264336eceeb9be8753`, run `33864176444`, job `100995134125`, the loader now advances past the previously closed `SetProcessDPIAware` and `NtCancelIoFileEx` edges and stops with:
+The newer full XP x32 build advances beyond the previously observed ADVAPI32 ETW loader blocker and is bound to:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `5d4d40c9b3c6fc39fe17c03bef864193f63fcb31` (`ci(xp): enforce all focused YY-covered imports`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `33966267770`, attempt `1`;
+- job `101306845190`;
+- aggregate conclusion **failure** only at the final summary gate after substantive build/package/audit/upload work completed;
+- package artifact `9971441053`, digest `sha256:c6b0212c0d256f554a230d186b51f334d93ad1595b083202445979e277209565`;
+- runtime artifact `9971441420`, digest `sha256:907741f483f8dc3b7625e2c05c7ddea5c4e7a22a5ed89a8a8f2daf2bfe8d34e5`;
+- diagnostics artifact `9971441910`, digest `sha256:6793582e3f5b949bf262e92a2fd41424d04d9e2547fb4356098e671a627fb111`.
+
+The exact job's `GATE - Require ADVAPI32 compatibility family absent from xul.dll` is GREEN, so the old `EventRegister` loader edge is no longer the current production import blocker for this build. The user then ran exact runtime artifact `9971441420` on physical Windows XP SP3 x86 and observed:
 
 ```text
 r3dfox.exe - Entry Point Not Found
-The procedure entry point EventRegister could not be located in the dynamic link library ADVAPI32.dll.
+The procedure entry point WSASendMsg could not be located in the dynamic link library WS2_32.dll.
 ```
 
-The exact final-production import inventory from diagnostics artifact `9937356676` shows that `xul.dll` owns an ordinary ADVAPI32 ETW family consisting of `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer`. Therefore the immediate observed physical-XP startup blocker for artifact `9937355457` is the ETW family in production `xul.dll`; `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` remains a separate known static blocker and was not reached by this loader failure.
+The matching full-build diagnostics show that only production `xul.dll` carries the ordinary `WS2_32.dll` dependency in this build. Its relevant named import cluster includes `WSAIoctl`, `WSASendMsg`, `WSCEnumProtocols`, `WSCGetProviderInfo`, `WSCGetProviderPath`, and `inet_ntop`; the remaining recorded ordinal Winsock imports are old XP-era exports. `WSASendMsg`, `WSCGetProviderInfo`, and `inet_ntop` are post-XP missing-export risks; `WSAIoctl` exists on XP but modern `SIO_BASE_HANDLE` behavior requires compatibility handling.
 
-Focused remediation capability is now proven independently by source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, run `33882235341`, job `101053403554`: the dedicated ADVAPI32 ETW YY probe is GREEN for all four APIs through physically narrow weak-alias pairs plus the already-proven common `NARROW_YY_LIB` implementation. Runtime artifact `9940665095` has digest `sha256:0fa3b523fb949bc364fc70abd1496b15f2e92590062077600135ff55bd731b01`; diagnostics artifact `9940665687` has digest `sha256:e853d7128c092420c3d2e1da0184137fcd7ae42d0b439f5ead8acbc3e243964f`.
+Focused YY-Thunks release-library capability for the four active compatibility cases is now bound to source `dfec00655c27b3a0243a34cd4d108f689414eaf0`, workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core DLLs cluster smoke`, run `34019895772`, job `101450411855`, diagnostics artifact `9985211686`, digest `sha256:cfe49ba86b5515ae7f780573e0cf226e9e4d6eaec261fdda01c12f0bd04f2a2b`. The decisive inventory completed successfully before the later probe compile failure and proves:
 
-This focused PASS closes the question of whether the selected YY-Thunks 1.2.2 path can satisfy the four ETW APIs in the XP x86 compatibility environment. It does **not** close production Firefox integration. The next mandatory full-build boundary is to inject only those four ADVAPI32 weak-alias pairs into the production target-link path, keep the common narrow YY implementation, add a strict final-`xul.dll` gate requiring all four ordinary imports absent, rebuild under a new exact source SHA, and then repeat the physical XP startup test on that exact new runtime artifact.
+```text
+WSAIoctl            capable  (_WSAIoctl@36.obj / _WSAIoctl@36.obi)
+WSASendMsg          missing
+WSCGetProviderInfo  missing
+inet_ntop           capable  (_inet_ntop@16.obj / _inet_ntop@16.obi)
+```
+
+The same job then failed in `Build and run WS2_32 YY probe` at compile time because `SIO_BASE_HANDLE` was undeclared in the selected SDK/header context (`ws2.cpp(16): error C2065`). That is a harness/header declaration defect, not evidence against the completed capability inventory. No WS2_32 functional probe executed in this run, so it proves neither hosted `WSAIoctl` semantics nor physical-XP runtime behavior.
+
+Current remediation split is therefore explicit: keep the YY solution narrow to the two physically proven-capable release-library APIs, `WSAIoctl` and `inet_ntop`; `WSASendMsg` and `WSCGetProviderInfo` require a separate source fallback/late-binding or deliberately implemented narrow compatibility-thunk path. After those owner-boundary changes, require final production `xul.dll` import evidence and then retry the exact resulting runtime on physical XP. Do not interpret the focused capability result as full-browser closure.
 
 ## Physical XP dependency baseline recorded during the same investigation
 
@@ -321,7 +342,7 @@ CreateDXGIFactory1=True
 
 and the source baseline records both `ANGLE_ENABLE_D3D9=True` and `ANGLE_ENABLE_D3D11=True`, with both `Renderer9=True` and `Renderer11=True`. Therefore the current XP-focused ANGLE configuration genuinely builds an x86 `libGLESv2.dll` that retains both the D3D9 path and the incompatible ordinary `dxgi.dll!CreateDXGIFactory1` dependency. `dxgi.dll` is absent on the physical XP baseline.
 
-The focused build baseline is now valid and should not be re-opened as a harness problem without contradictory evidence. The next experiment is owner-boundary remediation: disable the D3D11/DXGI path for the XP build while preserving D3D9, then require the same focused build to produce a real x86 `libGLESv2.dll` with `dxgi.dll` / `CreateDXGIFactory1` absent and the intended D3D9 surface retained. Only after a focused PASS should that change move to a full XP Firefox build. This line remains independent of the currently observed physical `xul.dll -> ADVAPI32!EventRegister` blocker and of GOST TLS runtime.
+The focused build baseline is now valid and should not be re-opened as a harness problem without contradictory evidence. The next experiment is owner-boundary remediation: disable the D3D11/DXGI path for the XP build while preserving D3D9, then require the same focused build to produce a real x86 `libGLESv2.dll` with `dxgi.dll` / `CreateDXGIFactory1` absent and the intended D3D9 surface retained. Only after a focused PASS should that change move to a full XP Firefox build. This line remains independent of the currently observed physical `xul.dll -> WS2_32!WSASendMsg` blocker and of GOST TLS runtime.
 
 ### Remaining delay/dynamic surfaces
 
