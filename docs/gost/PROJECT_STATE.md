@@ -8,7 +8,6 @@ This file is the authoritative current technical synthesis and handoff for new c
 
 - Repository: `syncguy/r3dfox-gost`.
 - Default GOST development branch and canonical documentation source: `agent/gost-tls-poc`.
-- Current default-branch HEAD before this documentation update: `09d7e1bf5a330dd4609d07c73b649bc817ab0301` (`docs(xp): close focused WS2_32 YY pair`).
 - Windows XP SP3 x86 compatibility implementation branch: `agent/winrt-source-poc`.
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
 - PR #1 historically targets `win-153`; it does not define the active work branch.
@@ -24,11 +23,11 @@ Keep these tracks independent unless a deliberately combined experiment tests bo
 2. Windows Vista/7/XP compatibility / Rust / msvcr14x / YY-Thunks / linker / PE imports / physical runtime.
 3. Bundled government-system extensions and localization/package behavior.
 
-A successful build is not a successful GOST handshake. A hosted compatibility probe is not physical-XP proof. Win7 x86 runtime success is not XP import closure. Documentation HEADs never replace the exact source-under-test SHA for an earlier artifact.
+A successful build is not a successful GOST handshake. A hosted compatibility probe is not physical-XP proof. Win7 x86 runtime success is not XP runtime success. Documentation HEADs never replace the exact source-under-test SHA for an earlier artifact.
 
 # GOST TLS runtime
 
-No GOST-runtime conclusion changes as a result of the XP build described below.
+No GOST-runtime conclusion changes as a result of the XP work described below.
 
 Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication.
 
@@ -49,9 +48,9 @@ Current authoritative Session-default browser source is `afbdad307f63e594d371516
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
-## Current status — full build/static closure is GREEN
+## Current build/static baseline — GREEN
 
-The newest authoritative full XP x32 build is:
+The newest authoritative full XP x32 build remains:
 
 - source branch: `agent/winrt-source-poc`;
 - source-under-test: `176eb94b503e773334593508df408fa491faa45f`;
@@ -63,18 +62,38 @@ The newest authoritative full XP x32 build is:
 - runtime artifact `9989657830`, digest `sha256:64b0f5a0ccf94900fa882069369e26d3beaf46fa128f7b6b650c44d1e87c2c2f`;
 - diagnostics artifact `9989658809`, digest `sha256:9e3e9e2e6fac3f0a33a17d94bdf0460edd1020c61c388307a2f8ccd78e2f50fb`.
 
-All substantive build, packaging, compatibility/import evidence and final summary gates completed successfully. This is the current full-build candidate after walking through the presently discovered build/static blockers in the XP line.
+All substantive build, packaging, compatibility/import evidence and final summary gates completed successfully. The build/link/static-import phase is therefore not the current blocker for this exact candidate.
 
-**Current interpretation:** the build/link/static-import phase is no longer the active blocker for this exact candidate. All blockers currently known to the workflow/audit line have been closed sufficiently for the full Firefox 153 XP x86 build to go GREEN.
+## Current physical-runtime boundary
 
-**Current blocker / next acceptance boundary:** physical Windows XP SP3 x86 runtime validation of exact runtime artifact `9989657830`. A new runtime-only missing export, delay-load edge or behavioral incompatibility may still appear and must be treated as a new runtime blocker rather than retroactively invalidating the GREEN build result.
+The exact current candidate has now been exercised physically:
 
-A GREEN CI build does **not** prove:
+- Windows 7 x86: **PASS / starts and works** by user observation. This is a useful regression check that the current compatibility work did not generically break the x86 browser.
+- Windows XP SP3 x86: **FAIL / startup access violation**. No current missing-import or missing-export dialog is observed before the crash.
 
-- successful startup on physical XP;
-- representative browser operation on XP;
-- exhaustive absence of every possible runtime-only incompatibility;
-- GOST TLS handshake success.
+The supplied Dr. Watson log for this run, `drwtsn32.log` SHA-256 `d436c0056af14012fac84aa1b78afe607f61ceb6ba9229cffc9f211b5530d2f4`, records:
+
+```text
+Exception: C0000005
+ntdll!RtlpWaitForCriticalSection
+  -> ntdll!RtlEnterCriticalSection
+  -> xul.dll
+  -> xul!XRE_GetBootstrap
+```
+
+At the fault, XP executes `mov eax,[esi]` followed by `inc dword ptr [eax+0x10]`, with `EAX == 0`. For the x86 `RTL_CRITICAL_SECTION` layout this means the critical section's first field, `DebugInfo`, is null when XP reaches the contended wait path. XP then dereferences `NULL+0x10` and crashes.
+
+**Current interpretation:** the project has advanced past the known direct-import loader blockers into an XP-specific early-runtime synchronization/initialization defect. The current static GREEN result remains valid and must not be relabelled as a build failure.
+
+## Current root-cause status
+
+Root cause is **not yet proven**.
+
+The exact diagnostics artifact proves that the build's narrow YY provider contains the selected `InitializeCriticalSectionEx` weak alias and the shared `YY_Thunks_for_5.1.2600.0.obj` implementation. Disassembly of that exact implementation shows the XP fallback ignores the third `Flags` argument and calls `InitializeCriticalSectionAndSpinCount`. Therefore the specific hypothesis that the YY fallback directly forwards `CRITICAL_SECTION_NO_DEBUG_INFO` into XP is not supported by the exact object and should not be used as the explanation.
+
+A related YY integration audit remains open: the shared implementation object contains `DllMainCRTStartupForYY_Thunks`, so the full `xul.dll` link should be checked against the YY-Thunks DLL/TLS entry-point contract. That is a candidate compatibility concern only; it has not been shown to create the observed null-`DebugInfo` critical section.
+
+**Active blocker:** identify the exact `xul.dll` owner/call site that enters the failing critical section and determine how that specific critical section was initialized or corrupted before contention. Prefer exact binary/symbol/runtime evidence over broad synchronization changes.
 
 ## Compatibility work incorporated into the current closure
 
@@ -96,38 +115,11 @@ Historical source/run/job/artifact identities for each individual closure remain
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility ownership physically narrow by PE/provider/source owner.
 
-## Relevant predecessor runtime evidence
-
-The previous physical XP line exposed real runtime blockers in sequence even when builds had already advanced substantially. In particular, the exact older artifact from run `33757305364` first exposed the confirmed `USER32.dll!SetProcessDPIAware` delay-load failure, and a later exact runtime artifact from run `33966267770` exposed `WS2_32!WSASendMsg` on physical XP. Those observations remain historical evidence for those exact artifacts; they are not automatically attributable to the new GREEN artifact.
-
-The new build must therefore be tested from its own exact artifact identity rather than inferred from older physical runs.
-
-## Mandatory `MOZ_XP_COMPAT` build rule
-
-`MOZ_XP_COMPAT` remains the preferred project-owned compile-time signal where an XP release intentionally removes or bypasses a modern Windows feature/runtime edge with no useful XP semantic equivalent.
-
-The canonical XP full-build workflow intentionally supplies build-wide XP identity:
-
-```sh
-export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
-export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
-```
-
-Every production translation unit containing a dedicated accepted `MOZ_XP_COMPAT` boundary should also record source-local ownership where practical. Do not add XP compatibility defines to ordinary non-XP build configurations merely for convenience.
-
-Authoritative rules and current owners: `XP_MOZ_XP_COMPAT_CONTRACT.md`.
-
 ## XP acceptance boundary
 
-The current GREEN workflow establishes a major milestone, but final XP acceptance still requires:
+Final XP acceptance still requires the exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is currently **not met** because runtime artifact `9989657830` crashes during early startup in `RtlpWaitForCriticalSection`.
 
-1. exact source-under-test SHA;
-2. exact run/job identity;
-3. inventory-driven ordinary/delay import evidence for shipped/runtime-required PEs;
-4. exact package/runtime/diagnostics artifact IDs and hashes;
-5. physical Windows XP startup and representative browser use of that exact artifact.
-
-A curated known-API list is a regression gate, not exhaustive compatibility proof. A successful XP startup is also not a GOST TLS handshake result.
+A curated known-API list is a regression gate, not exhaustive compatibility proof. A successful XP startup would also not be a GOST TLS handshake result.
 
 # Bundled government-system extensions / localization
 
