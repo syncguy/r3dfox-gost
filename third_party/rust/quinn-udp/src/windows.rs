@@ -377,7 +377,7 @@ impl UdpSocketState {
     /// Get the size of the `socket` receive buffer
     #[inline]
     pub fn recv_buffer_size(&self, socket: UdpSockRef<'_>) -> io::Result<usize> {
-        socket.0.receive_buffer_size()
+        socket.0.recv_buffer_size()
     }
 
     #[inline]
