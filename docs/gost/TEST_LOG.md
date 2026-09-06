@@ -8,6 +8,56 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-06 — YY-Thunks `WS2_32` capability inventory confirms 2/4 APIs; functional probe stops at SDK declaration
+
+Track: Windows XP SP3 x86 compatibility / focused `WS2_32` YY-Thunks capability only. This is not full Firefox integration, physical-XP runtime proof, or GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- source branch: `agent/winrt-source-poc`;
+- source-under-test: `dfec00655c27b3a0243a34cd4d108f689414eaf0` (`ci(xp): add WS2_32 YY capability cluster`);
+- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core DLLs cluster smoke`;
+- Actions run `34019895772`, attempt `1`;
+- job `101450411855` (`Core post-XP API cluster / XP x86`);
+- aggregate run/job conclusion: **failure**;
+- diagnostics artifact `9985211686` (`xp-core-kernel32-cluster-diagnostics`), `1066529` bytes, digest `sha256:cfe49ba86b5515ae7f780573e0cf226e9e4d6eaec261fdda01c12f0bd04f2a2b`;
+- YY-Thunks version `1.2.2`, XP target `5.1.2600.0`.
+
+The decisive release-library capability inventory completed before the failing probe step and produced the expected four-row matrix:
+
+```text
+WSAIoctl            capable
+WSASendMsg          missing
+WSCGetProviderInfo  missing
+inet_ntop           capable
+```
+
+For the two capable APIs the exact weak-alias members were physically found in the pinned YY-Thunks `WS2_32` library:
+
+```text
+WSAIoctl  -> _WSAIoctl@36.obj / _WSAIoctl@36.obi
+inet_ntop -> _inet_ntop@16.obj / _inet_ntop@16.obi
+```
+
+`WSASendMsg` and `WSCGetProviderInfo` had no matching provider objects/import aliases and were reported `missing`.
+
+The workflow then entered `Build and run WS2_32 YY probe` and failed during C++ compilation before any WS2_32 functional execution:
+
+```text
+ws2.cpp(16): error C2065: 'SIO_BASE_HANDLE': undeclared identifier
+WS2_32 probe compile failed
+```
+
+This is a focused-test harness / SDK-header declaration issue. It does **not** invalidate the already-completed binary capability inventory. Conversely, because compilation stopped before execution, this run does not prove hosted runtime behavior for `WSAIoctl`, does not exercise YY-Thunks' XP-side `SIO_BASE_HANDLE` compatibility semantics, and is not physical-XP proof.
+
+Conclusion: **PARTIAL PASS / CAPABILITY MATRIX PROVEN; FUNCTIONAL PROBE NOT EXECUTED.** The pinned YY-Thunks 1.2.2 release library can provide the current XP-targeted `WSAIoctl` and `inet_ntop` cases, but it cannot provide `WSASendMsg` or `WSCGetProviderInfo` through the same release-library path. The latter two therefore require a different owner-boundary solution such as source fallback/late binding or a deliberately implemented narrow compatibility thunk. Do not treat the aggregate RED as evidence that all four WS2_32 APIs are unsupported by YY-Thunks.
+
+Next boundary: keep the YY provider narrow to the two proven-capable APIs, remediate `WSASendMsg` and `WSCGetProviderInfo` separately, and only then transfer the exact solutions into production `xul.dll` with final PE/import auditing. The `SIO_BASE_HANDLE` declaration should be fixed only as probe-harness work if a hosted functional check remains useful; a hosted Windows result still cannot replace physical-XP runtime validation.
+
+Status: **current authoritative focused WS2_32 capability result; production integration and physical-XP closure remain open.**
+
+---
+
 ## 2026-09-06 — ANGLE `Renderer11` DXGI late-binding removes the static `dxgi.dll` dependency while retaining D3D9
 
 Track: Windows XP SP3 x86 compatibility / ANGLE `libGLESv2` focused PE/import remediation only. This is not full Firefox integration, physical-XP browser acceptance, or GOST TLS runtime/handshake evidence.
