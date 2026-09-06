@@ -8,6 +8,43 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-06 — focused WS2_32 YY smoke passes for `WSAIoctl` and `inet_ntop`
+
+Track: Windows XP SP3 x86 compatibility / focused `WS2_32` YY-Thunks capability and hosted-execution proof only. This is not full Firefox integration, physical-XP browser proof, or GOST TLS runtime/handshake evidence.
+
+Exact source/build identity:
+
+- source branch: `agent/winrt-source-poc`;
+- source-under-test: `5451673565030445262f5b6ef48b4059e0e0501e` (`ci(xp): restore core probe syntax`);
+- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml` / `XP x86 core DLLs cluster smoke`;
+- Actions run `34021400841`, attempt `1`;
+- job `101454550948` (`Core post-XP API cluster / XP x86`);
+- aggregate run/job conclusion: **success**;
+- runtime artifact `9985727110` (`xp-core-kernel32-cluster-runtime`), `673411` bytes, digest `sha256:363c17acb8ef808457a0bd1d71c6cd7e4314ff354c2c2379efa2b128fdbedc9b`;
+- diagnostics artifact `9985727651` (`xp-core-kernel32-cluster-diagnostics`), `1077081` bytes, digest `sha256:3b7762569b27d3e30c8051575da4765a7f5bbbde1889f5b04d7459fb7168c56f`;
+- YY-Thunks version `1.2.2`, XP target `5.1.2600.0`.
+
+This run intentionally narrows the WS2_32 family to the two APIs proven present in the pinned release library by the preceding capability inventory:
+
+```text
+WSAIoctl
+inet_ntop
+```
+
+The prior missing release-library cases `WSASendMsg` and `WSCGetProviderInfo` are no longer treated as expected members of this YY-focused probe; they remain separate implementation work.
+
+The exact job is fully GREEN through all relevant boundaries. In particular, `Build and run WS2_32 YY probe` succeeds after the probe header fix, and the overall job also succeeds through the existing KERNEL32, `NtCancelIoFileEx`, ADVAPI32, PE/direct-import, hosted-execution, physical-XP bundle, artifact upload and final verdict steps.
+
+Conclusion: **PASS / FOCUSED YY CLOSURE PROVEN FOR `WSAIoctl` AND `inet_ntop`.** The project may treat these two APIs as proven focused building blocks using the existing physically narrow YY provider pattern. This supersedes the earlier run `34019895772` only for the functional/link/import proof of these two capable APIs; that earlier run remains authoritative evidence that YY-Thunks 1.2.2 release libraries do not provide `WSASendMsg` or `WSCGetProviderInfo` through the same path.
+
+Evidence boundary: hosted Windows execution is not physical Windows XP proof, and this smoke does not prove the final production `xul.dll` no longer imports either API. Production integration still requires the exact narrow aliases/provider to reach the full XP x32 link, followed by final `xul.dll` import auditing and physical-XP execution of that exact browser artifact.
+
+Next boundary: keep `WSAIoctl` and `inet_ntop` on the proven YY path. Investigate `WSASendMsg` and `WSCGetProviderInfo` separately at their source/owner boundary or with a deliberately implemented narrow compatibility thunk; do not attempt to force them through the pinned YY release library where capability is already proven absent.
+
+Status: **current authoritative focused WS2_32 YY result; two APIs closed at focused scale, two APIs remain open for implementation.**
+
+---
+
 ## 2026-09-06 — YY-Thunks `WS2_32` capability inventory confirms 2/4 APIs; functional probe stops at SDK declaration
 
 Track: Windows XP SP3 x86 compatibility / focused `WS2_32` YY-Thunks capability only. This is not full Firefox integration, physical-XP runtime proof, or GOST TLS runtime/handshake evidence.
@@ -54,7 +91,7 @@ Conclusion: **PARTIAL PASS / CAPABILITY MATRIX PROVEN; FUNCTIONAL PROBE NOT EXEC
 
 Next boundary: keep the YY provider narrow to the two proven-capable APIs, remediate `WSASendMsg` and `WSCGetProviderInfo` separately, and only then transfer the exact solutions into production `xul.dll` with final PE/import auditing. The `SIO_BASE_HANDLE` declaration should be fixed only as probe-harness work if a hosted functional check remains useful; a hosted Windows result still cannot replace physical-XP runtime validation.
 
-Status: **current authoritative focused WS2_32 capability result; production integration and physical-XP closure remain open.**
+Status: **historical capability-inventory proof; superseded for `WSAIoctl`/`inet_ntop` functional proof by run `34021400841`, while its `WSASendMsg`/`WSCGetProviderInfo` missing-capability result remains current.**
 
 ---
 
