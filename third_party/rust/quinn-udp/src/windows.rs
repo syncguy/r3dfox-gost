@@ -79,6 +79,12 @@ impl UdpSocketState {
                 "network stack does not support WSARecvMsg function",
             ));
         }
+        if WSASENDMSG_PTR.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "network stack does not support WSASendMsg function",
+            ));
+        }
 
         // ECN is best-effort on Windows: if the Winsock provider doesn't support these options
         // (common under Wine/Proton), we disable ECN and keep working.
@@ -371,7 +377,7 @@ impl UdpSocketState {
     /// Get the size of the `socket` receive buffer
     #[inline]
     pub fn recv_buffer_size(&self, socket: UdpSockRef<'_>) -> io::Result<usize> {
-        socket.0.recv_buffer_size()
+        socket.0.receive_buffer_size()
     }
 
     #[inline]
@@ -464,9 +470,10 @@ fn send(
 
     encoder.finish();
 
+    let wsa_sendmsg_ptr = WSASENDMSG_PTR.expect("valid function pointer for WSASendMsg");
     let mut len = 0;
     let rc = unsafe {
-        WinSock::WSASendMsg(
+        (wsa_sendmsg_ptr)(
             socket.0.as_raw_socket() as usize,
             &wsa_msg,
             0,
@@ -555,6 +562,51 @@ static WSARECVMSG_PTR: LazyLock<WinSock::LPFN_WSARECVMSG> = LazyLock::new(|| {
     }
 
     wsa_recvmsg_ptr
+});
+
+static WSASENDMSG_PTR: LazyLock<WinSock::LPFN_WSASENDMSG> = LazyLock::new(|| {
+    let s = unsafe { WinSock::socket(WinSock::AF_INET as _, WinSock::SOCK_DGRAM as _, 0) };
+    if s == WinSock::INVALID_SOCKET {
+        debug!(
+            "ignoring WSASendMsg function pointer due to socket creation error: {}",
+            io::Error::last_os_error()
+        );
+        return None;
+    }
+
+    let guid = WinSock::WSAID_WSASENDMSG;
+    let mut wsa_sendmsg_ptr = None;
+    let mut len = 0;
+
+    let rc = unsafe {
+        WinSock::WSAIoctl(
+            s as _,
+            WinSock::SIO_GET_EXTENSION_FUNCTION_POINTER,
+            &guid as *const _ as *const _,
+            mem::size_of_val(&guid) as u32,
+            &mut wsa_sendmsg_ptr as *mut _ as *mut _,
+            mem::size_of_val(&wsa_sendmsg_ptr) as u32,
+            &mut len,
+            ptr::null_mut(),
+            None,
+        )
+    };
+
+    if rc == -1 {
+        debug!(
+            "ignoring WSASendMsg function pointer due to ioctl error: {}",
+            io::Error::last_os_error()
+        );
+    } else if len as usize != mem::size_of::<WinSock::LPFN_WSASENDMSG>() {
+        debug!("ignoring WSASendMsg function pointer due to pointer size mismatch");
+        wsa_sendmsg_ptr = None;
+    }
+
+    unsafe {
+        WinSock::closesocket(s);
+    }
+
+    wsa_sendmsg_ptr
 });
 
 fn max_gso_segments(socket: &impl AsRawSocket) -> usize {
