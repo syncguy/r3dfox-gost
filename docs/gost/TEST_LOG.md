@@ -8,6 +8,68 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-07 — config-free physical XP exposes `SHELL32!SHGetKnownFolderPath` delay-load boundary; `MOZ_XP_COMPAT` remediation integrated
+
+Track: Windows XP SP3 x86 compatibility / physical runtime and source-level remediation. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
+
+Exact browser/build identity used for the physical experiment:
+
+- source branch: `agent/winrt-source-poc`;
+- source-under-test: `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `34079480996`, attempt `1`;
+- job `101611911453`;
+- runtime artifact `10005434852`, digest `sha256:23ea95085afbe98035f736fafaa04b6225acadfd79dde571de034eca9d4da971`.
+
+The packaged browser inherits an AutoConfig `config.cfg` containing:
+
+```js
+// Added via patches/autoconfig-setEnv.patch
+setEnv("MOZ_GFX_CRASH_MOZ_CRASH", 1);
+```
+
+This setting is applied inside Firefox by AutoConfig, so it need not be present in the command-shell environment before launch. A preceding supplied dump from the same browser showed a separate `MOZ_CRASH(GFX_CRASH)` path after `FEATURE_FAILURE_D3D11_NO_DEVICE`; the inherited AutoConfig explains why a release gfx-critical path can become fatal.
+
+For this experiment the user temporarily removed the entire `config.cfg` before launching the same browser on physical Windows XP SP3 x86. This was a diagnostic isolation step, not a packaging change. The resulting archive contains:
+
+- `drwtsn32.log`, SHA-256 `f54366c0787cc53962f3300cbd84ddab0fdf507cf9d3a613901f2f6879144a36`;
+- `user.dmp`, SHA-256 `0e3cb1e3e4822729145bcc4f6d6e799ead772321fc018cb1c9fb648c97efbb38`.
+
+Dr. Watson records one application exception for `r3dfox.exe` PID `6184` at `2026-09-07 15:12:04.957` physical-XP local time:
+
+```text
+Exception number: C06D007F
+```
+
+The MSVC delay-load failure decodes to:
+
+```text
+DLL            SHELL32.dll
+procedure      SHGetKnownFolderPath
+pfnCur         0
+last error     0x0000007f / ERROR_PROC_NOT_FOUND
+```
+
+Source ownership is `toolkit/xre/nsXREDirProvider.cpp`. The pre-existing code called `SHGetKnownFolderPath` for `FOLDERID_LocalAppData` / `FOLDERID_RoamingAppData` and then intended to fall back to `GetRegWindowsAppDataFolder(...)` if a failing `HRESULT` was returned. On XP the delay-load helper raises `C06D007F` before the call can return, so the existing registry fallback is unreachable for this missing export.
+
+Source remediation was then integrated on `agent/winrt-source-poc` under the project-owned `MOZ_XP_COMPAT` contract:
+
+- final build-ownership state `b5db4a4312ccf66a245d47dbc0464c11781cf620` moves `nsXREDirProvider.cpp` from `UNIFIED_SOURCES` to ordinary `SOURCES` and applies `SOURCES["nsXREDirProvider.cpp"].flags += ["-DMOZ_XP_COMPAT"]`;
+- implementation HEAD `50ca390932f0be83309b905226e2e9fea0fe1e75` (`fix(xp): use legacy shell folders in nsXREDirProvider`) makes the XP-owned helper use `SHGetFolderPathW` with `CSIDL_LOCAL_APPDATA` / `CSIDL_APPDATA` and preserves the existing registry fallback;
+- non-XP Windows builds retain the original `SHGetKnownFolderPath` / `FOLDERID_*` path.
+
+Net comparison from the preceding source `a15dcd738edda4ab810fc9f92289170f115519e4` to implementation HEAD `50ca390932f0be83309b905226e2e9fea0fe1e75` changes only `toolkit/xre/nsXREDirProvider.cpp` and `toolkit/xre/moz.build`.
+
+The in-progress full build run `34095425319`, job `101657910987`, is tied to source `a15dcd738edda4ab810fc9f92289170f115519e4` and therefore **does not contain this Shell32 remediation**. It remains useful for the separate matching-PDB and all-DLL YY-Thunks inventory experiment.
+
+Interpretation: **NEW CONFIG-FREE PHYSICAL XP PARENT-PROCESS BOUNDARY IDENTIFIED / SOURCE REMEDIATION INTEGRATED / RUNTIME CLOSURE PENDING REBUILD.** This is a concrete Shell32 source-compatibility issue, not evidence that SpiderMonkey or YY-Thunks caused this particular exception.
+
+The earlier `MOZ_RELEASE_ASSERT(map)` Wasm symptom is not closed by this experiment. Removing the whole `config.cfg` changes more than the GFX crash variable, so reaching `SHGetKnownFolderPath` in this run does not prove that the Wasm assertion can no longer occur in other processes or startup modes.
+
+Status: **current source-integrated Shell32 remediation; requires a new full build from `50ca390...` or a descendant and exact physical-XP validation.**
+
+---
+
 ## 2026-09-07 — physical XP clears the IP Helper boundary and repeatedly hits `MOZ_RELEASE_ASSERT(map)` in `xul.dll`
 
 Track: Windows XP SP3 x86 compatibility / physical runtime. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
