@@ -8,6 +8,44 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-06 — full XP x32 rebuild is GREEN with the YY-Thunks DLL/TLS entry-point contract applied to `xul.dll`
+
+Track: Windows XP SP3 x86 compatibility / full Firefox build and build-time integration of the narrow YY-Thunks DLL/TLS entry-point contract. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
+
+Exact source/build identity:
+
+- source branch: `agent/winrt-source-poc`;
+- source-under-test: `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `34038288272`, attempt `1`;
+- job `101500284497` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate run/job conclusion: **success**.
+
+Exact evidence artifacts:
+
+- package artifact `9992439692` (`r3dfox-gost-xp-x32-package`), `327779922` bytes, digest `sha256:d38cee9081debcab2beedab3b8254574bbc85e6cc135f52839a6ec2bb58db651`;
+- runtime artifact `9992440155` (`r3dfox-gost-xp-x32-runtime`), `74923409` bytes, digest `sha256:33731607bbef1e01cfe8b9063be56dd17f149bb9aae547349e7e5b6f5d8c32f4`;
+- diagnostics artifact `9992440699` (`r3dfox-gost-xp-x32-diagnostics`), `6007435` bytes, digest `sha256:0820af3fdfc031ca10dc21546c5f4caee6080da7477aac4109c8e5a3be9fdc6f`.
+
+This source is two commits ahead of the preceding GREEN source `176eb94b503e773334593508df408fa491faa45f`, and the compare contains only `.github/workflows/gost-poc-build-xp-x32.yml` changes. Commit `87f09e31b24157af44b3068480295da66e054405` adds the focused `xul.dll` linker contract:
+
+```text
+-ENTRY:DllMainCRTStartupForYY_Thunks
+-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12
+```
+
+Commit `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` fixes the generated `toolkit/library/moz.build` indentation so that the contract is applied under the `xul-real` / `WINNT` scope.
+
+In the exact job, `Apply YY-Thunks XP DLL TLS entry point to xul.dll` completed successfully before configure/build. The subsequent full Firefox compile/link, packaging, source-remediation gates, ADVAPI32 compatibility gate, DPI delay-import gate, core XP direct-import rejection, PE retarget/audit gates, all three artifact uploads, and final summary all completed successfully.
+
+Interpretation: **PASS / CURRENT FULL-BUILD AND STATIC-COMPATIBILITY BASELINE WITH YY DLL/TLS ENTRY-POINT INTEGRATION.** The project now has a fully GREEN browser candidate that includes the intended YY-Thunks DLL/TLS entry-point contract for `xul.dll` without regressing the current build/package/static-import gates.
+
+Evidence boundary: this result does **not** prove that the entry-point change fixes the physical XP `RtlpWaitForCriticalSection` crash. The previously observed Win7-pass / XP-crash result belongs only to source `176eb94b...` and runtime artifact `9989657830`; it must not be reattributed to this new build. The decisive next runtime experiment is physical Windows XP execution of exact runtime artifact `9992440155` (with Win7 x86 regression coverage useful but logically separate).
+
+Status: **current authoritative full XP x32 build/static baseline; physical-runtime result for this exact artifact is still open.**
+
+---
+
 ## 2026-09-06 — physical Win7 x86 starts; physical XP reaches runtime and crashes in `RtlpWaitForCriticalSection`
 
 Track: Windows XP SP3 x86 compatibility / physical runtime of the current fully GREEN Firefox build. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
@@ -71,10 +109,10 @@ Exact evidence artifacts:
 
 The exact job completed the substantive full-build sequence, packaging, compatibility/import gates, evidence collection and final summary with **success**. This is the first current full-build candidate after integrating the accumulated XP compatibility work, including the previously isolated WS2_32 and ANGLE/DXGI blockers, for which the workflow itself is fully GREEN rather than stopping at the final compatibility summary gate.
 
-Interpretation: **PASS / CURRENT FULL-BUILD AND STATIC-COMPATIBILITY CLOSURE.** All incompatibilities currently discovered by this build/audit line have been walked through far enough for this exact Firefox 153 XP x86 candidate to build, package and pass the workflow's current static compatibility gates. The active project blocker therefore moves beyond build/link/import closure.
+Interpretation: **PASS / SUPERSEDED FULL-BUILD AND STATIC-COMPATIBILITY BASELINE.** All incompatibilities currently discovered by this build/audit line were walked through far enough for this exact Firefox 153 XP x86 candidate to build, package and pass the workflow's current static compatibility gates. The newer source `b386b7f4...`, run `34038288272`, preserves those gates and adds the YY DLL/TLS entry-point integration, so this earlier build is no longer the newest build/static baseline.
 
 Evidence boundary: this result is not physical Windows XP runtime acceptance. A GREEN CI build cannot establish that no runtime-only missing export, delay-load edge, subsystem behavior, or other XP-specific incompatibility remains. It also proves nothing new about the independent GOST TLS handshake path.
 
-The subsequent exact physical-runtime test is now recorded above: Win7 x86 starts, while XP reaches runtime and crashes in `ntdll!RtlpWaitForCriticalSection`. Therefore this build/static result remains valid, but physical-XP acceptance is not achieved.
+The subsequent exact physical-runtime test is recorded above: Win7 x86 starts, while XP reaches runtime and crashes in `ntdll!RtlpWaitForCriticalSection`. Therefore this build/static result remains valid historical evidence, but physical-XP acceptance is not achieved.
 
-Status: **current authoritative full XP x32 build/static baseline; build/static blockers currently known are closed.**
+Status: **superseded as build/static baseline by source `b386b7f4...`; remains authoritative for the physical runtime result tied to artifact `9989657830`.**
