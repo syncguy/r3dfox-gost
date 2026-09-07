@@ -98,69 +98,65 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 ## Windows compatibility — independent
 
-Current detailed handoff for the physical Windows XP SP3 x86 startup/runtime-closure line is [`XP_RUNTIME_COMPATIBILITY_STATUS.md`](./XP_RUNTIME_COMPATIBILITY_STATUS.md). Read it before proposing another XP patch.
+Current detailed synthesis for the physical Windows XP SP3 x86 startup/runtime-closure line is in [`PROJECT_STATE.md`](./PROJECT_STATE.md) plus the newest XP entries in [`TEST_LOG.md`](./TEST_LOG.md). `XP_RUNTIME_COMPATIBILITY_STATUS.md` contains detailed historical owner-by-owner context and must not override newer exact run/artifact identities recorded here.
 
 The current mandatory build/dependency contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md). Preserve all already-proven dependency families while advancing one owner/component at a time.
 
 ### Current exact boundary
 
-Latest completed full XP x32 browser remains:
+Latest completed full XP x32 build/static candidate:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `622a87625036e9c45a8650264336eceeb9be8753` (`fix(xp): restore Rust target expression`);
+- source-under-test `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `33864176444`, attempt `1`;
-- job `100995134125`;
-- package artifact `9937354583`, digest `sha256:9457e3d5102bd60caa4f1cdf23a432fa21444efdd34054e688c1a8f507dc5e98`;
-- runtime artifact `9937355457`, digest `sha256:5f60d06985e20282bf4a231a28e2bc5d8945c71ba6e92739ee162b510fda91dd`;
-- diagnostics artifact `9937356676`, digest `sha256:88b416d3042522a2284c33617267878bb035dd750f5275aa6de98deacd8e55f6`;
-- aggregate workflow result **RED only at final summary**, after build/package/audit/uploads all passed.
+- run `34038288272`, attempt `1`;
+- job `101500284497`;
+- package artifact `9992439692`, digest `sha256:d38cee9081debcab2beedab3b8254574bbc85e6cc135f52839a6ec2bb58db651`;
+- runtime artifact `9992440155`, digest `sha256:33731607bbef1e01cfe8b9063be56dd17f149bb9aae547349e7e5b6f5d8c32f4`;
+- diagnostics artifact `9992440699`, digest `sha256:0820af3fdfc031ca10dc21546c5f4caee6080da7477aac4109c8e5a3be9fdc6f`;
+- aggregate workflow result **GREEN / success**.
 
-Its static result remains:
+This candidate preserves the accumulated build/package/static-import closure and adds the intended YY-Thunks DLL/TLS entry-point contract to `xul.dll`:
 
 ```text
-NtCancelIoFileEx               CLOSED in final production xul.dll
-NtCancelIoFile                 present as the resulting XP-side native boundary
-KERNEL32 source quartet        PASS / surviving=none
-SetProcessDPIAware mode        PASS / direct=0 / delay_user32=1
-xul.dll -> PROPSYS.dll         CLOSED in current final binary
-libGLESv2.dll -> dxgi.dll      OPEN
-CreateDXGIFactory1             OPEN
+-ENTRY:DllMainCRTStartupForYY_Thunks
+-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12
 ```
 
-Physical XP execution of exact runtime artifact `9937355457` has now advanced the runtime boundary and fails with `ADVAPI32.dll!EventRegister` missing. The matching full-build diagnostics show final production `xul.dll` directly imports the four-name ETW family `EventRegister`, `EventUnregister`, `EventWrite`, `EventWriteTransfer`.
+The exact build proves that this integration compiles, links, packages and passes the current static gates. It does **not** prove the physical XP runtime effect of the change.
 
-Focused YY capability for that complete four-name family is now closed by:
+Latest authoritative physical runtime remains tied to the preceding exact browser:
 
-- source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`;
-- workflow `.github/workflows/xp-core-kernel32-cluster-smoke.yml`;
-- run `33882235341`, job `101053403554`;
-- runtime artifact `9940665095`, digest `sha256:0fa3b523fb949bc364fc70abd1496b15f2e92590062077600135ff55bd731b01`;
-- diagnostics artifact `9940665687`, digest `sha256:e853d7128c092420c3d2e1da0184137fcd7ae42d0b439f5ead8acbc3e243964f`;
-- aggregate and dedicated ADVAPI32 ETW probe result **PASS**.
+- source `176eb94b503e773334593508df408fa491faa45f`;
+- run `34027798932`, job `101471779766`;
+- runtime artifact `9989657830`, digest `sha256:64b0f5a0ccf94900fa882069369e26d3beaf46fa128f7b6b650c44d1e87c2c2f`;
+- Windows 7 x86: **PASS / starts and works**;
+- Windows XP SP3 x86: **FAIL / early startup C0000005 in `ntdll!RtlpWaitForCriticalSection`**.
+
+Do not reattribute that crash to runtime artifact `9992440155`; the new artifact has not yet been physically classified.
 
 ### Closed in this iteration — do not leave as backlog
 
-The following older TODO items are superseded by completed evidence and must not be repeated:
+The following older TODO items are superseded by completed evidence and must not be repeated without contradictory evidence:
 
-- debugger localization of the `kernel32!RaiseException` startup failure: exact root cause was proven as `USER32.dll!SetProcessDPIAware` `C06D007F` on runtime artifact `9899304858`;
-- source/static DPI remediation: current full source `622a876...` revalidates the pre-Vista source guard and final delay-import mode;
-- KERNEL32 quartet revalidation: final production 0/4 is proven and remains strict-gate PASS;
-- focused `NtCancelIoFileEx` YY capability: run `33861819326`, job `100987750213`, source `be122cfc...`, PASS;
-- full Firefox `NtCancelIoFileEx` integration: run `33864176444`, job `100995134125`, source `622a876...`, final `xul.dll` contains `NtCancelIoFile` and not `NtCancelIoFileEx`;
-- `xul.dll -> PROPSYS.dll` ordinary dependency: absent from the latest broad forbidden-import report;
-- focused ADVAPI32 ETW YY capability for `EventRegister`, `EventUnregister`, `EventWrite`, `EventWriteTransfer`: run `33882235341`, job `101053403554`, source `53971dcf...`, PASS;
-- physical XP system-DLL baseline for PROPSYS/DXGI/UIAutomationCore/NCRYPT: already recorded.
+- debugger localization of the historical `kernel32!RaiseException` startup failure to `USER32.dll!SetProcessDPIAware`;
+- KERNEL32 source-remediation quartet closure;
+- focused and full Firefox `NtCancelIoFileEx` closure;
+- `xul.dll -> PROPSYS.dll` ordinary dependency closure;
+- ADVAPI32 ETW focused capability and later full-build integration;
+- WS2_32 compatibility integration for the observed `WSAIoctl`, `inet_ntop`, `WSASendMsg`, and `WSCGetProviderInfo` family;
+- ANGLE/DXGI static closure removing `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` while preserving D3D9 fallback;
+- the historical broad curated forbidden-import progression `69 -> 3 -> 0`;
+- full-build/static integration of the YY-Thunks DLL/TLS entry-point contract for `xul.dll` in run `34038288272`.
 
 ### Open work, in order
 
-1. **Transfer the proven four-name ADVAPI32 ETW alias set into the full XP x32 Firefox target-link path.** Reuse only the exact weak-alias pairs for `EventRegister`, `EventUnregister`, `EventWrite`, and `EventWriteTransfer` plus the already-proven common `NARROW_YY_LIB` implementation. Do not inject full YY `advapi32.lib` or broaden interposition beyond this observed production family.
-2. **Add a strict final-production `xul.dll` ETW regression gate.** The next full build must prove all four names absent as ordinary `ADVAPI32.dll` imports before the result can be treated as browser-level integration closure.
-3. **Rebuild under a new exact source SHA and preserve all already-closed families.** Require the ETW gate, `NtCancelIoFileEx`, PROPSYS, quartet, DPI, msvcr14x, bcrypt and D3DCompiler evidence to remain green. Bind package/runtime/diagnostics artifacts to that exact run/job.
-4. **Run the exact new runtime artifact on physical XP.** The current runtime artifact `9937355457` is already classified as FAIL at `ADVAPI32!EventRegister`; do not retest it as if the focused smoke changed that binary. A successful new startup advances to the next actual runtime boundary.
-5. **Continue the independent ANGLE/DXGI static closure.** Trace the exact `CreateDXGIFactory1` owner in `libGLESv2.dll`, choose the narrowest XP-compatible graphics/backend remediation, and require `libGLESv2.dll|DLL|dxgi.dll` to disappear from the broad audit. This is a separate PE ownership line from `xul.dll` ETW integration.
-6. **Continue through remaining delay/dynamic/COM surfaces only when evidence reaches them.** WinRT API sets, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, `dwmapi.dll` and similar optional surfaces remain hypotheses until runtime or mandatory static policy makes them blocking. If `ncrypt.dll` becomes a real boundary, follow the source-level plan below rather than starting with a thunk layer.
-7. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
+1. **Physically test exact runtime artifact `9992440155` on Windows XP SP3 x86.** This is the decisive test of whether adding the YY-Thunks DLL/TLS entry-point contract changes the `RtlpWaitForCriticalSection` startup boundary. Record the exact observed behavior against source `b386b7f4...`, run `34038288272`, job `101500284497`.
+2. **Use Windows 7 x86 as a regression check for the same exact artifact when convenient.** A Win7 pass is useful but cannot substitute for XP classification.
+3. **If XP still fails in the same critical-section path, localize the exact `xul.dll` owner/call site and initialization history.** Do not broaden YY interposition or synchronization changes merely because the entry-point hypothesis failed.
+4. **If the new artifact advances to a different runtime boundary, classify that exact boundary first.** Preserve the already-closed build/static families and remediate only the new owner/component justified by exact evidence.
+5. **Continue through delay/dynamic/COM surfaces only when evidence reaches them.** WinRT API sets, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, `dwmapi.dll` and similar optional surfaces remain hypotheses until runtime or mandatory static policy makes them blocking. If `ncrypt.dll` becomes a real boundary, follow the source-level plan below rather than starting with a thunk layer.
+6. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
 
 ### Planned `ncrypt.dll` handling if it becomes blocking
 
@@ -194,10 +190,13 @@ Preferred architecture: **source-level legacy CryptoAPI selection first; YY-Thun
 - legacy `D3DCompiler_47.dll` staging/packaging;
 - narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`;
 - focused + full-integration `NtCancelIoFileEx` closure;
-- focused ADVAPI32 ETW YY capability for the four observed production names — **focused only; full Firefox integration still open**;
+- ADVAPI32 ETW focused + full Firefox integration closure for the observed four-name family;
 - KERNEL32 source-remediation quartet at final-production 0/4;
 - current final-production `xul.dll -> PROPSYS.dll` ordinary-dependency closure;
 - historical `SetProcessDPIAware` root-cause diagnosis and current source/static DPI integration;
+- WS2_32 observed compatibility family integration;
+- ANGLE/DXGI `CreateDXGIFactory1` static closure;
+- YY-Thunks DLL/TLS entry-point integration for `xul.dll` at full-build/static level;
 - the historical broad curated forbidden-import progression `69 -> 3 -> 0`.
 
 The selected `xp-bcrypt-v1` binary remains trusted project infrastructure:
