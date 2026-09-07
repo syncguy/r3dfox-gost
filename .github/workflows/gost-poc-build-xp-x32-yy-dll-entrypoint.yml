@@ -767,7 +767,7 @@ jobs:
             } catch {
               $message = $_.Exception.Message -replace '[\r\n]+',' '
               $results.Add("$name|FAIL|target_dir=$targetDir|message=$message")
-              $failures.Add("$name: $message")
+              $failures.Add("${name}: $message")
             }
           }
 
