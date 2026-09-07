@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-04
+Last updated: 2026-09-07
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -353,6 +353,25 @@ Classic x86 WinDbg proved first-chance `C06D007F` was `USER32.dll!SetProcessDPIA
 Current source `622a876...`, run `33864176444`, job `100995134125`, revalidates both the DPI source guard and final `mozglue` import-mode gate as `PASS|direct=0|delay_user32=1`.
 
 The historical root-cause diagnosis and current source/static integration are closed. Physical XP execution of a current post-fix browser remains a separate acceptance boundary.
+
+### `xul.dll` `RtlpWaitForCriticalSection` physical-XP startup blocker — COMPLETE
+
+Historical failing browser:
+
+- source `176eb94b503e773334593508df408fa491faa45f`;
+- run `34027798932`, job `101471779766`;
+- runtime artifact `9989657830`, digest `sha256:64b0f5a0ccf94900fa882069369e26d3beaf46fa128f7b6b650c44d1e87c2c2f`;
+- physical XP failed with `C0000005` in `ntdll!RtlpWaitForCriticalSection` through `xul.dll` / `XRE_GetBootstrap`.
+
+Exact successor carrying the YY-Thunks DLL/TLS entry-point contract:
+
+- source `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`;
+- run `34038288272`, job `101500284497`;
+- runtime artifact `9992440155`, digest `sha256:33731607bbef1e01cfe8b9063be56dd17f149bb9aae547349e7e5b6f5d8c32f4`;
+- user-reported extracted `r3dfox.exe` SHA-1 `a2a64f6eb719d632b6264d48984de9e85a82acb7`;
+- user-reported extracted `xul.dll` SHA-1 `7ef46570af15390fa1c431c9d1b93ff985d79c22`.
+
+Physical Windows XP execution of the successor no longer reproduces the `RtlpWaitForCriticalSection` failure. The blocker is therefore closed for this exact browser. Active XP work has moved to later IP Helper API compatibility; full XP acceptance remains open separately.
 
 ## Bundled government-system extensions
 
