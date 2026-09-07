@@ -64,41 +64,95 @@ The newest completed and authoritative full XP x32 build is:
 
 This exact run completed the dedicated final-`xul.dll` IPHLPAPI diagnostic and all later build/package/static compatibility gates successfully. The source-under-test carries the XP-era network listener and Rust `mtu` remediation that remove the modern IP Helper paths from the intended final `xul.dll` boundary.
 
-The implementation branch has since advanced for workflow/infrastructure changes; at the latest check its HEAD was `1dec42a35708a7e64197c7047cc19e10eb3ee85f`. That later implementation HEAD is not the source identity of the physically tested browser described below.
+The same `0a18ba85...` browser starts on physical Windows 7 x86. On physical XP it advances beyond the previously closed `RtlpWaitForCriticalSection` and IP Helper boundaries but still exposes later runtime failures described below.
 
-## Physical XP progression — earlier blockers CLOSED
+## Current implementation HEAD and in-progress diagnostics build
 
-The preceding exact `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` browser, run `34038288272`, job `101500284497`, runtime artifact `9992440155`, physically advanced beyond the old `ntdll!RtlpWaitForCriticalSection` startup crash. That blocker remains closed and must not be reopened without contradictory evidence on a later exact browser.
+Current XP implementation HEAD is:
 
-The newer exact `0a18ba85...` browser has now also been physically executed on Windows XP SP3 x86. The user reports that the preceding IP Helper runtime problem is no longer observed. This is consistent with the exact GREEN build's final IPHLPAPI diagnostic and establishes progression beyond that runtime boundary as well.
+- branch `agent/winrt-source-poc`;
+- HEAD `50ca390932f0be83309b905226e2e9fea0fe1e75` (`fix(xp): use legacy shell folders in nsXREDirProvider`).
 
-The same `0a18ba85...` build starts on physical Windows 7 x86, which remains a useful control showing that the browser is not generically broken on x86 Windows.
+The currently running full XP build predates that source remediation:
 
-## Current XP blocker — repeated SpiderMonkey/Wasm `MOZ_RELEASE_ASSERT(map)`
+- source-under-test `a15dcd738edda4ab810fc9f92289170f115519e4`;
+- run `34095425319`;
+- job `101657910987`;
+- purpose includes matching `xul.pdb` preservation and `DIAG - Inventory YY-Thunks DLL entry-point coverage`.
 
-The physical-XP Dr. Watson log for the exact `0a18ba85...` build is now the current runtime evidence. Supplied `drwtsn32.log` SHA-256:
+Do not attribute the `SHGetKnownFolderPath` remediation to run `34095425319`; a later full build from `50ca390...` or a descendant is required to validate it.
 
-`15e948215d79d0ce33b2980f5a562764bdc055df8fbdf519e7dea36dd7c3a151`
+## Physical XP runtime — inherited AutoConfig forces GFX critical failures to crash
 
-It contains six `0x80000003` (`hardcoded breakpoint`) exceptions between `12:54:42.642` and `12:55:10.313`. These are not six unrelated failures: all six distinct `r3dfox.exe` PIDs fault at the exact same `xul.dll` site:
+The shipped/inherited `config.cfg` contains:
+
+```js
+// Added via patches/autoconfig-setEnv.patch
+setEnv("MOZ_GFX_CRASH_MOZ_CRASH", 1);
+```
+
+This setting is applied inside the running browser by AutoConfig, so it need not appear in the parent command shell environment before startup. In a supplied physical-XP dump from the exact `0a18ba85...` browser, one `0x80000003` path resolves to `MOZ_CRASH(GFX_CRASH)` after:
+
+```text
+[GFX1-]: Failed to initialize CompositorD3D11 for SWGL:
+FEATURE_FAILURE_D3D11_NO_DEVICE
+```
+
+For release builds, `MOZ_GFX_CRASH_MOZ_CRASH` deliberately converts the graphics critical action into a fatal `MOZ_CRASH`. Therefore that particular breakpoint is not by itself proof of a new missing XP API. It is an inherited runtime policy which can obscure the next compatibility boundary.
+
+Deleting the whole `config.cfg` is a diagnostic experiment only; it changes more than this single variable and is not an accepted packaging fix.
+
+## Most recently exposed config-free parent-process blocker — `SHELL32!SHGetKnownFolderPath`
+
+The user temporarily removed `config.cfg` and launched the same exact `0a18ba85...` physical-XP browser. The resulting Dr. Watson capture contains one MSVC delay-load exception:
+
+```text
+exception      C06D007F
+DLL            SHELL32.dll
+procedure      SHGetKnownFolderPath
+pfnCur         0
+last error     0x0000007f / ERROR_PROC_NOT_FOUND
+```
+
+Physical capture identity:
+
+- `drwtsn32.log` SHA-256 `f54366c0787cc53962f3300cbd84ddab0fdf507cf9d3a613901f2f6879144a36`;
+- `user.dmp` SHA-256 `0e3cb1e3e4822729145bcc4f6d6e799ead772321fc018cb1c9fb648c97efbb38`;
+- PID `6184`;
+- time `2026-09-07 15:12:04.957` local physical-XP time.
+
+Source ownership is `toolkit/xre/nsXREDirProvider.cpp`. Its existing registry fallback could not handle this boundary because the delay-load helper raises before `SHGetKnownFolderPath` returns a failing `HRESULT`.
+
+The implementation branch now carries a project-owned `MOZ_XP_COMPAT` remediation:
+
+- final build ownership state `b5db4a4312ccf66a245d47dbc0464c11781cf620` moves `nsXREDirProvider.cpp` from `UNIFIED_SOURCES` to `SOURCES` and applies `-DMOZ_XP_COMPAT`;
+- `50ca390932f0be83309b905226e2e9fea0fe1e75` selects XP-era `SHGetFolderPathW` with `CSIDL_LOCAL_APPDATA` / `CSIDL_APPDATA` while preserving the existing registry fallback;
+- non-XP Windows builds retain `SHGetKnownFolderPath` and the `FOLDERID_*` path.
+
+This is **source-integrated but not yet runtime-closed**. It requires a new full build and physical XP validation.
+
+## Unresolved parallel symptom — SpiderMonkey/Wasm `MOZ_RELEASE_ASSERT(map)`
+
+The preceding physical-XP Dr. Watson log for the same exact `0a18ba85...` browser contained six `0x80000003` events at the same `xul.dll` site:
 
 - `xul.dll` load base `0x01bb0000`;
 - fault VA `0x01e34926` / RVA `0x00284926`;
-- instruction `CC` / `int 3`.
+- instruction `CC` / `int 3`;
+- exact crash reason `MOZ_RELEASE_ASSERT(map)`.
 
-Disassembly and PE/string resolution against the exact `xul.dll` from package artifact `10005434231` prove that the intentional fatal path stores the crash-reason pointer immediately before the breakpoint, and that reason resolves to:
+The source owner is `js/src/wasm/WasmProcess.cpp`, where `map` is process-wide `sThreadSafeCodeBlockMap`. The assertion exists in `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`.
 
-```text
-MOZ_RELEASE_ASSERT(map)
-```
+This symptom is **not considered closed** by the config-free `SHGetKnownFolderPath` experiment. Removing the whole `config.cfg` changes startup behavior, so one run reaching a different parent-process boundary does not prove that the Wasm assertion disappeared. The running `a15dcd...` build is intended to provide matching PDBs and an all-DLL YY-Thunks entry-point/TLS inventory so this line can be classified more precisely.
 
-The matching Firefox/SpiderMonkey owner is `js/src/wasm/WasmProcess.cpp`. In that source `map` is the process-wide `sThreadSafeCodeBlockMap`; the same release assertion guards `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`. Given the observed early-startup context, registration before successful process-map initialization is the leading interpretation, but the stripped Dr. Watson stack does not yet prove which inline call site emitted the assertion.
+Do not suppress `MOZ_RELEASE_ASSERT(map)` as a fix. Also do not assume it is intrinsically a SpiderMonkey implementation bug: an XP-only DLL/TLS/one-time-init integration defect can manifest there first.
 
-**Current conclusion:** the active XP blocker has moved from IP Helper compatibility to a SpiderMonkey/Wasm process-initialization invariant. The six exceptions represent repeated instances of one fatal path. The increase from the user's preceding observation of three hardcoded breakpoints can plausibly reflect more process instances/retries reaching the same latent assert after removal of the earlier IP Helper boundary; count growth alone does not establish additional root causes.
+## Physical XP progression — earlier blockers CLOSED
 
-Because the identical build works on Win7 x86, the next investigation should concentrate on XP-only initialization semantics rather than network imports. The highest-priority area is the lifecycle that should initialize `sThreadSafeCodeBlockMap` before code-block registration, with special scrutiny on XP-only synchronization / TLS / one-time-init behavior and the narrow YY-Thunks path used by `xul.dll`. Do not suppress `MOZ_RELEASE_ASSERT(map)` as a fix; determine why the map is null.
+The exact `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` browser, run `34038288272`, job `101500284497`, runtime artifact `9992440155`, physically advanced beyond the old `ntdll!RtlpWaitForCriticalSection` startup crash. That blocker remains closed and must not be reopened without contradictory evidence on a later exact browser.
 
-## Compatibility work incorporated into the current closure
+The newer exact `0a18ba85...` browser also physically advances beyond the preceding IP Helper runtime problem. This is consistent with run `34079480996`'s final IPHLPAPI diagnostic.
+
+## Compatibility work incorporated into the current closure / implementation lineage
 
 The current lineage includes:
 
@@ -111,18 +165,27 @@ The current lineage includes:
 - KERNEL32 restart/named-pipe source-remediation quartet;
 - PROPSYS ordinary-import removal;
 - DPI startup fix for `USER32.dll!SetProcessDPIAware`;
-- WS2_32 compatibility work, including the focused YY proof for `WSAIoctl` / `inet_ntop` and later integration work for `WSASendMsg` / `WSCGetProviderInfo`;
+- WS2_32 compatibility work, including focused YY capability and later integration;
 - ANGLE/DXGI work removing the XP-incompatible static `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` edge while preserving the intended D3D9 fallback path;
 - YY-Thunks DLL/TLS entry-point integration scoped to `xul.dll`, physically proven to advance past the old `RtlpWaitForCriticalSection` crash;
-- source-level IP Helper remediation physically proven to advance beyond the preceding IP Helper runtime boundary on source `0a18ba85...`.
+- source-level IP Helper remediation physically proven to advance beyond the preceding IP Helper runtime boundary on source `0a18ba85...`;
+- source-level `MOZ_XP_COMPAT` remediation for `nsXREDirProvider.cpp -> SHELL32!SHGetKnownFolderPath`, pending rebuild/runtime validation.
 
 Historical source/run/job/artifact identities for individual closures remain authoritative in `TEST_LOG.md`, `TEST_LOG_2026-09-06_pre_full_xp_green.md`, and earlier dated test-log volumes. Do not reopen a focused capability already proven there unless contradictory evidence appears.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility ownership physically narrow by PE/provider/source owner.
 
+## Next experiment order
+
+1. Finish and classify run `34095425319` / job `101657910987` / source `a15dcd738edda4ab810fc9f92289170f115519e4`. Preserve the exact result of `DIAG - Inventory YY-Thunks DLL entry-point coverage` and confirm whether the diagnostics artifact actually contains matching `xul.pdb`.
+2. If the YY inventory reports strong DLL consumers without the YY entry-wrapper/TLS contract, classify those exact DLLs before changing SpiderMonkey.
+3. Launch a new full XP build from implementation HEAD `50ca390932f0be83309b905226e2e9fea0fe1e75` or a descendant to validate the `nsXREDirProvider.cpp` `SHGetFolderPathW` remediation.
+4. Physically test that exact rebuilt artifact on XP. For clean diagnosis of the Shell32 boundary, distinguish a normal packaged run from any temporary config-free diagnostic run; do not silently treat deleting `config.cfg` as a product fix.
+5. If `MOZ_RELEASE_ASSERT(map)` remains, use the matching PDB from the exact failing rebuilt browser to resolve the exact `RegisterCodeBlock` / `UnregisterCodeBlock` / `ShutDown` call site and then trace initialization ordering.
+
 ## XP acceptance boundary
 
-Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**. The old `RtlpWaitForCriticalSection` and subsequent IP Helper boundaries are closed on later exact candidates, but source `0a18ba85...` now repeatedly trips the SpiderMonkey/Wasm `MOZ_RELEASE_ASSERT(map)` fatal invariant on physical XP.
+Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**. The old critical-section and IP Helper boundaries are closed on later exact candidates; the newly identified Shell32 boundary has a source remediation but no rebuilt physical proof yet; the Wasm assertion remains unresolved in parallel.
 
 A curated known-API list is a regression gate, not exhaustive compatibility proof. A successful XP startup would also not be a GOST TLS handshake result.
 
