@@ -12,7 +12,7 @@ Frozen baseline: `win-153`; do not modify, merge, rebase or push to it without e
 
 This is the current handoff for the physical-XP startup and static-runtime-closure line. Read it together with `PROJECT_STATE.md`, the newest XP entries in `TEST_LOG.md`, `TODO.md`, `XP_BUILD_CONTRACT.md`, `XP_MOZ_XP_COMPAT_CONTRACT.md`, and `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md` before proposing runtime-compatibility changes. When identities differ, the newest exact source/run/job/artifact record in `PROJECT_STATE.md` / `TEST_LOG.md` is authoritative.
 
-## Current exact build/static boundary — GREEN
+## Latest completed build/static boundary — GREEN
 
 The latest completed full XP x32 build/static candidate is:
 
@@ -26,32 +26,32 @@ The latest completed full XP x32 build/static candidate is:
 - runtime artifact `9992440155`, `74923409` bytes, digest `sha256:33731607bbef1e01cfe8b9063be56dd17f149bb9aae547349e7e5b6f5d8c32f4`;
 - diagnostics artifact `9992440699`, `6007435` bytes, digest `sha256:0820af3fdfc031ca10dc21546c5f4caee6080da7477aac4109c8e5a3be9fdc6f`.
 
-The exact job completed the full Firefox compile/link, packaging, source-remediation gates, ADVAPI32 compatibility gate, DPI delay-import gate, core XP direct-import rejection, PE retarget/audit gates, all artifact uploads and final summary successfully.
-
-Relative to the preceding GREEN source `176eb94b503e773334593508df408fa491faa45f`, the only repository file changed in the two-commit compare is `.github/workflows/gost-poc-build-xp-x32.yml`. Commit `87f09e31b24157af44b3068480295da66e054405` adds the scoped YY-Thunks DLL/TLS entry-point contract for `xul.dll`, and commit `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` fixes the generated `toolkit/library/moz.build` indentation so that the contract is applied under the intended `xul-real` / `WINNT` scope:
+Relative to the preceding GREEN source `176eb94b503e773334593508df408fa491faa45f`, the only repository file changed in the two-commit compare is `.github/workflows/gost-poc-build-xp-x32.yml`. Commit `87f09e31b24157af44b3068480295da66e054405` adds the scoped YY-Thunks DLL/TLS entry-point contract for `xul.dll`, and commit `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` fixes the generated `toolkit/library/moz.build` indentation so the contract is applied under the intended `xul-real` / `WINNT` scope:
 
 ```text
 -ENTRY:DllMainCRTStartupForYY_Thunks
 -alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12
 ```
 
-The build result proves this integration is compatible with the current full-build/package/static gates. It does **not** prove the physical XP runtime effect of the change.
+The exact job completed the full Firefox compile/link, packaging, source-remediation gates, ADVAPI32 compatibility gate, DPI delay-import gate, core XP direct-import rejection, PE retarget/audit gates, all artifact uploads and final summary successfully.
 
-## Current physical-runtime boundary
+## Physical XP result — old xul critical-section blocker CLOSED
 
-The latest authoritative physical runtime result belongs to the preceding exact browser, not to the new candidate:
+The exact runtime artifact `9992440155` has been physically executed on Windows XP SP3 x86. User-reported extracted-file identities are:
+
+- `r3dfox.exe` SHA-1 `a2a64f6eb719d632b6264d48984de9e85a82acb7`;
+- `xul.dll` SHA-1 `7ef46570af15390fa1c431c9d1b93ff985d79c22`.
+
+On this exact browser the previous startup access violation in `ntdll!RtlpWaitForCriticalSection` from `xul.dll` is no longer observed. Therefore the old critical-section blocker is physically closed for source `b386b7f4...` / run `34038288272` / job `101500284497` / runtime artifact `9992440155`.
+
+The preceding physical failure remains historical evidence for a different exact browser:
 
 - source `176eb94b503e773334593508df408fa491faa45f`;
 - run `34027798932`, job `101471779766`;
 - runtime artifact `9989657830`, digest `sha256:64b0f5a0ccf94900fa882069369e26d3beaf46fa128f7b6b650c44d1e87c2c2f`;
 - diagnostics artifact `9989658809`, digest `sha256:9e3e9e2e6fac3f0a33a17d94bdf0460edd1020c61c388307a2f8ccd78e2f50fb`.
 
-Physical observations for that exact artifact:
-
-- Windows 7 x86: **PASS / browser starts and works**;
-- Windows XP SP3 x86: **FAIL / early startup access violation**, with no current missing-import or missing-export dialog before the crash.
-
-The supplied Dr. Watson log `drwtsn32.log`, SHA-256 `d436c0056af14012fac84aa1b78afe607f61ceb6ba9229cffc9f211b5530d2f4`, records:
+That older artifact failed with:
 
 ```text
 Exception: C0000005
@@ -61,26 +61,57 @@ ntdll!RtlpWaitForCriticalSection
   -> xul!XRE_GetBootstrap
 ```
 
-At the fault XP executes:
+and the fault shape was:
 
 ```text
 mov eax,[esi]
 inc dword ptr [eax+0x10]
 ```
 
-with `EAX == 0`. For x86 `RTL_CRITICAL_SECTION`, the first field is `DebugInfo`; this crash shape is therefore consistent with a contended critical section whose `DebugInfo` pointer is null when XP reaches the wait path.
+with `EAX == 0`, consistent with a null `RTL_CRITICAL_SECTION.DebugInfo` in the contended wait path. This is no longer the current runtime blocker and must not be projected onto later artifacts.
 
-The newer runtime artifact `9992440155` from source `b386b7f4...` has **not yet been physically classified**. Do not transfer the older `RtlpWaitForCriticalSection` result to it.
+The old disassembly finding also remains historical: YY-Thunks' selected `InitializeCriticalSectionEx` XP fallback ignored the third `Flags` argument and called `InitializeCriticalSectionAndSpinCount`, so direct forwarding of `CRITICAL_SECTION_NO_DEBUG_INFO` was not supported as the explanation. The separate DLL/TLS entry-point integration variable was then changed by `b386b7f4...`, and the exact successor browser advanced physically beyond the failure.
 
-## Current root-cause status
+## Current compatibility line — IP Helper API
 
-Root cause is **not proven**.
+After the critical-section closure, active XP work moved to IP Helper API ownership in `xul.dll` and its source components.
 
-The diagnostics for the physically failing `176eb94b...` build show that the narrow YY provider contains the selected `InitializeCriticalSectionEx` weak alias and the shared `YY_Thunks_for_5.1.2600.0.obj` implementation. Disassembly of that exact implementation shows the XP fallback ignores the third `Flags` argument and calls `InitializeCriticalSectionAndSpinCount`.
+Current implementation lineage after `b386b7f4...`:
 
-Therefore the hypothesis that YY's `InitializeCriticalSectionEx` fallback directly forwards `CRITICAL_SECTION_NO_DEBUG_INFO` into XP is not supported by the exact implementation and must not be used as the explanation.
+- `97ad36ef0322f307ccb43bc4dd5fdcc744a22f16` — `nsNotifyAddrListener.cpp` adds the XP `NotifyAddrChange` monitoring path and excludes the Vista+ `NotifyIpInterfaceChange` callback path under `MOZ_XP_COMPAT`;
+- `9ea33a7b2972e231c95157db416fe866e6f6c667` — `netwerk/system/win32/moz.build` compiles `nsNotifyAddrListener.cpp` with `-DMOZ_XP_COMPAT`;
+- `7e4965bc2057f6f0a75d043f0711fefbcfddff68` — vendored `third_party/rust/mtu/src/windows.rs` uses an XP legacy adapter-enumeration path instead of `GetIpInterfaceTable` / `FreeMibTable` / `if_indextoname`;
+- `bc37171160d9cad9b81b81da681626b0dd9dcd2d` — refreshes the corresponding vendored `mtu` checksum;
+- current implementation HEAD `0a18ba85b3f493b17c5a62742e869788ca3f2f6b` — adds a non-blocking final-`xul.dll` IPHLPAPI import diagnostic.
 
-A separate YY integration concern remained: the shared implementation object contains `DllMainCRTStartupForYY_Thunks`, while the old full `xul.dll` link had not explicitly installed YY-Thunks' DLL/TLS entry-point contract. The new GREEN source `b386b7f4...` now applies that contract. Build success proves integration only; the physical XP runtime test is still required to determine whether it changes the crash.
+The current diagnostic expects these post-XP/modern paths to be absent from final `xul.dll`:
+
+```text
+NotifyIpInterfaceChange
+CancelMibChangeNotify2
+GetIpInterfaceTable
+FreeMibTable
+if_indextoname
+```
+
+and explicitly records these intended legacy IP Helper imports:
+
+```text
+GetAdaptersAddresses
+GetBestInterfaceEx
+```
+
+This diagnostic is evidence collection, not an acceptance gate by itself.
+
+### Current validation run — provisional
+
+- source-under-test `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`;
+- workflow `GOST TLS PoC build  XP x32`;
+- run `34079480996`, attempt `1`;
+- job `101611911453`;
+- state at last check: **in progress**.
+
+At that check, setup through configure/export and the SSL target-object gate had passed, while `Build release r3dfox XP x32` was still running. The new IPHLPAPI diagnostic and all later final/static/package gates were still pending. Do not record them as passed until the exact run completes.
 
 ## Historical loader/runtime progression — closed evidence
 
@@ -120,7 +151,7 @@ EventWrite
 EventWriteTransfer
 ```
 
-Focused YY capability for all four names passed at source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, run `33882235341`, job `101053403554`. Later full-build integration closed the production ETW imports; the current full build keeps the dedicated ADVAPI32 compatibility gate GREEN. Do not leave ETW as current backlog.
+Focused YY capability for all four names passed at source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, run `33882235341`, job `101053403554`. Later full-build integration closed the production ETW imports; the latest completed full build keeps the dedicated ADVAPI32 compatibility gate GREEN. Do not leave ETW as current backlog.
 
 ### ANGLE / DXGI
 
@@ -130,7 +161,7 @@ The earlier broad static blocker:
 libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1
 ```
 
-was owned by separately linked `libGLESv2.dll`, not by `xul.dll`. The later compatibility work removed this XP-incompatible static edge while preserving the intended D3D9 fallback path. The current full build remains GREEN across the static compatibility summary. Do not reopen this line merely because physical XP lacks `dxgi.dll`.
+was owned by separately linked `libGLESv2.dll`, not by `xul.dll`. Later compatibility work removed this XP-incompatible static edge while preserving the intended D3D9 fallback path. Do not reopen this line merely because physical XP lacks `dxgi.dll`.
 
 ### WS2_32
 
@@ -147,10 +178,10 @@ The current physical XP machine has previously reported:
 %SystemRoot%\System32\ncrypt.dll           absent
 ```
 
-Interpretation under the current GREEN lineage:
+Interpretation under the current lineage:
 
-- `propsys.dll` absence is historical context because current production `xul.dll` no longer carries the ordinary PROPSYS dependency;
-- `dxgi.dll` absence is historical context because the current compatibility lineage has removed the static `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` edge;
+- `propsys.dll` absence is historical context because production `xul.dll` no longer carries the ordinary PROPSYS dependency;
+- `dxgi.dll` absence is historical context because the static `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` edge was removed;
 - `ncrypt.dll` absence matters only if exact runtime or mandatory static evidence reaches that surface; it is not currently promoted to a blocker;
 - `UIAutomationCore.dll` presence eliminates the simplest missing-module hypothesis but does not prove every required UIA export/path is XP-compatible.
 
@@ -198,16 +229,17 @@ Architecture rule: prefer source-level compile-time selection of Firefox's exist
 - WS2_32 observed compatibility family integration;
 - ANGLE/DXGI `CreateDXGIFactory1` static closure;
 - YY-Thunks DLL/TLS entry-point integration for `xul.dll` at full-build/static level;
+- physical closure of the old `xul.dll` `RtlpWaitForCriticalSection` startup failure on runtime artifact `9992440155`;
 - historical curated broad-gate `69 -> 3 -> 0` progression.
 
 A new family-specific contradiction is required to reopen any of them.
 
 ## Next experiment order
 
-1. **Physically test exact runtime artifact `9992440155` on Windows XP SP3 x86.** Bind the result to source `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`, run `34038288272`, job `101500284497`.
-2. **Use Windows 7 x86 as a regression check for the same exact artifact when convenient.** A Win7 pass does not substitute for XP classification.
-3. **If XP still fails at `RtlpWaitForCriticalSection`, localize the exact `xul.dll` owner/call site and initialization/corruption history of the specific critical section.** Do not broaden YY or synchronization changes without that evidence.
-4. **If the new artifact advances to a different boundary, classify that exact boundary first** and preserve the already-closed build/static families.
+1. **Finish and classify run `34079480996`.** Bind the result to job `101611911453` and source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`; inspect the exact final IPHLPAPI diagnostic and preserve every already-closed regression gate.
+2. **If the full build succeeds, physically test its exact runtime artifact on Windows XP SP3 x86.** Do not infer runtime closure from source or final imports alone.
+3. **Use the complete final `xul.dll` IPHLPAPI inventory to close the family by owner rather than one loader error at a time.** Preserve only the intended XP-supported `GetAdaptersAddresses` / `GetBestInterfaceEx` path unless exact evidence requires a different owner-specific solution.
+4. **If physical XP advances, capture the next actual runtime boundary and update `TEST_LOG.md` / `PROJECT_STATE.md` before starting another subsystem.**
 5. **Investigate optional modern surfaces only when evidence reaches them.** WinRT API sets, UIAutomationCore, NCRYPT, AVRT, DWMAPI and similar paths remain hypotheses until exact runtime/static evidence promotes them.
 6. **GOST TLS on XP remains later and separate.** A browser that starts and browses on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
 
