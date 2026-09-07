@@ -7,6 +7,9 @@ if CONFIG["OS_ARCH"] == "WINNT":
         "nsNotifyAddrListener.cpp",
     ]
 
+    # r3dfox-gost XP compatibility: use the legacy network-change path.
+    SOURCES["nsNotifyAddrListener.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+
 LOCAL_INCLUDES += [
     "/netwerk/base",
 ]
