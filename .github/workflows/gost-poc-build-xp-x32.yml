@@ -473,7 +473,7 @@ jobs:
               Push-Location $dir
               try { & lib.exe /nologo "/extract:$item" $ws2 *> extract.log; if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" } } finally { Pop-Location }
               $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
-              if (-not $file) { throw "$api alias extraction produced no object' }
+              if (-not $file) { throw "$api alias extraction produced no object'"}
               $dst = Join-Path $dir 'member.obj'
               Copy-Item -Force $file.FullName $dst
               $ws2AliasObjects += $dst
