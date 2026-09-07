@@ -4,7 +4,7 @@ Last updated: 2026-09-07
 
 This document records the maintenance process used to reduce the size and fragility of the Windows XP SP3 x86 full-build GitHub Actions YAML without changing the proven build/link/runtime compatibility contract.
 
-It is a workflow-maintenance document, not experiment evidence. Build/runtime conclusions still belong in `TEST_LOG.md`, `PROJECT_STATE.md`, and the XP compatibility documents according to the normal documentation rules.
+It is a workflow-maintenance document, not physical-runtime evidence. Build/runtime conclusions remain separate and must be tied to exact source/run/job/artifact identities.
 
 ## Scope
 
@@ -20,303 +20,228 @@ Canonical documentation branch:
 
 `agent/gost-tls-poc`
 
-The refactor exists because the XP full-build workflow accumulated large inline PowerShell programs while compatibility work progressed through Rust, msvcr14x, YY-Thunks, PE retargeting, import audits, packaging gates, and physical-XP diagnostics. The goal is to make the workflow maintainable while preserving its meaning and evidence boundary.
-
 This work belongs only to the Windows compatibility track. It does not change or prove GOST TLS runtime behavior.
 
 ## Refactor objective
 
 The first phase is **structure-only**.
 
-Expected behavioral change:
+Expected compatibility behavior change:
 
 `none`
 
-The YAML remains the orchestration layer. Large self-contained PowerShell implementations move to `.github/scripts/xp/`, but the Actions step graph and the build contract remain unchanged.
+The YAML remains the orchestration layer. Large self-contained PowerShell implementations move to `.github/scripts/xp/`, while the Actions step graph, dependency pins, linker contract, gate semantics, diagnostic filenames and artifact relationships remain unchanged.
 
-The purpose is not to make the workflow shorter at any cost. The purpose is to separate orchestration from implementation while keeping every existing gate, diagnostic, artifact, dependency pin, and evidence relationship intact.
+The purpose is not to minimize YAML at any cost. It is to separate orchestration from implementation without changing the evidence boundary.
 
 ## Why the workflow remains one job
 
 Do not mechanically split this workflow into reusable workflows or multiple jobs during the structure-only phase.
 
-The current XP build has intentional state shared between steps through:
+The XP full build intentionally shares state through:
 
-- `$GITHUB_ENV`;
+- `$GITHUB_ENV` and `$GITHUB_OUTPUT`;
 - `$RUNNER_TEMP`;
 - the checkout working tree;
 - `OBJDIR/dist/bin`;
 - temporary `.lib` providers and extracted YY objects;
-- files under `diagnostics/`;
+- `diagnostics/` files;
 - `steps.<id>.outcome` conditions;
 - package/runtime artifact paths.
 
-Moving a step into another job or `workflow_call` would change the state-transfer model and therefore become an architectural CI change rather than a mechanical refactor.
+Moving a step into another job would change the state-transfer model and become an architectural CI change rather than a mechanical refactor.
 
 Keep diagnostic and gate steps visible as separate GitHub Actions steps. Extract their implementation, not their Actions identity.
 
-## What should be extracted
-
-Use this threshold:
-
-> Extract a PowerShell block when it is roughly more than 50 lines, or when it contains a self-contained algorithm, parser, audit, or build mechanism that is reasonable to inspect/test independently.
-
-Good extraction candidates include:
-
-- construction of the narrow YY provider;
-- activation/composition of YY alias providers;
-- PE/import auditing;
-- DLL entry-point/TLS contract inspection;
-- pinned binary provenance/contract validation;
-- non-trivial diagnostic parsers.
-
-Short orchestration and staging blocks normally stay inline. A 15-30 line step that only copies files, invokes `mach`, writes a small environment value, or packages an archive does not need a separate script merely to reduce YAML line count.
-
-Do not extract every PowerShell block mechanically.
-
 ## Structure-only invariants
 
-For every extracted step preserve all of the following unless a later change explicitly targets one of them:
+For every extracted step preserve unless a later experiment explicitly changes one of them:
 
-- step `name`;
-- step order;
-- `id`;
-- `if` expression;
-- `continue-on-error`;
-- `shell`;
+- step `name`, order, `id`, `if`, `continue-on-error` and `shell`;
 - input environment variables;
-- `$GITHUB_ENV` and `$GITHUB_OUTPUT` writes;
-- output/diagnostic filenames;
-- temporary directory names when later steps consume them;
+- `$GITHUB_ENV` / `$GITHUB_OUTPUT` writes;
+- output and diagnostic filenames;
+- temporary directory names used by later steps;
 - artifact paths;
 - final Step Summary references;
-- external-command exit-code handling;
+- external-command exit handling;
 - dependency/version pins;
 - linker ordering and scope;
 - positive/negative diagnostic semantics.
 
-Do not reformat the whole YAML while extracting one block. The workflow diff should show the removed inline body and a single script invocation, not unrelated whitespace or ordering churn.
+Do not combine mechanical extraction with a linker-policy or compatibility-policy change.
 
-Scripts must consume the existing workflow environment pins rather than duplicating version/hash constants. This keeps one source of truth for dependency identity.
-
-Scripts are expected to run from the repository root on the same `windows-2022` runner context used by the workflow.
-
-Preserve `$ErrorActionPreference = 'Stop'` when the original inline block had it. Do not add it merely for style if the old step deliberately relied on non-terminating behavior. The non-blocking IPHLPAPI diagnostic is an example where exact semantics are more important than stylistic uniformity.
-
-## Repository mutation discipline
-
-This refactor uses only the authorized implementation branch and direct file operations.
-
-Do not create temporary branches as part of the refactor. Do not use `create_branch`, `update_ref`, merge, rebase, force-push, or low-level blob/tree/ref construction unless the user explicitly requests that exact operation.
-
-For an existing workflow file:
-
-1. verify the current `agent/winrt-source-poc` HEAD;
-2. fetch the exact workflow file and current blob SHA;
-3. fetch the complete exact blob when needed;
-4. replace only the intended inline block;
-5. update that same path through the direct contents API using the exact current blob SHA;
-6. fetch the resulting commit;
-7. compare parent -> new commit and inspect the changed-file list/diff.
-
-For a new script, use the direct file-create operation on `agent/winrt-source-poc`.
-
-No workflow-as-editor workaround is allowed.
+Scripts consume the workflow's existing environment pins rather than duplicating version/hash constants.
 
 ## Preferred extraction cycle
 
-Each extraction is completed before starting another one.
-
-The preferred two-commit cycle is:
+Each extraction is completed as a pair before another one begins.
 
 ### Commit A — add the script
 
-- mechanically copy the inline PowerShell body into `.github/scripts/xp/<name>.ps1`;
+- mechanically copy the inline PowerShell body to `.github/scripts/xp/<name>.ps1`;
 - remove only YAML indentation;
-- avoid cleanup/refactoring inside the script during the first move;
-- verify that the commit adds exactly the intended script and nothing else.
+- avoid behavior cleanup during the initial move;
+- verify the commit adds only the intended script.
 
-At this point the script is intentionally unused for only one commit.
+### Commit B — switch the workflow step
 
-### Commit B — switch the Actions step
-
-- re-fetch the current workflow/blob SHA after Commit A;
+- re-fetch the current workflow/blob SHA;
 - replace only the inline `run: |` body with `run: .\.github\scripts\xp\<name>.ps1`;
-- keep the step's `name`, `id`, `if`, `continue-on-error`, and `shell` unchanged;
-- verify the commit diff contains only that workflow hunk.
+- preserve step identity and conditions;
+- verify the diff contains only that workflow hunk.
 
-Do not create another unused script before Commit B completes the previous extraction.
+## First extraction checkpoint
 
-## Verification after each pair
-
-After each script/switch pair verify:
-
-1. the script exists on the current implementation HEAD;
-2. the workflow invocation path matches the real file path;
-3. no step identity or condition changed;
-4. no environment pin moved into the script unnecessarily;
-5. diagnostic filenames and artifact-consumed paths are unchanged;
-6. `$LASTEXITCODE` handling remains equivalent;
-7. the compare range contains only the expected script/workflow files;
-8. no unrelated YAML formatting or source changes appeared.
-
-For link-provider steps, additionally verify that library ordering, alias selection, symbol checks, and prohibitions on broad provider injection are byte-for-byte/mechanically equivalent in meaning.
-
-## Revalidation cadence
-
-Do not launch the multi-hour full Firefox build after every mechanical extraction.
-
-Instead accumulate a small, reviewable batch of clean extraction pairs, then stop and perform one full workflow revalidation before touching the most sensitive linker/composition logic.
-
-The current chosen boundary is four extracted areas. This gives a meaningful maintainability improvement while keeping the unvalidated structural delta small enough to diagnose if the full run fails.
-
-A successful YAML parse or clean diff is necessary but not sufficient. The refactor is not considered validated until the exact refactor source SHA completes the full XP x32 workflow with the expected build, package, diagnostic, audit, and artifact results.
-
-A GREEN refactor build is still not physical-XP runtime proof and is not GOST TLS handshake proof.
-
-## Current structural checkpoint
-
-Implementation branch HEAD at the current stop point:
-
-`e9c8c766e20b0160094257d674ded1ea57aa82ee`
-
-The following extraction pairs are complete:
+The first checkpoint contains four completed extraction pairs.
 
 ### Pinned XP bcrypt preparation
 
-Script creation:
-
-- `4146956a2fc57d87afeb614dd3efe092619e12e8` — `ci(xp): extract pinned bcrypt preparation script`
-
-Workflow switch:
-
-- `1dec42a35708a7e64197c7047cc19e10eb3ee85f` — `ci(xp): use extracted bcrypt preparation script`
-
-Script:
-
-`.github/scripts/xp/prepare-pinned-xp-bcrypt.ps1`
+- script creation `4146956a2fc57d87afeb614dd3efe092619e12e8` — `ci(xp): extract pinned bcrypt preparation script`;
+- workflow switch `1dec42a35708a7e64197c7047cc19e10eb3ee85f` — `ci(xp): use extracted bcrypt preparation script`;
+- script `.github/scripts/xp/prepare-pinned-xp-bcrypt.ps1`.
 
 ### msvcr14x XP runtime contract gate
 
-Script creation:
-
-- `fad25733a7e8ca9bffda7707f88ccd39da8de15b` — `ci(xp): extract msvcr14x XP contract gate`
-
-Workflow switch:
-
-- `235189158ad6e119f79e971b85deea64c1bdef89` — `ci(xp): use extracted msvcr14x XP contract gate`
-
-Script:
-
-`.github/scripts/xp/verify-msvcr14x-xp-contract.ps1`
+- script creation `fad25733a7e8ca9bffda7707f88ccd39da8de15b` — `ci(xp): extract msvcr14x XP contract gate`;
+- workflow switch `235189158ad6e119f79e971b85deea64c1bdef89` — `ci(xp): use extracted msvcr14x XP contract gate`;
+- script `.github/scripts/xp/verify-msvcr14x-xp-contract.ps1`.
 
 ### Final xul IPHLPAPI diagnostic
 
-Script creation:
+- script creation `28f974a9eeee289ddbf50a0d54c1516a22cb1015` — `ci(xp): extract xul IPHLPAPI diagnostic`;
+- workflow switch `9ca9425c5da93edadf94f859d5c72405dc561950` — `ci(xp): use extracted xul IPHLPAPI diagnostic`;
+- script `.github/scripts/xp/diag-xul-iphlpapi.ps1`.
 
-- `28f974a9eeee289ddbf50a0d54c1516a22cb1015` — `ci(xp): extract xul IPHLPAPI diagnostic`
-
-Workflow switch:
-
-- `9ca9425c5da93edadf94f859d5c72405dc561950` — `ci(xp): use extracted xul IPHLPAPI diagnostic`
-
-Script:
-
-`.github/scripts/xp/diag-xul-iphlpapi.ps1`
-
-The Actions metadata for this diagnostic remains significant: `id: xul-iphlpapi-import-diag`, its `if` expression, and `continue-on-error: true` must remain unchanged.
+The Actions metadata remains part of the contract: `id: xul-iphlpapi-import-diag`, its `if` expression and `continue-on-error: true` are intentionally preserved.
 
 ### Narrow YY provider construction
 
-Script creation:
+- script creation `c05bb71aa1b2cace6f670b640c03baa008628012` — `ci(xp): extract narrow YY provider build`;
+- workflow switch `e9c8c766e20b0160094257d674ded1ea57aa82ee` — `ci(xp): use extracted narrow YY provider build`;
+- script `.github/scripts/xp/build-narrow-yy.ps1`.
 
-- `c05bb71aa1b2cace6f670b640c03baa008628012` — `ci(xp): extract narrow YY provider build`
+The step still produces the same `NARROW_YY_LIB` through `$GITHUB_ENV` and preserves selected-member, symbol and broad-provider rejection logic.
 
-Workflow switch:
+## First checkpoint full-build validation — GREEN
 
-- `e9c8c766e20b0160094257d674ded1ea57aa82ee` — `ci(xp): use extracted narrow YY provider build`
+The structure-only checkpoint is now **validated**.
 
-Script:
+Exact validation build:
 
-`.github/scripts/xp/build-narrow-yy.ps1`
+- source branch `agent/winrt-source-poc`;
+- source-under-test `a15dcd738edda4ab810fc9f92289170f115519e4`;
+- run `34095425319`, attempt `1`;
+- job `101657910987`;
+- result **SUCCESS**.
 
-This step still produces the same `NARROW_YY_LIB` through `$GITHUB_ENV` and retains the existing selected-member, symbol, and broad-symbol rejection logic.
+All existing build, package, runtime-archive, compatibility gates, diagnostics, artifact uploads and the final summary completed successfully.
 
-## Current validation status
+The structural checkpoint commit `e9c8c766e20b0160094257d674ded1ea57aa82ee` is exactly one commit behind `a15dcd...`. That one additional commit changes only `.github/workflows/gost-poc-build-xp-x32.yml` by enabling debug symbols and adding `xul.pdb` to diagnostics. Therefore this GREEN run validates both:
 
-No full revalidation run has yet been accepted for source `e9c8c766e20b0160094257d674ded1ea57aa82ee`.
+1. the four-script structure-only extraction checkpoint; and
+2. the new matching-PDB diagnostic extension.
 
-Therefore the current state is:
+Exact artifacts from the GREEN validation:
 
-**structural extraction complete to the planned checkpoint; full-build validation pending**.
+- package `10013484854`, digest `sha256:d8764c7dbf0a2d2b47858554628aa009641589241e582eec9cb7d40199a89873`;
+- runtime `10013486539`, digest `sha256:daaed105abe6c9ce3a9afa9db4a17254c8520f2a6823dbc53e0e7bc6a4a8360b`;
+- diagnostics `10013519035`, digest `sha256:6fef7bf7e0122de7c5747e0923585123ea5753666fc6bd38ff1ac6be4cf20df9`.
 
-Do not cite the refactor as GREEN until a completed run is bound to exact:
+This validation is build/static evidence only. It is not physical-XP runtime proof and not GOST TLS handshake proof.
 
-- source SHA `e9c8c766e20b0160094257d674ded1ea57aa82ee`;
-- Actions run ID;
-- job ID;
-- expected package/runtime/diagnostics artifacts and final gate outcomes.
+## Matching `xul.pdb` diagnostic contract
+
+Commit `a15dcd738edda4ab810fc9f92289170f115519e4` (`ci(xp): preserve matching xul PDB diagnostics`) changes the XP mozconfig from `--disable-debug-symbols` to `--enable-debug-symbols` and adds:
+
+```text
+obj-gost-xp-x32/**/xul.pdb
+```
+
+to `r3dfox-gost-xp-x32-diagnostics`.
+
+The exact GREEN diagnostics artifact `10013519035` was inspected and contains:
+
+```text
+r3dfox-gost/r3dfox-gost/obj-gost-xp-x32/toolkit/library/build/xul.pdb
+```
+
+Identity:
+
+- size `1,864,486,912` bytes;
+- SHA-256 `fb35a5e682fb5b0fab3039a2dc504339002d9e8932a0dae71933da44a35ada02`.
+
+The corresponding `xul.dll` from the same build is recorded by the diagnostics inventory with SHA-256:
+
+`c5dd98c21fe59640e56498c695808819fa5d5bbe26be324cb926cc7c2235aa8e`.
+
+Never use this PDB for an earlier or later `xul.dll`. It is matching-symbol evidence only for run `34095425319` / source `a15dcd...`.
+
+The descendant Shell32 validation source `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` inherits the same debug-symbol/PDB workflow contract, but its physical failures must be symbolized with the PDB produced by its own exact build.
+
+## YY DLL entry-point diagnostic from the GREEN run
+
+The non-blocking all-DLL inventory produced a valid xul positive control:
+
+```text
+xul_positive_control=true
+strong_candidates=13
+contracts_present=3
+missing_contract_candidates=10
+```
+
+Contract-present strong candidates were `xul.dll`, `ucrtbase.dll`, and `msvcp140.dll`.
+
+The heuristic reported ten strong candidates without the YY DLL entry-wrapper/TLS contract:
+
+- `gkcodecs.dll`;
+- `gmp-clearkey/0.1/clearkey.dll`;
+- `gmp-fake/1.0/fake.dll`;
+- `gmp-fakeopenh264/1.0/fakeopenh264.dll`;
+- `libGLESv2.dll`;
+- `mozavcodec.dll`;
+- `mozavutil.dll`;
+- `mozglue.dll`;
+- `mozinference.dll`;
+- `nss3.dll`.
+
+This is **follow-up evidence only**. The inventory is deliberately non-blocking and does not prove any listed DLL causes an XP runtime crash. Extend the YY DLL/TLS contract only when exact runtime or stronger focused evidence identifies a real consumer boundary.
+
+Detailed experiment evidence is preserved in `TEST_LOG_2026-09-07_refactor-pdb-yy.md`.
 
 ## Next refactor phase after GREEN
 
-Only after the checkpoint receives a clean full revalidation should the next extraction batch begin.
+The first extraction checkpoint is now GREEN, so another small structure-only batch may proceed when desired.
 
 Highest-risk next candidate:
 
 `.github/scripts/xp/activate-narrow-yy.ps1`
 
-This corresponds to the existing `Activate narrow YY XP x86 provider for all target links` Actions step. Keep it one Actions step even if the script later uses internal helper functions.
+corresponding to `Activate narrow YY XP x86 provider for all target links`.
 
-This block is especially sensitive because it composes:
+This block is sensitive because it composes:
 
-- the selected NTDLL `NtCancelIoFileEx` alias provider;
-- the selected ADVAPI32 ETW/RegGetValueW alias provider;
-- the selected WS2_32 alias provider;
+- the NTDLL `NtCancelIoFileEx` alias provider;
+- the ADVAPI32 ETW/RegGetValueW alias provider;
+- the WS2_32 alias provider;
 - the narrow common YY implementation provider;
 - `synchronization.lib`;
 - global target `LDFLAGS` ordering;
-- the prohibition on broad `kernel32.lib`, `ntdll.lib`, `advapi32.lib`, and `ws2_32.lib` injection;
-- historical run/job/SHA evidence written into diagnostics.
+- the prohibition on broad `kernel32.lib`, `ntdll.lib`, `advapi32.lib`, and `ws2_32.lib` injection.
 
-Do not combine its extraction with a linker-policy change.
+Its extraction must remain mechanical; do not combine it with linker-policy changes.
 
-Later strong candidates include:
+Later strong candidates remain:
 
 - `audit-runtime-pe-imports.ps1` for the broad final PE/import audit;
 - `audit-yy-dll-entrypoints.ps1` for the non-blocking YY DLL entry-point/TLS inventory.
 
-Short staging/archive steps should remain inline unless they later acquire independent algorithmic complexity.
+Short staging/archive steps should remain inline unless they acquire independent algorithmic complexity.
 
-## Full-build acceptance for the refactor
+## Acceptance rule for later extraction batches
 
-The structure-only refactor passes its first validation checkpoint only if the exact source-under-test completes the existing full workflow without changing the intended gate semantics.
+Do not launch the multi-hour full Firefox build after every mechanical extraction. Accumulate a small reviewable batch, then perform one exact full-workflow revalidation.
 
-At minimum verify:
+A clean diff or YAML parse is necessary but insufficient. A refactor batch is accepted only when an exact source SHA completes the expected build/package/diagnostic/audit/artifact pipeline.
 
-- build succeeds;
-- package succeeds;
-- runtime archive succeeds;
-- pinned bcrypt provenance/contract remains valid;
-- msvcr14x runtime contract remains valid;
-- narrow YY construction succeeds;
-- existing YY alias/link contract remains intact;
-- IPHLPAPI diagnostic still produces its expected evidence files;
-- source/import/DPI/ADVAPI32/core import gates retain their behavior;
-- PE subsystem retargeting remains intact;
-- packaged CRT, D3DCompiler, and bcrypt gates retain their behavior;
-- broad final PE/import audit retains its behavior;
-- YY DLL entry-point inventory remains non-blocking and evidence-preserving;
-- all expected package/runtime/diagnostics artifacts are uploaded;
-- final Step Summary still references the same step IDs/outcomes.
-
-If the full run fails, first classify whether the failure is a script extraction regression or an unrelated source/runner/dependency failure before changing compatibility logic.
-
-## Documentation after the revalidation run
-
-Once the exact refactor run finishes:
-
-- append the exact run/job/SHA and conclusion to `TEST_LOG.md` because the full build is a meaningful experiment;
-- update this document's validation checkpoint if the process itself advances;
-- update `WORKFLOWS.md` only if the workflow role/topology meaning changes;
-- update `PROJECT_STATE.md` only if the current blocker, architecture, confirmed behavior, dependency, or immediate next experiment changes;
-- do not treat a structure-only GREEN build as physical-XP runtime evidence.
+A GREEN workflow refactor remains separate from physical Windows XP runtime success and from GOST TLS runtime/handshake success.
