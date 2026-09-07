@@ -95,7 +95,65 @@ The owning build rule is:
 SOURCES["nsXREDirProvider.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 ```
 
-This remediation is source-integrated but is **not yet physical-XP closure**. It requires a full build from `50ca390932f0be83309b905226e2e9fea0fe1e75` or a descendant and physical XP validation of that exact artifact.
+This remediation is source-integrated but is **not yet physical-XP closure**. It is included in the exact validation source `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4`, run `34107793132`, job `101696721232`; that build was still in progress when this document was updated.
+
+### `xpcom/io/SpecialSystemDirectory.cpp`
+
+A neighboring direct `SHGetKnownFolderPath` owner was identified while auditing the physically proven Shell32 family. The existing `Win_Downloads` implementation attempted to call the Known Folder API and only then fall back to Desktop for XP. That runtime fallback cannot protect XP from a missing delay-loaded export because the delay-loader raises before the call returns.
+
+Current implementation commits:
+
+- `e8c3ce7ae9979ef368e066eb593edf0a258f74a5` — moves `SpecialSystemDirectory.cpp` from `UNIFIED_SOURCES` to ordinary `SOURCES` and records source-local XP ownership;
+- `494cda6893282858240976a13e5e8f0af1a0901f` — `fix(xp): avoid Known Folder API for downloads`.
+
+Under `MOZ_XP_COMPAT`, `Win_Downloads` now goes directly to the existing XP-era fallback:
+
+```cpp
+return GetWindowsFolder(CSIDL_DESKTOP, aFile);
+```
+
+The direct `GetKnownFolder(...)` helper containing `SHGetKnownFolderPath` is excluded from the XP translation unit. Non-XP Windows builds retain the Known Folder Downloads behavior.
+
+The owning build rule is:
+
+```python
+SOURCES["SpecialSystemDirectory.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+```
+
+This owner was found proactively and is **not itself a physically proven blocker yet**. It is source-integrated in current HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` and is part of validation run `34107793132` / job `101696721232`.
+
+### `toolkit/mozapps/update/common/commonupdatedir.cpp`
+
+Another neighboring `SHGetKnownFolderPath` owner was identified in the update-directory path. The modern implementation obtains ProgramData through `SHGetKnownFolderPath(FOLDERID_ProgramData, ...)`, which is not an XP-safe callable edge.
+
+Current implementation commits:
+
+- `76c447d142751676908b5837ef3609617a5c7cb8` — moves `commonupdatedir.cpp` from `UNIFIED_SOURCES` to ordinary `SOURCES` and records source-local XP ownership;
+- `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` — `fix(xp): use legacy ProgramData shell folder`.
+
+Under `MOZ_XP_COMPAT`, the source uses the XP-native ProgramData equivalent:
+
+```cpp
+SHGetFolderPathW(nullptr,
+                 CSIDL_COMMON_APPDATA | CSIDL_FLAG_CREATE,
+                 nullptr,
+                 SHGFP_TYPE_CURRENT,
+                 baseDirParentPath);
+```
+
+Non-XP Windows builds retain `SHGetKnownFolderPath(FOLDERID_ProgramData, ...)`.
+
+The owning build rule is:
+
+```python
+SOURCES["/toolkit/mozapps/update/common/commonupdatedir.cpp"].flags += [
+    "-DMOZ_XP_COMPAT"
+]
+```
+
+This owner was found proactively and is **not itself a physically proven blocker yet**. It is source-integrated in current HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` and is part of validation run `34107793132` / job `101696721232`.
+
+Detailed Shell32 cluster state, remaining candidates and experiment order are recorded in `XP_SHELL32_COMPATIBILITY.md`.
 
 ### `accessible/windows/msaa/CompatibilityUIA.cpp`
 
