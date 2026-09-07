@@ -71,16 +71,18 @@ The same `0a18ba85...` browser starts on physical Windows 7 x86. On physical XP 
 Current XP implementation HEAD is:
 
 - branch `agent/winrt-source-poc`;
-- HEAD `50ca390932f0be83309b905226e2e9fea0fe1e75` (`fix(xp): use legacy shell folders in nsXREDirProvider`).
+- HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` (`fix(xp): use legacy ProgramData shell folder`).
 
-The currently running full XP build predates that source remediation:
+This HEAD contains the physically motivated `nsXREDirProvider.cpp` Shell32 remediation plus two proactively identified neighboring Shell32 source owners, all under the project-owned `MOZ_XP_COMPAT` contract.
+
+The currently running full XP build predates these source remediations:
 
 - source-under-test `a15dcd738edda4ab810fc9f92289170f115519e4`;
 - run `34095425319`;
 - job `101657910987`;
 - purpose includes matching `xul.pdb` preservation and `DIAG - Inventory YY-Thunks DLL entry-point coverage`.
 
-Do not attribute the `SHGetKnownFolderPath` remediation to run `34095425319`; a later full build from `50ca390...` or a descendant is required to validate it.
+Do not attribute any of the current Shell32 remediations to run `34095425319`; a later full build from `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` or a descendant is required to validate them.
 
 ## Physical XP runtime — inherited AutoConfig forces GFX critical failures to crash
 
@@ -91,7 +93,7 @@ The shipped/inherited `config.cfg` contains:
 setEnv("MOZ_GFX_CRASH_MOZ_CRASH", 1);
 ```
 
-This setting is applied inside the running browser by AutoConfig, so it need not appear in the parent command shell environment before startup. In a supplied physical-XP dump from the exact `0a18ba85...` browser, one `0x80000003` path resolves to `MOZ_CRASH(GFX_CRASH)` after:
+This setting is applied inside the running browser by AutoConfig, so it need not be present in the parent command shell environment before startup. In a supplied physical-XP dump from the exact `0a18ba85...` browser, one `0x80000003` path resolves to `MOZ_CRASH(GFX_CRASH)` after:
 
 ```text
 [GFX1-]: Failed to initialize CompositorD3D11 for SWGL:
@@ -121,15 +123,17 @@ Physical capture identity:
 - PID `6184`;
 - time `2026-09-07 15:12:04.957` local physical-XP time.
 
-Source ownership is `toolkit/xre/nsXREDirProvider.cpp`. Its existing registry fallback could not handle this boundary because the delay-load helper raises before `SHGetKnownFolderPath` returns a failing `HRESULT`.
+The physically reached source owner is `toolkit/xre/nsXREDirProvider.cpp`. Its existing registry fallback could not handle this boundary because the delay-load helper raises before `SHGetKnownFolderPath` returns a failing `HRESULT`.
 
-The implementation branch now carries a project-owned `MOZ_XP_COMPAT` remediation:
+The implementation branch now carries three project-owned `MOZ_XP_COMPAT` remediations for this Shell32 family:
 
-- final build ownership state `b5db4a4312ccf66a245d47dbc0464c11781cf620` moves `nsXREDirProvider.cpp` from `UNIFIED_SOURCES` to `SOURCES` and applies `-DMOZ_XP_COMPAT`;
-- `50ca390932f0be83309b905226e2e9fea0fe1e75` selects XP-era `SHGetFolderPathW` with `CSIDL_LOCAL_APPDATA` / `CSIDL_APPDATA` while preserving the existing registry fallback;
-- non-XP Windows builds retain `SHGetKnownFolderPath` and the `FOLDERID_*` path.
+- `nsXREDirProvider.cpp`: XP uses `SHGetFolderPathW` with `CSIDL_LOCAL_APPDATA` / `CSIDL_APPDATA` and preserves the existing registry fallback; non-XP builds retain `SHGetKnownFolderPath` / `FOLDERID_*`;
+- `xpcom/io/SpecialSystemDirectory.cpp`: the XP `Win_Downloads` path goes directly to the existing `CSIDL_DESKTOP` fallback and the direct `SHGetKnownFolderPath` helper is excluded from the XP translation unit;
+- `toolkit/mozapps/update/common/commonupdatedir.cpp`: the XP ProgramData path uses `SHGetFolderPathW` with `CSIDL_COMMON_APPDATA | CSIDL_FLAG_CREATE`; non-XP builds retain `SHGetKnownFolderPath(FOLDERID_ProgramData, ...)`.
 
-This is **source-integrated but not yet runtime-closed**. It requires a new full build and physical XP validation.
+All three dedicated owners are ordinary `SOURCES` entries with source-local `-DMOZ_XP_COMPAT` ownership. `SpecialSystemDirectory.cpp` and `commonupdatedir.cpp` were removed from unified compilation before applying their source-local flags. The net implementation change from `b59e957015544fa7761abf07fedde3c5d259104c` to current HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` is limited to the two source files and their two owning `moz.build` files.
+
+Only the first `nsXREDirProvider.cpp` path is backed by the supplied physical-XP `C06D007F` evidence. The two neighboring owners were identified proactively from the same Shell32 API family and are **source-integrated but not yet build- or runtime-proven**. The Shell32 family therefore requires a new full build and physical XP validation before closure.
 
 ## Unresolved parallel symptom — SpiderMonkey/Wasm `MOZ_RELEASE_ASSERT(map)`
 
@@ -140,7 +144,7 @@ The preceding physical-XP Dr. Watson log for the same exact `0a18ba85...` browse
 - instruction `CC` / `int 3`;
 - exact crash reason `MOZ_RELEASE_ASSERT(map)`.
 
-The source owner is `js/src/wasm/WasmProcess.cpp`, where `map` is process-wide `sThreadSafeCodeBlockMap`. The assertion exists in `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`.
+The source owner is `js/src/wasm/WasmProcess.cpp`, where `map` is the process-wide `sThreadSafeCodeBlockMap`. The assertion exists in `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`.
 
 This symptom is **not considered closed** by the config-free `SHGetKnownFolderPath` experiment. Removing the whole `config.cfg` changes startup behavior, so one run reaching a different parent-process boundary does not prove that the Wasm assertion disappeared. The running `a15dcd...` build is intended to provide matching PDBs and an all-DLL YY-Thunks entry-point/TLS inventory so this line can be classified more precisely.
 
@@ -169,7 +173,7 @@ The current lineage includes:
 - ANGLE/DXGI work removing the XP-incompatible static `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` edge while preserving the intended D3D9 fallback path;
 - YY-Thunks DLL/TLS entry-point integration scoped to `xul.dll`, physically proven to advance past the old `RtlpWaitForCriticalSection` crash;
 - source-level IP Helper remediation physically proven to advance beyond the preceding IP Helper runtime boundary on source `0a18ba85...`;
-- source-level `MOZ_XP_COMPAT` remediation for `nsXREDirProvider.cpp -> SHELL32!SHGetKnownFolderPath`, pending rebuild/runtime validation.
+- source-level `MOZ_XP_COMPAT` remediation for the `SHELL32!SHGetKnownFolderPath` family in `nsXREDirProvider.cpp`, `SpecialSystemDirectory.cpp`, and `commonupdatedir.cpp`; the physically reached `nsXREDirProvider` boundary motivated the cluster, while the latter two proactive owners remain pending rebuild/runtime validation.
 
 Historical source/run/job/artifact identities for individual closures remain authoritative in `TEST_LOG.md`, `TEST_LOG_2026-09-06_pre_full_xp_green.md`, and earlier dated test-log volumes. Do not reopen a focused capability already proven there unless contradictory evidence appears.
 
@@ -179,13 +183,13 @@ Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility owne
 
 1. Finish and classify run `34095425319` / job `101657910987` / source `a15dcd738edda4ab810fc9f92289170f115519e4`. Preserve the exact result of `DIAG - Inventory YY-Thunks DLL entry-point coverage` and confirm whether the diagnostics artifact actually contains matching `xul.pdb`.
 2. If the YY inventory reports strong DLL consumers without the YY entry-wrapper/TLS contract, classify those exact DLLs before changing SpiderMonkey.
-3. Launch a new full XP build from implementation HEAD `50ca390932f0be83309b905226e2e9fea0fe1e75` or a descendant to validate the `nsXREDirProvider.cpp` `SHGetFolderPathW` remediation.
+3. Launch a new full XP build from implementation HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` or a descendant to validate the complete current Shell32 source-remediation cluster.
 4. Physically test that exact rebuilt artifact on XP. For clean diagnosis of the Shell32 boundary, distinguish a normal packaged run from any temporary config-free diagnostic run; do not silently treat deleting `config.cfg` as a product fix.
 5. If `MOZ_RELEASE_ASSERT(map)` remains, use the matching PDB from the exact failing rebuilt browser to resolve the exact `RegisterCodeBlock` / `UnregisterCodeBlock` / `ShutDown` call site and then trace initialization ordering.
 
 ## XP acceptance boundary
 
-Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**. The old critical-section and IP Helper boundaries are closed on later exact candidates; the newly identified Shell32 boundary has a source remediation but no rebuilt physical proof yet; the Wasm assertion remains unresolved in parallel.
+Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**. The old critical-section and IP Helper boundaries are closed on later exact candidates; the current Shell32 cluster is source-remediated but has no rebuilt physical proof yet; the Wasm assertion remains unresolved in parallel.
 
 A curated known-API list is a regression gate, not exhaustive compatibility proof. A successful XP startup would also not be a GOST TLS handshake result.
 
