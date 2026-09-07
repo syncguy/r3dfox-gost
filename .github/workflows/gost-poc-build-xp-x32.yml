@@ -570,7 +570,7 @@ jobs:
           ac_add_options --enable-official-branding
           ac_add_options --disable-debug
           ac_add_options --disable-debug-js-modules
-          ac_add_options --disable-debug-symbols
+          ac_add_options --enable-debug-symbols
           ac_add_options --disable-tests
           ac_add_options --disable-sandbox
           ac_add_options --enable-hardening
@@ -1287,6 +1287,7 @@ jobs:
             xp-x32-sync-import-gate/**
             xp-x32-import-audit/**
             diagnostics/**
+            obj-gost-xp-x32/**/xul.pdb
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
             ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
