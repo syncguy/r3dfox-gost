@@ -121,7 +121,7 @@ jobs:
             Select-Object -First 1
           if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
           'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Configure 24 GB pagefile on non-active drive
         if: steps.pagefile-plan.outputs.need == 'true'
@@ -582,17 +582,12 @@ jobs:
             if (-not $required -or -not (Test-Path $required)) { throw "Required YY linker input missing: $required" }
           }
 
-          # Proven by run 33861819326 / job 100987750213 / SHA be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2:
-          # use only the NtCancelIoFileEx alias pair from YY ntdll.lib; the common
-          # YY_Thunks_NtCancelIoFileEx implementation is already present in NARROW_YY_LIB.
           $members = @(& lib.exe /nologo /list $ntdll 2>&1 |
             ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 ntdll.lib' }
           $direct = @($members | Where-Object { $_ -match '(?i)[\\/]_NtCancelIoFileEx@12\.obj$' })
           $import = @($members | Where-Object { $_ -match '(?i)[\\/]_NtCancelIoFileEx@12\.obi$' })
-          if ($direct.Count -ne 1 -or $import.Count -ne 1) {
-            throw "Expected one NtCancelIoFileEx .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)"
-          }
+          if ($direct.Count -ne 1 -or $import.Count -ne 1) { throw "Expected one NtCancelIoFileEx .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)" }
           $aliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-ntcancel-alias'
           $selected = Join-Path $aliasWork 'selected'
           if (Test-Path $aliasWork) { Remove-Item -Recurse -Force $aliasWork }
@@ -606,9 +601,7 @@ jobs:
               & lib.exe /nologo "/extract:$item" $ntdll *> extract.log
               if ($LASTEXITCODE -ne 0) { throw 'NtCancelIoFileEx alias extraction failed' }
             } finally { Pop-Location }
-            $file = Get-ChildItem -LiteralPath $dir -File |
-              Where-Object { $_.Name -ne 'extract.log' } |
-              Sort-Object Length -Descending | Select-Object -First 1
+            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
             if (-not $file) { throw 'NtCancelIoFileEx alias extraction produced no object' }
             $dst = Join-Path $dir 'member.obj'
             Copy-Item -Force $file.FullName $dst
@@ -619,13 +612,9 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ntCancelAlias)) { throw 'NtCancelIoFileEx alias library build failed' }
           $aliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $ntCancelAlias 2>&1 | Out-String)
           $aliasSymbols | Set-Content -Encoding utf8 (Join-Path $aliasWork 'alias-symbols.txt')
-          if ($aliasSymbols.IndexOf('_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) {
-            throw 'NtCancelIoFileEx alias library lacks the x86 entry symbol'
-          }
+          if ($aliasSymbols.IndexOf('_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) { throw 'NtCancelIoFileEx alias library lacks the x86 entry symbol' }
           $providerSymbols = (& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1 | Out-String)
-          if ($providerSymbols.IndexOf('_YY_Thunks_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) {
-            throw 'Proven narrow provider lacks YY_Thunks_NtCancelIoFileEx implementation'
-          }
+          if ($providerSymbols.IndexOf('_YY_Thunks_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) { throw 'Proven narrow provider lacks YY_Thunks_NtCancelIoFileEx implementation' }
           @(
             "direct=$($direct[0])",
             "import=$($import[0])",
@@ -637,12 +626,8 @@ jobs:
             'capability=PASS'
           ) | Set-Content -Encoding utf8 diagnostics\yy-ntcancel-capability.txt
 
-          # ETW four-name capability: run 33882235341 / job 101053403554 / SHA 53971dcfdf12e7bcd7f35692ff2c02fb3360d792.
-          # RegGetValueW capability: run 33946751857 / job 101254130849 / SHA 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4.
-          # Use only these five observed ADVAPI32 weak-alias pairs; the common implementations are already present in NARROW_YY_LIB.
           $etwApis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
-          $advapiMembers = @(& lib.exe /nologo /list $advapi 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          $advapiMembers = @(& lib.exe /nologo /list $advapi 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $advapiMembers.Count -eq 0) { throw 'Cannot enumerate YY XP x86 advapi32.lib' }
           $etwAliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-advapi32-etw-alias'
           $etwSelected = Join-Path $etwAliasWork 'selected'
@@ -654,22 +639,15 @@ jobs:
             $escaped = [regex]::Escape($api)
             $direct = @($advapiMembers | Where-Object { $_ -match "(?i)[\\/]_${escaped}@\d+\.obj$" })
             $import = @($advapiMembers | Where-Object { $_ -match "(?i)[\\/]_${escaped}@\d+\.obi$" })
-            if ($direct.Count -ne 1 -or $import.Count -ne 1) {
-              throw "Expected one $api .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)"
-            }
+            if ($direct.Count -ne 1 -or $import.Count -ne 1) { throw "Expected one $api .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)" }
             $etwEvidence.Add("$api|direct=$($direct[0])|import=$($import[0])")
             foreach ($item in @($direct[0],$import[0])) {
               $kind = [IO.Path]::GetExtension($item).TrimStart('.')
               $dir = Join-Path $etwSelected "$api-$kind"
               New-Item -ItemType Directory -Force $dir | Out-Null
               Push-Location $dir
-              try {
-                & lib.exe /nologo "/extract:$item" $advapi *> extract.log
-                if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" }
-              } finally { Pop-Location }
-              $file = Get-ChildItem -LiteralPath $dir -File |
-                Where-Object { $_.Name -ne 'extract.log' } |
-                Sort-Object Length -Descending | Select-Object -First 1
+              try { & lib.exe /nologo "/extract:$item" $advapi *> extract.log; if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" } } finally { Pop-Location }
+              $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
               if (-not $file) { throw "$api alias extraction produced no object" }
               $dst = Join-Path $dir 'member.obj'
               Copy-Item -Force $file.FullName $dst
@@ -682,12 +660,8 @@ jobs:
           $etwAliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $advapiEtwAlias 2>&1 | Out-String)
           $etwAliasSymbols | Set-Content -Encoding utf8 (Join-Path $etwAliasWork 'alias-symbols.txt')
           foreach ($api in $etwApis) {
-            if ($etwAliasSymbols.IndexOf($api,[System.StringComparison]::Ordinal) -lt 0) {
-              throw "ADVAPI32 alias provider missing $api"
-            }
-            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) {
-              throw "Proven narrow provider lacks YY_Thunks_$api implementation"
-            }
+            if ($etwAliasSymbols.IndexOf($api,[System.StringComparison]::Ordinal) -lt 0) { throw "ADVAPI32 alias provider missing $api" }
+            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Proven narrow provider lacks YY_Thunks_$api implementation" }
           }
           $etwEvidence.Add("alias_provider=$advapiEtwAlias")
           $etwEvidence.Add('implementation=existing NARROW_YY_LIB common YY object')
@@ -701,14 +675,8 @@ jobs:
           $etwEvidence.Add('capability=PASS')
           $etwEvidence | Set-Content -Encoding utf8 diagnostics\yy-etw-capability.txt
 
-          # Proven by run 34021400841 / job 101454550948 / SHA 5451673565030445262f5b6ef48b4059e0e0501e.
-          # Use only WSAIoctl and inet_ntop weak-alias pairs from YY ws2_32.lib; the shared implementations are already present in NARROW_YY_LIB.
-          $ws2Apis = @(
-            @{ Name='WSAIoctl'; Stack=36 },
-            @{ Name='inet_ntop'; Stack=16 }
-          )
-          $ws2Members = @(& lib.exe /nologo /list $ws2 2>&1 |
-            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          $ws2Apis = @(@{ Name='WSAIoctl'; Stack=36 }, @{ Name='inet_ntop'; Stack=16 })
+          $ws2Members = @(& lib.exe /nologo /list $ws2 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or $ws2Members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 ws2_32.lib' }
           $ws2AliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-ws2_32-alias'
           $ws2Selected = Join-Path $ws2AliasWork 'selected'
@@ -722,25 +690,16 @@ jobs:
             $escaped = [regex]::Escape($api)
             $direct = @($ws2Members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@$stack\.obj$" })
             $import = @($ws2Members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@$stack\.obi$" })
-            if ($direct.Count -ne 1 -or $import.Count -ne 1) {
-              throw "Expected one proven $api @$stack .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)"
-            }
-            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) {
-              throw "Proven narrow provider lacks YY_Thunks_$api implementation"
-            }
+            if ($direct.Count -ne 1 -or $import.Count -ne 1) { throw "Expected one proven $api @$stack .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)" }
+            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Proven narrow provider lacks YY_Thunks_$api implementation" }
             $ws2Evidence.Add("$api|direct=$($direct[0])|import=$($import[0])")
             foreach ($item in @($direct[0],$import[0])) {
               $kind = [IO.Path]::GetExtension($item).TrimStart('.')
               $dir = Join-Path $ws2Selected "$api-$kind"
               New-Item -ItemType Directory -Force $dir | Out-Null
               Push-Location $dir
-              try {
-                & lib.exe /nologo "/extract:$item" $ws2 *> extract.log
-                if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" }
-              } finally { Pop-Location }
-              $file = Get-ChildItem -LiteralPath $dir -File |
-                Where-Object { $_.Name -ne 'extract.log' } |
-                Sort-Object Length -Descending | Select-Object -First 1
+              try { & lib.exe /nologo "/extract:$item" $ws2 *> extract.log; if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" } } finally { Pop-Location }
+              $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
               if (-not $file) { throw "$api alias extraction produced no object" }
               $dst = Join-Path $dir 'member.obj'
               Copy-Item -Force $file.FullName $dst
@@ -752,11 +711,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ws2Alias)) { throw 'WS2_32 alias library build failed' }
           $ws2AliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $ws2Alias 2>&1 | Out-String)
           $ws2AliasSymbols | Set-Content -Encoding utf8 (Join-Path $ws2AliasWork 'alias-symbols.txt')
-          foreach ($spec in $ws2Apis) {
-            if ($ws2AliasSymbols.IndexOf($spec.Name,[System.StringComparison]::Ordinal) -lt 0) {
-              throw "WS2_32 alias provider missing $($spec.Name)"
-            }
-          }
+          foreach ($spec in $ws2Apis) { if ($ws2AliasSymbols.IndexOf($spec.Name,[System.StringComparison]::Ordinal) -lt 0) { throw "WS2_32 alias provider missing $($spec.Name)" } }
           $ws2Evidence.Add("alias_provider=$ws2Alias")
           $ws2Evidence.Add('implementation=existing NARROW_YY_LIB common YY object')
           $ws2Evidence.Add('apis=WSAIoctl,inet_ntop')
@@ -776,18 +731,10 @@ jobs:
           $fullAdvapi = $advapi -replace '\\','/'
           $fullWs2 = $ws2 -replace '\\','/'
           $targetLdflags = "$env:LDFLAGS $ntCancelAliasLink $advapiEtwAliasLink $ws2AliasLink $narrow $yySynch".Trim()
-          if ($targetLdflags.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY kernel32.lib was injected into global target LDFLAGS'
-          }
-          if ($targetLdflags.IndexOf($fullNtdll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY ntdll.lib was injected into global target LDFLAGS'
-          }
-          if ($targetLdflags.IndexOf($fullAdvapi, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY advapi32.lib was injected into global target LDFLAGS'
-          }
-          if ($targetLdflags.IndexOf($fullWs2, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw 'Invariant violation: full YY ws2_32.lib was injected into global target LDFLAGS'
-          }
+          if ($targetLdflags.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY kernel32.lib was injected into global target LDFLAGS' }
+          if ($targetLdflags.IndexOf($fullNtdll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY ntdll.lib was injected into global target LDFLAGS' }
+          if ($targetLdflags.IndexOf($fullAdvapi, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY advapi32.lib was injected into global target LDFLAGS' }
+          if ($targetLdflags.IndexOf($fullWs2, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY ws2_32.lib was injected into global target LDFLAGS' }
           "LDFLAGS=$targetLdflags" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           @(
             'scope=all-target-links',
@@ -822,13 +769,8 @@ jobs:
           $regex = [regex]::new($pattern)
           if ($regex.Matches($text).Count -ne 1) { throw 'Expected unique xul-real SYMBOLS_FILE anchor was not found.' }
           $updated = $regex.Replace($text, $replacement, 1)
-          foreach ($required in @(
-            '-ENTRY:DllMainCRTStartupForYY_Thunks',
-            '-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
-          )) {
-            if ($updated.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) {
-              throw "xul.dll YY TLS entry-point contract missing linker flag: $required"
-            }
+          foreach ($required in @('-ENTRY:DllMainCRTStartupForYY_Thunks','-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12')) {
+            if ($updated.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "xul.dll YY TLS entry-point contract missing linker flag: $required" }
           }
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
           [System.IO.File]::WriteAllText($path, $updated, $utf8NoBom)
@@ -911,9 +853,7 @@ jobs:
           $output | Tee-Object -FilePath configure-xp-x32.log
           if ($exitCode -ne 0) { exit $exitCode }
           $joined = $output -join "`n"
-          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+i686-pc-windows-msvc') {
-            throw 'XP x32 build did not select i686-pc-windows-msvc Rust target.'
-          }
+          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+i686-pc-windows-msvc') { throw 'XP x32 build did not select i686-pc-windows-msvc Rust target.' }
 
       - name: Build export prerequisites
         shell: powershell
@@ -956,7 +896,6 @@ jobs:
             Write-Warning "xul.dll missing for IPHLPAPI diagnostic: $xul"
             exit 0
           }
-
           $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
           $dumpbinExit = $LASTEXITCODE
           $raw | Set-Content -Encoding utf8 $rawPath
@@ -965,14 +904,7 @@ jobs:
             Write-Warning "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
             exit 0
           }
-
-          $expectedRemoved = @(
-            'NotifyIpInterfaceChange',
-            'CancelMibChangeNotify2',
-            'GetIpInterfaceTable',
-            'FreeMibTable',
-            'if_indextoname'
-          )
+          $expectedRemoved = @('NotifyIpInterfaceChange','CancelMibChangeNotify2','GetIpInterfaceTable','FreeMibTable','if_indextoname')
           $xpSafe = @('GetAdaptersAddresses','GetBestInterfaceEx')
           $tracked = @($expectedRemoved + $xpSafe)
           $seen = @{}
@@ -981,44 +913,18 @@ jobs:
           $mode = 'none'
           $currentDll = ''
           foreach ($line in $raw) {
-            if ($line -match '^\s*Section contains the following imports:\s*$') {
-              $mode = 'direct'
-              $currentDll = ''
-              continue
-            }
-            if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
-              $mode = 'delay'
-              $currentDll = ''
-              continue
-            }
-            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
-              $currentDll = $matches[1]
-              continue
-            }
+            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
             if ($currentDll -notmatch '(?i)^IPHLPAPI\.dll$') { continue }
             foreach ($api in $tracked) {
-              if ($line.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                $seen[$api] = $true
-                $rows.Add("hit|api=$api|mode=$mode|dll=$currentDll|line=$($line.Trim())")
-              }
+              if ($line.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $seen[$api] = $true; $rows.Add("hit|api=$api|mode=$mode|dll=$currentDll|line=$($line.Trim())") }
             }
           }
-
           $survivors = [System.Collections.Generic.List[string]]::new()
-          foreach ($api in $expectedRemoved) {
-            $present = [bool]$seen[$api]
-            $rows.Add("expected_absent|api=$api|present=$($present.ToString().ToLowerInvariant())")
-            if ($present) { $survivors.Add($api) }
-          }
-          foreach ($api in $xpSafe) {
-            $present = [bool]$seen[$api]
-            $rows.Add("xp_safe|api=$api|present=$($present.ToString().ToLowerInvariant())")
-          }
-          if ($survivors.Count -eq 0) {
-            $rows.Add('result=EXPECTED|post_vista_survivors=none')
-          } else {
-            $rows.Add("result=UNEXPECTED|post_vista_survivors=$($survivors -join ',')")
-          }
+          foreach ($api in $expectedRemoved) { $present = [bool]$seen[$api]; $rows.Add("expected_absent|api=$api|present=$($present.ToString().ToLowerInvariant())"); if ($present) { $survivors.Add($api) } }
+          foreach ($api in $xpSafe) { $present = [bool]$seen[$api]; $rows.Add("xp_safe|api=$api|present=$($present.ToString().ToLowerInvariant())") }
+          if ($survivors.Count -eq 0) { $rows.Add('result=EXPECTED|post_vista_survivors=none') } else { $rows.Add("result=UNEXPECTED|post_vista_survivors=$($survivors -join ',')") }
           $rows | Set-Content -Encoding utf8 $resultPath
           $rows | ForEach-Object { Write-Host $_ }
 
@@ -1032,34 +938,16 @@ jobs:
           $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
           $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-source-remediation-quartet'
           New-Item -ItemType Directory -Force $diag | Out-Null
-          if (-not (Test-Path $xul)) {
-            'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw "xul.dll missing for source-remediation quartet gate: $xul"
-          }
+          if (-not (Test-Path $xul)) { 'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "xul.dll missing for source-remediation quartet gate: $xul" }
           $raw = (& dumpbin.exe /nologo /imports $xul 2>&1 | Out-String)
           $dumpbinExit = $LASTEXITCODE
           $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
-          if ($dumpbinExit -ne 0) {
-            "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
-          }
-          $apis = @(
-            'GetApplicationRestartSettings',
-            'RegisterApplicationRestart',
-            'UnregisterApplicationRestart',
-            'GetNamedPipeServerProcessId'
-          )
+          if ($dumpbinExit -ne 0) { "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit" }
+          $apis = @('GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart','GetNamedPipeServerProcessId')
           $hits = [System.Collections.Generic.List[string]]::new()
-          foreach ($api in $apis) {
-            if ($raw.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-              $hits.Add($api)
-            }
-          }
+          foreach ($api in $apis) { if ($raw.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($api) } }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-quartet-imports.txt')
-          if ($hits.Count -gt 0) {
-            ("result=FAIL|surviving=" + ($hits -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw ("xul.dll still imports source-remediation quartet members: " + ($hits -join ', '))
-          }
+          if ($hits.Count -gt 0) { ("result=FAIL|surviving=" + ($hits -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw ("xul.dll still imports source-remediation quartet members: " + ($hits -join ', ')) }
           'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
           Write-Host 'xul.dll contains none of the four source-remediation imports.'
 
@@ -1073,48 +961,24 @@ jobs:
           $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
           $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-advapi32-etw-import'
           New-Item -ItemType Directory -Force $diag | Out-Null
-          if (-not (Test-Path $xul)) {
-            'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw "xul.dll missing for ADVAPI32 compatibility gate: $xul"
-          }
+          if (-not (Test-Path $xul)) { 'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "xul.dll missing for ADVAPI32 compatibility gate: $xul" }
           $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
           $dumpbinExit = $LASTEXITCODE
           $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
-          if ($dumpbinExit -ne 0) {
-            "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
-          }
+          if ($dumpbinExit -ne 0) { "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit" }
           $apis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
           $mode = 'none'
           $currentDll = ''
           $hits = [System.Collections.Generic.List[string]]::new()
           foreach ($line in $raw) {
-            if ($line -match '^\s*Section contains the following imports:\s*$') {
-              $mode = 'direct'
-              $currentDll = ''
-              continue
-            }
-            if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
-              $mode = 'delay'
-              $currentDll = ''
-              continue
-            }
-            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
-              $currentDll = $matches[1]
-              continue
-            }
+            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
             if ($mode -ne 'direct' -or $currentDll -notmatch '(?i)^ADVAPI32\.dll$') { continue }
-            foreach ($api in $apis) {
-              if ($line.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                $hits.Add($api)
-              }
-            }
+            foreach ($api in $apis) { if ($line.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($api) } }
           }
           $hits | Sort-Object -Unique | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-etw-imports.txt')
-          if ($hits.Count -gt 0) {
-            ("result=FAIL|surviving=" + (($hits | Sort-Object -Unique) -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
-            throw ("xul.dll still imports ADVAPI32 compatibility family members: " + (($hits | Sort-Object -Unique) -join ', '))
-          }
+          if ($hits.Count -gt 0) { ("result=FAIL|surviving=" + (($hits | Sort-Object -Unique) -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw ("xul.dll still imports ADVAPI32 compatibility family members: " + (($hits | Sort-Object -Unique) -join ', ')) }
           'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
 
       - name: GATE - Verify mozglue SetProcessDPIAware stays delay-loaded
@@ -1131,40 +995,21 @@ jobs:
           $raw = @(& dumpbin.exe /nologo /imports $dll 2>&1)
           if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for mozglue.dll' }
           $raw | Set-Content -Encoding utf8 (Join-Path $diag 'mozglue.dll-imports.txt')
-
           $mode = 'none'
           $currentDll = ''
           $hits = [System.Collections.Generic.List[string]]::new()
           foreach ($line in $raw) {
-            if ($line -match '^\s*Section contains the following imports:\s*$') {
-              $mode = 'direct'
-              $currentDll = ''
-              continue
-            }
-            if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
-              $mode = 'delay'
-              $currentDll = ''
-              continue
-            }
-            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
-              $currentDll = $matches[1]
-              continue
-            }
-            if ($line.IndexOf('SetProcessDPIAware', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-              $hits.Add("$mode|$currentDll|$($line.Trim())")
-            }
+            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
+            if ($line.IndexOf('SetProcessDPIAware', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add("$mode|$currentDll|$($line.Trim())") }
           }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'setprocessdpiaware-import-mode.txt')
           $directHits = @($hits | Where-Object { $_ -like 'direct|*' })
           $delayUser32Hits = @($hits | Where-Object { $_ -match '(?i)^delay\|USER32\.dll\|' })
-          if ($directHits.Count -gt 0) {
-            throw 'mozglue.dll has an ordinary SetProcessDPIAware import; XP startup would remain loader-incompatible.'
-          }
-          if ($delayUser32Hits.Count -ne 1 -or $hits.Count -ne 1) {
-            throw "Expected exactly one USER32.dll delay import for SetProcessDPIAware; observed: $($hits -join '; ')"
-          }
-          'result=PASS|direct=0|delay_user32=1' |
-            Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+          if ($directHits.Count -gt 0) { throw 'mozglue.dll has an ordinary SetProcessDPIAware import; XP startup would remain loader-incompatible.' }
+          if ($delayUser32Hits.Count -ne 1 -or $hits.Count -ne 1) { throw "Expected exactly one USER32.dll delay import for SetProcessDPIAware; observed: $($hits -join '; ')" }
+          'result=PASS|direct=0|delay_user32=1' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
 
       - name: GATE - Reject proven core browser XP direct imports
         id: sync-import-gate
@@ -1177,20 +1022,13 @@ jobs:
           $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-sync-import-gate'
           New-Item -ItemType Directory -Force $diag | Out-Null
           $apis = @(
-            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal',
-            'GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
-            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx',
-            'CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread',
-            'GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages',
-            'GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
-            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime',
-            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
-            'AcquireSRWLockExclusive','AcquireSRWLockShared',
-            'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
-            'InitializeSRWLock','InitializeConditionVariable',
-            'SleepConditionVariableCS','SleepConditionVariableSRW',
-            'WakeAllConditionVariable','WakeConditionVariable',
-            'NtCancelIoFileEx'
+            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal','GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
+            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx','CreateWaitableTimerExW','CancelSynchronousIo',
+            'GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+            'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable','NtCancelIoFileEx'
           )
           $targets = @('r3dfox.exe','xul.dll','mozglue.dll','plugin-container.exe')
           $hits = [System.Collections.Generic.List[string]]::new()
@@ -1200,16 +1038,10 @@ jobs:
             $raw = (& dumpbin.exe /nologo /imports $path 2>&1 | Out-String)
             if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
             $raw | Set-Content -Encoding utf8 (Join-Path $diag "$name-imports.txt")
-            foreach ($api in $apis) {
-              if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                $hits.Add("$name|$api")
-              }
-            }
+            foreach ($api in $apis) { if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add("$name|$api") } }
           }
           $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-sync-imports.txt')
-          if ($hits.Count -gt 0) {
-            throw 'Core browser imports survived the proven SRW/KERNEL32/NTDLL YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt'
-          }
+          if ($hits.Count -gt 0) { throw 'Core browser imports survived the proven SRW/KERNEL32/NTDLL YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt' }
 
       - name: Stage msvcr14x XP runtime DLLs
         id: stage-runtime
@@ -1242,8 +1074,7 @@ jobs:
           $version = (Get-Item $dst).VersionInfo.FileVersion
           if ($version -notlike '10.0.14393.33*') { throw "Unexpected legacy D3DCompiler_47 version: $version" }
           New-Item -ItemType Directory -Force diagnostics | Out-Null
-          @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") |
-            Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+          @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") | Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
 
       - name: Retarget dist/bin PE subsystem headers to XP x86
         id: retarget-pe
@@ -1261,9 +1092,7 @@ jobs:
             if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { continue }
             $subsystem = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ subsystem \(' } | Select-Object -First 1
             if (-not $subsystem) { continue }
-            if ($subsystem -match '(?i)Windows CUI') { $kind = 'CONSOLE' }
-            elseif ($subsystem -match '(?i)Windows GUI') { $kind = 'WINDOWS' }
-            else { continue }
+            if ($subsystem -match '(?i)Windows CUI') { $kind = 'CONSOLE' } elseif ($subsystem -match '(?i)Windows GUI') { $kind = 'WINDOWS' } else { continue }
             & editbin.exe /nologo "/SUBSYSTEM:$kind,$env:WINDOWS_XP_SUBSYSTEM" $target.FullName
             if ($LASTEXITCODE -ne 0) { throw "editbin failed for $($target.FullName)" }
             $rows.Add("$($target.FullName)|$kind|$env:WINDOWS_XP_SUBSYSTEM")
@@ -1287,13 +1116,10 @@ jobs:
           if (-not $subsystem) { throw 'Retargeted D3DCompiler_47 is not subsystem 5.01' }
           $imports = (& dumpbin.exe /nologo /imports $dll 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for retargeted D3DCompiler_47' }
-          foreach ($forbidden in @('FlsAlloc','FlsFree','FlsGetValue','FlsSetValue','InitializeCriticalSectionEx')) {
-            if ($imports -match ('(?m)\b' + [regex]::Escape($forbidden) + '\b')) { throw "Legacy D3DCompiler_47 still imports $forbidden" }
-          }
+          foreach ($forbidden in @('FlsAlloc','FlsFree','FlsGetValue','FlsSetValue','InitializeCriticalSectionEx')) { if ($imports -match ('(?m)\b' + [regex]::Escape($forbidden) + '\b')) { throw "Legacy D3DCompiler_47 still imports $forbidden" } }
           $hash = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
           "LEGACY_D3DCOMPILER47_RETARGETED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          @("retargeted_sha256=$hash", "retargeted_file_version=$version", "retargeted_subsystem=5.01") |
-            Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+          @("retargeted_sha256=$hash", "retargeted_file_version=$version", "retargeted_subsystem=5.01") | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
 
       - name: Stage proven XP bcrypt.dll
         id: stage-xp-bcrypt
@@ -1312,13 +1138,7 @@ jobs:
           if ($sha1 -ne $env:BCRYPT_SHA1) { throw "Staged bcrypt.dll SHA1 mismatch: $sha1" }
           if ($sha256 -ne $env:BCRYPT_SHA256) { throw "Staged bcrypt.dll SHA256 mismatch: $sha256" }
           "XP_BCRYPT_STAGED_SHA256=$sha256" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          @(
-            "bcrypt.dll|size=$($item.Length)",
-            "bcrypt.dll|sha1=$sha1",
-            "bcrypt.dll|sha256=$sha256",
-            "source_tag=$env:BCRYPT_TAG",
-            "source_asset_id=$env:BCRYPT_ASSET_ID"
-          ) | Set-Content -Encoding utf8 diagnostics\packaged-bcrypt-contract.txt
+          @("bcrypt.dll|size=$($item.Length)","bcrypt.dll|sha1=$sha1","bcrypt.dll|sha256=$sha256","source_tag=$env:BCRYPT_TAG","source_asset_id=$env:BCRYPT_ASSET_ID") | Set-Content -Encoding utf8 diagnostics\packaged-bcrypt-contract.txt
 
       - name: GATE - Record staged XP CRT identity before packaging
         id: record-staged-crt
@@ -1333,11 +1153,7 @@ jobs:
             if (-not (Test-Path $path)) { throw "Staged XP CRT missing before packaging: $path" }
             $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
             $rows.Add("$dll|sha256=$hash")
-            if ($dll -eq 'ucrtbase.dll') {
-              "XP_UCRTBASE_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-            } else {
-              "XP_MSVCP140_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-            }
+            if ($dll -eq 'ucrtbase.dll') { "XP_UCRTBASE_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 } else { "XP_MSVCP140_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 }
           }
           $rows | Set-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
 
@@ -1372,19 +1188,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:XP_UCRTBASE_STAGED_SHA256 -or -not $env:XP_MSVCP140_STAGED_SHA256) {
-            throw 'Staged XP CRT hashes were not recorded before packaging'
-          }
-          $expected = @{
-            'ucrtbase.dll' = $env:XP_UCRTBASE_STAGED_SHA256
-            'msvcp140.dll' = $env:XP_MSVCP140_STAGED_SHA256
-          }
+          if (-not $env:XP_UCRTBASE_STAGED_SHA256 -or -not $env:XP_MSVCP140_STAGED_SHA256) { throw 'Staged XP CRT hashes were not recorded before packaging' }
+          $expected = @{ 'ucrtbase.dll'=$env:XP_UCRTBASE_STAGED_SHA256; 'msvcp140.dll'=$env:XP_MSVCP140_STAGED_SHA256 }
           $dist = (Resolve-Path (Join-Path $env:OBJDIR 'dist')).Path
-          $archives = @(Get-ChildItem -LiteralPath $dist -File |
-            Where-Object { $_.Extension -in @('.7z','.zip') -and $_.Name -ne 'r3dfox-gost-xp-x32-runtime.7z' } |
-            Sort-Object LastWriteTimeUtc -Descending)
+          $archives = @(Get-ChildItem -LiteralPath $dist -File | Where-Object { $_.Extension -in @('.7z','.zip') -and $_.Name -ne 'r3dfox-gost-xp-x32-runtime.7z' } | Sort-Object LastWriteTimeUtc -Descending)
           if ($archives.Count -eq 0) { throw "No portable package archive found under $dist" }
-
           "XP_PORTABLE_ARCHIVE=$($archives[0].FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $verifiedArchive = $null
           foreach ($archive in $archives) {
@@ -1392,26 +1200,18 @@ jobs:
             New-Item -ItemType Directory -Force $extract | Out-Null
             & 7z.exe x $archive.FullName "-o$extract" -y | Out-Null
             if ($LASTEXITCODE -ne 0) { continue }
-
             $matches = @{}
             $candidateOk = $true
             foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
               $found = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter $dll)
               if ($found.Count -ne 1) { $candidateOk = $false; break }
               $hash = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
-              if ($hash -ne $expected[$dll]) {
-                throw "$dll packaged hash mismatch in $($archive.Name): expected=$expected[$dll] actual=$hash"
-              }
+              if ($hash -ne $expected[$dll]) { throw "$dll packaged hash mismatch in $($archive.Name): expected=$expected[$dll] actual=$hash" }
               $matches[$dll] = $hash
             }
             if (-not $candidateOk) { continue }
-
             $verifiedArchive = $archive
-            @(
-              "archive=$($archive.FullName)",
-              "ucrtbase.dll|sha256=$($matches['ucrtbase.dll'])",
-              "msvcp140.dll|sha256=$($matches['msvcp140.dll'])"
-            ) | Add-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+            @("archive=$($archive.FullName)","ucrtbase.dll|sha256=$($matches['ucrtbase.dll'])","msvcp140.dll|sha256=$($matches['msvcp140.dll'])") | Add-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
             "XP_PORTABLE_ARCHIVE=$($verifiedArchive.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
             break
           }
@@ -1437,16 +1237,8 @@ jobs:
           $sha256 = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
           if ([string]$item.Length -ne $env:BCRYPT_SIZE) { throw "Packaged bcrypt.dll size mismatch: $($item.Length)" }
           if ($sha1 -ne $env:BCRYPT_SHA1) { throw "Packaged bcrypt.dll SHA1 mismatch: $sha1" }
-          if ($sha256 -ne $env:XP_BCRYPT_STAGED_SHA256 -or $sha256 -ne $env:BCRYPT_SHA256) {
-            throw "Packaged bcrypt.dll SHA256 mismatch: expected=$env:BCRYPT_SHA256 staged=$env:XP_BCRYPT_STAGED_SHA256 actual=$sha256"
-          }
-          @(
-            "archive=$env:XP_PORTABLE_ARCHIVE",
-            "packaged_path=$($found[0].FullName)",
-            "bcrypt.dll|size=$($item.Length)",
-            "bcrypt.dll|sha1=$sha1",
-            "bcrypt.dll|sha256=$sha256"
-          ) | Add-Content -Encoding utf8 diagnostics\packaged-bcrypt-contract.txt
+          if ($sha256 -ne $env:XP_BCRYPT_STAGED_SHA256 -or $sha256 -ne $env:BCRYPT_SHA256) { throw "Packaged bcrypt.dll SHA256 mismatch: expected=$env:BCRYPT_SHA256 staged=$env:XP_BCRYPT_STAGED_SHA256 actual=$sha256" }
+          @("archive=$env:XP_PORTABLE_ARCHIVE","packaged_path=$($found[0].FullName)","bcrypt.dll|size=$($item.Length)","bcrypt.dll|sha1=$sha1","bcrypt.dll|sha256=$sha256") | Add-Content -Encoding utf8 diagnostics\packaged-bcrypt-contract.txt
 
       - name: Build XP x32 runtime test archive from dist/bin
         id: runtime-archive
@@ -1459,10 +1251,7 @@ jobs:
           $archive = Join-Path $dist 'r3dfox-gost-xp-x32-runtime.7z'
           if (Test-Path $archive) { Remove-Item -Force $archive }
           Push-Location $bin
-          try {
-            & 7z.exe a -t7z -mx=7 $archive '.\*'
-            if ($LASTEXITCODE -ne 0) { throw "7z runtime archive failed: $LASTEXITCODE" }
-          } finally { Pop-Location }
+          try { & 7z.exe a -t7z -mx=7 $archive '.\*'; if ($LASTEXITCODE -ne 0) { throw "7z runtime archive failed: $LASTEXITCODE" } } finally { Pop-Location }
           "XP_RUNTIME_ARCHIVE=$archive" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: GATE - Audit XP x32 PE floor and direct imports
@@ -1472,28 +1261,18 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-
-          function Normalize-Api([string]$name) {
-            if ($name -match '^_(.+)@\d+$') { return $matches[1] }
-            return $name
-          }
-
+          function Normalize-Api([string]$name) { if ($name -match '^_(.+)@\d+$') { return $matches[1] }; return $name }
           function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot) {
             $safe = ($binary.FullName.Substring((Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path.Length).TrimStart('\') -replace '[^A-Za-z0-9_.-]', '_')
             $headers = @(& dumpbin.exe /nologo /headers $binary.FullName 2>&1)
             if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $($binary.FullName)" }
             $headers | Set-Content -Encoding utf8 (Join-Path $diagRoot "$safe-headers.txt")
             $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
-            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') {
-              throw "$($binary.FullName) is not PE x86 machine 14C"
-            }
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$($binary.FullName) is not PE x86 machine 14C" }
             $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
-            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') {
-              throw "Cannot parse subsystem version: $($binary.FullName)"
-            }
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $($binary.FullName)" }
             $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
             if ($version -gt [version]'5.1') { throw "$($binary.FullName) subsystem $version is newer than XP x86 5.01" }
-
             $importsRaw = @(& dumpbin.exe /nologo /imports $binary.FullName 2>&1)
             if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $($binary.FullName)" }
             $importsRaw | Set-Content -Encoding utf8 (Join-Path $diagRoot "$safe-imports.txt")
@@ -1505,92 +1284,237 @@ jobs:
             foreach ($line in $importsRaw) {
               if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
               if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
-              if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
-                if ($mode -eq 'direct') { [void]$dlls.Add($matches[1]) }
-                elseif ($mode -eq 'delay') { [void]$delayDlls.Add($matches[1]) }
-                continue
-              }
+              if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { if ($mode -eq 'direct') { [void]$dlls.Add($matches[1]) } elseif ($mode -eq 'delay') { [void]$delayDlls.Add($matches[1]) }; continue }
               $entry = $line.Trim()
-              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
-                $api = Normalize-Api $matches[1]
-                if ($mode -eq 'direct') { [void]$apis.Add($api) }
-                elseif ($mode -eq 'delay') { [void]$delayApis.Add($api) }
-              }
+              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') { $api = Normalize-Api $matches[1]; if ($mode -eq 'direct') { [void]$apis.Add($api) } elseif ($mode -eq 'delay') { [void]$delayApis.Add($api) } }
             }
             return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis }
           }
-
           $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-import-audit'
           New-Item -ItemType Directory -Force $diagRoot | Out-Null
           $bin = Join-Path $env:OBJDIR 'dist\bin'
           $targets = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll') })
-
-          $forbiddenDllPatterns = @(
-            '^(?i)(api-ms-win-|ext-ms-)',
-            '^(?i)KERNELBASE\.dll$',
-            '^(?i)BCRYPTPRIMITIVES\.dll$',
-            '^(?i)COMBASE\.dll$',
-            '^(?i)NCRYPT\.dll$',
-            '^(?i)WEVTAPI\.dll$',
-            '^(?i)DWMAPI\.dll$',
-            '^(?i)SHCORE\.dll$',
-            '^(?i)PATHCCH\.dll$',
-            '^(?i)NORMALIZ\.dll$',
-            '^(?i)PROPSYS\.dll$',
-            '^(?i)DXGI\.dll$',
-            '^(?i)VCRUNTIME140(?:_1)?\.dll$'
-          )
+          $forbiddenDllPatterns = @('^(?i)(api-ms-win-|ext-ms-)','^(?i)KERNELBASE\.dll$','^(?i)BCRYPTPRIMITIVES\.dll$','^(?i)COMBASE\.dll$','^(?i)NCRYPT\.dll$','^(?i)WEVTAPI\.dll$','^(?i)DWMAPI\.dll$','^(?i)SHCORE\.dll$','^(?i)PATHCCH\.dll$','^(?i)NORMALIZ\.dll$','^(?i)PROPSYS\.dll$','^(?i)DXGI\.dll$','^(?i)VCRUNTIME140(?:_1)?\.dll$')
           $forbiddenApis = @(
-            'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal',
-            'CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
-            'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo',
-            'CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
-            'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx',
-            'GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
-            'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W',
-            'GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
-            'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime',
-            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription',
-            'SetThreadStackGuarantee','SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork',
-            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable',
-            'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable',
-            'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation',
-            'GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
-            'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
-            'GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
-            'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx',
-            'EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW',
-            'WSAIoctl','inet_ntop','WSASendMsg','WSCGetProviderInfo',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal','CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+            'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo','CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx','GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+            'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W','GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+            'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SetThreadStackGuarantee',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable',
+            'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+            'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
+            'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','WSASendMsg','WSCGetProviderInfo',
             'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
           )
-
           $hits = [System.Collections.Generic.List[string]]::new()
           $rows = [System.Collections.Generic.List[string]]::new()
           $delayRows = [System.Collections.Generic.List[string]]::new()
           foreach ($target in $targets) {
             $imports = Read-Binary $target $diagRoot
-            foreach ($dll in @($imports.Dlls | Sort-Object)) {
-              $rows.Add("$($target.FullName)|DLL|$dll")
-              foreach ($pattern in $forbiddenDllPatterns) {
-                if ($dll -match $pattern) { $hits.Add("$($target.FullName)|DLL|$dll"); break }
-              }
-            }
-            foreach ($api in @($imports.Apis | Sort-Object)) {
-              $rows.Add("$($target.FullName)|API|$api")
-              if ($forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") }
-            }
-            foreach ($dll in @($imports.DelayDlls | Sort-Object)) {
-              $delayRows.Add("$($target.FullName)|DLL|$dll")
-            }
-            foreach ($api in @($imports.DelayApis | Sort-Object)) {
-              $delayRows.Add("$($target.FullName)|API|$api")
-            }
+            foreach ($dll in @($imports.Dlls | Sort-Object)) { $rows.Add("$($target.FullName)|DLL|$dll"); foreach ($pattern in $forbiddenDllPatterns) { if ($dll -match $pattern) { $hits.Add("$($target.FullName)|DLL|$dll"); break } } }
+            foreach ($api in @($imports.Apis | Sort-Object)) { $rows.Add("$($target.FullName)|API|$api"); if ($forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") } }
+            foreach ($dll in @($imports.DelayDlls | Sort-Object)) { $delayRows.Add("$($target.FullName)|DLL|$dll") }
+            foreach ($api in @($imports.DelayApis | Sort-Object)) { $delayRows.Add("$($target.FullName)|API|$api") }
           }
-
           $rows | Set-Content -Encoding utf8 xp-x32-direct-imports.txt
           $delayRows | Set-Content -Encoding utf8 xp-x32-delay-imports.txt
           $hits | Sort-Object -Unique | Set-Content -Encoding utf8 xp-x32-forbidden-direct-imports.txt
           if ($hits.Count -gt 0) { throw 'Known direct post-XP imports survived; see xp-x32-forbidden-direct-imports.txt' }
+
+      - name: DIAG - Inventory YY-Thunks DLL entry-point coverage
+        id: yy-dll-entrypoint-diag
+        if: always() && steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $bin = (Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path
+          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\yy-dll-entrypoint-audit.txt'
+          $missingPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\yy-dll-entrypoint-missing-contract.txt'
+
+          function Read-U16([byte[]]$Data, [int]$Offset) {
+            if ($Offset -lt 0 -or ($Offset + 2) -gt $Data.Length) { throw "PE read U16 out of range at $Offset" }
+            return [BitConverter]::ToUInt16($Data, $Offset)
+          }
+          function Read-U32([byte[]]$Data, [int]$Offset) {
+            if ($Offset -lt 0 -or ($Offset + 4) -gt $Data.Length) { throw "PE read U32 out of range at $Offset" }
+            return [BitConverter]::ToUInt32($Data, $Offset)
+          }
+          function Convert-RvaToFileOffset([byte[]]$Data, [int]$SectionTable, [int]$SectionCount, [uint32]$Rva) {
+            for ($i = 0; $i -lt $SectionCount; $i++) {
+              $section = $SectionTable + (40 * $i)
+              $virtualSize = Read-U32 $Data ($section + 8)
+              $virtualAddress = Read-U32 $Data ($section + 12)
+              $rawSize = Read-U32 $Data ($section + 16)
+              $rawPointer = Read-U32 $Data ($section + 20)
+              $span = [Math]::Max([uint64]$virtualSize, [uint64]$rawSize)
+              $rva64 = [uint64]$Rva
+              $va64 = [uint64]$virtualAddress
+              if ($rva64 -ge $va64 -and $rva64 -lt ($va64 + $span)) {
+                return [int]([uint64]$rawPointer + ($rva64 - $va64))
+              }
+            }
+            throw ("Cannot map RVA 0x{0:X8}" -f $Rva)
+          }
+          function Test-FixedBytes([byte[]]$Data, [int]$Offset, [hashtable]$Expected) {
+            foreach ($key in $Expected.Keys) {
+              $index = $Offset + [int]$key
+              if ($index -lt 0 -or $index -ge $Data.Length -or $Data[$index] -ne [byte]$Expected[$key]) { return $false }
+            }
+            return $true
+          }
+
+          # YY-Thunks v1.2.2 / x86 fingerprints validated against the exact b386b7f4
+          # runtime: the wrapper is the PE entry point and FirstCallback is present
+          # in the TLS callback table when the DLL/TLS entry-point contract is active.
+          $entryFingerprint = @{
+            0=0x53; 1=0x56; 2=0x57; 3=0x8B; 4=0x3D;
+            9=0x85; 10=0xFF; 11=0x75; 12=0x05; 13=0xBF;
+            18=0x8B; 19=0x44; 20=0x24; 21=0x14; 22=0x83; 23=0xE8; 24=0x00
+          }
+          $firstCallbackFingerprint = @{
+            0=0x33; 1=0xC0; 2=0x40; 3=0x39; 4=0x44; 5=0x24; 6=0x08;
+            7=0x75; 8=0x0E; 9=0x83; 10=0x3D; 15=0x00; 16=0x75; 17=0x05;
+            18=0xA3; 23=0xC2; 24=0x0C; 25=0x00
+          }
+
+          function Get-YyDllContract([byte[]]$Data, [string]$Path) {
+            if ($Data.Length -lt 0x100) { throw "PE too small: $Path" }
+            $peOffset = [int](Read-U32 $Data 0x3C)
+            if (($peOffset + 24) -gt $Data.Length) { throw "Invalid PE offset: $Path" }
+            if ($Data[$peOffset] -ne 0x50 -or $Data[$peOffset + 1] -ne 0x45 -or $Data[$peOffset + 2] -ne 0 -or $Data[$peOffset + 3] -ne 0) { throw "Missing PE signature: $Path" }
+            $coff = $peOffset + 4
+            $machine = Read-U16 $Data $coff
+            if ($machine -ne 0x14C) { return [pscustomobject]@{ X86=$false; EntryWrapper=$false; FirstTlsCallback=$false } }
+            $sectionCount = [int](Read-U16 $Data ($coff + 2))
+            $optionalSize = [int](Read-U16 $Data ($coff + 16))
+            $optional = $coff + 20
+            if ((Read-U16 $Data $optional) -ne 0x10B) { throw "Expected PE32 optional header: $Path" }
+            $entryRva = Read-U32 $Data ($optional + 16)
+            $imageBase = Read-U32 $Data ($optional + 28)
+            $sectionTable = $optional + $optionalSize
+
+            $entryWrapper = $false
+            if ($entryRva -ne 0) {
+              $entryOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $entryRva
+              $entryWrapper = Test-FixedBytes $Data $entryOffset $entryFingerprint
+            }
+
+            $firstTlsCallback = $false
+            $numberOfRvaAndSizes = Read-U32 $Data ($optional + 92)
+            if ($numberOfRvaAndSizes -gt 9) {
+              $tlsRva = Read-U32 $Data ($optional + 96 + (9 * 8))
+              if ($tlsRva -ne 0) {
+                $tlsOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $tlsRva
+                $callbacksVa = Read-U32 $Data ($tlsOffset + 12)
+                if ([uint64]$callbacksVa -ge [uint64]$imageBase -and $callbacksVa -ne 0) {
+                  $callbacksRva = [uint32]([uint64]$callbacksVa - [uint64]$imageBase)
+                  $callbacksOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $callbacksRva
+                  for ($i = 0; $i -lt 32; $i++) {
+                    $callbackVa = Read-U32 $Data ($callbacksOffset + (4 * $i))
+                    if ($callbackVa -eq 0) { break }
+                    if ([uint64]$callbackVa -lt [uint64]$imageBase) { continue }
+                    $callbackRva = [uint32]([uint64]$callbackVa - [uint64]$imageBase)
+                    try {
+                      $callbackOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $callbackRva
+                      if (Test-FixedBytes $Data $callbackOffset $firstCallbackFingerprint) { $firstTlsCallback = $true; break }
+                    } catch { }
+                  }
+                }
+              }
+            }
+            return [pscustomobject]@{ X86=$true; EntryWrapper=$entryWrapper; FirstTlsCallback=$firstTlsCallback }
+          }
+
+          # These names are exactly from the narrow YY provider/alias family injected
+          # through global target LDFLAGS.  A name found in raw DLL data but absent from
+          # dumpbin's ordinary/delay import listing is resolver evidence, not proof by
+          # itself; two or more such names are treated as a strong YY-consumer candidate.
+          $trackedApis = @(
+            'ProcessPrng','GetSystemTimePreciseAsFileTime','FlsAlloc','FlsFree','FlsSetValue',
+            'IsThreadAFiber','SetThreadStackGuarantee','AcquireSRWLockExclusive','AcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable',
+            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal','GetCurrentProcessorNumber',
+            'GetFileInformationByHandleEx','GetFinalPathNameByHandleW','GetLocaleInfoEx','LCIDToLocaleName',
+            'LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx','CreateWaitableTimerExW',
+            'CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx',
+            'GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages','GetThreadPreferredUILanguages',
+            'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameA',
+            'QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime','TryAcquireSRWLockExclusive','FlsGetValue',
+            'NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop'
+          )
+
+          $report = [System.Collections.Generic.List[string]]::new()
+          $missing = [System.Collections.Generic.List[string]]::new()
+          $strongCount = 0
+          $contractCount = 0
+          $xulPositiveControl = $false
+          $dlls = @(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter '*.dll' | Sort-Object FullName)
+          foreach ($dll in $dlls) {
+            $relative = $dll.FullName.Substring($bin.Length).TrimStart('\') -replace '\\','/'
+            try {
+              $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+              $pe = Get-YyDllContract $bytes $dll.FullName
+              if (-not $pe.X86) {
+                $report.Add("dll=$relative|classification=SKIP_NON_X86")
+                continue
+              }
+              $imports = @(& dumpbin.exe /nologo /imports $dll.FullName 2>&1)
+              $dumpbinExit = $LASTEXITCODE
+              if ($dumpbinExit -ne 0) {
+                $report.Add("dll=$relative|classification=INCONCLUSIVE_IMPORT_SCAN|dumpbin_exit=$dumpbinExit")
+                continue
+              }
+              $importText = $imports -join "`n"
+              $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+              $resolverHits = [System.Collections.Generic.List[string]]::new()
+              foreach ($api in $trackedApis) {
+                if ($ascii.IndexOf($api, [System.StringComparison]::Ordinal) -lt 0) { continue }
+                if ($importText.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { continue }
+                $resolverHits.Add($api)
+              }
+              $strong = $resolverHits.Count -ge 2
+              $contract = [bool]($pe.EntryWrapper -and $pe.FirstTlsCallback)
+              if ($strong) { $strongCount++ }
+              if ($contract) { $contractCount++ }
+              if ($strong -and $contract) { $classification = 'YY_CANDIDATE_CONTRACT_PRESENT' }
+              elseif ($strong) { $classification = 'YY_CANDIDATE_CONTRACT_MISSING' }
+              elseif ($contract) { $classification = 'YY_CONTRACT_PRESENT_NO_STRONG_RESOLVER_EVIDENCE' }
+              else { $classification = 'NO_STRONG_YY_RESOLVER_EVIDENCE' }
+              $hash = (Get-FileHash -Algorithm SHA256 $dll.FullName).Hash.ToLowerInvariant()
+              $report.Add("dll=$relative|sha256=$hash|resolver_nonimport_hits=$($resolverHits.Count)|entry_wrapper=$($pe.EntryWrapper.ToString().ToLowerInvariant())|yy_first_tls_callback=$($pe.FirstTlsCallback.ToString().ToLowerInvariant())|contract=$($contract.ToString().ToLowerInvariant())|classification=$classification|apis=$($resolverHits -join ',')")
+              if ($classification -eq 'YY_CANDIDATE_CONTRACT_MISSING') { $missing.Add("$relative|apis=$($resolverHits -join ',')") }
+              if ($relative -ieq 'xul.dll' -and $strong -and $contract) { $xulPositiveControl = $true }
+            } catch {
+              $report.Add("dll=$relative|classification=INCONCLUSIVE_EXCEPTION|message=$($_.Exception.Message -replace '[\r\n]+',' ')")
+            } finally {
+              Remove-Variable ascii,bytes -ErrorAction SilentlyContinue
+            }
+          }
+
+          $header = @(
+            "source=$env:GITHUB_SHA",
+            'scope=dist/bin/**/*.dll',
+            'mode=non-blocking heuristic inventory',
+            'strong_candidate_rule=at least two tracked YY-provider API strings absent from ordinary/delay import dump',
+            'contract_rule=YY v1.2.2 x86 entry-wrapper fingerprint AND YY FirstCallback TLS fingerprint',
+            "xul_positive_control=$($xulPositiveControl.ToString().ToLowerInvariant())",
+            "strong_candidates=$strongCount",
+            "contracts_present=$contractCount",
+            "missing_contract_candidates=$($missing.Count)"
+          )
+          @($header + $report) | Set-Content -Encoding utf8 $reportPath
+          if ($missing.Count -gt 0) { $missing | Set-Content -Encoding utf8 $missingPath } else { 'none' | Set-Content -Encoding utf8 $missingPath }
+
+          Write-Host "YY DLL inventory: strong candidates=$strongCount, contracts=$contractCount, missing-contract candidates=$($missing.Count)"
+          if (-not $xulPositiveControl) { Write-Warning 'xul.dll did not satisfy the known-good YY wrapper/TLS callback positive control; treat this diagnostic as inconclusive.' }
+          if ($missing.Count -gt 0) {
+            Write-Warning 'Strong YY resolver candidates without the DLL entry-point/TLS contract were found. This is evidence for follow-up, not proof that any physical XP crash is caused by YY-Thunks.'
+            $missing | ForEach-Object { Write-Warning $_ }
+          }
 
       - name: Upload XP x32 full-build package
         if: always() && steps.package-release.outcome == 'success'
@@ -1659,7 +1583,6 @@ jobs:
             @{ Name='runtime-archive'; Outcome='${{ steps.runtime-archive.outcome }}' }
           )
           $red = [System.Collections.Generic.List[string]]::new()
-
           "## GOST TLS PoC build XP x32: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
@@ -1671,6 +1594,7 @@ jobs:
           "- WS2_32 focused YY capability: WSAIoctl + inet_ntop from source 5451673565030445262f5b6ef48b4059e0e0501e / run 34021400841 / job 101454550948; production link uses only their weak-alias pairs plus the shared narrow YY implementation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- WSASendMsg is source late-bound and WSCGetProviderInfo LSP-category diagnostics are compiled out under MOZ_XP_COMPAT; all four WS2_32 names are forbidden as ordinary final imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- xul IPHLPAPI legacy MTU diagnostic: ${{ steps.xul-iphlpapi-import-diag.outcome }} (non-blocking; see diagnostics/xul-iphlpapi-xp-imports.txt)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY DLL entry-point inventory: ${{ steps.yy-dll-entrypoint-diag.outcome }} (non-blocking; see diagnostics/yy-dll-entrypoint-audit.txt and diagnostics/yy-dll-entrypoint-missing-contract.txt)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- mozglue SetProcessDPIAware import-mode gate: ${{ steps.dpi-import-gate.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
@@ -1692,7 +1616,6 @@ jobs:
           "- Package/runtime/diagnostics uploads execute before this final verdict." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- A diagnostic RED does not suppress later evidence collection." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-
           if ($red.Count -gt 0) {
             $red | Set-Content -Encoding utf8 diagnostics\final-red-gates.txt
             throw ("XP x32 build completed evidence collection with RED outcomes: " + ($red -join '; '))
