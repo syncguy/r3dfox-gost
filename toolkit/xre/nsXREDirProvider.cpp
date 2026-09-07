@@ -291,7 +291,7 @@ nsresult nsXREDirProvider::GetUserProfilesLocalDir(nsIFile** aResult) {
 #if !defined(XP_UNIX) || defined(XP_MACOSX)
     rv = file->AppendNative("Profiles"_ns);
 #endif
-    // We must create the profile directory here if it does not exist.
+    // We must create the directory here if it does not exist.
     nsresult tmp = EnsureDirectoryExists(file);
     if (NS_FAILED(tmp)) {
       rv = tmp;
@@ -791,6 +791,20 @@ void nsXREDirProvider::DoShutdown() {
 }
 
 #ifdef XP_WIN
+#  ifdef MOZ_XP_COMPAT
+static nsresult GetShellFolderPath(int folder, nsAString& _retval) {
+  wchar_t path[MAX_PATH];
+  int csidl = folder | CSIDL_FLAG_DONT_VERIFY;
+
+  if (FAILED(SHGetFolderPathW(nullptr, csidl, nullptr, SHGFP_TYPE_CURRENT,
+                              path))) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  _retval.Assign(path);
+  return NS_OK;
+}
+#  else
 static nsresult GetShellFolderPath(KNOWNFOLDERID folder, nsAString& _retval) {
   DWORD flags = KF_FLAG_SIMPLE_IDLIST | KF_FLAG_DONT_VERIFY | KF_FLAG_NO_ALIAS;
   PWSTR path = nullptr;
@@ -803,6 +817,7 @@ static nsresult GetShellFolderPath(KNOWNFOLDERID folder, nsAString& _retval) {
   CoTaskMemFree(path);
   return NS_OK;
 }
+#  endif
 
 /**
  * Provides a fallback for getting the path to APPDATA or LOCALAPPDATA by
@@ -1178,11 +1193,19 @@ nsresult nsXREDirProvider::GetUserDataDirectoryHome(nsIFile** aFile,
   nsresult rv;
   nsString path;
   if (aLocal) {
+#  ifdef MOZ_XP_COMPAT
+    rv = GetShellFolderPath(CSIDL_LOCAL_APPDATA, path);
+#  else
     rv = GetShellFolderPath(FOLDERID_LocalAppData, path);
+#  endif
     if (NS_FAILED(rv)) rv = GetRegWindowsAppDataFolder(aLocal, path);
   }
   if (!aLocal || NS_FAILED(rv)) {
+#  ifdef MOZ_XP_COMPAT
+    rv = GetShellFolderPath(CSIDL_APPDATA, path);
+#  else
     rv = GetShellFolderPath(FOLDERID_RoamingAppData, path);
+#  endif
     if (NS_FAILED(rv)) {
       if (!aLocal) rv = GetRegWindowsAppDataFolder(aLocal, path);
     }
