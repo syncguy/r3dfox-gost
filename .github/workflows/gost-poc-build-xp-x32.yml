@@ -20,6 +20,7 @@ jobs:
       MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
       RUST_TOOLCHAIN: "nightly-2026-08-20"
       RUST_TARGET: "i686-pc-windows-msvc"
+      RUSTFLAGS: "--cfg moz_xp_compat"
       MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
       MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
       YY_THUNKS_VERSION: "1.2.2"
@@ -472,7 +473,7 @@ jobs:
               Push-Location $dir
               try { & lib.exe /nologo "/extract:$item" $ws2 *> extract.log; if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" } } finally { Pop-Location }
               $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
-              if (-not $file) { throw "$api alias extraction produced no object" }
+              if (-not $file) { throw "$api alias extraction produced no object' }
               $dst = Join-Path $dir 'member.obj'
               Copy-Item -Force $file.FullName $dst
               $ws2AliasObjects += $dst
