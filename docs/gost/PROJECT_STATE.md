@@ -50,7 +50,7 @@ This track is independent of GOST TLS runtime. Active implementation work is on 
 
 ## Latest completed build/static baseline — GREEN
 
-The newest completed full XP x32 build/static baseline is now:
+The newest completed refactored full XP x32 build/static baseline remains:
 
 - source branch: `agent/winrt-source-poc`;
 - source-under-test: `a15dcd738edda4ab810fc9f92289170f115519e4` (`ci(xp): preserve matching xul PDB diagnostics`);
@@ -64,9 +64,9 @@ The newest completed full XP x32 build/static baseline is now:
 
 All main steps and final gates completed successfully, including full Firefox build, packaging, runtime archive, PE/import gates, `DIAG - Record xul IPHLPAPI XP compatibility imports`, `DIAG - Inventory YY-Thunks DLL entry-point coverage`, all artifact uploads and the final summary.
 
-This build **does not contain the later Shell32 source-remediation cluster**. It is the current authoritative build/static baseline for the refactored workflow, debug-symbol/PDB diagnostics and YY DLL inventory.
+This build **does not contain the later Shell32 source-remediation cluster**. It remains the authoritative refactor/PDB/YY-inventory baseline. The current Shell32 implementation has now also completed its own exact GREEN validation, recorded below under source `cd5e715...` / run `34107793132`.
 
-The older source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453`, remains the exact browser for the latest supplied physical-XP Shell32/Wasm observations. Do not transfer those physical observations to `a15dcd...` merely because the later build is GREEN.
+The older source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453`, remains the exact browser for the latest supplied physical-XP Shell32/Wasm observations. Do not transfer those physical observations to later GREEN builds merely because they compile and package successfully.
 
 ## XP full-build workflow refactor — first checkpoint GREEN
 
@@ -153,7 +153,7 @@ The `a15dcd...` final-xul diagnostic reported these post-XP residual delay impor
 
 The diagnostic classified the three survivors as `UNEXPECTED`, but it is non-blocking and only records import presence. Do **not** reopen the physically cleared IP Helper blocker solely from this static result. Localize source owners/runtime reachability before changing this line again.
 
-## Current implementation HEAD and active Shell32 validation build
+## Current implementation HEAD and completed Shell32 validation build — GREEN
 
 Current XP implementation HEAD is:
 
@@ -162,15 +162,22 @@ Current XP implementation HEAD is:
 
 This HEAD descends from the GREEN refactor/PDB source `a15dcd...` and adds the current Shell32 source-remediation lineage.
 
-Active full validation build:
+Exact completed validation build:
 
+- workflow `XP Build`;
 - run `34107793132`, attempt `1`;
-- job `101696721232` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- job `101696721232` (`build-windows-xp`);
 - source-under-test `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4`;
 - event `workflow_dispatch`;
-- state at the latest API check: **in progress**.
+- aggregate conclusion: **success**.
 
-This is the authoritative validation build for the current Shell32 source cluster. It inherits the already-GREEN workflow refactor, `--enable-debug-symbols`, xul PDB upload contract and YY inventory. Do not mark its Shell32 changes as build-proven until this exact run completes.
+The build, build-driver log extraction, packaging, ZIP verification, Rust CRT import gate, direct XP-ready import diagnostics, hard direct XP-ready import gate and all three evidence uploads completed successfully. Exact artifacts:
+
+- `r3dfox-xp-153.0.en-US.win64.zip`: artifact `5875778788`, digest `sha256:d5c51e686d6a59ac0146726234a6d02aec0c20b8e49bf0a8aa66b4864f8c405e`;
+- `r3dfox-xp-build-logs`: artifact `5875778720`, digest `sha256:85500ade7ffc242edd3e03e2379ec30880874341b66697b6ab18ed883766d9d4`;
+- `r3dfox-xp-compat-diagnostics`: artifact `5875778793`, digest `sha256:120238721588471833187ca565fff4171587cf3606f4b1c2091b4e7eebcb219b`.
+
+This is the authoritative build/static validation for the current Shell32 source cluster. It proves that source `cd5e715...` compiles, packages and passes the current hard static import gates. It does **not** prove physical Windows XP startup/runtime acceptance and does **not** prove a GOST TLS handshake. Inspect the successful compatibility diagnostics before claiming that any specific residual Shell32 delay-import edge has disappeared.
 
 ## Physical XP runtime — inherited AutoConfig can force GFX critical failures to crash
 
@@ -280,20 +287,19 @@ Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility owne
 
 ## Next experiment order
 
-1. Finish and classify run `34107793132` / job `101696721232` / source `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4`.
-2. On success, record exact package/runtime/diagnostics artifact IDs and verify that the current diagnostics artifact contains that build's own matching `xul.pdb`.
-3. Inspect final `xul.dll` Shell32 delayed edges, especially any residual `SHGetKnownFolderPath` ownership.
-4. Physically test that exact `cd5e715...` artifact on XP; keep normal packaged startup distinct from any config-free diagnostic startup.
-5. If the Wasm assert recurs, symbolize only with the matching PDB from the same exact failing build.
-6. If startup advances, record the next actual runtime boundary before broadening Shell32 fixes. `SHCreateItemFromParsingName` is the next already-localized Shell32 candidate; `SHOpenWithDialog` must be localized first.
-7. Treat the ten YY missing-contract DLL classifications from `34095425319` as follow-up candidates only; do not modify them en masse without runtime/focused evidence.
-8. Workflow refactoring may proceed to another small structure-only batch because the first checkpoint is GREEN; keep extraction separate from linker-policy changes.
+1. Inspect run `34107793132` / job `101696721232` compatibility diagnostics for the exact final Shell32 delayed-import set and record whether the targeted ProgramData remediation changed the expected import surface.
+2. Verify the successful diagnostics artifact contains the current build's own matching `xul.pdb` before using symbols from this build.
+3. Physically test the exact `cd5e715...` artifact on XP; keep normal packaged startup distinct from any config-free diagnostic startup.
+4. If the Wasm assert recurs, symbolize only with the matching PDB from the same exact failing build.
+5. If startup advances, record the next actual runtime boundary before broadening Shell32 fixes. `SHCreateItemFromParsingName` is the next already-localized Shell32 candidate; `SHOpenWithDialog` must be localized first.
+6. Treat the ten YY missing-contract DLL classifications from `34095425319` as follow-up candidates only; do not modify them en masse without runtime/focused evidence.
+7. Workflow refactoring may proceed to another small structure-only batch because the first checkpoint is GREEN; keep extraction separate from linker-policy changes.
 
 ## XP acceptance boundary
 
 Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-The old critical-section and earlier IP Helper runtime boundaries are closed. The current Shell32 cluster is source-remediated and under exact full-build validation. The Wasm assertion remains unresolved in parallel. A successful build is not physical-XP runtime proof, and XP runtime success is not a GOST TLS handshake result.
+The old critical-section and earlier IP Helper runtime boundaries are closed. The current Shell32 cluster is now build/static validated at source `cd5e715...` by run `34107793132`; physical-XP runtime validation remains pending. The Wasm assertion remains unresolved in parallel. A successful build is not physical-XP runtime proof, and XP runtime success is not a GOST TLS handshake result.
 
 # Bundled government-system extensions / localization
 
