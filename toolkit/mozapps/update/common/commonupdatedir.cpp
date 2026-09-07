@@ -519,6 +519,14 @@ static HRESULT GetUpdateDirectory(const wchar_t* installPath,
     return hrv;
   }
 
+#ifdef MOZ_XP_COMPAT
+  wchar_t baseDirParentPath[MAX_PATH] = {};
+  hrv = SHGetFolderPathW(nullptr, CSIDL_COMMON_APPDATA | CSIDL_FLAG_CREATE,
+                         nullptr, SHGFP_TYPE_CURRENT, baseDirParentPath);
+  if (FAILED(hrv)) {
+    return hrv;
+  }
+#else
   PWSTR baseDirParentPath;
   hrv = SHGetKnownFolderPath(FOLDERID_ProgramData, KF_FLAG_CREATE, nullptr,
                              &baseDirParentPath);
@@ -528,6 +536,7 @@ static HRESULT GetUpdateDirectory(const wchar_t* installPath,
   if (FAILED(hrv)) {
     return hrv;
   }
+#endif
 
   SimpleAutoString baseDir;
   if (whichDir == WhichUpdateDir::UnmigratedUpdateDir) {
