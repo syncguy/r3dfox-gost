@@ -29,6 +29,9 @@ Until a newer physically proven result explicitly supersedes this reference, eve
 6. **Keep separately linked components separate.** `xul.dll`, `mozglue.dll`, media/graphics DLLs, CRT DLLs, helper executables, and other independently linked PEs each own their import table. A linker change in one PE does not fix another.
 7. **Keep diagnostics sufficient to reproduce provenance.** Record source commit, toolchain identity, restored dependency configuration, resolved output directory, PE headers, direct imports, SHA-256 hashes, and the exact staged files for each controlled runtime closure.
 8. **Do not weaken a failing gate to obtain a green build.** A build/package success is only a build result. Physical XP runtime remains a separate acceptance gate, and GOST TLS remains a separate project track.
+9. **Propagate XP compatibility into Rust explicitly.** The canonical full XP x32 workflow must define job-global `RUSTFLAGS: "--cfg moz_xp_compat"` so Rust `#[cfg(moz_xp_compat)]` branches participate in the same XP build identity as the C/C++ `MOZ_XP_COMPAT` mode. Do not assume CFLAGS/CXXFLAGS define a Rust cfg. Normal non-XP workflows must not inherit this flag accidentally.
+
+Detailed Rust wiring, the `third_party/rust/mtu` case, and validation status are in `XP_RUST_COMPATIBILITY.md`.
 
 ## Adopted source-built `bcrypt.dll` remediation — SINGLE-DLL / PHYSICALLY PROVEN
 
