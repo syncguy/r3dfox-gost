@@ -69,9 +69,26 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
         "dllservices",
     ]
 elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
-    EXPORTS.GeckoView += [
+    EXPORTS.mozilla += [
         "MacAutoreleasePool.h",
         "MacRunFromDmgUtils.h",
+    ]
+    UNIFIED_SOURCES += [
+        "MacApplicationDelegate.mm",
+        "MacAutoreleasePool.mm",
+        "MacLaunchHelper.mm",
+        "MacRunFromDmgUtils.mm",
+        "nsCommandLineServiceMac.mm",
+        "nsNativeAppSupportCocoa.mm",
+        "updaterfileutils_osx.mm",
+    ]
+    DEFINES["PROXY_PRINTING"] = 1
+    LOCAL_INCLUDES += [
+        "../components/printingui",
+    ]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "uikit":
+    EXPORTS.GeckoView += [
+        "IOSBootstrap.h",
     ]
     EXPORTS.mozilla += [
         "UIKitDirProvider.h",
@@ -134,7 +151,6 @@ UNIFIED_SOURCES += [
 # nsAppRunner.cpp and ProfileReset.cpp cannot be built in unified mode because
 # they pull in OS X system headers.
 # nsEmbedFunctions.cpp cannot be built in unified mode because it pulls in X11 headers.
-# nsXREDirProvider.cpp has an XP-owned source boundary and requires local flags.
 SOURCES += [
     "../../other-licenses/nsis/Contrib/CityHash/cityhash/city.cpp",
     "nsAppRunner.cpp",
@@ -157,7 +173,7 @@ if CONFIG["MOZ_UPDATER"]:
 if CONFIG["MOZ_PDF_PRINTING"]:
     DEFINES["PROXY_PRINTING"] = 1
     LOCAL_INCLUDES += [
-        "../components/printingui/ipc",
+        "../components/printingui",
     ]
 
 XPCOM_MANIFESTS += [
@@ -232,6 +248,7 @@ LOCAL_INCLUDES += [
     "/dom/webbrowserpersist",
     "/js/xpconnect/loader",
     "/testing/gtest/mozilla",
+    "/third_party/sqlite3/ext/",
     "/toolkit/crashreporter",
     "/xpcom/build",
 ]
@@ -251,6 +268,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     LOCAL_INCLUDES += [
         "/widget",
         "/widget/cocoa",
+        "/xpcom/base",
     ]
 
 CXXFLAGS += CONFIG["MOZ_DBUS_CFLAGS"]
