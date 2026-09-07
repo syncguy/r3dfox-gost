@@ -100,7 +100,7 @@ EXPORTS.mozilla += [
     "SlicedInputStream.h",
     "SnappyCompressOutputStream.h",
     "SnappyFrameUtils.h",
-    "SnappyUncompressOutputStream.h",
+    "SnappyUncompressInputStream.h",
     "StreamBufferSink.h",
     "StreamBufferSinkImpl.h",
     "StreamBufferSource.h",
