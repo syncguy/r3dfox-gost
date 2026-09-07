@@ -69,26 +69,9 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
         "dllservices",
     ]
 elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
-    EXPORTS.mozilla += [
+    EXPORTS.GeckoView += [
         "MacAutoreleasePool.h",
         "MacRunFromDmgUtils.h",
-    ]
-    UNIFIED_SOURCES += [
-        "MacApplicationDelegate.mm",
-        "MacAutoreleasePool.mm",
-        "MacLaunchHelper.mm",
-        "MacRunFromDmgUtils.mm",
-        "nsCommandLineServiceMac.mm",
-        "nsNativeAppSupportCocoa.mm",
-        "updaterfileutils_osx.mm",
-    ]
-    DEFINES["PROXY_PRINTING"] = 1
-    LOCAL_INCLUDES += [
-        "../components/printingui",
-    ]
-elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "uikit":
-    EXPORTS.GeckoView += [
-        "IOSBootstrap.h",
     ]
     EXPORTS.mozilla += [
         "UIKitDirProvider.h",
@@ -146,20 +129,22 @@ UNIFIED_SOURCES += [
     "nsConsoleWriter.cpp",
     "nsNativeAppSupportBase.cpp",
     "nsSigHandlers.cpp",
-    "nsXREDirProvider.cpp",
 ]
 
 # nsAppRunner.cpp and ProfileReset.cpp cannot be built in unified mode because
 # they pull in OS X system headers.
 # nsEmbedFunctions.cpp cannot be built in unified mode because it pulls in X11 headers.
+# nsXREDirProvider.cpp has an XP-owned source boundary and requires local flags.
 SOURCES += [
     "../../other-licenses/nsis/Contrib/CityHash/cityhash/city.cpp",
     "nsAppRunner.cpp",
     "nsEmbedFunctions.cpp",
+    "nsXREDirProvider.cpp",
     "ProfileReset.cpp",
 ]
 
 SOURCES["nsAppRunner.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["nsXREDirProvider.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 
 if CONFIG["MOZ_UPDATER"]:
     if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android":
@@ -172,7 +157,7 @@ if CONFIG["MOZ_UPDATER"]:
 if CONFIG["MOZ_PDF_PRINTING"]:
     DEFINES["PROXY_PRINTING"] = 1
     LOCAL_INCLUDES += [
-        "../components/printingui",
+        "../components/printingui/ipc",
     ]
 
 XPCOM_MANIFESTS += [
@@ -231,7 +216,7 @@ if CONFIG["MOZ_BUILD_APP"] == "browser":
     DEFINES["MOZ_BUILD_APP_IS_BROWSER"] = True
 
 if CONFIG["MOZ_USE_NSS_FOR_MAR"]:
-    DEFINES["MAR_NSS"] = True
+    DEFINES["MOZ_USE_NSS_FOR_MAR"] = True
 
 LOCAL_INCLUDES += [
     "../../other-licenses/nsis/Contrib/CityHash/cityhash",
@@ -247,7 +232,6 @@ LOCAL_INCLUDES += [
     "/dom/webbrowserpersist",
     "/js/xpconnect/loader",
     "/testing/gtest/mozilla",
-    "/third_party/sqlite3/ext/",
     "/toolkit/crashreporter",
     "/xpcom/build",
 ]
@@ -267,7 +251,6 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     LOCAL_INCLUDES += [
         "/widget",
         "/widget/cocoa",
-        "/xpcom/base",
     ]
 
 CXXFLAGS += CONFIG["MOZ_DBUS_CFLAGS"]
