@@ -100,7 +100,7 @@ EXPORTS.mozilla += [
     "SlicedInputStream.h",
     "SnappyCompressOutputStream.h",
     "SnappyFrameUtils.h",
-    "SnappyUncompressInputStream.h",
+    "SnappyUncompressOutputStream.h",
     "StreamBufferSink.h",
     "StreamBufferSinkImpl.h",
     "StreamBufferSource.h",
@@ -142,8 +142,13 @@ UNIFIED_SOURCES += [
     "SnappyCompressOutputStream.cpp",
     "SnappyFrameUtils.cpp",
     "SnappyUncompressInputStream.cpp",
+]
+
+SOURCES += [
     "SpecialSystemDirectory.cpp",
 ]
+
+SOURCES["SpecialSystemDirectory.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     UNIFIED_SOURCES += [
