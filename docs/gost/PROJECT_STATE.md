@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-07
 
-This file is the authoritative current technical synthesis and handoff for new chats. The immediately preceding synthesis is preserved unchanged in [`PROJECT_STATE_2026-09-06_pre_full_xp_green.md`](./PROJECT_STATE_2026-09-06_pre_full_xp_green.md). Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
+This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
 ## Repository / branch policy
 
@@ -13,7 +13,7 @@ This file is the authoritative current technical synthesis and handoff for new c
 - PR #1 historically targets `win-153`; it does not define the active work branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides to evaluate a newer base.
 
-For Windows XP work, read `XP_BUILD_CONTRACT.md` and `XP_MOZ_XP_COMPAT_CONTRACT.md` before proposing build/configuration changes. For the current Shell32 cluster also read `XP_SHELL32_COMPATIBILITY.md`. For physical-XP startup/runtime work, also read `XP_RUNTIME_COMPATIBILITY_STATUS.md` and the newest XP entries in `TEST_LOG.md`.
+For Windows XP work, read `XP_BUILD_CONTRACT.md` and `XP_MOZ_XP_COMPAT_CONTRACT.md`. For the current Shell32 cluster read `XP_SHELL32_COMPATIBILITY.md`. For workflow maintenance read `XP_WORKFLOW_REFACTOR.md`. For the newest refactor/PDB/YY evidence read `TEST_LOG_2026-09-07_refactor-pdb-yy.md`. For physical-XP startup/runtime work also read `XP_RUNTIME_COMPATIBILITY_STATUS.md` and the newest XP entries in `TEST_LOG.md`.
 
 ## Separation of conclusions
 
@@ -50,52 +50,129 @@ This track is independent of GOST TLS runtime. Active implementation work is on 
 
 ## Latest completed build/static baseline — GREEN
 
-The newest completed and authoritative full XP x32 build is:
+The newest completed full XP x32 build/static baseline is now:
 
 - source branch: `agent/winrt-source-poc`;
-- source-under-test: `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`;
+- source-under-test: `a15dcd738edda4ab810fc9f92289170f115519e4` (`ci(xp): preserve matching xul PDB diagnostics`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- Actions run `34079480996`, attempt `1`;
-- job `101611911453`;
+- Actions run `34095425319`, attempt `1`;
+- job `101657910987`;
 - aggregate conclusion: **success**;
-- package artifact `10005434231`, digest `sha256:e95f55a7789c271a96a96e78a3c166a43a05a6979eec535319e0d878139f32c0`;
-- runtime artifact `10005434852`, digest `sha256:23ea95085afbe98035f736fafaa04b6225acadfd79dde571de034eca9d4da971`;
-- diagnostics artifact `10005435712`, digest `sha256:55615a9294107a6d890d9bb34a61970c225d6425cb15e43e77d45b5b12009d7c`.
+- package artifact `10013484854`, digest `sha256:d8764c7dbf0a2d2b47858554628aa009641589241e582eec9cb7d40199a89873`;
+- runtime artifact `10013486539`, digest `sha256:daaed105abe6c9ce3a9afa9db4a17254c8520f2a6823dbc53e0e7bc6a4a8360b`;
+- diagnostics artifact `10013519035`, digest `sha256:6fef7bf7e0122de7c5747e0923585123ea5753666fc6bd38ff1ac6be4cf20df9`.
 
-This exact run completed the dedicated final-`xul.dll` IPHLPAPI diagnostic and all later build/package/static compatibility gates successfully. The source-under-test carries the XP-era network listener and Rust `mtu` remediation that remove the modern IP Helper paths from the intended final `xul.dll` boundary.
+All main steps and final gates completed successfully, including full Firefox build, packaging, runtime archive, PE/import gates, `DIAG - Record xul IPHLPAPI XP compatibility imports`, `DIAG - Inventory YY-Thunks DLL entry-point coverage`, all artifact uploads and the final summary.
 
-The same `0a18ba85...` browser starts on physical Windows 7 x86. On physical XP it advances beyond the previously closed `RtlpWaitForCriticalSection` and IP Helper boundaries but still exposes later runtime failures described below.
+This build **does not contain the later Shell32 source-remediation cluster**. It is the current authoritative build/static baseline for the refactored workflow, debug-symbol/PDB diagnostics and YY DLL inventory.
 
-## Current implementation HEAD and active validation builds
+The older source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453`, remains the exact browser for the latest supplied physical-XP Shell32/Wasm observations. Do not transfer those physical observations to `a15dcd...` merely because the later build is GREEN.
+
+## XP full-build workflow refactor — first checkpoint GREEN
+
+Between `0a18ba85...` and `a15dcd...`, only the XP workflow/refactor surface changed:
+
+- `.github/scripts/xp/prepare-pinned-xp-bcrypt.ps1`;
+- `.github/scripts/xp/verify-msvcr14x-xp-contract.ps1`;
+- `.github/scripts/xp/diag-xul-iphlpapi.ps1`;
+- `.github/scripts/xp/build-narrow-yy.ps1`;
+- `.github/workflows/gost-poc-build-xp-x32.yml`.
+
+No Firefox production source changed in that range.
+
+The four-script structural checkpoint is `e9c8c766e20b0160094257d674ded1ea57aa82ee`. Source `a15dcd...` is exactly one commit later; that additional commit only enables debug symbols and includes matching `xul.pdb` in the diagnostics upload. Therefore run `34095425319` validates the first workflow-refactor checkpoint together with the PDB extension.
+
+Detailed maintenance rules and the next allowed structure-only extraction batch are in `XP_WORKFLOW_REFACTOR.md`.
+
+## Matching `xul.pdb` is now proven in diagnostics
+
+Commit `a15dcd738edda4ab810fc9f92289170f115519e4` changed the XP mozconfig from `--disable-debug-symbols` to `--enable-debug-symbols` and added:
+
+```text
+obj-gost-xp-x32/**/xul.pdb
+```
+
+to the diagnostics artifact.
+
+Exact `xul.pdb` from diagnostics artifact `10013519035`:
+
+```text
+r3dfox-gost/r3dfox-gost/obj-gost-xp-x32/toolkit/library/build/xul.pdb
+```
+
+- size: `1,864,486,912` bytes;
+- SHA-256: `fb35a5e682fb5b0fab3039a2dc504339002d9e8932a0dae71933da44a35ada02`.
+
+The corresponding `xul.dll` from the same build is recorded by the YY diagnostics with SHA-256 `c5dd98c21fe59640e56498c695808819fa5d5bbe26be324cb926cc7c2235aa8e`.
+
+**Symbolization rule:** this PDB is valid only for the exact `xul.dll` from run `34095425319` / source `a15dcd...`. It must not be used for `0a18ba85...` or for the current `cd5e715...` Shell32 build. A physical failure from a later build must use that build's own matching PDB.
+
+## YY DLL entry-point/TLS inventory — follow-up evidence
+
+The exact GREEN `a15dcd...` build produced a successful non-blocking YY inventory with a valid positive control:
+
+```text
+xul_positive_control=true
+strong_candidates=13
+contracts_present=3
+missing_contract_candidates=10
+```
+
+Strong candidates with the expected YY DLL/TLS contract:
+
+- `xul.dll`;
+- `ucrtbase.dll`;
+- `msvcp140.dll`.
+
+Heuristic strong candidates without that contract:
+
+- `gkcodecs.dll`;
+- `gmp-clearkey/0.1/clearkey.dll`;
+- `gmp-fake/1.0/fake.dll`;
+- `gmp-fakeopenh264/1.0/fakeopenh264.dll`;
+- `libGLESv2.dll`;
+- `mozavcodec.dll`;
+- `mozavutil.dll`;
+- `mozglue.dll`;
+- `mozinference.dll`;
+- `nss3.dll`.
+
+This is **not proof of ten runtime blockers**. The inventory is deliberately heuristic/non-blocking. Any extension of the YY DLL/TLS contract must be tied to an exact runtime failure or stronger focused evidence first.
+
+Detailed evidence is in `TEST_LOG_2026-09-07_refactor-pdb-yy.md`.
+
+## Residual IPHLPAPI delayed edges in the newest completed baseline
+
+The `a15dcd...` final-xul diagnostic reported these post-XP residual delay imports:
+
+- `GetIpInterfaceTable`;
+- `FreeMibTable`;
+- `if_indextoname`.
+
+`NotifyIpInterfaceChange` and `CancelMibChangeNotify2` were absent. `GetAdaptersAddresses` and `GetBestInterfaceEx` remained as expected XP-safe delayed imports.
+
+The diagnostic classified the three survivors as `UNEXPECTED`, but it is non-blocking and only records import presence. Do **not** reopen the physically cleared IP Helper blocker solely from this static result. Localize source owners/runtime reachability before changing this line again.
+
+## Current implementation HEAD and active Shell32 validation build
 
 Current XP implementation HEAD is:
 
 - branch `agent/winrt-source-poc`;
 - HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` (`fix(xp): use legacy ProgramData shell folder`).
 
-This HEAD contains the physically motivated `nsXREDirProvider.cpp` Shell32 remediation plus two proactively identified neighboring `SHGetKnownFolderPath` owners, all under the project-owned `MOZ_XP_COMPAT` contract.
+This HEAD descends from the GREEN refactor/PDB source `a15dcd...` and adds the current Shell32 source-remediation lineage.
 
-A new full XP build has now been launched from this exact HEAD:
+Active full validation build:
 
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
 - run `34107793132`, attempt `1`;
 - job `101696721232` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - source-under-test `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4`;
 - event `workflow_dispatch`;
-- state when documented: **in progress**.
+- state at the latest API check: **in progress**.
 
-This is the authoritative validation build for the current three-owner Shell32 source-remediation cluster. Do not mark any of its pending gates as passed until the exact job completes.
+This is the authoritative validation build for the current Shell32 source cluster. It inherits the already-GREEN workflow refactor, `--enable-debug-symbols`, xul PDB upload contract and YY inventory. Do not mark its Shell32 changes as build-proven until this exact run completes.
 
-The separate older diagnostics/PDB/YY inventory build is:
-
-- source-under-test `a15dcd738edda4ab810fc9f92289170f115519e4`;
-- run `34095425319`;
-- job `101657910987`;
-- purpose includes matching `xul.pdb` preservation and `DIAG - Inventory YY-Thunks DLL entry-point coverage`.
-
-Do not attribute any current Shell32 remediation to run `34095425319`; it predates the Shell32 source changes.
-
-## Physical XP runtime — inherited AutoConfig forces GFX critical failures to crash
+## Physical XP runtime — inherited AutoConfig can force GFX critical failures to crash
 
 The shipped/inherited `config.cfg` contains:
 
@@ -104,20 +181,13 @@ The shipped/inherited `config.cfg` contains:
 setEnv("MOZ_GFX_CRASH_MOZ_CRASH", 1);
 ```
 
-This setting is applied inside the running browser by AutoConfig, so it need not be present in the parent command shell environment before startup. In a supplied physical-XP dump from the exact `0a18ba85...` browser, one `0x80000003` path resolves to `MOZ_CRASH(GFX_CRASH)` after:
-
-```text
-[GFX1-]: Failed to initialize CompositorD3D11 for SWGL:
-FEATURE_FAILURE_D3D11_NO_DEVICE
-```
-
-For release builds, `MOZ_GFX_CRASH_MOZ_CRASH` deliberately converts the graphics critical action into a fatal `MOZ_CRASH`. Therefore that particular breakpoint is not by itself proof of a new missing XP API. It is an inherited runtime policy which can obscure the next compatibility boundary.
-
-Deleting the whole `config.cfg` is a diagnostic experiment only; it changes more than this single variable and is not an accepted packaging fix.
+On physical XP this can convert the expected no-D3D11 graphics failure into `MOZ_CRASH(GFX_CRASH)`. Removing the whole `config.cfg` was used only as a diagnostic isolation experiment and is not an accepted packaging fix.
 
 ## Most recently exposed config-free parent-process blocker — `SHELL32!SHGetKnownFolderPath`
 
-The user temporarily removed `config.cfg` and launched the same exact `0a18ba85...` physical-XP browser. The resulting Dr. Watson capture contains one MSVC delay-load exception:
+The exact physical browser for this evidence remains source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453`, runtime artifact `10005434852`.
+
+The supplied config-free Dr. Watson capture decoded to:
 
 ```text
 exception      C06D007F
@@ -132,90 +202,98 @@ Physical capture identity:
 - `drwtsn32.log` SHA-256 `f54366c0787cc53962f3300cbd84ddab0fdf507cf9d3a613901f2f6879144a36`;
 - `user.dmp` SHA-256 `0e3cb1e3e4822729145bcc4f6d6e799ead772321fc018cb1c9fb648c97efbb38`;
 - PID `6184`;
-- time `2026-09-07 15:12:04.957` local physical-XP time.
+- physical-XP local time `2026-09-07 15:12:04.957`.
 
-The physically reached source owner is `toolkit/xre/nsXREDirProvider.cpp`. Its existing registry fallback could not handle this boundary because the delay-load helper raises before `SHGetKnownFolderPath` returns a failing `HRESULT`.
+The physically reached owner is `toolkit/xre/nsXREDirProvider.cpp`. Its previous runtime fallback could not catch the missing export because the MSVC delay-loader raised before `SHGetKnownFolderPath` could return a failing `HRESULT`.
 
-The implementation branch now carries three project-owned `MOZ_XP_COMPAT` remediations for this Shell32 family:
+## Current Shell32 `MOZ_XP_COMPAT` source cluster
 
-- `nsXREDirProvider.cpp`: XP uses `SHGetFolderPathW` with `CSIDL_LOCAL_APPDATA` / `CSIDL_APPDATA` and preserves the existing registry fallback; non-XP builds retain `SHGetKnownFolderPath` / `FOLDERID_*`;
-- `xpcom/io/SpecialSystemDirectory.cpp`: the XP `Win_Downloads` path goes directly to the existing `CSIDL_DESKTOP` fallback and the direct `SHGetKnownFolderPath` helper is excluded from the XP translation unit;
-- `toolkit/mozapps/update/common/commonupdatedir.cpp`: the XP ProgramData path uses `SHGetFolderPathW` with `CSIDL_COMMON_APPDATA | CSIDL_FLAG_CREATE`; non-XP builds retain `SHGetKnownFolderPath(FOLDERID_ProgramData, ...)`.
+Current implementation source `cd5e715...` contains three source-owned remediations:
 
-All three dedicated owners are ordinary `SOURCES` entries with source-local `-DMOZ_XP_COMPAT` ownership. `SpecialSystemDirectory.cpp` and `commonupdatedir.cpp` were removed from unified compilation before applying their source-local flags. The net implementation change from `b59e957015544fa7761abf07fedde3c5d259104c` to current HEAD `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` is limited to the two source files and their two owning `moz.build` files.
+1. `toolkit/xre/nsXREDirProvider.cpp`
+   - XP: `SHGetFolderPathW` with `CSIDL_LOCAL_APPDATA` / `CSIDL_APPDATA`, then existing registry fallback;
+   - non-XP: original `SHGetKnownFolderPath` / `FOLDERID_*`.
+2. `xpcom/io/SpecialSystemDirectory.cpp`
+   - XP `Win_Downloads`: direct `CSIDL_DESKTOP` fallback;
+   - `GetKnownFolder(...)` direct call excluded from XP TU.
+3. `toolkit/mozapps/update/common/commonupdatedir.cpp`
+   - XP ProgramData: `SHGetFolderPathW(CSIDL_COMMON_APPDATA | CSIDL_FLAG_CREATE, ...)`;
+   - non-XP retains `SHGetKnownFolderPath(FOLDERID_ProgramData, ...)`.
 
-Only the first `nsXREDirProvider.cpp` path is backed by the supplied physical-XP `C06D007F` evidence. The two neighboring owners were identified proactively from the same Shell32 API family and are **source-integrated but not yet build- or runtime-proven**.
+All dedicated owners are ordinary `SOURCES` entries with source-local `-DMOZ_XP_COMPAT`. The two newly added owners were removed from unified compilation before applying source-specific flags.
 
-Detailed Shell32 inventory, implementation commits, current validation run and remaining candidates are maintained in `XP_SHELL32_COMPATIBILITY.md`.
+Only the first owner is backed by direct physical `C06D007F` evidence. The other two were found proactively in the same API family and remain build/runtime validation targets.
 
-### Remaining Shell32 candidates already identified
+Detailed Shell32 state is in `XP_SHELL32_COMPATIBILITY.md`.
 
-These are intentionally **not** part of run `34107793132` so the current experiment remains attributable to the three `SHGetKnownFolderPath` owners:
+### Remaining Shell32 candidates
 
-- `SHCreateItemFromParsingName` — known owner `toolkit/components/downloads/DownloadPlatform.cpp`; likely XP direction is to use the existing `SHAddToRecentDocs(SHARD_PATHW, ...)` path directly under `MOZ_XP_COMPAT`, but this remains a separate planned experiment rather than a current fix;
-- `SHOpenWithDialog` — appears in the inspected Shell32 delay-import family, but the current production owner/runtime path must be localized before changing source;
-- `GetCurrentProcessExplicitAppUserModelID` — Windows 7-era API present in the earlier inventory, but at least one current owner already resolves it dynamically with `GetProcAddress`; audit final ownership before any remediation.
+These are intentionally not yet source-fixed and are not physically proven blockers:
 
-Do not treat these three as physically proven blockers. The next exact XP runtime result should decide which path is actually worth changing next.
+- `SHCreateItemFromParsingName` — owner `toolkit/components/downloads/DownloadPlatform.cpp`; likely XP direction is direct existing `SHAddToRecentDocs(SHARD_PATHW, ...)` under `MOZ_XP_COMPAT`;
+- `SHOpenWithDialog` — present in prior Shell32 delay-import inventory; localize exact owner/runtime path before changing it;
+- `GetCurrentProcessExplicitAppUserModelID` — Windows 7-era API; at least one owner already uses dynamic `GetProcAddress`, so audit final ownership before remediation.
 
 ## Unresolved parallel symptom — SpiderMonkey/Wasm `MOZ_RELEASE_ASSERT(map)`
 
-The preceding physical-XP Dr. Watson log for the same exact `0a18ba85...` browser contained six `0x80000003` events at the same `xul.dll` site:
+The earlier physical `0a18ba85...` browser produced repeated `0x80000003` events at `xul.dll` RVA `0x00284926`, resolving to:
 
-- `xul.dll` load base `0x01bb0000`;
-- fault VA `0x01e34926` / RVA `0x00284926`;
-- instruction `CC` / `int 3`;
-- exact crash reason `MOZ_RELEASE_ASSERT(map)`.
+```text
+MOZ_RELEASE_ASSERT(map)
+```
 
-The source owner is `js/src/wasm/WasmProcess.cpp`, where `map` is the process-wide `sThreadSafeCodeBlockMap`. The assertion exists in `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`.
+Owner: `js/src/wasm/WasmProcess.cpp`, process-wide `sThreadSafeCodeBlockMap`; possible assertion sites include `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`.
 
-This symptom is **not considered closed** by the config-free `SHGetKnownFolderPath` experiment. Removing the whole `config.cfg` changes startup behavior, so one run reaching a different parent-process boundary does not prove that the Wasm assertion disappeared. The older `a15dcd...` build is intended to provide matching PDBs and an all-DLL YY-Thunks entry-point/TLS inventory so this line can be classified more precisely.
+This symptom remains unresolved and separate from the Shell32 line. Do not suppress the assertion as a fix.
 
-Do not suppress `MOZ_RELEASE_ASSERT(map)` as a fix. Also do not assume it is intrinsically a SpiderMonkey implementation bug: an XP-only DLL/TLS/one-time-init integration defect can manifest there first.
+The newly proven `a15dcd...` PDB enables exact symbolization only if a failure is reproduced with the exact `a15dcd...` xul. The current `cd5e715...` validation build inherits PDB generation; if it fails physically, use the matching PDB from that exact run instead.
 
 ## Physical XP progression — earlier blockers CLOSED
 
-The exact `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` browser, run `34038288272`, job `101500284497`, runtime artifact `9992440155`, physically advanced beyond the old `ntdll!RtlpWaitForCriticalSection` startup crash. That blocker remains closed and must not be reopened without contradictory evidence on a later exact browser.
+- `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`, run `34038288272`, job `101500284497`, runtime artifact `9992440155`: physical XP advanced beyond the old `ntdll!RtlpWaitForCriticalSection` startup crash after xul YY DLL/TLS entry-point integration.
+- `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453`: physical XP advanced beyond the preceding IP Helper runtime boundary.
 
-The newer exact `0a18ba85...` browser also physically advances beyond the preceding IP Helper runtime problem. This is consistent with run `34079480996`'s final IPHLPAPI diagnostic.
+Do not reopen these closed boundaries without contradictory evidence on a later exact artifact.
 
-## Compatibility work incorporated into the current closure / implementation lineage
+## Compatibility work in the current implementation lineage
 
-The current lineage includes:
+The lineage includes:
 
 - SRW / condition-variable and narrow residual KERNEL32 compatibility;
 - `CreateWaitableTimerExA` source fallback;
 - selected XP-compatible `bcrypt.dll` packaging;
 - legacy `D3DCompiler_47.dll` staging;
-- `NtCancelIoFileEx` narrow YY-Thunks remediation and final `xul.dll` import closure;
-- ADVAPI32 ETW family remediation;
+- `NtCancelIoFileEx` narrow YY-Thunks remediation;
+- ADVAPI32 ETW/RegGetValueW compatibility;
 - KERNEL32 restart/named-pipe source-remediation quartet;
 - PROPSYS ordinary-import removal;
 - DPI startup fix for `USER32.dll!SetProcessDPIAware`;
-- WS2_32 compatibility work, including focused YY capability and later integration;
-- ANGLE/DXGI work removing the XP-incompatible static `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` edge while preserving the intended D3D9 fallback path;
-- YY-Thunks DLL/TLS entry-point integration scoped to `xul.dll`, physically proven to advance past the old `RtlpWaitForCriticalSection` crash;
-- source-level IP Helper remediation physically proven to advance beyond the preceding IP Helper runtime boundary on source `0a18ba85...`;
-- source-level `MOZ_XP_COMPAT` remediation for the `SHELL32!SHGetKnownFolderPath` family in `nsXREDirProvider.cpp`, `SpecialSystemDirectory.cpp`, and `commonupdatedir.cpp`; the physically reached `nsXREDirProvider` boundary motivated the cluster, while the latter two proactive owners remain pending rebuild/runtime validation.
-
-Historical source/run/job/artifact identities for individual closures remain authoritative in `TEST_LOG.md`, `TEST_LOG_2026-09-06_pre_full_xp_green.md`, and earlier dated test-log volumes. Do not reopen a focused capability already proven there unless contradictory evidence appears.
+- WS2_32 narrow compatibility work;
+- ANGLE/DXGI removal of the XP-incompatible static `CreateDXGIFactory1` edge while preserving D3D9 fallback;
+- xul YY DLL/TLS entry-point integration;
+- XP-era IP Helper source remediation;
+- first GREEN structural refactor of the XP full-build workflow;
+- matching xul PDB generation/upload and all-DLL YY contract inventory;
+- current three-owner Shell32 `MOZ_XP_COMPAT` cluster.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility ownership physically narrow by PE/provider/source owner.
 
 ## Next experiment order
 
-1. Finish and classify the current Shell32 validation build: run `34107793132`, job `101696721232`, source `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4`.
-2. Preserve the exact result of the older PDB/YY inventory build `34095425319` / job `101657910987` / source `a15dcd738edda4ab810fc9f92289170f115519e4` and keep its conclusions separate from the Shell32 build.
-3. Inspect the final rebuilt `xul.dll` Shell32 delay-import inventory, especially any residual `SHGetKnownFolderPath` edge.
-4. Physically test the exact `34107793132` artifact on XP. For clean diagnosis of the Shell32 boundary, distinguish a normal packaged run from any temporary config-free diagnostic run; do not silently treat deleting `config.cfg` as a product fix.
-5. If startup advances, record the next actual runtime boundary before broadening Shell32 changes. `SHCreateItemFromParsingName` is the next already-localized feature-path candidate; `SHOpenWithDialog` must be localized first.
-6. If `MOZ_RELEASE_ASSERT(map)` remains, use a matching PDB from the exact failing rebuilt browser to resolve the exact `RegisterCodeBlock` / `UnregisterCodeBlock` / `ShutDown` call site and then trace initialization ordering.
+1. Finish and classify run `34107793132` / job `101696721232` / source `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4`.
+2. On success, record exact package/runtime/diagnostics artifact IDs and verify that the current diagnostics artifact contains that build's own matching `xul.pdb`.
+3. Inspect final `xul.dll` Shell32 delayed edges, especially any residual `SHGetKnownFolderPath` ownership.
+4. Physically test that exact `cd5e715...` artifact on XP; keep normal packaged startup distinct from any config-free diagnostic startup.
+5. If the Wasm assert recurs, symbolize only with the matching PDB from the same exact failing build.
+6. If startup advances, record the next actual runtime boundary before broadening Shell32 fixes. `SHCreateItemFromParsingName` is the next already-localized Shell32 candidate; `SHOpenWithDialog` must be localized first.
+7. Treat the ten YY missing-contract DLL classifications from `34095425319` as follow-up candidates only; do not modify them en masse without runtime/focused evidence.
+8. Workflow refactoring may proceed to another small structure-only batch because the first checkpoint is GREEN; keep extraction separate from linker-policy changes.
 
 ## XP acceptance boundary
 
-Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**. The old critical-section and IP Helper boundaries are closed on later exact candidates; the current Shell32 cluster is source-remediated and now under exact full-build validation in run `34107793132`, but has no rebuilt physical proof yet; the Wasm assertion remains unresolved in parallel.
+Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-A curated known-API list is a regression gate, not exhaustive compatibility proof. A successful XP startup would also not be a GOST TLS handshake result.
+The old critical-section and earlier IP Helper runtime boundaries are closed. The current Shell32 cluster is source-remediated and under exact full-build validation. The Wasm assertion remains unresolved in parallel. A successful build is not physical-XP runtime proof, and XP runtime success is not a GOST TLS handshake result.
 
 # Bundled government-system extensions / localization
 
@@ -231,6 +309,7 @@ Manual runtime evidence belongs to the exact artifact on which it was observed; 
 - GOST runtime success != final server-trust closure.
 - Focused dependency/runtime success != full Firefox startup.
 - Win7 x86 startup != XP startup.
-- Source/build removal of a hard import != physical-XP runtime closure until the exact accepted artifact advances past that edge.
+- Source/build removal of a hard or delay-import runtime edge != physical-XP runtime closure until the exact accepted artifact advances past it.
 - Documentation HEADs never replace the exact source-under-test SHA for previously built or runtime-tested artifacts.
-- For in-progress runs, record provisional state and never mark a pending gate as passed.
+- A PDB may symbolize only the exact matching binary from the same build.
+- For in-progress runs, record provisional state and never mark pending gates as passed.
