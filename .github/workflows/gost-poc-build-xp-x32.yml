@@ -941,6 +941,87 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: DIAG - Record xul IPHLPAPI XP compatibility imports
+        id: xul-iphlpapi-import-diag
+        if: always() && steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
+          $resultPath = 'diagnostics\xul-iphlpapi-xp-imports.txt'
+          $rawPath = 'diagnostics\xul-iphlpapi-xp-imports-raw.txt'
+          if (-not (Test-Path $xul)) {
+            'result=INCONCLUSIVE|reason=xul.dll missing' | Set-Content -Encoding utf8 $resultPath
+            Write-Warning "xul.dll missing for IPHLPAPI diagnostic: $xul"
+            exit 0
+          }
+
+          $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
+          $dumpbinExit = $LASTEXITCODE
+          $raw | Set-Content -Encoding utf8 $rawPath
+          if ($dumpbinExit -ne 0) {
+            "result=INCONCLUSIVE|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 $resultPath
+            Write-Warning "dumpbin /imports failed for xul.dll with exit $dumpbinExit"
+            exit 0
+          }
+
+          $expectedRemoved = @(
+            'NotifyIpInterfaceChange',
+            'CancelMibChangeNotify2',
+            'GetIpInterfaceTable',
+            'FreeMibTable',
+            'if_indextoname'
+          )
+          $xpSafe = @('GetAdaptersAddresses','GetBestInterfaceEx')
+          $tracked = @($expectedRemoved + $xpSafe)
+          $seen = @{}
+          foreach ($api in $tracked) { $seen[$api] = $false }
+          $rows = [System.Collections.Generic.List[string]]::new()
+          $mode = 'none'
+          $currentDll = ''
+          foreach ($line in $raw) {
+            if ($line -match '^\s*Section contains the following imports:\s*$') {
+              $mode = 'direct'
+              $currentDll = ''
+              continue
+            }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
+              $mode = 'delay'
+              $currentDll = ''
+              continue
+            }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
+              $currentDll = $matches[1]
+              continue
+            }
+            if ($currentDll -notmatch '(?i)^IPHLPAPI\.dll$') { continue }
+            foreach ($api in $tracked) {
+              if ($line.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $seen[$api] = $true
+                $rows.Add("hit|api=$api|mode=$mode|dll=$currentDll|line=$($line.Trim())")
+              }
+            }
+          }
+
+          $survivors = [System.Collections.Generic.List[string]]::new()
+          foreach ($api in $expectedRemoved) {
+            $present = [bool]$seen[$api]
+            $rows.Add("expected_absent|api=$api|present=$($present.ToString().ToLowerInvariant())")
+            if ($present) { $survivors.Add($api) }
+          }
+          foreach ($api in $xpSafe) {
+            $present = [bool]$seen[$api]
+            $rows.Add("xp_safe|api=$api|present=$($present.ToString().ToLowerInvariant())")
+          }
+          if ($survivors.Count -eq 0) {
+            $rows.Add('result=EXPECTED|post_vista_survivors=none')
+          } else {
+            $rows.Add("result=UNEXPECTED|post_vista_survivors=$($survivors -join ',')")
+          }
+          $rows | Set-Content -Encoding utf8 $resultPath
+          $rows | ForEach-Object { Write-Host $_ }
+
       - name: GATE - Require source-remediation quartet absent from xul.dll
         id: source-remediation-quartet
         if: steps.build-release.outcome == 'success'
@@ -1589,6 +1670,7 @@ jobs:
           "- ADVAPI32 compatibility final xul.dll gate: ${{ steps.advapi32-etw-import-gate.outcome }}; ETW focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554; RegGetValueW focused capability source 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4 / run 33946751857 / job 101254130849." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- WS2_32 focused YY capability: WSAIoctl + inet_ntop from source 5451673565030445262f5b6ef48b4059e0e0501e / run 34021400841 / job 101454550948; production link uses only their weak-alias pairs plus the shared narrow YY implementation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- WSASendMsg is source late-bound and WSCGetProviderInfo LSP-category diagnostics are compiled out under MOZ_XP_COMPAT; all four WS2_32 names are forbidden as ordinary final imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- xul IPHLPAPI legacy MTU diagnostic: ${{ steps.xul-iphlpapi-import-diag.outcome }} (non-blocking; see diagnostics/xul-iphlpapi-xp-imports.txt)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- mozglue SetProcessDPIAware import-mode gate: ${{ steps.dpi-import-gate.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
