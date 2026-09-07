@@ -279,6 +279,7 @@ void nsNotifyAddrListener::calculateNetworkId(void) {
   }
 }
 
+#ifndef MOZ_XP_COMPAT
 // Static Callback function for NotifyIpInterfaceChange API.
 static void WINAPI OnInterfaceChange(PVOID callerContext,
                                      PMIB_IPINTERFACE_ROW row,
@@ -287,6 +288,7 @@ static void WINAPI OnInterfaceChange(PVOID callerContext,
       static_cast<nsNotifyAddrListener*>(callerContext);
   notify->CheckLinkStatus();
 }
+#endif
 
 DWORD
 nsNotifyAddrListener::nextCoalesceWaitTime() {
@@ -310,6 +312,73 @@ nsNotifyAddrListener::Run() {
 
   DWORD waitTime = INFINITE;
 
+#ifdef MOZ_XP_COMPAT
+  HANDLE addressChangeEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+  if (!addressChangeEvent) {
+    LOG(("Link Monitor: CreateEventW for NotifyAddrChange failed: %lu\n",
+         GetLastError()));
+    return NS_OK;
+  }
+  auto closeAddressChangeEvent =
+      MakeScopeExit([&]() { CloseHandle(addressChangeEvent); });
+
+  OVERLAPPED overlapped = {};
+  HANDLE addressChange = nullptr;
+  auto armNotifyAddrChange = [&]() {
+    ZeroMemory(&overlapped, sizeof(overlapped));
+    overlapped.hEvent = addressChangeEvent;
+    addressChange = nullptr;
+    return NotifyAddrChange(&addressChange, &overlapped);
+  };
+
+  if (StaticPrefs::network_notify_initial_call()) {
+    CheckLinkStatus();
+  }
+
+  DWORD ret = armNotifyAddrChange();
+  bool notificationPending = ret == ERROR_IO_PENDING;
+  if (!notificationPending) {
+    LOG(("Link Monitor: NotifyAddrChange returned %lu\n", ret));
+    return NS_OK;
+  }
+
+  while (!mShutdown) {
+    HANDLE handles[] = {addressChangeEvent, mCheckEvent};
+    ret = WaitForMultipleObjects(2, handles, FALSE, waitTime);
+
+    if (ret == WAIT_OBJECT_0) {
+      notificationPending = false;
+      CheckLinkStatus();
+      if (mShutdown) {
+        break;
+      }
+
+      ret = armNotifyAddrChange();
+      notificationPending = ret == ERROR_IO_PENDING;
+      if (!notificationPending) {
+        LOG(("Link Monitor: NotifyAddrChange returned %lu\n", ret));
+        break;
+      }
+      continue;
+    }
+
+    if (ret == WAIT_OBJECT_0 + 1 || ret == WAIT_TIMEOUT) {
+      if (mShutdown) {
+        break;
+      }
+      waitTime = nextCoalesceWaitTime();
+      continue;
+    }
+
+    LOG(("Link Monitor: WaitForMultipleObjects failed: %lu\n",
+         GetLastError()));
+    break;
+  }
+
+  if (notificationPending) {
+    CancelIPChangeNotify(&overlapped);
+  }
+#else
   // Windows Vista and newer versions.
   HANDLE interfacechange;
   // The callback will simply invoke CheckLinkStatus()
@@ -334,6 +403,7 @@ nsNotifyAddrListener::Run() {
   } else {
     LOG(("Link Monitor: NotifyIpInterfaceChange returned %d\n", (int)ret));
   }
+#endif
 
   return NS_OK;
 }
@@ -469,10 +539,10 @@ nsNotifyAddrListener::CheckAdaptersAddresses(void) {
   }
 
   //
-  // Since NotifyIpInterfaceChange() signals a change more often than we
-  // think is a worthy change, we checksum the entire state of all interfaces
-  // that are UP. If the checksum is the same as previous check, nothing
-  // of interest changed!
+  // Network-change notifications can signal more often than we think is a
+  // worthy change, so we checksum the entire state of all interfaces that are
+  // UP. If the checksum is the same as previous check, nothing of interest
+  // changed!
   //
   ULONG sumAll = 0;
 
