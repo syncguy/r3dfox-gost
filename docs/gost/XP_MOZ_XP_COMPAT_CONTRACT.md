@@ -1,6 +1,6 @@
 # Windows XP x86 — MOZ_XP_COMPAT build contract
 
-Last updated: 2026-09-04
+Last updated: 2026-09-07
 
 Track: Windows XP SP3 x86 compatibility only. This document does not describe or prove GOST TLS runtime behavior.
 
@@ -63,6 +63,39 @@ The owning build rule remains source-local:
 ```python
 SOURCES["nsAppRunner.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 ```
+
+### `toolkit/xre/nsXREDirProvider.cpp`
+
+Physical Windows XP SP3 x86 evidence from the exact previously GREEN browser source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453`, runtime artifact `10005434852`, exposed the MSVC delay-load exception `C06D007F` after the inherited `config.cfg` was temporarily removed for startup. The decoded delay-load target is:
+
+```text
+SHELL32.dll!SHGetKnownFolderPath
+ERROR_PROC_NOT_FOUND (0x7f)
+```
+
+`SHGetKnownFolderPath` is a post-XP shell API. The pre-existing registry fallback in `nsXREDirProvider.cpp` could not handle this case because the delay-load helper raises before the function can return a failing `HRESULT`.
+
+Current implementation on `agent/winrt-source-poc`:
+
+- `b5db4a4312ccf66a245d47dbc0464c11781cf620` — final build ownership state moves `nsXREDirProvider.cpp` from `UNIFIED_SOURCES` to ordinary `SOURCES` and assigns its source-local `MOZ_XP_COMPAT` flag;
+- `50ca390932f0be83309b905226e2e9fea0fe1e75` — `fix(xp): use legacy shell folders in nsXREDirProvider`.
+
+Under `MOZ_XP_COMPAT`, the source now selects XP-era shell-folder identifiers and API:
+
+```cpp
+GetShellFolderPath(CSIDL_LOCAL_APPDATA, path);
+GetShellFolderPath(CSIDL_APPDATA, path);
+```
+
+where the XP-owned helper calls `SHGetFolderPathW`. The existing registry lookup remains the second fallback if that call fails. Non-XP builds retain the original `FOLDERID_LocalAppData` / `FOLDERID_RoamingAppData` and `SHGetKnownFolderPath` path.
+
+The owning build rule is:
+
+```python
+SOURCES["nsXREDirProvider.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+```
+
+This remediation is source-integrated but is **not yet physical-XP closure**. It requires a full build from `50ca390932f0be83309b905226e2e9fea0fe1e75` or a descendant and physical XP validation of that exact artifact.
 
 ### `accessible/windows/msaa/CompatibilityUIA.cpp`
 
