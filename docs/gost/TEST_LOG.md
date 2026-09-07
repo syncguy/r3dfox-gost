@@ -8,6 +8,48 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-07 — physical XP clears the IP Helper boundary and repeatedly hits `MOZ_RELEASE_ASSERT(map)` in `xul.dll`
+
+Track: Windows XP SP3 x86 compatibility / physical runtime. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
+
+Exact source/build identity:
+
+- source branch: `agent/winrt-source-poc`;
+- source-under-test: `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `34079480996`, attempt `1`;
+- job `101611911453` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **success**;
+- runtime artifact `10005434852` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:23ea95085afbe98035f736fafaa04b6225acadfd79dde571de034eca9d4da971`;
+- diagnostics artifact `10005435712`, digest `sha256:55615a9294107a6d890d9bb34a61970c225d6425cb15e43e77d45b5b12009d7c`.
+
+The exact Actions job completed the dedicated `DIAG - Record xul IPHLPAPI XP compatibility imports` step and all later build/package/static gates successfully. The user then physically executed this build on Windows XP SP3 x86 and reported that the preceding IP Helper runtime problem is no longer observed. The same build starts on physical Windows 7 x86.
+
+The supplied physical-XP Dr. Watson log `drwtsn32.log`, SHA-256 `15e948215d79d0ce33b2980f5a562764bdc055df8fbdf519e7dea36dd7c3a151`, contains **six** application exceptions between `12:54:42.642` and `12:55:10.313`. All six are the same exception class and same fault site rather than six different crash families:
+
+- exception `0x80000003` (`hardcoded breakpoint`);
+- faulting module `xul.dll`;
+- `xul.dll` load base `0x01bb0000`;
+- fault VA `0x01e34926` / RVA `0x00284926`;
+- fault instruction `CC` / `int 3`;
+- six distinct `r3dfox.exe` PIDs hit this exact site.
+
+Disassembly of the exact `xul.dll` from package artifact `10005434231` shows the breakpoint is an intentional Mozilla fatal-assert path. Immediately before `int 3`, xul stores a relocated pointer to the crash-reason string. Resolving that pointer against the exact PE yields:
+
+```text
+MOZ_RELEASE_ASSERT(map)
+```
+
+The matching Firefox/SpiderMonkey source owner is `js/src/wasm/WasmProcess.cpp`, where `map` is the process-wide `sThreadSafeCodeBlockMap`. The exact assertion exists in `wasm::RegisterCodeBlock`, `wasm::UnregisterCodeBlock`, and `wasm::ShutDown`; the early-startup context makes registration-before-initialization the leading interpretation, but stripped Dr. Watson symbols do not yet prove which of those three call sites emitted the inline assert.
+
+Interpretation: **IP HELPER RUNTIME BOUNDARY CLEARED / NEW CURRENT XP BLOCKER = REPEATED WASM PROCESS-MAP RELEASE ASSERT.** The six `0x80000003` events are one repeated fatal path, not six independent incompatibilities. Relative to the user's preceding observation of three hardcoded breakpoints, the increased count can be explained by more process instances/retries reaching the same latent assert after progression past the earlier IP Helper boundary; it is not evidence by itself that three new root causes appeared.
+
+The same source works on Win7 x86, so the next investigation should stay in the XP compatibility track and focus on why SpiderMonkey/Wasm process initialization ordering differs on XP. XP-only synchronization/TLS/one-time-init behavior, including the narrow YY-Thunks path used in `xul.dll`, is a higher-priority hypothesis than further IP Helper work. Do not disable the release assertion as a fix; identify why `sThreadSafeCodeBlockMap` is null at the failing call site.
+
+Status: **current authoritative physical-XP runtime blocker after IP Helper remediation.**
+
+---
+
 ## 2026-09-07 — physical XP advances past the `xul.dll` `RtlpWaitForCriticalSection` crash after YY DLL/TLS entry-point integration
 
 Track: Windows XP SP3 x86 compatibility / physical runtime of the exact full-build candidate carrying the YY-Thunks DLL/TLS entry-point contract for `xul.dll`. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
@@ -32,7 +74,7 @@ Conclusion: **PASS / `RtlpWaitForCriticalSection` BLOCKER CLOSED FOR THE EXACT `
 
 The project has already continued beyond this boundary on `agent/winrt-source-poc` into IP Helper API compatibility. The continuation is source-level work after `b386b7f4...`: `97ad36ef0322f307ccb43bc4dd5fdcc744a22f16` adds the XP `NotifyAddrChange` network-monitoring path, `9ea33a7b2972e231c95157db416fe866e6f6c667` activates the XP-owned listener build path, `7e4965bc2057f6f0a75d043f0711fefbcfddff68` replaces the modern MTU interface-table path with a legacy adapter lookup, and current source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b` adds a non-blocking final-`xul.dll` IPHLPAPI import diagnostic. The matching full-build validation run `34079480996`, job `101611911453`, was still **in progress** when this entry was written; no pending IPHLPAPI diagnostic or final build gate is recorded as passed here.
 
-Status: **current authoritative physical closure of the old xul critical-section blocker; active XP work has moved to IP Helper API compatibility.**
+Status: **current authoritative physical closure of the old xul critical-section blocker; superseded as current blocker by the later exact physical-XP `MOZ_RELEASE_ASSERT(map)` result recorded above.**
 
 ---
 
@@ -70,7 +112,7 @@ Interpretation: **PASS / FULL-BUILD AND STATIC-COMPATIBILITY BASELINE WITH YY DL
 
 The subsequent physical-XP experiment is now recorded immediately above. Exact runtime artifact `9992440155`, with user-reported extracted identities `r3dfox.exe` SHA-1 `a2a64f6eb719d632b6264d48984de9e85a82acb7` and `xul.dll` SHA-1 `7ef46570af15390fa1c431c9d1b93ff985d79c22`, advances beyond the prior `RtlpWaitForCriticalSection` failure. Therefore the build-time entry-point integration is not only GREEN but is associated with physical progression past the old blocker on this exact browser.
 
-Status: **authoritative GREEN build/static baseline for the physically proven critical-section closure; newer IPHLPAPI remediation sources are under validation separately.**
+Status: **authoritative GREEN build/static baseline for the physically proven critical-section closure; newer physical-XP evidence is recorded above.**
 
 ---
 
