@@ -209,9 +209,9 @@ class nsAutoRefTraits<nsHGLOBAL> {
   static void Release(RawRef hGlobal) { ::GlobalFree(hGlobal); }
 };
 
-// Because Printer's HANDLE uses ClosePrinter and we already have
-// nsAutoRef<HANDLE> which uses CloseHandle so we need to create a wrapper class
-// for HANDLE to have another specialization for nsAutoRefTraits.
+// Because Printer's HANDLE uses ClosePrinter and we already have nsAutoRef<HANDLE>
+// which uses CloseHandle so we need to create a wrapper class for HANDLE to have
+// another specialization for nsAutoRefTraits.
 class nsHPRINTER {
  public:
   MOZ_IMPLICIT nsHPRINTER(HANDLE hPrinter) : m_hPrinter(hPrinter) {}
@@ -274,9 +274,9 @@ bool inline ConstructSystem32Path(LPCWSTR aModule, WCHAR* aSystemPath,
   if (systemDirLen) {
     if (systemDirLen < aSize - fileLen) {
       // Make the system directory path terminate with a slash.
-      if (aSystemPath[systemDirLen - 1] != L'\\') {
+      if (aSystemPath[systemDirLen - 1] != L'\') {
         if (systemDirLen + 1 < aSize - fileLen) {
-          aSystemPath[systemDirLen] = L'\\';
+          aSystemPath[systemDirLen] = L'\';
           ++systemDirLen;
           // No need to re-nullptr terminate.
         } else {
@@ -298,16 +298,25 @@ bool inline ConstructSystem32Path(LPCWSTR aModule, WCHAR* aSystemPath,
 }
 
 HMODULE inline LoadLibrarySystem32(LPCWSTR aModule) {
+  HMODULE module = nullptr;
   static const auto setDefaultDllDirectories =
       GetProcAddress(GetModuleHandleW(L"kernel32"), "SetDefaultDllDirectories");
   if (setDefaultDllDirectories) {
-    return LoadLibraryExW(aModule, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    module = LoadLibraryExW(aModule, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  } else {
+    WCHAR systemPath[MAX_PATH + 1];
+    if (!ConstructSystem32Path(aModule, systemPath, MAX_PATH + 1)) {
+      return NULL;
+    }
+    module =
+        LoadLibraryExW(systemPath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
   }
-  WCHAR systemPath[MAX_PATH + 1];
-  if (!ConstructSystem32Path(aModule, systemPath, MAX_PATH + 1)) {
-    return NULL;
+#ifdef MOZ_XP_COMPAT
+  if (!module && wcscmp(aModule, L"dwrite.dll") == 0) {
+    module = LoadLibraryW(aModule);
   }
-  return LoadLibraryExW(systemPath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+#endif
+  return module;
 }
 
 // for UniquePtr
