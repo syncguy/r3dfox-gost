@@ -215,8 +215,8 @@ std::wstring AlterEnvironment(const wchar_t* env,
   }
 
   // Now append all modified and new values.
-  for (EnvironmentMap::const_iterator i = changes.begin();
-       i != changes.end(); ++i) {
+  for (EnvironmentMap::const_iterator i = changes.begin(); i != changes.end();
+       ++i) {
     if (!i->second.empty()) {
       result.append(i->first);
       result.push_back('=');
