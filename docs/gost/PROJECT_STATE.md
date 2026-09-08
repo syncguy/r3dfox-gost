@@ -50,26 +50,35 @@ This track is independent of GOST TLS runtime. Active implementation work is on 
 
 ## Current all-GREEN build/static candidate
 
-Latest built and physically exercised source-under-test:
+Current implementation HEAD and latest completed full-build source-under-test:
 
 - branch `agent/winrt-source-poc`;
-- SHA `897e1cdf98bcc091e13283fa8004177971d30f27`;
-- functional launcher remediation commit `3b95f3dc9755b84c0b392fe9b90a896dd5a00880` (`fix(xp): inherit child handles without thread attributes`).
+- SHA `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`;
+- battery source remediation `b68b925efc504ffe6696fc28848f8df0b3cae343` (`fix(xp): use legacy battery power notifications`);
+- battery final-import gate `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4` (`ci(xp): gate Vista-only battery imports`);
+- lineage includes `dad33d25dddc060ee74d773dcc492d835a78fd1e`, which removes the rejected shared-memory access-mask override while preserving the physically successful child-HANDLE inheritance fix.
 
 Exact completed full build:
 
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `34194737456`, attempt `1`;
-- job `101959901573` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- run `34213345771`, attempt `1`;
+- job `102019253738` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate conclusion: **success / GREEN**.
 
 Exact artifacts:
 
-- package `10048182039`, digest `sha256:b9d79e74656057b4252c4c12d250f5230d5ee191f0dd7ba839fce805a60c6710`;
-- runtime `10048183305`, digest `sha256:678e93d526d4d8837360e3dafb16d8e3147b09e8bbb4416b5e3773a746770a65`;
-- diagnostics `10048220926`, digest `sha256:d44ca9f6c3afe4f9df336d315279d6c214f0c7c80bad454a125c7af5db5a8445`.
+- package `10056086223`, digest `sha256:9135b55913dfcf49390d022b94c21520ed2f5852e8b846f4b117635696634949`;
+- runtime `10056088395`, digest `sha256:2cf7cf6ca44c0d8abddb930564a65bdf57188f4a2ae0fd5a56b29d7c522ce57f`;
+- diagnostics `10056127829`, digest `sha256:04d284ce8738a63b72508e00747576c56fb2dfb86233e6e460fc1803b4234b33`.
 
-The exact run passed full compile/link, packaging, runtime archive generation, current XP PE/import gates, YY-Thunks inventory, artifact uploads and the final summary. This remains build/static evidence only; physical runtime conclusions are recorded separately below.
+The exact run passed full compile/link, packaging, runtime archive generation, current XP PE/import gates, package-integrity gates, YY-Thunks inventory, artifact uploads and the final summary. In particular, the new `GATE - Require XP battery Vista-only USER32 imports absent from xul.dll` passed. Therefore final `xul.dll` from this exact build contains neither ordinary nor delay-load references to:
+
+```text
+RegisterPowerSettingNotification
+UnregisterPowerSettingNotification
+```
+
+This remains build/static evidence. The new artifact has not yet been physically exercised on Windows XP.
 
 ## SharedPrefMap child-HANDLE blocker — PHYSICALLY CLOSED on `897e1cdf...`
 
@@ -82,67 +91,54 @@ MOZ_RELEASE_ASSERT(map)
 exception 0x80000003
 ```
 
-Matching WinDbg evidence on that build established:
+Matching WinDbg evidence established `MapViewOfFileEx(...) -> NULL`, `GetLastError() = 6 = ERROR_INVALID_HANDLE`, and `LastStatusValue = 0xC0000008 = STATUS_INVALID_HANDLE`. The child received the exact numeric `-prefMapHandle` value and size, but the corresponding kernel HANDLE had not been inherited.
 
-```text
-MapViewOfFileEx(...) -> NULL
-GetLastError() = 6 = ERROR_INVALID_HANDLE
-LastStatusValue = 0xC0000008 = STATUS_INVALID_HANDLE
-```
-
-The failing socket child received the exact numeric `-prefMapHandle` value and size, but the corresponding kernel HANDLE had not been inherited. Source tracing localized the defect to `base::LaunchApp`: on XP the Vista+ `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` API is unavailable, so the old code left `bInheritHandles = FALSE` even after requested handles had been marked `HANDLE_FLAG_INHERIT`.
+Source tracing localized the defect to `base::LaunchApp`: on XP the Vista+ `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` family is unavailable, so the old code left `bInheritHandles = FALSE` even after requested handles had been marked `HANDLE_FLAG_INHERIT`.
 
 The remediation in `ipc/chromium/src/base/process_util_win.cc` preserves the Vista+ selective attribute-list path and, under `MOZ_XP_COMPAT`, enables classic Windows inheritance when that Vista+ API is unavailable.
 
-Physical Windows XP SP3 x86 testing of exact source `897e1cdf...` was repeated several times. User-reported binary identities:
+Physical Windows XP SP3 x86 testing of exact source `897e1cdf98bcc091e13283fa8004177971d30f27` / run `34194737456` was repeated several times. User-reported binary identities:
 
 - `r3dfox.exe` SHA-1 `dbfaed8d2d06d50195a572f8364186e4032f8a97`;
 - `xul.dll` SHA-1 `fcc09439c4e36be056b5796303f7e433a7afe585`.
 
-Across those launches, the previous `SharedPrefMap.cpp:25` / `0x80000003` boundary no longer reproduces. Execution consistently advances to a later exception code:
+Across those launches, the previous `SharedPrefMap.cpp:25` / `0x80000003` boundary no longer reproduced. Conclusion: **the SharedPrefMap invalid-child-HANDLE blocker is physically closed for source `897e1cdf...` / run `34194737456`.** Do not reopen it without contradictory evidence on a later exact artifact.
 
-```text
-0xC06D007F
-```
+The new source `db334d...` retains that launcher remediation but removes the earlier rejected `Platform::Freeze()` access-mask override. Run `34213345771` proves that this cleaned-up lineage still builds/packages and satisfies the static contract; physical XP validation of continued SharedPrefMap closure on the cleaned-up artifact is still required.
 
-Conclusion: **the SharedPrefMap invalid-child-HANDLE blocker is physically closed for source `897e1cdf...` / run `34194737456`.** Do not reopen it without contradictory evidence on a later exact artifact.
+## Physical `0xC06D007F` boundary — ROOT CAUSE LOCALIZED; successor static fix GREEN
 
-## Current physical-XP boundary — `0xC06D007F`
+After the SharedPrefMap advance, exact source `897e1cdf...` repeatedly reached exception `0xC06D007F` on physical Windows XP.
 
-The first repeatedly observed later boundary on the current exact artifact is exception code `0xC06D007F`.
+The physical DrWatson capture was tied to the exact package binaries and matching PDB. Symbolization and the captured MSVC delay-load information establish the chain through `__delayLoadHelper2` / `_tailMerge_user32.dll` into the Windows battery HAL, with:
 
-Current evidence does not yet identify the owning module, missing/delayed procedure, stack frame, or source line. Do not guess the owner from the exception code alone. The next runtime analysis must establish the exact module/API/stack boundary before changing code.
+- loaded module `USER32.dll`;
+- `dwLastError = 0x7f` (`ERROR_PROC_NOT_FOUND`);
+- exact delayed procedure `RegisterPowerSettingNotification`;
+- source owner `hal/windows/WindowsBattery.cpp::EnableBatteryNotifications()`;
+- caller path from `GPUProcessManager::BatteryObserver` registration after GPU-process launch.
 
-## Rejected `Platform::Freeze()` access-mask override removed from source
+`RegisterPowerSettingNotification` and its paired `UnregisterPowerSettingNotification` are Vista-era APIs. This is a source/legacy-Windows compatibility issue, not a YY-Thunks ownership problem.
 
-The earlier XP-only `Platform::Freeze()` experiment changed:
+The successor remediation on `b68b925...` keeps the existing hidden battery window and `GetSystemPowerStatus()` snapshot logic but, under C/C++ `MOZ_XP_COMPAT`, uses XP-compatible `WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE` and compiles out both Vista-only registration APIs. Vista+ behavior remains unchanged.
 
-```text
-GENERIC_READ | FILE_MAP_READ
-```
+Run `34213345771` on exact source `db334d...` passes the dedicated final-`xul.dll` direct+delay import gate for both names. Therefore the exact delayed-import edge that caused the old physical exception is **statically removed**.
 
-to:
+Do not call the `0xC06D007F` blocker physically closed yet. Physical XP must exercise artifact `10056088395` or the exact matching package and advance beyond this path.
 
-```text
-FILE_MAP_READ | SECTION_QUERY
-```
+## Rejected `Platform::Freeze()` access-mask override — removed and rebuilt
 
-It independently failed to advance the SharedPrefMap boundary on source `cae81ff...`, while the later launcher inheritance fix physically advanced past that boundary on source `897e1cdf...`.
+The earlier XP-only experiment changed `GENERIC_READ | FILE_MAP_READ` to `FILE_MAP_READ | SECTION_QUERY`. It independently failed to advance SharedPrefMap, while the later launcher inheritance fix did advance the exact physical boundary.
 
-The rejected override has now been removed from the implementation branch without touching the successful launcher remediation:
+Commit `dad33d25dddc060ee74d773dcc492d835a78fd1e` permanently removes only that rejected access-mask experiment and restores the common source path. The current GREEN source `db334d...` includes this cleanup and the successful launcher fix.
 
-- new implementation HEAD `dad33d25dddc060ee74d773dcc492d835a78fd1e`;
-- commit `fix(xp): drop rejected shared-memory access override`;
-- only changed file: `ipc/glue/SharedMemoryPlatform_windows.cpp`;
-- diff versus `897e1cdf...`: exactly three deleted lines, restoring the common `GENERIC_READ | FILE_MAP_READ` path.
-
-No heavy Firefox rebuild is being started solely for this cleanup. The next full XP build should first include the precise remediation for the new `0xC06D007F` boundary; that same build will serve as the causal control proving that SharedPrefMap remains passed without the rejected access-mask override.
+The planned build-level control is now complete: run `34213345771` builds/packages successfully with the rejected override absent. The remaining causal control is physical: the exact new artifact must still advance past SharedPrefMap on Windows XP.
 
 ## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
 
 Run `34138054280`, job `101793510758`, source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef` expanded the scoped YY-Thunks DLL/TLS startup contract from 3/13 to 13/13 strong candidates. Its normal Firefox compile/link, package/runtime generation, PE/import audit and final YY contract audit succeeded. The aggregate job was RED only because a separate supplemental warm-relink experiment used incorrect generated-objdir assumptions.
 
-The 13/13 static closure remains valid and does not need separate per-library rebuilds.
+The 13/13 static closure remains valid and does not need separate per-library rebuilds. The current full GREEN run `34213345771` also completes the non-blocking YY DLL entry-point inventory successfully.
 
 ## Build-configuration identity
 
@@ -168,13 +164,24 @@ Do not reopen these without contradictory evidence on a later exact artifact:
 - ANGLE/DXGI static `CreateDXGIFactory1` edge;
 - current 13-strong-candidate YY DLL entry-point/TLS static coverage debt.
 
+The `USER32!RegisterPowerSettingNotification` / `0xC06D007F` edge is not in this physically closed list yet: its root cause is exact and its successor static gate is GREEN, but successor physical XP execution is pending.
+
 Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility ownership physically narrow by PE/provider/source owner.
 
 ## XP acceptance boundary
 
 Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-Current physical evidence remains source `897e1cdf...` / run `34194737456`: it is all-GREEN at build/static level and physically advances beyond the former SharedPrefMap blocker to `0xC06D007F`. Current implementation HEAD `dad33d25...` removes only the rejected shared-memory access override and has not yet been rebuilt. First localize and remediate the new exact API/runtime boundary; then use the next full build to validate both that remediation and continued SharedPrefMap closure without the rejected override. XP runtime success would still not prove a GOST TLS handshake.
+Current physical evidence remains source `897e1cdf...` / run `34194737456`: SharedPrefMap is physically closed there, and the next exact physical boundary was localized to `USER32!RegisterPowerSettingNotification` / `0xC06D007F`.
+
+Current build/static candidate is source `db334d...` / run `34213345771`, job `102019253738`, **GREEN**. Its exact runtime artifact is `10056088395`, digest `sha256:2cf7cf6ca44c0d8abddb930564a65bdf57188f4a2ae0fd5a56b29d7c522ce57f`.
+
+Next physical experiment on that exact artifact must establish two facts in one run lineage:
+
+1. SharedPrefMap remains passed with the rejected `Platform::Freeze()` override removed;
+2. execution advances past the former `USER32!RegisterPowerSettingNotification` delay-load boundary.
+
+If both advance, record the next actual runtime boundary. XP runtime success would still not prove a GOST TLS handshake.
 
 # Bundled government-system extensions / localization
 
