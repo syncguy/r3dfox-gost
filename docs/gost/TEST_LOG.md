@@ -8,6 +8,57 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-08 — physical XP: launcher fix closes `SharedPrefMap.cpp:25` / `0x80000003`; next boundary is `0xC06D007F`
+
+Track: Windows XP SP3 x86 physical runtime / child-process launch compatibility. Independent of GOST TLS runtime.
+
+Exact source/build identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
+- functional launcher remediation commit `3b95f3dc9755b84c0b392fe9b90a896dd5a00880` (`fix(xp): inherit child handles without thread attributes`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34194737456`, attempt `1`;
+- job `101959901573` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate build/static result: **success / GREEN**.
+
+Exact artifacts:
+
+- package `10048182039`, digest `sha256:b9d79e74656057b4252c4c12d250f5230d5ee191f0dd7ba839fce805a60c6710`;
+- runtime `10048183305`, digest `sha256:678e93d526d4d8837360e3dafb16d8e3147b09e8bbb4416b5e3773a746770a65`;
+- diagnostics `10048220926`, digest `sha256:d44ca9f6c3afe4f9df336d315279d6c214f0c7c80bad454a125c7af5db5a8445`.
+
+The completed run passed the full browser compile/link, packaging, runtime archive, existing XP PE/import gates, YY-Thunks inventory, artifact uploads and final summary.
+
+Physical Windows XP SP3 x86 testing of this exact candidate was repeated several times. The user-reported executable identities were:
+
+- `r3dfox.exe` SHA-1 `dbfaed8d2d06d50195a572f8364186e4032f8a97`;
+- `xul.dll` SHA-1 `fcc09439c4e36be056b5796303f7e433a7afe585`.
+
+Across repeated launches, the previous primary runtime boundary no longer reproduces:
+
+```text
+SharedPrefMap.cpp:25
+MOZ_RELEASE_ASSERT(map)
+exception 0x80000003
+```
+
+Instead, execution consistently advances to a later exception code:
+
+```text
+0xC06D007F
+```
+
+No owner module, delayed procedure, stack frame, or source line is assigned to `0xC06D007F` yet; that requires exact runtime evidence from the new boundary and must not be guessed from the exception code alone.
+
+Conclusion: **PHYSICAL PASS FOR THE SHARED-PREF CHILD-HANDLE BLOCKER.** The XP `base::LaunchApp` classic-handle-inheritance fallback advances physical execution past the previously repeated `SharedPrefMap.cpp:25` / `ERROR_INVALID_HANDLE` failure. The old SharedPrefMap blocker is closed for source `897e1cdf...` / run `34194737456`; the current physical boundary is now `0xC06D007F`.
+
+Causality cleanup remains intentionally open: source `897e1cdf...` still contains the earlier XP-only `Platform::Freeze()` access-mask experiment (`FILE_MAP_READ | SECTION_QUERY`). Because that change independently failed to advance the old blocker, perform one control rebuild that removes only that access-mask override while preserving the launcher inheritance fix. If the control artifact still advances past SharedPrefMap, drop the access-mask change permanently and retain the launcher fix as the narrow remediation.
+
+Status: **current authoritative physical-XP result for source `897e1cdf...` / run `34194737456`; SharedPrefMap/0x80000003 closed, next boundary `0xC06D007F`, owner unresolved.**
+
+---
+
 ## 2026-09-08 — physical XP WinDbg: `SharedPrefMap` failure is an uninherited child HANDLE; launcher fix is under rebuild
 
 Track: Windows XP SP3 x86 physical runtime / child-process launch compatibility. Independent of GOST TLS runtime.
@@ -90,7 +141,7 @@ Validation build was started from the exact new implementation source:
 
 Do not mark the launcher fix physically closed until run `34194737456` completes successfully and its exact runtime/package artifact is exercised on physical Windows XP. The decisive physical criterion is that the new child processes advance past `SharedPrefMap.cpp:25`; if they do, record the next actual boundary rather than reopening the now-localized invalid-handle diagnosis.
 
-Status: **current / provisional implementation validation; exact runtime root cause established on the `cae81ff...` artifact, source remediation under build at `897e1cdf...`.**
+Status: **superseded by the physical closure entry above; retained as the exact WinDbg root-cause localization for `cae81ff...`.**
 
 ---
 
@@ -235,7 +286,7 @@ No intended second relink occurred in that supplemental step. Because `continue-
 
 This does not invalidate the normal full-build links: the final produced `mozglue.dll`, `nss3.dll`, `libGLESv2.dll` and the other seven formerly missing candidates all pass the final YY contract audit in diagnostics artifact `10028995017`.
 
-Status: **static YY DLL entry-point/TLS coverage debt for the current 13 strong candidates is closed by source `688513...` / run `34138054280`; aggregate RED is an orchestration/experimental warm-relink issue. Physical XP remains separately blocked by the SharedPrefMap child-handle inheritance failure described above.**
+Status: **static YY DLL entry-point/TLS coverage debt for the current 13 strong candidates is closed by source `688513...` / run `34138054280`; aggregate RED is an orchestration/experimental warm-relink issue. Physical XP is now separately beyond SharedPrefMap and blocked later at `0xC06D007F` on source `897e1cdf...`.**
 
 ---
 
@@ -295,9 +346,9 @@ instruction    int 3
 
 Exact-binary analysis resolves it to `MOZ_RELEASE_ASSERT(false)` with embedded line number `487`. The matching source is `gfx/webrender_bindings/Moz2DImageRenderer.cpp`: `translator.TranslateRecording(...)` returned false, emitted `Replay failure: ...`, then hit the release assert. This is a separate GFX symptom and is not currently established as the root cause of the repeated SharedPrefMap failures.
 
-Interpretation: **PHYSICAL XP START FAIL / CURRENT PRIMARY BLOCKER = SHARED-PREF HANDLE NOT INHERITED INTO CHILD PROCESS.** The old Shell32 `SHGetKnownFolderPath` boundary is no longer the first reached boundary. The previous Wasm owner attribution remains superseded.
+Interpretation: **HISTORICAL PHYSICAL XP START FAIL / SHARED-PREF HANDLE NOT INHERITED INTO CHILD PROCESS.** The old Shell32 `SHGetKnownFolderPath` boundary was already passed. Source `897e1cdf...` / run `34194737456` now physically closes this SharedPrefMap boundary.
 
-Status: historical localization for source `cd5e715...` / run `34107793132`; current exact root-cause evidence is the `cae81ff...` WinDbg experiment above.
+Status: historical localization for source `cd5e715...` / run `34107793132`; superseded by the physical closure at source `897e1cdf...`.
 
 ---
 
@@ -323,6 +374,6 @@ Exact artifacts:
 - runtime artifact `10018223364` (`r3dfox-gost-xp-x32-runtime`), 74,928,765 bytes, digest `sha256:ea39193e3f8422ee5e35bbe8f830cef936bb45273eff299392480c17357db61d`;
 - diagnostics artifact `10018257313` (`r3dfox-gost-xp-x32-diagnostics`), 420,489,482 bytes, digest `sha256:8a4f3939b2bf8d30837060172b7cf4dc5de58dcb4a2b06a4a2e9d7220945a325`.
 
-Interpretation: **PASS / HISTORICAL BUILD-VALID BASELINE AT EXACT SHA `cd5e715...`.** This result proves compile/package/static compatibility gates only. It is superseded as the latest all-GREEN build/static baseline by `cae81ff...` / run `34146514899`.
+Interpretation: **PASS / HISTORICAL BUILD-VALID BASELINE AT EXACT SHA `cd5e715...`.** This result proves compile/package/static compatibility gates only. It is superseded as the latest all-GREEN build/static baseline by `897e1cdf...` / run `34194737456`.
 
 Status: retained historical build/static evidence.
