@@ -19,6 +19,10 @@ jobs:
       DWRITE_SHA1: "4e466d98bebea7b31764cfb15603b91a5f53fe72"
       DWRITE_SHA256: "945f83efcec25ea71334a2d6117666aa625641cc2a92def474ef96cffa969e77"
       DWRITE_SIZE: "2667048"
+      YY_THUNKS_TAG: "v1.2.2"
+      YY_THUNKS_SOURCE_SHA: "83d9d0d3f2f212411006e4aa5c5f3db8a6ae2f20"
+      YY_THUNKS_OBJS_SHA256: "518ed7ef4825e8a41997fbccfa2c8090cf31a6038fd51520a2e49886f947f9fc"
+      YY_THUNKS_TARGET: "5.1.2600.0"
       WINDOWS_XP_SUBSYSTEM: "5.01"
 
     steps:
@@ -40,17 +44,77 @@ jobs:
             "workflow_sha=$env:GITHUB_SHA",
             "checkout_source=$source",
             "ref=$env:GITHUB_REF",
-            'scope=static Supermium DWrite dependency-closure audit only',
+            'scope=static Supermium DWrite dependency-closure plus pinned YY-Thunks coverage audit only',
             "supermium_tag=$env:SUPERMIUM_TAG",
             "supermium_asset=$env:SUPERMIUM_ASSET",
             "supermium_asset_sha256=$env:SUPERMIUM_ASSET_SHA256",
-            "dwrite_sha256=$env:DWRITE_SHA256"
+            "dwrite_sha256=$env:DWRITE_SHA256",
+            "yy_thunks_tag=$env:YY_THUNKS_TAG",
+            "yy_thunks_source_sha=$env:YY_THUNKS_SOURCE_SHA",
+            "yy_thunks_objs_sha256=$env:YY_THUNKS_OBJS_SHA256",
+            "yy_thunks_target=$env:YY_THUNKS_TARGET"
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+
+      - name: Download and verify pinned YY-Thunks x86 provider objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = "https://github.com/Chuyu-Team/YY-Thunks/releases/download/$env:YY_THUNKS_TAG/YY-Thunks-Objs.zip"
+          $archive = Join-Path $env:RUNNER_TEMP 'YY-Thunks-Objs.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'yy-thunks-objs'
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          Invoke-WebRequest -Uri $uri -OutFile $archive
+          $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $env:YY_THUNKS_OBJS_SHA256) {
+            throw "Pinned YY-Thunks objects SHA256 mismatch: expected=$env:YY_THUNKS_OBJS_SHA256 actual=$actual"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
+          "YY_OBJS_ROOT=$extract" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @(
+            "source_uri=$uri",
+            "tag=$env:YY_THUNKS_TAG",
+            "source_sha=$env:YY_THUNKS_SOURCE_SHA",
+            "archive_sha256=$actual",
+            "target=$env:YY_THUNKS_TARGET",
+            'architecture=x86'
+          ) | Set-Content -Encoding utf8 diagnostics\yy-thunks-source.txt
+
+      - name: Index pinned YY-Thunks weak-alias providers
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rows = [System.Collections.Generic.List[object]]::new()
+          $targetToken = [regex]::Escape($env:YY_THUNKS_TARGET)
+          foreach ($obj in @(Get-ChildItem -LiteralPath $env:YY_OBJS_ROOT -Recurse -File -Filter '*.obj')) {
+            $normalizedPath = $obj.FullName -replace '/', '\'
+            if ($normalizedPath -notmatch "(?i)\\$targetToken\\x86\\") { continue }
+            if ($obj.Directory.Name -notmatch '(?i)^(.+)\.Lib_WeakAlias$') { continue }
+            $module = $matches[1]
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($obj.Name)
+            $api = $base
+            if ($api -match '^_([^@]+)@\d+$') { $api = $matches[1] }
+            elseif ($api -match '^_([^@]+)$') { $api = $matches[1] }
+            $rows.Add([pscustomobject]@{
+              Module=("$module.dll").ToLowerInvariant()
+              API=$api
+              Object=$obj.FullName
+            })
+          }
+          if ($rows.Count -eq 0) {
+            throw "No YY-Thunks weak-alias providers found for target $env:YY_THUNKS_TARGET x86."
+          }
+          $rows | Sort-Object Module,API,Object | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\yy-weak-alias-providers.csv
+          "YY_PROVIDER_INDEX=$env:GITHUB_WORKSPACE\diagnostics\yy-weak-alias-providers.csv" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @(
+            "provider_count=$($rows.Count)",
+            "target=$env:YY_THUNKS_TARGET",
+            'architecture=x86'
+          ) | Add-Content -Encoding utf8 diagnostics\yy-thunks-source.txt
 
       - name: Download and verify pinned Supermium x86 package
         shell: powershell
@@ -99,7 +163,7 @@ jobs:
             "sha256=$sha256"
           ) | Set-Content -Encoding utf8 diagnostics\dwrite-identity.txt
 
-      - name: Analyze recursive app-local dependency and forwarder closure
+      - name: Analyze recursive app-local dependency, API and forwarder closure
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -109,6 +173,12 @@ jobs:
           function Normalize-ModuleName([string]$name) {
             $value = $name.Trim()
             if ($value -notmatch '(?i)\.(dll|drv)$') { $value += '.dll' }
+            return $value
+          }
+
+          function Normalize-Api([string]$name) {
+            $value = $name.Trim()
+            if ($value -match '^_(.+)@\d+$') { return $matches[1] }
             return $value
           }
 
@@ -123,17 +193,30 @@ jobs:
           function Get-ImportEdges([string[]]$lines) {
             $result = [System.Collections.Generic.List[object]]::new()
             $mode = 'none'
+            $currentModule = $null
             foreach ($line in $lines) {
               if ($line -match '^\s*Section contains the following imports:\s*$') {
                 $mode = 'direct'
+                $currentModule = $null
                 continue
               }
               if ($line -match '^\s*Section contains the following delay load imports:\s*$') {
                 $mode = 'delay'
+                $currentModule = $null
                 continue
               }
               if ($mode -ne 'none' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.(?:dll|drv))\s*$') {
-                $result.Add([pscustomobject]@{ Kind=$mode; Module=(Normalize-ModuleName $matches[1]) })
+                $currentModule = Normalize-ModuleName $matches[1]
+                continue
+              }
+              if ($mode -eq 'none' -or -not $currentModule) { continue }
+              $entry = $line.Trim()
+              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+                $result.Add([pscustomobject]@{
+                  Kind=$mode
+                  Module=$currentModule
+                  Symbol=(Normalize-Api $matches[1])
+                })
               }
             }
             return ,$result
@@ -143,10 +226,27 @@ jobs:
             $result = [System.Collections.Generic.List[object]]::new()
             foreach ($line in $lines) {
               if ($line -match '=\s*([A-Za-z0-9_.-]+)\.([A-Za-z0-9_@?$#-]+)\s*$') {
-                $result.Add([pscustomobject]@{ Kind='forwarder'; Module=(Normalize-ModuleName $matches[1]); Symbol=$matches[2] })
+                $result.Add([pscustomobject]@{
+                  Kind='forwarder'
+                  Module=(Normalize-ModuleName $matches[1])
+                  Symbol=(Normalize-Api $matches[2])
+                })
               }
             }
             return ,$result
+          }
+
+          $yyProviders = @{}
+          foreach ($row in @(Import-Csv -LiteralPath $env:YY_PROVIDER_INDEX)) {
+            $key = ($row.Module.ToLowerInvariant() + '!' + $row.API.ToLowerInvariant())
+            if (-not $yyProviders.ContainsKey($key)) { $yyProviders[$key] = $row.Object }
+          }
+
+          function Get-YyProvider([string]$module, [string]$api) {
+            if (-not $api) { return $null }
+            $key = ($module.ToLowerInvariant() + '!' + $api.ToLowerInvariant())
+            if ($yyProviders.ContainsKey($key)) { return $yyProviders[$key] }
+            return $null
           }
 
           $xpSystemNames = @(
@@ -232,11 +332,22 @@ jobs:
             foreach ($edge in $fileEdges) {
               $module = Normalize-ModuleName $edge.Module
               $classification = Get-Classification $module
+              $yyProvider = Get-YyProvider $module $edge.Symbol
+              $yyCoverage = if ($yyProvider) { 'provider-present' } else { 'provider-absent' }
+              $yyApplicability = if ($yyProvider) {
+                'prebuilt-pe-relink-or-provider-shim-required'
+              } else {
+                'none'
+              }
               $edgeRows.Add([pscustomobject]@{
                 From=$file.Name
                 Kind=$edge.Kind
                 To=$module
+                API=$edge.Symbol
                 Classification=$classification
+                YYCoverage=$yyCoverage
+                YYApplicability=$yyApplicability
+                YYProviderObject=$yyProvider
               })
               $localKey = $module.ToLowerInvariant()
               if ($local.ContainsKey($localKey)) {
@@ -247,13 +358,15 @@ jobs:
           }
 
           $filesSorted = @($fileRows | Sort-Object File)
-          $edgesSorted = @($edgeRows | Sort-Object From,Kind,To -Unique)
+          $edgesSorted = @($edgeRows | Sort-Object From,Kind,To,API -Unique)
           $filesSorted | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\closure-files.csv
           $edgesSorted | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\closure-edges.csv
 
           $unresolved = @($edgesSorted | Where-Object Classification -eq 'external-unresolved')
           $retarget = @($filesSorted | Where-Object NeedsRetarget -eq $true)
           $localCompat = @($filesSorted | Where-Object Classification -in @('supermium-compat','crt-api-set','crt-ucrtbase','app-local-d3dcompiler','app-local-other'))
+          $yyCovered = @($edgesSorted | Where-Object YYCoverage -eq 'provider-present')
+          $yyCovered | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\yy-covered-closure-edges.csv
 
           @(
             "dwrite_root=$env:DWRITE_ROOT",
@@ -261,6 +374,11 @@ jobs:
             "companion_file_count=$($localCompat.Count)",
             "unresolved_external_count=$($unresolved.Count)",
             "retarget_required_count=$($retarget.Count)",
+            "yy_provider_edge_count=$($yyCovered.Count)",
+            'yy_direct_runtime_interposition=NO',
+            'yy_note=providers linked into r3dfox/xul do not rewrite imports of prebuilt Supermium DLLs',
+            'yy_candidate_use=relink source if available, or build a narrow provider shim for exact required exports',
+            'yy_dwrite_fallback=not_a_replacement_for_real_DWrite_on_XP',
             "provider_graph_status=$(if ($unresolved.Count -eq 0) { 'RESOLVED' } else { 'UNRESOLVED' })",
             'runtime_status=NOT_TESTED',
             'xp_api_compatibility=REQUIRES_IMPORT_REVIEW'
@@ -268,8 +386,8 @@ jobs:
 
           '=== closure files ===' | Write-Host
           $filesSorted | Format-Table File,Classification,Size,Subsystem,NeedsRetarget,SHA256 -AutoSize | Out-String | Write-Host
-          '=== closure edges ===' | Write-Host
-          $edgesSorted | Format-Table From,Kind,To,Classification -AutoSize | Out-String | Write-Host
+          '=== closure API edges with YY coverage ===' | Write-Host
+          $edgesSorted | Format-Table From,Kind,To,API,Classification,YYCoverage -AutoSize | Out-String | Write-Host
           '=== summary ===' | Write-Host
           Get-Content diagnostics\closure-summary.txt | ForEach-Object { Write-Host $_ }
 
