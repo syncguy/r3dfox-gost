@@ -184,9 +184,6 @@ PlatformHandle Platform::CloneHandle(const PlatformHandle& aHandle) {
 bool Platform::Freeze(FreezableHandle& aHandle) {
   HANDLE ro_handle;
   DWORD readOnlyAccess = GENERIC_READ | FILE_MAP_READ;
-#ifdef MOZ_XP_COMPAT
-  readOnlyAccess = FILE_MAP_READ | SECTION_QUERY;
-#endif
   if (!::DuplicateHandle(::GetCurrentProcess(), aHandle.mHandle.get(),
                          ::GetCurrentProcess(), &ro_handle, readOnlyAccess,
                          false, 0)) {
