@@ -1,6 +1,6 @@
 # Windows XP SP3 x86 — runtime compatibility status
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Track: Windows XP SP3 x86 runtime compatibility only. This document does not describe or prove GOST TLS / NSS / MSSPI / CryptoPro handshake behavior and does not authorize a Firefox/r3dfox 153 -> 154 base update.
 
@@ -12,108 +12,124 @@ Frozen baseline: `win-153`; do not modify, merge, rebase or push to it without e
 
 This is the current handoff for the physical-XP startup and static-runtime-closure line. Read it together with `PROJECT_STATE.md`, the newest XP entries in `TEST_LOG.md`, `TODO.md`, `XP_BUILD_CONTRACT.md`, `XP_MOZ_XP_COMPAT_CONTRACT.md`, and `XP_KERNEL32_SOURCE_REMEDIATION_STATUS.md` before proposing runtime-compatibility changes. When identities differ, the newest exact source/run/job/artifact record in `PROJECT_STATE.md` / `TEST_LOG.md` is authoritative.
 
-## Latest completed build/static boundary — GREEN
+## Latest all-GREEN full-build/static baseline
 
-The latest completed full XP x32 build/static candidate is:
+The latest full XP x32 build whose aggregate job conclusion is GREEN is:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`;
+- source-under-test `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` (`fix(xp): use legacy ProgramData shell folder`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- Actions run `34038288272`, attempt `1`;
-- job `101500284497` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- Actions run `34107793132`, attempt `1`;
+- job `101696721232` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate conclusion: **success**;
-- package artifact `9992439692`, `327779922` bytes, digest `sha256:d38cee9081debcab2beedab3b8254574bbc85e6cc135f52839a6ec2bb58db651`;
-- runtime artifact `9992440155`, `74923409` bytes, digest `sha256:33731607bbef1e01cfe8b9063be56dd17f149bb9aae547349e7e5b6f5d8c32f4`;
-- diagnostics artifact `9992440699`, `6007435` bytes, digest `sha256:0820af3fdfc031ca10dc21546c5f4caee6080da7477aac4109c8e5a3be9fdc6f`.
+- package artifact `10018222073`, digest `sha256:e2d535dc622c67cffb754f8bcafbb6d89127e7cdd7d0e40a298c2f675fda5b38`;
+- runtime artifact `10018223364`, digest `sha256:ea39193e3f8422ee5e35bbe8f830cef936bb45273eff299392480c17357db61d`;
+- diagnostics artifact `10018257313`, digest `sha256:8a4f3939b2bf8d30837060172b7cf4dc5de58dcb4a2b06a4a2e9d7220945a325`.
 
-Relative to the preceding GREEN source `176eb94b503e773334593508df408fa491faa45f`, the only repository file changed in the two-commit compare is `.github/workflows/gost-poc-build-xp-x32.yml`. Commit `87f09e31b24157af44b3068480295da66e054405` adds the scoped YY-Thunks DLL/TLS entry-point contract for `xul.dll`, and commit `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278` fixes the generated `toolkit/library/moz.build` indentation so the contract is applied under the intended `xul-real` / `WINNT` scope:
+The build, packaging, runtime archive, XP PE/import gates, matching-PDB diagnostics, YY-Thunks inventory, artifact uploads and final summary all completed successfully. This remains the canonical all-GREEN build/static baseline. Its exact runtime artifact has also been physically tested on XP and currently stops later at the SharedPrefMap read-only mapping failure described below.
+
+## Latest YY DLL entry-point/TLS coverage experiment — STATIC CLOSURE, aggregate RED explained
+
+A later full XP x32 build was deliberately used to extend the already-proven xul YY-Thunks DLL/TLS startup contract to every strong YY-resolver candidate reported by the previous full-build diagnostics.
+
+Exact identity:
+
+- workflow-definition / run-head branch: `agent/gost-tls-poc`;
+- workflow-definition / run-head SHA: `4ea3b94c048436c3f316704c54605567dba975bd`;
+- checked-out implementation branch: `agent/winrt-source-poc`;
+- source-under-test: `6885135565f7262bb88c80c4751f4a6c4b93e3ef`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `34138054280`, attempt `1`;
+- job `101793510758` (`Windows x86 / r3dfox GOST / XP YY DLL entry-point experiment`);
+- aggregate job conclusion: **failure**, for the supplemental warm-relink experiment described below, not for the Firefox build or YY coverage gate.
+
+Exact artifacts were produced before the final aggregate RED:
+
+- package artifact `10028971959`, 327,817,004 bytes, digest `sha256:a856a62da534f774d08cb576978a86001bb063848bc7a30edae362db94749920`;
+- runtime artifact `10028972525`, 74,931,692 bytes, digest `sha256:29b8b69d59a7c8ac99f1d5919eee1bba7a97f89a0ecdba209ccd821018523391`;
+- diagnostics artifact `10028995017`, 420,495,148 bytes, digest `sha256:6ff6bb1f934ba814059848fd640312bf422446ece11ead93408782872a48e864`.
+
+The full Firefox compile/link succeeded. Packaging, runtime archive creation, PE floor/direct-import audit and `GATE - Verify YY-Thunks DLL entry-point coverage` all succeeded. The YY inventory changed from the preceding run `34107793132`:
+
+```text
+run 34107793132: strong candidates=13, contracts=3,  missing=10
+run 34138054280: strong candidates=13, contracts=13, missing=0
+```
+
+The xul positive control remained true. `yy-dll-entrypoint-missing-contract.txt` contains `none`.
+
+The ten formerly missing strong candidates all have `contract=true` in the exact diagnostics artifact:
+
+```text
+gkcodecs.dll
+gmp-clearkey/0.1/clearkey.dll
+gmp-fake/1.0/fake.dll
+gmp-fakeopenh264/1.0/fakeopenh264.dll
+libGLESv2.dll
+mozavcodec.dll
+mozavutil.dll
+mozglue.dll
+mozinference.dll
+nss3.dll
+```
+
+Therefore the current strong-candidate set has **13/13 static YY DLL entry-point/TLS contract coverage and 0 missing candidates** in source `688513...` / run `34138054280`. This closes the known static YY DLL entry-point coverage debt for this candidate inventory. It does not prove physical-XP runtime success.
+
+### Why the aggregate job is RED
+
+The supplemental step `GATE - Warm-relink early YY DLLs from completed objdir` was run with `continue-on-error` and internally failed because its objdir-layout assumptions were wrong:
+
+```text
+mozglue.dll  — expected one local mozglue.dll before warm relink; found 0
+nss3.dll     — expected one generated nss_nss3 target directory; found 0
+libGLESv2.dll — expected one local libGLESv2.dll before warm relink; found 0
+```
+
+The step therefore did not perform the intended second relink. GitHub displayed the continued step as completed, but its internal outcome remained `failure`; the final `GATE - Summarize XP YY x32 full build` correctly converted that recorded outcome into the aggregate RED.
+
+This warm-relink failure does **not** invalidate the already-completed normal full-build links: the final produced `mozglue.dll`, `nss3.dll`, `libGLESv2.dll` and the other seven candidates all pass the final YY entry-point/TLS contract audit. Do not repeat separate per-library builds merely to re-prove this static result. If the workflow is cleaned up, the flawed warm-relink experiment should be removed or converted to verification of the already-built final DLLs rather than treated as a required rebuild path.
+
+## Current physical-XP blocker — `SharedPrefMap` read-only mapping failure
+
+The exact all-GREEN `cd5e715...` runtime artifact `10018223364` has been physically executed on Windows XP SP3 x86. Nine repeated `0x80000003` failures resolve by exact binary/PDB evidence to:
+
+```text
+modules/libpref/SharedPrefMap.cpp:25
+SharedPrefMap::SharedPrefMap(const ReadOnlySharedMemoryHandle&)
+MOZ_RELEASE_ASSERT(map)
+```
+
+The source path is:
+
+```cpp
+auto map = aMapHandle.Map();
+MOZ_RELEASE_ASSERT(map);
+```
+
+On Windows this reaches `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Map`, where `MapViewOfFileEx(FILE_MAP_READ, ...)` returns `NULL`. The current physical capture does not preserve the immediate `GetLastError()`, so handle rights/duplication, IPC/sandbox transfer and XP mapping semantics remain hypotheses.
+
+One separate process reached `gfx/webrender_bindings/Moz2DImageRenderer.cpp:487` after `translator.TranslateRecording(...)` returned false. Keep that Moz2D replay failure separate from the nine repeated SharedPrefMap failures.
+
+The next physical-XP experiment remains narrow instrumentation of the shared-memory mapping failure: capture `GetLastError()` immediately after the failed `MapViewOfFileEx`, handle validity/access context, offset, size, read-only/read-write mode and fixed-address request. Do not suppress `MOZ_RELEASE_ASSERT(map)` or add a speculative shared-memory fallback before that evidence exists.
+
+The 13/13 YY static closure in run `34138054280` does not change this current physical blocker until its exact runtime artifact is physically exercised and produces contradictory evidence.
+
+## Historical loader/runtime progression — closed evidence
+
+### `RtlpWaitForCriticalSection` / xul YY startup contract
+
+Source `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`, run `34038288272`, job `101500284497`, runtime artifact `9992440155` physically advanced past the older xul startup access violation in `ntdll!RtlpWaitForCriticalSection` after scoped YY-Thunks DLL/TLS startup integration for `xul.dll`:
 
 ```text
 -ENTRY:DllMainCRTStartupForYY_Thunks
 -alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12
 ```
 
-The exact job completed the full Firefox compile/link, packaging, source-remediation gates, ADVAPI32 compatibility gate, DPI delay-import gate, core XP direct-import rejection, PE retarget/audit gates, all artifact uploads and final summary successfully.
+The preceding failure on source `176eb94b503e773334593508df408fa491faa45f`, run `34027798932`, job `101471779766`, runtime artifact `9989657830` remains historical evidence for a different exact browser and is no longer the current blocker.
 
-## Physical XP result — old xul critical-section blocker CLOSED
+### IP Helper API
 
-The exact runtime artifact `9992440155` has been physically executed on Windows XP SP3 x86. User-reported extracted-file identities are:
-
-- `r3dfox.exe` SHA-1 `a2a64f6eb719d632b6264d48984de9e85a82acb7`;
-- `xul.dll` SHA-1 `7ef46570af15390fa1c431c9d1b93ff985d79c22`.
-
-On this exact browser the previous startup access violation in `ntdll!RtlpWaitForCriticalSection` from `xul.dll` is no longer observed. Therefore the old critical-section blocker is physically closed for source `b386b7f4...` / run `34038288272` / job `101500284497` / runtime artifact `9992440155`.
-
-The preceding physical failure remains historical evidence for a different exact browser:
-
-- source `176eb94b503e773334593508df408fa491faa45f`;
-- run `34027798932`, job `101471779766`;
-- runtime artifact `9989657830`, digest `sha256:64b0f5a0ccf94900fa882069369e26d3beaf46fa128f7b6b650c44d1e87c2c2f`;
-- diagnostics artifact `9989658809`, digest `sha256:9e3e9e2e6fac3f0a33a17d94bdf0460edd1020c61c388307a2f8ccd78e2f50fb`.
-
-That older artifact failed with:
-
-```text
-Exception: C0000005
-ntdll!RtlpWaitForCriticalSection
-  -> ntdll!RtlEnterCriticalSection
-  -> xul.dll
-  -> xul!XRE_GetBootstrap
-```
-
-and the fault shape was:
-
-```text
-mov eax,[esi]
-inc dword ptr [eax+0x10]
-```
-
-with `EAX == 0`, consistent with a null `RTL_CRITICAL_SECTION.DebugInfo` in the contended wait path. This is no longer the current runtime blocker and must not be projected onto later artifacts.
-
-The old disassembly finding also remains historical: YY-Thunks' selected `InitializeCriticalSectionEx` XP fallback ignored the third `Flags` argument and called `InitializeCriticalSectionAndSpinCount`, so direct forwarding of `CRITICAL_SECTION_NO_DEBUG_INFO` was not supported as the explanation. The separate DLL/TLS entry-point integration variable was then changed by `b386b7f4...`, and the exact successor browser advanced physically beyond the failure.
-
-## Current compatibility line — IP Helper API
-
-After the critical-section closure, active XP work moved to IP Helper API ownership in `xul.dll` and its source components.
-
-Current implementation lineage after `b386b7f4...`:
-
-- `97ad36ef0322f307ccb43bc4dd5fdcc744a22f16` — `nsNotifyAddrListener.cpp` adds the XP `NotifyAddrChange` monitoring path and excludes the Vista+ `NotifyIpInterfaceChange` callback path under `MOZ_XP_COMPAT`;
-- `9ea33a7b2972e231c95157db416fe866e6f6c667` — `netwerk/system/win32/moz.build` compiles `nsNotifyAddrListener.cpp` with `-DMOZ_XP_COMPAT`;
-- `7e4965bc2057f6f0a75d043f0711fefbcfddff68` — vendored `third_party/rust/mtu/src/windows.rs` uses an XP legacy adapter-enumeration path instead of `GetIpInterfaceTable` / `FreeMibTable` / `if_indextoname`;
-- `bc37171160d9cad9b81b81da681626b0dd9dcd2d` — refreshes the corresponding vendored `mtu` checksum;
-- current implementation HEAD `0a18ba85b3f493b17c5a62742e869788ca3f2f6b` — adds a non-blocking final-`xul.dll` IPHLPAPI import diagnostic.
-
-The current diagnostic expects these post-XP/modern paths to be absent from final `xul.dll`:
-
-```text
-NotifyIpInterfaceChange
-CancelMibChangeNotify2
-GetIpInterfaceTable
-FreeMibTable
-if_indextoname
-```
-
-and explicitly records these intended legacy IP Helper imports:
-
-```text
-GetAdaptersAddresses
-GetBestInterfaceEx
-```
-
-This diagnostic is evidence collection, not an acceptance gate by itself.
-
-### Current validation run — provisional
-
-- source-under-test `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`;
-- workflow `GOST TLS PoC build  XP x32`;
-- run `34079480996`, attempt `1`;
-- job `101611911453`;
-- state at last check: **in progress**.
-
-At that check, setup through configure/export and the SSL target-object gate had passed, while `Build release r3dfox XP x32` was still running. The new IPHLPAPI diagnostic and all later final/static/package gates were still pending. Do not record them as passed until the exact run completes.
-
-## Historical loader/runtime progression — closed evidence
+The source-owned XP compatibility work replaced the Vista+ `NotifyIpInterfaceChange` path with the XP `NotifyAddrChange` path and replaced Rust `mtu` use of `GetIpInterfaceTable` / `FreeMibTable` / `if_indextoname` with the intended legacy adapter-enumeration path. Source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`, run `34079480996`, job `101611911453` physically advanced past the preceding IP Helper boundary. Treat that line as historical/closed unless later exact evidence contradicts it.
 
 ### `SetProcessDPIAware`
 
@@ -151,7 +167,7 @@ EventWrite
 EventWriteTransfer
 ```
 
-Focused YY capability for all four names passed at source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, run `33882235341`, job `101053403554`. Later full-build integration closed the production ETW imports; the latest completed full build keeps the dedicated ADVAPI32 compatibility gate GREEN. Do not leave ETW as current backlog.
+Focused YY capability for all four names passed at source `53971dcfdf12e7bcd7f35692ff2c02fb3360d792`, run `33882235341`, job `101053403554`. Later full-build integration closed the production ETW imports. Do not leave ETW as current backlog.
 
 ### ANGLE / DXGI
 
@@ -165,7 +181,7 @@ was owned by separately linked `libGLESv2.dll`, not by `xul.dll`. Later compatib
 
 ### WS2_32
 
-The observed WS2_32 family, including focused capability for `WSAIoctl` / `inet_ntop` and later integration work for `WSASendMsg` / `WSCGetProviderInfo`, is incorporated into the current GREEN lineage. Reopen only on contradictory exact import/runtime evidence.
+The observed WS2_32 family, including focused capability for `WSAIoctl` / `inet_ntop` and later integration work for `WSASendMsg` / `WSCGetProviderInfo`, is incorporated into the current lineage. Reopen only on contradictory exact import/runtime evidence.
 
 ## Current physical XP system-DLL baseline
 
@@ -226,26 +242,26 @@ Architecture rule: prefer source-level compile-time selection of Firefox's exist
 - KERNEL32 source-remediation quartet at final-production 0/4;
 - final-production `xul.dll -> PROPSYS.dll` ordinary-dependency closure;
 - historical `SetProcessDPIAware` root-cause diagnosis and source/static DPI remediation;
+- IP Helper observed compatibility family in the physically advanced lineage;
 - WS2_32 observed compatibility family integration;
 - ANGLE/DXGI `CreateDXGIFactory1` static closure;
-- YY-Thunks DLL/TLS entry-point integration for `xul.dll` at full-build/static level;
-- physical closure of the old `xul.dll` `RtlpWaitForCriticalSection` startup failure on runtime artifact `9992440155`;
+- YY-Thunks DLL/TLS entry-point integration for `xul.dll` with physical advancement past the old critical-section failure;
+- current strong-candidate YY DLL entry-point/TLS static inventory at `13/13`, `missing=0`, run `34138054280`, source `688513...`;
 - historical curated broad-gate `69 -> 3 -> 0` progression.
 
 A new family-specific contradiction is required to reopen any of them.
 
 ## Next experiment order
 
-1. **Finish and classify run `34079480996`.** Bind the result to job `101611911453` and source `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`; inspect the exact final IPHLPAPI diagnostic and preserve every already-closed regression gate.
-2. **If the full build succeeds, physically test its exact runtime artifact on Windows XP SP3 x86.** Do not infer runtime closure from source or final imports alone.
-3. **Use the complete final `xul.dll` IPHLPAPI inventory to close the family by owner rather than one loader error at a time.** Preserve only the intended XP-supported `GetAdaptersAddresses` / `GetBestInterfaceEx` path unless exact evidence requires a different owner-specific solution.
-4. **If physical XP advances, capture the next actual runtime boundary and update `TEST_LOG.md` / `PROJECT_STATE.md` before starting another subsystem.**
-5. **Investigate optional modern surfaces only when evidence reaches them.** WinRT API sets, UIAutomationCore, NCRYPT, AVRT, DWMAPI and similar paths remain hypotheses until exact runtime/static evidence promotes them.
-6. **GOST TLS on XP remains later and separate.** A browser that starts and browses on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
+1. **Keep the YY result classified correctly.** Run `34138054280` statically closes current strong-candidate YY DLL startup coverage at `13/13`; its aggregate RED comes from the flawed supplemental warm-relink experiment and is not a failed Firefox build. Do not schedule separate library builds just to repeat the same proof.
+2. **Diagnose the current physical SharedPrefMap blocker.** Instrument `SharedMemoryPlatform_windows.cpp::Platform::Map` and capture the immediate `GetLastError()` plus sanitized mapping/handle context on the next exact build/runtime pair.
+3. **Keep the Moz2D replay assert separate.** Investigate it only if it persists or becomes the primary boundary after SharedPrefMap is understood.
+4. **Investigate optional modern surfaces only when evidence reaches them.** WinRT API sets, UIAutomationCore, NCRYPT, AVRT, DWMAPI and similar paths remain hypotheses until exact runtime/static evidence promotes them.
+5. **GOST TLS on XP remains later and separate.** A browser that starts and browses on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
 
 # Acceptance boundary
 
-A browser is not accepted as XP-compatible merely because the workflow is GREEN. Acceptance still requires:
+A browser is not accepted as XP-compatible merely because the workflow is GREEN or because static YY entry-point coverage is complete. Acceptance still requires:
 
 1. exact source-under-test SHA;
 2. exact run/job identity;
