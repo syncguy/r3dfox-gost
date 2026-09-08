@@ -50,7 +50,7 @@ This track is independent of GOST TLS runtime. Active implementation work is on 
 
 ## Current all-GREEN build/static candidate
 
-Current implementation/source-under-test:
+Latest built and physically exercised source-under-test:
 
 - branch `agent/winrt-source-poc`;
 - SHA `897e1cdf98bcc091e13283fa8004177971d30f27`;
@@ -113,9 +113,9 @@ The first repeatedly observed later boundary on the current exact artifact is ex
 
 Current evidence does not yet identify the owning module, missing/delayed procedure, stack frame, or source line. Do not guess the owner from the exception code alone. The next runtime analysis must establish the exact module/API/stack boundary before changing code.
 
-## Access-mask experiment remains rejected; one causal control rebuild is still required
+## Rejected `Platform::Freeze()` access-mask override removed from source
 
-The earlier XP-only `Platform::Freeze()` change from:
+The earlier XP-only `Platform::Freeze()` experiment changed:
 
 ```text
 GENERIC_READ | FILE_MAP_READ
@@ -127,9 +127,16 @@ to:
 FILE_MAP_READ | SECTION_QUERY
 ```
 
-was already tested independently on source `cae81ff...` and did **not** advance the SharedPrefMap failure. Source `897e1cdf...` still contains that experiment alongside the now-physically-successful launcher fix.
+It independently failed to advance the SharedPrefMap boundary on source `cae81ff...`, while the later launcher inheritance fix physically advanced past that boundary on source `897e1cdf...`.
 
-For a clean final attribution, perform one control rebuild that removes only the XP `FILE_MAP_READ | SECTION_QUERY` override while preserving the launcher inheritance fix. If that control artifact still passes SharedPrefMap physically, permanently drop the access-mask change and retain only the launcher fix as the narrow remediation.
+The rejected override has now been removed from the implementation branch without touching the successful launcher remediation:
+
+- new implementation HEAD `dad33d25dddc060ee74d773dcc492d835a78fd1e`;
+- commit `fix(xp): drop rejected shared-memory access override`;
+- only changed file: `ipc/glue/SharedMemoryPlatform_windows.cpp`;
+- diff versus `897e1cdf...`: exactly three deleted lines, restoring the common `GENERIC_READ | FILE_MAP_READ` path.
+
+No heavy Firefox rebuild is being started solely for this cleanup. The next full XP build should first include the precise remediation for the new `0xC06D007F` boundary; that same build will serve as the causal control proving that SharedPrefMap remains passed without the rejected access-mask override.
 
 ## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
 
@@ -167,7 +174,7 @@ Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility owne
 
 Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-Current state: source `897e1cdf...` / run `34194737456` is all-GREEN at build/static level and physically advances beyond the former SharedPrefMap blocker. The current observed runtime boundary is `0xC06D007F`, not yet localized to an owner. A separate control rebuild should remove the rejected `Platform::Freeze()` access-mask experiment while preserving the launcher fix. XP runtime success would still not prove a GOST TLS handshake.
+Current physical evidence remains source `897e1cdf...` / run `34194737456`: it is all-GREEN at build/static level and physically advances beyond the former SharedPrefMap blocker to `0xC06D007F`. Current implementation HEAD `dad33d25...` removes only the rejected shared-memory access override and has not yet been rebuilt. First localize and remediate the new exact API/runtime boundary; then use the next full build to validate both that remediation and continued SharedPrefMap closure without the rejected override. XP runtime success would still not prove a GOST TLS handshake.
 
 # Bundled government-system extensions / localization
 
