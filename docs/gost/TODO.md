@@ -102,42 +102,48 @@ Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); 
 
 ### Current exact boundary
 
-Latest built and physically exercised candidate:
+Latest physically exercised candidate remains:
 
 - branch `agent/winrt-source-poc`;
 - source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `34194737456`, job `101959901573`;
-- build/static result **success / GREEN**;
-- package artifact `10048182039`;
-- runtime artifact `10048183305`;
-- diagnostics artifact `10048220926`.
+- workflow run `34194737456`, job `101959901573`;
+- physical `r3dfox.exe` SHA-1 `dbfaed8d2d06d50195a572f8364186e4032f8a97`;
+- physical `xul.dll` SHA-1 `fcc09439c4e36be056b5796303f7e433a7afe585`.
 
-Physical XP repeated launches on this exact candidate no longer reproduce the former `SharedPrefMap.cpp:25` / `0x80000003` failure. The child-handle inheritance remediation in `base::LaunchApp` therefore physically closes that blocker for this source/build identity.
-
-Current first repeatedly observed later boundary:
+Physical XP repeatedly advances past the former `SharedPrefMap.cpp:25` / `0x80000003` child-HANDLE blocker on that exact candidate. The next physical exception `0xC06D007F` is now exactly localized to the MSVC delay-load of:
 
 ```text
-0xC06D007F
+USER32.dll!RegisterPowerSettingNotification
 ```
 
-Owner module/API/stack is not yet established and must not be guessed.
+The owner is `hal/windows/WindowsBattery.cpp` reached from `GPUProcessManager::BatteryObserver`. This root cause is established; do not relocalize it without contradictory evidence.
 
-Current implementation HEAD after source cleanup:
+Current implementation HEAD and latest all-GREEN build/static candidate:
 
-- `dad33d25dddc060ee74d773dcc492d835a78fd1e`;
-- removes only the rejected XP `FILE_MAP_READ | SECTION_QUERY` override from `ipc/glue/SharedMemoryPlatform_windows.cpp`;
-- preserves the successful launcher HANDLE-inheritance remediation unchanged;
-- this cleanup has not yet been rebuilt.
+- source-under-test `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`;
+- run `34213345771`, job `102019253738`;
+- aggregate result **success / GREEN**;
+- package artifact `10056086223`, digest `sha256:9135b55913dfcf49390d022b94c21520ed2f5852e8b846f4b117635696634949`;
+- runtime artifact `10056088395`, digest `sha256:2cf7cf6ca44c0d8abddb930564a65bdf57188f4a2ae0fd5a56b29d7c522ce57f`;
+- diagnostics artifact `10056127829`, digest `sha256:04d284ce8738a63b72508e00747576c56fb2dfb86233e6e460fc1803b4234b33`.
+
+This source includes three relevant pieces of the current lineage:
+
+1. the physically successful XP classic child-HANDLE inheritance fallback;
+2. removal of the rejected `Platform::Freeze()` `FILE_MAP_READ | SECTION_QUERY` access-mask experiment;
+3. the narrow XP battery fallback using `PBT_APMPOWERSTATUSCHANGE`, with the Vista-only registration APIs compiled out.
+
+The dedicated final `xul.dll` battery gate passed and proves both `RegisterPowerSettingNotification` and `UnregisterPowerSettingNotification` are absent from ordinary and delay-load USER32 imports in the exact new build.
 
 ### Open work, in order
 
-1. **Localize `0xC06D007F` on the exact `897e1cdf...` physical artifact.** Obtain the owning process/module, stack and exact missing/delayed procedure or other concrete runtime boundary before changing code. Do not infer the owner from the exception code alone.
-2. **Implement the narrow owner-specific remediation for that new boundary.** Prefer source-level/legacy-API correction over a broad workaround.
-3. **Do not start a heavyweight Firefox build solely for the access-mask cleanup.** The next full XP build should include both the precise `0xC06D007F` remediation and current HEAD `dad33d25...`; that same build is the causal control for removal of the rejected `Platform::Freeze()` override.
-4. **Physically validate both boundaries on the next exact artifact.** It must remain past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE`, and then advance past or precisely reproduce the `0xC06D007F` owner being fixed.
-5. **After each physical advance, record the next actual boundary before touching another subsystem.** Preserve all already-closed compatibility families.
-6. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
+1. **Physically test exact runtime artifact `10056088395` from run `34213345771`.** Keep its identity tied to source `db334d...`; record local `r3dfox.exe` / `xul.dll` hashes before attributing runtime evidence.
+2. **Confirm SharedPrefMap remains physically closed after the cleanup.** The exact new artifact must still advance past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE`; this is the remaining physical causal control for removal of the rejected access-mask override.
+3. **Confirm the old battery delay-load boundary is physically passed.** The new artifact must not reproduce `0xC06D007F` from `USER32!RegisterPowerSettingNotification`.
+4. **Record the next actual boundary.** If startup advances and another blocker appears, establish its exact process/module/stack/API identity before changing code.
+5. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
+
+No additional build is justified before this physical test: the required full browser candidate and diagnostics already exist and all current static gates are GREEN.
 
 ### Deferred XP cleanup — battery observer simplification
 
@@ -170,6 +176,8 @@ The current lineage has already closed or physically advanced past the following
 - IP Helper physical boundary;
 - old `xul.dll` `RtlpWaitForCriticalSection` startup failure;
 - YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13).
+
+The battery `RegisterPowerSettingNotification` edge is **statically removed but not yet physically closed** on the successor candidate, so keep it out of the physically closed list until exact XP execution confirms the advance.
 
 Full YY `kernel32.lib` interposition remains prohibited.
 
