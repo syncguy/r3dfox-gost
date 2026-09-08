@@ -98,152 +98,74 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 ## Windows compatibility — independent
 
-Current detailed synthesis for the physical Windows XP SP3 x86 startup/runtime-closure line is in [`PROJECT_STATE.md`](./PROJECT_STATE.md) plus the newest XP entries in [`TEST_LOG.md`](./TEST_LOG.md). `XP_RUNTIME_COMPATIBILITY_STATUS.md` contains detailed owner-by-owner context and must not override newer exact run/artifact identities recorded there.
-
-The current mandatory build/dependency contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md). Preserve all already-proven dependency families while advancing one owner/component at a time.
+Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md). The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
 ### Current exact boundary
 
-Latest completed full XP x32 build/static candidate:
+Latest completed all-GREEN build/static baseline:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `b386b7f4ba8fd20619a2b7ee541a6b8fe609e278`;
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `34038288272`, attempt `1`;
-- job `101500284497`;
-- package artifact `9992439692`, digest `sha256:d38cee9081debcab2beedab3b8254574bbc85e6cc135f52839a6ec2bb58db651`;
-- runtime artifact `9992440155`, digest `sha256:33731607bbef1e01cfe8b9063be56dd17f149bb9aae547349e7e5b6f5d8c32f4`;
-- diagnostics artifact `9992440699`, digest `sha256:0820af3fdfc031ca10dc21546c5f4caee6080da7477aac4109c8e5a3be9fdc6f`;
-- aggregate workflow result **GREEN / success**.
+- source-under-test `cae81ff9798f759b9a2b162e3455a8ddf382c8ad`;
+- run `34146514899`, job `101819627976`;
+- result **success / GREEN**.
 
-This exact browser has now been physically exercised on Windows XP SP3 x86. User-reported extracted identities are:
+Physical XP on that exact build still reaches `SharedPrefMap.cpp:25`, but WinDbg has now localized the reason precisely: `MapViewOfFileEx` returns `ERROR_INVALID_HANDLE` because the numeric `-prefMapHandle` value arrives in the child while the corresponding kernel HANDLE is not inherited.
 
-- `r3dfox.exe` SHA-1 `a2a64f6eb719d632b6264d48984de9e85a82acb7`;
-- `xul.dll` SHA-1 `7ef46570af15390fa1c431c9d1b93ff985d79c22`.
+The tested `FILE_MAP_READ | SECTION_QUERY` `Freeze()` hypothesis is rejected and must not be reopened without contradictory evidence.
 
-The old `xul.dll` `ntdll!RtlpWaitForCriticalSection` startup failure is **not reproduced** on this exact candidate. Therefore that blocker is closed for source `b386b7f4...` / runtime artifact `9992440155`; the historical failure remains tied only to source `176eb94b...`, run `34027798932`, job `101471779766`, runtime artifact `9989657830`.
+### Current source remediation under validation
 
-### Closed in this iteration — do not leave as backlog
+Functional launcher fix:
 
-The following older items are superseded by completed evidence and must not be repeated without contradictory evidence:
+- commit `3b95f3dc9755b84c0b392fe9b90a896dd5a00880` — `fix(xp): inherit child handles without thread attributes`;
+- current implementation/source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`.
 
-- debugger localization of the historical `kernel32!RaiseException` startup failure to `USER32.dll!SetProcessDPIAware`;
-- KERNEL32 source-remediation quartet closure;
-- focused and full Firefox `NtCancelIoFileEx` closure;
-- `xul.dll -> PROPSYS.dll` ordinary dependency closure;
-- ADVAPI32 ETW focused capability and later full-build integration;
-- WS2_32 compatibility integration for the observed `WSAIoctl`, `inet_ntop`, `WSASendMsg`, and `WSCGetProviderInfo` family;
-- ANGLE/DXGI static closure removing `libGLESv2.dll -> dxgi.dll!CreateDXGIFactory1` while preserving D3D9 fallback;
-- the historical broad curated forbidden-import progression `69 -> 3 -> 0`;
-- full-build/static integration of the YY-Thunks DLL/TLS entry-point contract for `xul.dll` in run `34038288272`;
-- physical `xul.dll` `RtlpWaitForCriticalSection` startup blocker on the successor artifact `9992440155`.
+The fix is limited to `ipc/chromium/src/base/process_util_win.cc`: Vista+ keeps selective `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`; under `MOZ_XP_COMPAT`, XP falls back to classic inheritance of handles already marked `HANDLE_FLAG_INHERIT` when the Vista+ attribute-list API is unavailable.
 
-### Active work — IP Helper API compatibility
+Exact validation build:
 
-Implementation branch HEAD is currently `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`. The line after the physical critical-section closure already contains:
-
-- `97ad36ef0322f307ccb43bc4dd5fdcc744a22f16`: XP network monitoring via `NotifyAddrChange` instead of Vista+ `NotifyIpInterfaceChange`;
-- `9ea33a7b2972e231c95157db416fe866e6f6c667`: compile `nsNotifyAddrListener.cpp` under `MOZ_XP_COMPAT`;
-- `7e4965bc2057f6f0a75d043f0711fefbcfddff68`: XP `mtu` path using legacy adapter lookup instead of the modern IP interface table;
-- `bc37171160d9cad9b81b81da681626b0dd9dcd2d`: matching vendored checksum refresh;
-- `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`: non-blocking final-`xul.dll` IPHLPAPI diagnostic.
-
-The diagnostic tracks intended removal of these modern imports:
-
-```text
-NotifyIpInterfaceChange
-CancelMibChangeNotify2
-GetIpInterfaceTable
-FreeMibTable
-if_indextoname
-```
-
-and records the intended XP-side IP Helper boundary:
-
-```text
-GetAdaptersAddresses
-GetBestInterfaceEx
-```
-
-Current full-build validation is provisional:
-
-- run `34079480996`, attempt `1`;
-- job `101611911453`;
-- source-under-test `0a18ba85b3f493b17c5a62742e869788ca3f2f6b`;
-- state at last check: **in progress**; the full Firefox build step was still running and the IPHLPAPI diagnostic/final gates were still pending.
-
-Do not mark this current IPHLPAPI integration GREEN until the exact run completes.
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
+- run `34194737456`, attempt `1`;
+- job `101959901573`;
+- source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
+- state at last documentation check: **in progress**; do not mark it GREEN until completion.
 
 ### Open work, in order
 
-1. **Evaluate completed run `34079480996` once it finishes.** Bind every conclusion to run `34079480996`, job `101611911453`, source `0a18ba85...`; require the IPHLPAPI diagnostic and all pre-existing full-build/package/static gates to retain their intended results.
-2. **If the run succeeds, physically test its exact runtime artifact on Windows XP SP3 x86.** The build result can prove import/source integration, not physical runtime closure.
-3. **Use the final `xul.dll` IPHLPAPI inventory to classify any survivors by owner.** Do not solve one first loader name at a time when the final inventory exposes a family; preserve `GetAdaptersAddresses` / `GetBestInterfaceEx` only if the exact XP target supports the required path.
-4. **If physical XP advances again, record the next actual boundary before changing another subsystem.** Preserve the already-closed critical-section, ETW, WS2_32, ANGLE/DXGI, DPI, CRT, bcrypt and other compatibility families.
-5. **Continue through delay/dynamic/COM surfaces only when evidence reaches them.** WinRT API sets, `UIAutomationCore.dll`, `ncrypt.dll`, `AVRT.dll`, `dwmapi.dll` and similar optional surfaces remain hypotheses until runtime or mandatory static policy makes them blocking. If `ncrypt.dll` becomes a real boundary, follow the source-level plan below rather than starting with a thunk layer.
-6. **GOST TLS on old Windows — later exact-artifact milestone.** A browser that starts and browses ordinary pages on XP still does not prove MSSPI/CryptoPro GOST behavior.
+1. **Evaluate run `34194737456` after it completes.** Bind conclusions to run `34194737456`, job `101959901573`, source `897e1cdf...`; require the existing build/package/static gates to remain valid.
+2. **If the run succeeds, physically test its exact artifact on Windows XP SP3 x86.** The decisive criterion is that child processes advance past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE` on the preference shared-memory handle.
+3. **If startup advances, record the next real physical boundary before changing another subsystem.** Do not continue speculative API cleanup ahead of runtime evidence.
+4. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
+5. **Preserve the current C/C++/Rust XP flag split.** C/C++ uses `-DMOZ_XP_COMPAT` via `CFLAGS`/`CXXFLAGS`; Rust uses `RUSTFLAGS="--cfg moz_xp_compat"`. Do not assume either creates `CONFIG["MOZ_XP_COMPAT"]` for `moz.build`.
 
-### Planned `ncrypt.dll` handling if it becomes blocking
+### Deferred only if reached by exact evidence — `ncrypt.dll`
 
-Status: **plan only, not a current blocker and not experiment evidence.** The physical XP machine has no `%SystemRoot%\System32\ncrypt.dll`, but the current accepted runtime has not yet proven that Firefox startup or required ordinary browsing reaches this surface.
-
-Current Firefox 153 source already contains both Windows client-key implementations in `security/manager/ssl/osclientcerts/src/backend_windows.rs`:
-
-- `KeyHandle::NCrypt` uses `NCryptSignHash` and releases through `NCryptFreeObject`;
-- `KeyHandle::CryptoAPI` uses the legacy `CryptSignHashW` / `CryptReleaseContext` path;
-- `CryptAcquireCertificatePrivateKey` is currently called with `CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG`, and the runtime `key_spec` decides which handle variant is returned.
-
-There is no existing `osclientcerts` Cargo feature that means “XP / legacy CryptoAPI only”. The Rust target `i686-pc-windows-msvc` identifies Windows but does not distinguish XP from later Windows, and the existing C/C++ `MOZ_XP_COMPAT` define does not automatically become a Rust `cfg`.
-
-If exact runtime or mandatory static evidence makes NCRYPT blocking, use this order:
-
-1. **Propagate one project-owned XP compatibility condition into Rust** for the affected crate/build path, for example a dedicated `cfg` such as `moz_xp_compat` or an equivalently narrow Cargo/build feature. Choose the final spelling during implementation and keep normal non-XP Firefox builds unchanged.
-2. **Select the already-existing CryptoAPI backend at compile time for XP.** Under the XP condition, do not request `CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG`; use only XP-supported acquisition semantics and route the resulting key handle through the existing `CryptoAPI` implementation.
-3. **Compile the NCrypt branch out of the XP binary where practical.** The XP build should not retain `KeyHandle::NCrypt`, `sign_ncrypt`, `NCryptSignHash`, or `NCryptFreeObject` merely as unreachable code if that would preserve a hard `ncrypt.dll` dependency.
-4. **Add a build/source gate proving the XP Rust condition is actually active** in `osclientcerts`; do not infer it from the C/C++ define or from the Rust target triple.
-5. **Add a final PE/import gate.** Require the relevant shipped/runtime-required PE closure to contain no ordinary `ncrypt.dll` dependency and no hard `NCryptSignHash` / `NCryptFreeObject` imports for the XP build.
-6. **Revalidate the intended Firefox client-certificate behavior on the exact artifact** after the compile-time cut. This is Windows compatibility evidence only and must not be treated as proof of the separate MSSPI/CryptoPro GOST TLS path.
-
-Preferred architecture: **source-level legacy CryptoAPI selection first; YY-Thunks for NCRYPT only as a fallback if the source-level cut is proven insufficient or a different exact owner requires it.** Do not emulate the whole CNG/KSP layer on XP preemptively, and do not mass-patch other optional modern crypto surfaces without owner-specific evidence.
+Do not preemptively work on NCRYPT/CNG. If a later exact XP artifact reaches a real `ncrypt.dll` boundary, prefer source-level selection of Firefox's existing legacy CryptoAPI backend under the project-owned Rust XP cfg, compile the NCrypt branch out where practical, and add a final import gate. YY-Thunks for NCRYPT is fallback only if source-level removal is proven insufficient.
 
 ### Closed compatibility families — do not spend new cycles without contradictory evidence
 
+The current lineage has already closed or physically advanced past the following families:
+
 - pinned/restored msvcr14x Release x86 contract;
-- narrow YY provider strategy and the closed SRW/condition-variable family;
-- `CreateWaitableTimerExA` source fallback;
-- exact app-local `xp-bcrypt-v1/bcrypt.dll`;
+- app-local `xp-bcrypt-v1/bcrypt.dll`;
 - legacy `D3DCompiler_47.dll` staging/packaging;
-- narrow YY residual KERNEL32 line including `TryAcquireSRWLockExclusive` and `FlsGetValue`;
-- focused + full-integration `NtCancelIoFileEx` closure;
-- ADVAPI32 ETW focused + full Firefox integration closure for the observed four-name family;
-- KERNEL32 source-remediation quartet at final-production 0/4;
-- current final-production `xul.dll -> PROPSYS.dll` ordinary-dependency closure;
-- historical `SetProcessDPIAware` root-cause diagnosis and current source/static DPI integration;
-- WS2_32 observed compatibility family integration;
+- narrow YY SRW/condition-variable/KERNEL32 residual strategy;
+- `NtCancelIoFileEx`;
+- ADVAPI32 ETW family;
+- KERNEL32 restart/named-pipe source-remediation quartet;
+- `xul.dll -> PROPSYS.dll` ordinary dependency;
+- `USER32!SetProcessDPIAware` startup boundary;
+- WS2_32 observed compatibility family;
 - ANGLE/DXGI `CreateDXGIFactory1` static closure;
-- YY-Thunks DLL/TLS entry-point integration for `xul.dll` at full-build/static level;
-- physical closure of the old `xul.dll` `RtlpWaitForCriticalSection` startup failure on runtime artifact `9992440155`;
-- the historical broad curated forbidden-import progression `69 -> 3 -> 0`.
+- IP Helper physical boundary;
+- old `xul.dll` `RtlpWaitForCriticalSection` startup failure;
+- YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13).
 
-The selected `xp-bcrypt-v1` binary remains trusted project infrastructure:
-
-- source `a30a701fcf50eb08b6ea7574cb7cc927f6eae014`;
-- run `33513084915`, job `99873297193`, runtime artifact `9802703271`;
-- technical release/tag `xp-bcrypt-v1`;
-- size `520704` bytes;
-- SHA-256 `f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193`;
-- physical XP dynamic + ordinary linked/IAT PASS;
-- no runtime `mbedtls.dll`.
-
-Do not rebuild/re-prove it inside heavy Firefox work unless its identity changes or new exact evidence specifically implicates that DLL.
+Full YY `kernel32.lib` interposition remains prohibited.
 
 ### Deferred optional hardening — restore x86 sandbox
 
-The sandbox-on Win7/RNG work is preserved but removed from the XP critical path.
-
-Historical evidence includes source `982d6529a707c6feecad97c725feed8a3cd21c81` / run `33141004769`, where sandbox-enabled Win7 x32 content tabs died in `RandomUint64OrDie`, and source `19c82e7eec160dab761083d454d084515060f808` / run `33298304132` / job `99221664596`, where the CryptoAPI RNG experiment still produced `Gah. Your tab just crashed.` with sandbox enabled.
-
-Do **not** spend new full-build cycles on `LowerToken`, RNG pre-warm, persistent `HCRYPTPROV`, or other modern sandbox-on fixes unless the user explicitly chooses sandbox restoration as a security-hardening goal. If reopened, start from the existing exact WinDbg/runtime evidence and design specifically for the desired XP/Vista/Win7 x86 sandbox semantics rather than treating current Win7 behavior as an XP prerequisite.
+Sandbox-on Win7/RNG work remains outside the XP startup critical path. Do not spend new full-build cycles on sandbox restoration unless the user explicitly reopens it as a separate goal.
 
 ## Bundled government-system extensions — independent
 
