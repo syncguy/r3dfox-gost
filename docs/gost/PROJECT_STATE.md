@@ -48,47 +48,41 @@ Current authoritative Session-default browser source is `afbdad307f63e594d371516
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
-## Current completed all-GREEN build/static baseline
+## Current all-GREEN build/static candidate
 
-Latest fully completed all-GREEN source/build pair remains:
+Current implementation/source-under-test:
 
-- source-under-test `cae81ff9798f759b9a2b162e3455a8ddf382c8ad` (`fix(xp): use section-specific rights for frozen shared memory`);
-- run `34146514899`, attempt `1`;
-- job `101819627976` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
-- aggregate conclusion: **success**.
+- branch `agent/winrt-source-poc`;
+- SHA `897e1cdf98bcc091e13283fa8004177971d30f27`;
+- functional launcher remediation commit `3b95f3dc9755b84c0b392fe9b90a896dd5a00880` (`fix(xp): inherit child handles without thread attributes`).
+
+Exact completed full build:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34194737456`, attempt `1`;
+- job `101959901573` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate conclusion: **success / GREEN**.
 
 Exact artifacts:
 
-- package `10031193476`, digest `sha256:196cc57802dd626e01cdb1e9ad9946c038f4d61ce6e48bbc305feec852d907e6`;
-- runtime `10031194866`, digest `sha256:6b0e64bb02ad7938d14efdaddf41ebea9a6f2cd0973b07c050d0219b07053867`;
-- diagnostics `10031215333`, digest `sha256:5be1bc9ec15ab877602919b90b6988e532481f8d65db696f68c9fffdd3de75cd`.
+- package `10048182039`, digest `sha256:b9d79e74656057b4252c4c12d250f5230d5ee191f0dd7ba839fce805a60c6710`;
+- runtime `10048183305`, digest `sha256:678e93d526d4d8837360e3dafb16d8e3147b09e8bbb4416b5e3773a746770a65`;
+- diagnostics `10048220926`, digest `sha256:d44ca9f6c3afe4f9df336d315279d6c214f0c7c80bad454a125c7af5db5a8445`.
 
-The build, packaging, runtime archive, current XP PE/import gates, matching-PDB diagnostics, YY-Thunks inventory, uploads and final summary are GREEN. This is build/static evidence only, not physical-XP acceptance.
+The exact run passed full compile/link, packaging, runtime archive generation, current XP PE/import gates, YY-Thunks inventory, artifact uploads and the final summary. This remains build/static evidence only; physical runtime conclusions are recorded separately below.
 
-The exact package was physically tested and the reported hashes match it:
+## SharedPrefMap child-HANDLE blocker — PHYSICALLY CLOSED on `897e1cdf...`
 
-- `r3dfox.exe` SHA-1 `9f3f03ceb2d767982f1e83aff20703af1ba740d8`;
-- `xul.dll` SHA-1 `d1b57749d82bac77030c98d26b9b13019e8e4274`.
-
-## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
-
-Run `34138054280`, job `101793510758`, source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef` expanded the scoped YY-Thunks DLL/TLS startup contract from 3/13 to 13/13 strong candidates. Its normal Firefox compile/link, package/runtime generation, PE/import audit and final YY contract audit succeeded. The aggregate job was RED only because a separate supplemental warm-relink experiment used incorrect generated-objdir assumptions.
-
-The 13/13 static closure remains valid and does not need separate per-library rebuilds. It is independent of the physical shared-memory child-handle blocker below.
-
-## Physical XP blocker localized — shared-pref HANDLE is not inherited into the child process
-
-The `cae81ff...` browser repeatedly failed at:
+The preceding exact build `cae81ff9798f759b9a2b162e3455a8ddf382c8ad` repeatedly failed on physical XP at:
 
 ```text
 mozilla::SharedPrefMap::SharedPrefMap(...)
 modules/libpref/SharedPrefMap.cpp:25
 MOZ_RELEASE_ASSERT(map)
+exception 0x80000003
 ```
 
-The preceding access-mask experiment is rejected: changing XP `Platform::Freeze()` from `GENERIC_READ | FILE_MAP_READ` to `FILE_MAP_READ | SECTION_QUERY` did not advance the physical boundary.
-
-A subsequent WinDbg session on the exact same `cae81ff...` build established the missing runtime fact. A breakpoint immediately after `MapViewOfFileEx` in `mozilla::ipc::shared_memory::Platform::Map` showed:
+Matching WinDbg evidence on that build established:
 
 ```text
 MapViewOfFileEx(...) -> NULL
@@ -96,97 +90,66 @@ GetLastError() = 6 = ERROR_INVALID_HANDLE
 LastStatusValue = 0xC0000008 = STATUS_INVALID_HANDLE
 ```
 
-For the failing socket child process, the command line contained:
+The failing socket child received the exact numeric `-prefMapHandle` value and size, but the corresponding kernel HANDLE had not been inherited. Source tracing localized the defect to `base::LaunchApp`: on XP the Vista+ `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` API is unavailable, so the old code left `bInheritHandles = FALSE` even after requested handles had been marked `HANDLE_FLAG_INHERIT`.
+
+The remediation in `ipc/chromium/src/base/process_util_win.cc` preserves the Vista+ selective attribute-list path and, under `MOZ_XP_COMPAT`, enables classic Windows inheritance when that Vista+ API is unavailable.
+
+Physical Windows XP SP3 x86 testing of exact source `897e1cdf...` was repeated several times. User-reported binary identities:
+
+- `r3dfox.exe` SHA-1 `dbfaed8d2d06d50195a572f8364186e4032f8a97`;
+- `xul.dll` SHA-1 `fcc09439c4e36be056b5796303f7e433a7afe585`.
+
+Across those launches, the previous `SharedPrefMap.cpp:25` / `0x80000003` boundary no longer reproduces. Execution consistently advances to a later exception code:
 
 ```text
--prefMapHandle 5388:295474
+0xC06D007F
 ```
 
-and the `HandleBase` reaching `Platform::Map` contained the exact same values:
+Conclusion: **the SharedPrefMap invalid-child-HANDLE blocker is physically closed for source `897e1cdf...` / run `34194737456`.** Do not reopen it without contradictory evidence on a later exact artifact.
+
+## Current physical-XP boundary — `0xC06D007F`
+
+The first repeatedly observed later boundary on the current exact artifact is exception code `0xC06D007F`.
+
+Current evidence does not yet identify the owning module, missing/delayed procedure, stack frame, or source line. Do not guess the owner from the exception code alone. The next runtime analysis must establish the exact module/API/stack boundary before changing code.
+
+## Access-mask experiment remains rejected; one causal control rebuild is still required
+
+The earlier XP-only `Platform::Freeze()` change from:
 
 ```text
-mHandle = 0x0000150c = 5388
-mSize   = 0x00048232 = 295474
+GENERIC_READ | FILE_MAP_READ
 ```
 
-Therefore the parser, `ReadOnlySharedMemoryHandle`, and mapping size are not corrupting the argument. The child receives the numeric value but does not own a live kernel HANDLE with that value.
-
-### Root cause in the Windows launcher
-
-Source tracing closes the path:
+to:
 
 ```text
-SharedPreferenceSerializer
-  -> GeckoArgs::SerializeHandleArgument
-  -> ChildProcessArgs::mFiles
-  -> WindowsProcessLauncher::DoSetup
-  -> LaunchOptions::handles_to_inherit
-  -> base::LaunchApp
-  -> SetHandleInformation(..., HANDLE_FLAG_INHERIT)
-  -> CreateThreadAttributeList(...)
-  -> CreateProcess(..., bInheritHandles, ...)
+FILE_MAP_READ | SECTION_QUERY
 ```
 
-On Windows, `GeckoArgs` intentionally serializes child handles by numeric identity. `base::LaunchApp` marks the requested handles inheritable. On Vista+ it then builds `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` and sets `bInheritHandles = TRUE` only when that list succeeds.
+was already tested independently on source `cae81ff...` and did **not** advance the SharedPrefMap failure. Source `897e1cdf...` still contains that experiment alongside the now-physically-successful launcher fix.
 
-Windows XP does not provide `InitializeProcThreadAttributeList` / `UpdateProcThreadAttribute`, so `CreateThreadAttributeList()` returns `NULL`. The old code left `bInheritHandles = FALSE`, causing `CreateProcess` not to inherit the already-marked handles even though their numeric values were still emitted in `-prefsHandle` / `-prefMapHandle`.
+For a clean final attribution, perform one control rebuild that removes only the XP `FILE_MAP_READ | SECTION_QUERY` override while preserving the launcher inheritance fix. If that control artifact still passes SharedPrefMap physically, permanently drop the access-mask change and retain only the launcher fix as the narrow remediation.
 
-Interpretation: **CURRENT ROOT CAUSE = XP CHILD-PROCESS HANDLE INHERITANCE GAP IN `base::LaunchApp`.** `MapViewOfFileEx` is only where the missing child handle becomes visible.
+## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
 
-## Current source remediation and validation build
+Run `34138054280`, job `101793510758`, source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef` expanded the scoped YY-Thunks DLL/TLS startup contract from 3/13 to 13/13 strong candidates. Its normal Firefox compile/link, package/runtime generation, PE/import audit and final YY contract audit succeeded. The aggregate job was RED only because a separate supplemental warm-relink experiment used incorrect generated-objdir assumptions.
 
-Functional remediation commit:
+The 13/13 static closure remains valid and does not need separate per-library rebuilds.
 
-- `3b95f3dc9755b84c0b392fe9b90a896dd5a00880` — `fix(xp): inherit child handles without thread attributes`.
+## Build-configuration identity
 
-Current implementation HEAD/source-under-test:
-
-- branch `agent/winrt-source-poc`;
-- SHA `897e1cdf98bcc091e13283fa8004177971d30f27`;
-- the HEAD commit after the functional fix only restores unrelated loop formatting.
-
-Changed compatibility behavior in `ipc/chromium/src/base/process_util_win.cc`:
-
-- Vista+ continues to use the selective `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` path unchanged;
-- under `MOZ_XP_COMPAT`, if requested inheritable handles exist but the Vista+ attribute-list API is unavailable, `bInheritHandles` becomes `TRUE`, enabling classic Windows handle inheritance for handles already marked `HANDLE_FLAG_INHERIT`.
-
-Build-configuration identity:
+Keep the XP compatibility mechanisms distinct:
 
 - C/C++ `MOZ_XP_COMPAT` is supplied through XP `CFLAGS` / `CXXFLAGS` as `-DMOZ_XP_COMPAT`;
-- Rust uses the separate job-global `RUSTFLAGS="--cfg moz_xp_compat"`;
-- do not infer a `moz.build` `CONFIG["MOZ_XP_COMPAT"]` variable from either of those flags.
-
-Exact validation run currently in progress:
-
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `34194737456`, attempt `1`;
-- job `101959901573` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
-- source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
-- state at documentation time: **in progress**; bootstrap was running and full build/package/static gates were still pending.
-
-This run must not be called GREEN until it actually completes.
-
-## Current next experiment
-
-1. Evaluate exact run `34194737456` only after completion, preserving run/job/source identity.
-2. If successful, physically test its exact package/runtime artifact on Windows XP SP3 x86.
-3. The decisive criterion for this remediation is that child processes advance past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE` on the preference shared-memory handle.
-4. If startup advances, record the next actual physical boundary before changing another subsystem.
-
-Do not weaken `MOZ_RELEASE_ASSERT(map)` and do not add a speculative `MapViewOfFileEx` workaround. The current diagnosis points to process-launch handle inheritance, not mapping protection semantics.
-
-## Separate physical symptom — Moz2D replay failure
-
-One event in the current Dr. Watson capture resolves to `gfx/webrender_bindings/Moz2DImageRenderer.cpp:487`, where replay failure reaches `MOZ_RELEASE_ASSERT(false)`. Treat this as a separate GFX symptom; it is not established as the cause of the repeated SharedPrefMap failures.
-
-## Correction of the previous Wasm attribution
-
-The old attribution of repeated `MOZ_RELEASE_ASSERT(map)` to `js/src/wasm/WasmProcess.cpp` remains superseded. Matching-PDB evidence resolves the physically reached address to `modules/libpref/SharedPrefMap.cpp:25`, and WinDbg now further localizes the failure to an invalid child-process shared-memory HANDLE.
+- Rust uses separate job-global `RUSTFLAGS="--cfg moz_xp_compat"`;
+- neither implies a `moz.build` `CONFIG["MOZ_XP_COMPAT"]` variable.
 
 ## Earlier physical/runtime boundaries closed in the current lineage
 
 Do not reopen these without contradictory evidence on a later exact artifact:
 
+- `SharedPrefMap.cpp:25` / invalid inherited preference HANDLE / `0x80000003` on `897e1cdf...`;
 - `xul.dll` `ntdll!RtlpWaitForCriticalSection` startup failure;
 - preceding IP Helper runtime boundary;
 - `USER32!SetProcessDPIAware` delay-load boundary;
@@ -204,7 +167,7 @@ Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility owne
 
 Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-Current state: `cae81ff...` / run `34146514899` is the latest completed all-GREEN build/static baseline but physically fails because child preference shared-memory handles are not inherited. Source `897e1cdf...` contains the launcher remediation and is under validation in run `34194737456`. Physical XP runtime closure remains pending. XP runtime success would still not prove a GOST TLS handshake.
+Current state: source `897e1cdf...` / run `34194737456` is all-GREEN at build/static level and physically advances beyond the former SharedPrefMap blocker. The current observed runtime boundary is `0xC06D007F`, not yet localized to an owner. A separate control rebuild should remove the rejected `Platform::Freeze()` access-mask experiment while preserving the launcher fix. XP runtime success would still not prove a GOST TLS handshake.
 
 # Bundled government-system extensions / localization
 
