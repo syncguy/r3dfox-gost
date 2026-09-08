@@ -102,41 +102,34 @@ Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); 
 
 ### Current exact boundary
 
-Latest completed all-GREEN build/static baseline:
+Current exact source/build candidate:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `cae81ff9798f759b9a2b162e3455a8ddf382c8ad`;
-- run `34146514899`, job `101819627976`;
-- result **success / GREEN**.
-
-Physical XP on that exact build still reaches `SharedPrefMap.cpp:25`, but WinDbg has now localized the reason precisely: `MapViewOfFileEx` returns `ERROR_INVALID_HANDLE` because the numeric `-prefMapHandle` value arrives in the child while the corresponding kernel HANDLE is not inherited.
-
-The tested `FILE_MAP_READ | SECTION_QUERY` `Freeze()` hypothesis is rejected and must not be reopened without contradictory evidence.
-
-### Current source remediation under validation
-
-Functional launcher fix:
-
-- commit `3b95f3dc9755b84c0b392fe9b90a896dd5a00880` — `fix(xp): inherit child handles without thread attributes`;
-- current implementation/source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`.
-
-The fix is limited to `ipc/chromium/src/base/process_util_win.cc`: Vista+ keeps selective `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`; under `MOZ_XP_COMPAT`, XP falls back to classic inheritance of handles already marked `HANDLE_FLAG_INHERIT` when the Vista+ attribute-list API is unavailable.
-
-Exact validation build:
-
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `34194737456`, attempt `1`;
-- job `101959901573`;
 - source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
-- state at last documentation check: **in progress**; do not mark it GREEN until completion.
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
+- run `34194737456`, job `101959901573`;
+- build/static result **success / GREEN**;
+- package artifact `10048182039`;
+- runtime artifact `10048183305`;
+- diagnostics artifact `10048220926`.
+
+Physical XP repeated launches on this exact candidate no longer reproduce the former `SharedPrefMap.cpp:25` / `0x80000003` failure. The child-handle inheritance remediation in `base::LaunchApp` therefore physically closes that blocker for this source/build identity.
+
+Current first repeatedly observed later boundary:
+
+```text
+0xC06D007F
+```
+
+Owner module/API/stack is not yet established and must not be guessed.
 
 ### Open work, in order
 
-1. **Evaluate run `34194737456` after it completes.** Bind conclusions to run `34194737456`, job `101959901573`, source `897e1cdf...`; require the existing build/package/static gates to remain valid.
-2. **If the run succeeds, physically test its exact artifact on Windows XP SP3 x86.** The decisive criterion is that child processes advance past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE` on the preference shared-memory handle.
-3. **If startup advances, record the next real physical boundary before changing another subsystem.** Do not continue speculative API cleanup ahead of runtime evidence.
-4. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
-5. **Preserve the current C/C++/Rust XP flag split.** C/C++ uses `-DMOZ_XP_COMPAT` via `CFLAGS`/`CXXFLAGS`; Rust uses `RUSTFLAGS="--cfg moz_xp_compat"`. Do not assume either creates `CONFIG["MOZ_XP_COMPAT"]` for `moz.build`.
+1. **Perform one causal control rebuild for the SharedPrefMap fix.** Remove only the earlier XP `Platform::Freeze()` override `FILE_MAP_READ | SECTION_QUERY`, restoring the previous access expression, while preserving the successful `base::LaunchApp` XP handle-inheritance fallback. The access-mask experiment independently failed and should not remain in the final patch unless the control artifact proves it is unexpectedly required in combination.
+2. **Physically verify the control artifact still advances past `SharedPrefMap.cpp:25`.** If it does, permanently drop the access-mask change and keep the launcher fix as the narrow remediation.
+3. **Localize `0xC06D007F` on an exact artifact.** Obtain the owning process/module, stack and exact missing/delayed procedure or other concrete runtime boundary before changing code. Do not infer the owner from the exception code alone.
+4. **After each physical advance, record the next actual boundary before touching another subsystem.** Preserve all already-closed compatibility families.
+5. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
 
 ### Deferred only if reached by exact evidence — `ncrypt.dll`
 
@@ -146,6 +139,7 @@ Do not preemptively work on NCRYPT/CNG. If a later exact XP artifact reaches a r
 
 The current lineage has already closed or physically advanced past the following families:
 
+- `SharedPrefMap.cpp:25` / child preference-HANDLE inheritance / `0x80000003` on source `897e1cdf...`;
 - pinned/restored msvcr14x Release x86 contract;
 - app-local `xp-bcrypt-v1/bcrypt.dll`;
 - legacy `D3DCompiler_47.dll` staging/packaging;
