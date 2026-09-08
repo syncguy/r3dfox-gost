@@ -215,8 +215,8 @@ std::wstring AlterEnvironment(const wchar_t* env,
   }
 
   // Now append all modified and new values.
-  for (EnvironmentMap::const_iterator i = changes.begin(); i != changes.end();
-       ++i) {
+  for (EnvironmentMap::const_iterator i = changes.begin();
+       i != changes.end(); ++i) {
     if (!i->second.empty()) {
       result.append(i->first);
       result.push_back('=');
@@ -237,9 +237,9 @@ Result<Ok, LaunchError> LaunchApp(const std::wstring& cmdline,
                                   ProcessHandle* process_handle) {
   // We want to inherit the std handles so dump() statements and assertion
   // messages in the child process can be seen - but we *do not* want to
-  // blindly have all handles inherited.  Vista and later has a technique
-  // where only specified handles are inherited - so we use this technique.
-  // If that fails we just don't inherit anything.
+  // blindly have all handles inherited. Vista and later can restrict
+  // inheritance to a selected handle list; XP falls back to classic handle
+  // inheritance for handles already marked HANDLE_FLAG_INHERIT.
   DWORD dwCreationFlags = 0;
   BOOL bInheritHandles = FALSE;
 
@@ -289,6 +289,11 @@ Result<Ok, LaunchError> LaunchApp(const std::wstring& cmdline,
       dwCreationFlags |= EXTENDED_STARTUPINFO_PRESENT;
       bInheritHandles = TRUE;
     }
+#ifdef MOZ_XP_COMPAT
+    else {
+      bInheritHandles = TRUE;
+    }
+#endif
   }
 
   dwCreationFlags |= CREATE_UNICODE_ENVIRONMENT;
