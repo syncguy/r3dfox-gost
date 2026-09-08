@@ -102,7 +102,7 @@ Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); 
 
 ### Current exact boundary
 
-Current exact source/build candidate:
+Latest built and physically exercised candidate:
 
 - branch `agent/winrt-source-poc`;
 - source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
@@ -123,13 +123,21 @@ Current first repeatedly observed later boundary:
 
 Owner module/API/stack is not yet established and must not be guessed.
 
+Current implementation HEAD after source cleanup:
+
+- `dad33d25dddc060ee74d773dcc492d835a78fd1e`;
+- removes only the rejected XP `FILE_MAP_READ | SECTION_QUERY` override from `ipc/glue/SharedMemoryPlatform_windows.cpp`;
+- preserves the successful launcher HANDLE-inheritance remediation unchanged;
+- this cleanup has not yet been rebuilt.
+
 ### Open work, in order
 
-1. **Perform one causal control rebuild for the SharedPrefMap fix.** Remove only the earlier XP `Platform::Freeze()` override `FILE_MAP_READ | SECTION_QUERY`, restoring the previous access expression, while preserving the successful `base::LaunchApp` XP handle-inheritance fallback. The access-mask experiment independently failed and should not remain in the final patch unless the control artifact proves it is unexpectedly required in combination.
-2. **Physically verify the control artifact still advances past `SharedPrefMap.cpp:25`.** If it does, permanently drop the access-mask change and keep the launcher fix as the narrow remediation.
-3. **Localize `0xC06D007F` on an exact artifact.** Obtain the owning process/module, stack and exact missing/delayed procedure or other concrete runtime boundary before changing code. Do not infer the owner from the exception code alone.
-4. **After each physical advance, record the next actual boundary before touching another subsystem.** Preserve all already-closed compatibility families.
-5. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
+1. **Localize `0xC06D007F` on the exact `897e1cdf...` physical artifact.** Obtain the owning process/module, stack and exact missing/delayed procedure or other concrete runtime boundary before changing code. Do not infer the owner from the exception code alone.
+2. **Implement the narrow owner-specific remediation for that new boundary.** Prefer source-level/legacy-API correction over a broad workaround.
+3. **Do not start a heavyweight Firefox build solely for the access-mask cleanup.** The next full XP build should include both the precise `0xC06D007F` remediation and current HEAD `dad33d25...`; that same build is the causal control for removal of the rejected `Platform::Freeze()` override.
+4. **Physically validate both boundaries on the next exact artifact.** It must remain past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE`, and then advance past or precisely reproduce the `0xC06D007F` owner being fixed.
+5. **After each physical advance, record the next actual boundary before touching another subsystem.** Preserve all already-closed compatibility families.
+6. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
 
 ### Deferred only if reached by exact evidence — `ncrypt.dll`
 
