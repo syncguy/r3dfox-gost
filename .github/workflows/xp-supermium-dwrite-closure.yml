@@ -21,7 +21,7 @@ jobs:
       DWRITE_SIZE: "2667048"
       YY_THUNKS_TAG: "v1.2.2"
       YY_THUNKS_SOURCE_SHA: "83d9d0d3f2f212411006e4aa5c5f3db8a6ae2f20"
-      YY_THUNKS_OBJS_SHA256: "518ed7ef4825e8a41997fbccfa2c8090cf31a6038fd51520a2e49886f947f9fc"
+      YY_THUNKS_LIB_SHA256: "ffe4d9c1b6bb53225ee2af1cac7b36bce90bb1f33ae65f9ba523debcb33ce6ab"
       YY_THUNKS_TARGET: "5.1.2600.0"
       WINDOWS_XP_SUBSYSTEM: "5.01"
 
@@ -51,7 +51,7 @@ jobs:
             "dwrite_sha256=$env:DWRITE_SHA256",
             "yy_thunks_tag=$env:YY_THUNKS_TAG",
             "yy_thunks_source_sha=$env:YY_THUNKS_SOURCE_SHA",
-            "yy_thunks_objs_sha256=$env:YY_THUNKS_OBJS_SHA256",
+            "yy_thunks_lib_sha256=$env:YY_THUNKS_LIB_SHA256",
             "yy_thunks_target=$env:YY_THUNKS_TARGET"
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
 
@@ -60,21 +60,21 @@ jobs:
         with:
           arch: x86
 
-      - name: Download and verify pinned YY-Thunks x86 provider objects
+      - name: Download and verify pinned YY-Thunks x86 provider libraries
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $uri = "https://github.com/Chuyu-Team/YY-Thunks/releases/download/$env:YY_THUNKS_TAG/YY-Thunks-Objs.zip"
-          $archive = Join-Path $env:RUNNER_TEMP 'YY-Thunks-Objs.zip'
-          $extract = Join-Path $env:RUNNER_TEMP 'yy-thunks-objs'
+          $uri = "https://github.com/Chuyu-Team/YY-Thunks/releases/download/$env:YY_THUNKS_TAG/YY-Thunks-Lib.zip"
+          $archive = Join-Path $env:RUNNER_TEMP 'YY-Thunks-Lib.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'yy-thunks-lib'
           if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
           Invoke-WebRequest -Uri $uri -OutFile $archive
           $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          if ($actual -ne $env:YY_THUNKS_OBJS_SHA256) {
-            throw "Pinned YY-Thunks objects SHA256 mismatch: expected=$env:YY_THUNKS_OBJS_SHA256 actual=$actual"
+          if ($actual -ne $env:YY_THUNKS_LIB_SHA256) {
+            throw "Pinned YY-Thunks libraries SHA256 mismatch: expected=$env:YY_THUNKS_LIB_SHA256 actual=$actual"
           }
           Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
-          "YY_OBJS_ROOT=$extract" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_LIB_ROOT=$extract" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           @(
             "source_uri=$uri",
             "tag=$env:YY_THUNKS_TAG",
@@ -90,7 +90,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $rows = [System.Collections.Generic.List[object]]::new()
           $targetToken = [regex]::Escape($env:YY_THUNKS_TARGET)
-          foreach ($obj in @(Get-ChildItem -LiteralPath $env:YY_OBJS_ROOT -Recurse -File -Filter '*.obj')) {
+          foreach ($obj in @(Get-ChildItem -LiteralPath $env:YY_LIB_ROOT -Recurse -File -Filter '*.obj')) {
             $normalizedPath = $obj.FullName -replace '/', '\'
             if ($normalizedPath -notmatch "(?i)\\$targetToken\\x86\\") { continue }
             if ($obj.Directory.Name -notmatch '(?i)^(.+)\.Lib_WeakAlias$') { continue }
