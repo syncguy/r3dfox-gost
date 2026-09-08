@@ -14,13 +14,26 @@ using namespace mozilla::dom::battery;
 namespace mozilla {
 namespace hal_impl {
 
+#ifndef MOZ_XP_COMPAT
 static HPOWERNOTIFY sPowerHandle = nullptr;
 static HPOWERNOTIFY sCapacityHandle = nullptr;
+#endif
 static HWND sHWnd = nullptr;
+
+static bool IsBatteryStatusChange(UINT msg, WPARAM wParam) {
+  if (msg != WM_POWERBROADCAST) {
+    return false;
+  }
+#ifdef MOZ_XP_COMPAT
+  return wParam == PBT_APMPOWERSTATUSCHANGE;
+#else
+  return wParam == PBT_POWERSETTINGCHANGE;
+#endif
+}
 
 static LRESULT CALLBACK BatteryWindowProc(HWND hwnd, UINT msg, WPARAM wParam,
                                           LPARAM lParam) {
-  if (msg != WM_POWERBROADCAST || wParam != PBT_POWERSETTINGCHANGE) {
+  if (!IsBatteryStatusChange(msg, wParam)) {
     return DefWindowProc(hwnd, msg, wParam, lParam);
   }
 
@@ -57,13 +70,16 @@ void EnableBatteryNotifications() {
     return;
   }
 
+#ifndef MOZ_XP_COMPAT
   sPowerHandle = RegisterPowerSettingNotification(
       sHWnd, &GUID_ACDC_POWER_SOURCE, DEVICE_NOTIFY_WINDOW_HANDLE);
   sCapacityHandle = RegisterPowerSettingNotification(
       sHWnd, &GUID_BATTERY_PERCENTAGE_REMAINING, DEVICE_NOTIFY_WINDOW_HANDLE);
+#endif
 }
 
 void DisableBatteryNotifications() {
+#ifndef MOZ_XP_COMPAT
   if (sPowerHandle) {
     UnregisterPowerSettingNotification(sPowerHandle);
     sPowerHandle = nullptr;
@@ -73,6 +89,7 @@ void DisableBatteryNotifications() {
     UnregisterPowerSettingNotification(sCapacityHandle);
     sCapacityHandle = nullptr;
   }
+#endif
 
   if (sHWnd) {
     DestroyWindow(sHWnd);
