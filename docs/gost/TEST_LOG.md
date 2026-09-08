@@ -8,6 +8,72 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-08 — physical XP: section-specific frozen-handle rights do not fix `SharedPrefMap.cpp:25`
+
+Track: Windows XP SP3 x86 physical runtime. Independent of GOST TLS runtime.
+
+Exact build identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `cae81ff9798f759b9a2b162e3455a8ddf382c8ad` (`fix(xp): use section-specific rights for frozen shared memory`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34146514899`, attempt `1`;
+- job `101819627976` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate build/static result: **success / GREEN**.
+
+Exact artifacts:
+
+- package `10031193476`, digest `sha256:196cc57802dd626e01cdb1e9ad9946c038f4d61ce6e48bbc305feec852d907e6`;
+- runtime `10031194866`, digest `sha256:6b0e64bb02ad7938d14efdaddf41ebea9a6f2cd0973b07c050d0219b07053867`;
+- diagnostics `10031215333`, digest `sha256:5be1bc9ec15ab877602919b90b6988e532481f8d65db696f68c9fffdd3de75cd`.
+
+The experiment changed only the XP path in `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Freeze()`: `DuplicateHandle` requested `FILE_MAP_READ | SECTION_QUERY` instead of `GENERIC_READ | FILE_MAP_READ`. `MapViewOfFileEx`, `SharedPrefMap.cpp`, and the fatal assertion were unchanged.
+
+Physical XP launch used:
+
+```bat
+set MOZ_GFX_CRASH_MOZ_CRASH=
+r3dfox.exe
+```
+
+The user-reported physical files exactly match package artifact `10031193476`:
+
+- `r3dfox.exe` SHA-1 `9f3f03ceb2d767982f1e83aff20703af1ba740d8`;
+- `xul.dll` SHA-1 `d1b57749d82bac77030c98d26b9b13019e8e4274`.
+
+The supplied `DrWatson.zip` has SHA-256 `6700bcbb28e0e8c414188ac85573c916158595d1085be8852a603ade57a2b3c8`; its `drwtsn32.log` has SHA-256 `eb1a1143713f878ba1eb42f6d00edf46a3a9dbbac207eebb916afb4415758e97`.
+
+The new capture contains eight `0x80000003` events. Seven again fail at:
+
+```text
+xul load base  0x01bb0000
+fault VA       0x01e348e6
+fault RVA      0x002848e6
+instruction    int 3
+```
+
+The exact `xul.dll` has SHA-256 `e0d72150fc592bf5737c2ca28c3d49b342c3ea7ae6b6314e1a7cae40c2d96d95`; the matching `xul.pdb` from diagnostics artifact `10031215333` has SHA-256 `18717ff9f3eda0321cdf7d1a3c9fc51e469bc4b914364acd73381e6d64fe6a18`.
+
+Exact symbolization again resolves `xul+0x2848e6` to:
+
+```text
+mozilla::SharedPrefMap::SharedPrefMap(...)
+modules/libpref/SharedPrefMap.cpp:25
+MOZ_RELEASE_ASSERT(map)
+```
+
+The eighth event again resolves to the separate `gfx/webrender_bindings/Moz2DImageRenderer.cpp:487` replay assertion.
+
+Source tracing confirms the experiment was exercised on the relevant preference-map path: `SharedPrefMapBuilder::Finalize()` builds through `MemMapSnapshot`, and `MemMapSnapshot::Finalize()` calls `std::move(mMem).Freeze()`. Therefore this is not a negative result caused by changing an unrelated `Freeze()` path.
+
+Conclusion: **REJECTED HYPOTHESIS.** Replacing `GENERIC_READ | FILE_MAP_READ` with `FILE_MAP_READ | SECTION_QUERY` for the frozen shared-memory handle does not advance the physical XP boundary. The primary blocker remains the read-only preference shared-memory map failure at `SharedPrefMap.cpp:25`.
+
+Next analysis target: trace the frozen read-only handle after `Freeze()` through `SharedPrefMap::CloneHandle()`, `HandleBase::Clone()`, IPC attachment/serialization and the final cross-process handle transfer. Local clone already uses `DuplicateHandle(..., DUPLICATE_SAME_ACCESS)`, so investigate the actual target-process transfer/received handle before changing `MapViewOfFileEx` or weakening the assertion.
+
+Status: **current authoritative physical-XP result for source `cae81ff...` / run `34146514899`.**
+
+---
+
 ## 2026-09-07 — full XP x32 YY DLL entry-point experiment reaches 13/13 contracts; aggregate RED is supplemental warm-relink failure
 
 Track: Windows XP SP3 x86 build/static compatibility. This is independent of GOST TLS runtime and does not prove physical-XP startup or a GOST TLS handshake.
