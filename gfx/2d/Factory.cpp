@@ -91,7 +91,7 @@ void mozilla_ReleaseSharedFTFace(void* aContext, void* aOwner) {
   }
 }
 
-void mozilla_ForgetSharedFTFaceLockOwner(void* aContext, void* aOwner) {
+void mozilla_ForgetSharedFTFaceLockOwner(void* aContext) {
   static_cast<mozilla::gfx::SharedFTFace*>(aContext)->ForgetLockOwner(aOwner);
 }
 
@@ -454,8 +454,8 @@ already_AddRefed<UnscaledFont> Factory::CreateUnscaledFontFromFontDescriptor(
           aData, aDataLength, aIndex);
 #elif defined(MOZ_WIDGET_ANDROID)
     case FontType::FREETYPE:
-      return UnscaledFontFreeType::CreateFromFontDescriptor(aData, aDataLength,
-                                                            aIndex);
+      return UnscaledFontFreeType::CreateFromFontDescriptor(
+          aData, aDataLength, aIndex);
 #endif
     default:
       gfxWarning() << "Invalid type specified for UnscaledFont font descriptor";
@@ -642,6 +642,11 @@ RefPtr<IDWriteFactory> Factory::EnsureDWriteFactory() {
   }
 
   HMODULE dwriteModule = LoadLibrarySystem32(L"dwrite.dll");
+#ifdef MOZ_XP_COMPAT
+  if (!dwriteModule) {
+    dwriteModule = LoadLibraryW(L"dwrite.dll");
+  }
+#endif
   decltype(DWriteCreateFactory)* createDWriteFactory =
       (decltype(DWriteCreateFactory)*)GetProcAddress(dwriteModule,
                                                      "DWriteCreateFactory");
@@ -758,7 +763,7 @@ already_AddRefed<SourceSurface> Factory::CreateSourceSurfaceForCairoSurface(
   }
 
 #ifdef USE_CAIRO
-  return MakeAndAddRef<SourceSurfaceCairo>(aSurface, aSize, aFormat);
+  return MakeAndAddRef<SourceSurfaceCairo>(aSurface, aSize);
 #else
   return nullptr;
 #endif
@@ -782,7 +787,7 @@ already_AddRefed<DataSourceSurface> Factory::CreateWrappingDataSourceSurface(
   MOZ_ASSERT(aData);
 
   RefPtr newSurf = MakeRefPtr<SourceSurfaceRawData>();
-  newSurf->InitWrappingData(aData, aSize, aStride, aFormat, aDeallocator,
+  newSurf->InitWrapping(aData, aSize, aStride, aFormat, aDeallocator,
                             aClosure);
 
   return newSurf.forget();
