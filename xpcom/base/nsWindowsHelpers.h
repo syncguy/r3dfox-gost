@@ -209,9 +209,9 @@ class nsAutoRefTraits<nsHGLOBAL> {
   static void Release(RawRef hGlobal) { ::GlobalFree(hGlobal); }
 };
 
-// Because Printer's HANDLE uses ClosePrinter and we already have nsAutoRef<HANDLE>
-// which uses CloseHandle so we need to create a wrapper class for HANDLE to have
-// another specialization for nsAutoRefTraits.
+// Because Printer's HANDLE uses ClosePrinter and we already have
+// nsAutoRef<HANDLE> which uses CloseHandle so we need to create a wrapper class
+// for HANDLE to have another specialization for nsAutoRefTraits.
 class nsHPRINTER {
  public:
   MOZ_IMPLICIT nsHPRINTER(HANDLE hPrinter) : m_hPrinter(hPrinter) {}
@@ -274,9 +274,9 @@ bool inline ConstructSystem32Path(LPCWSTR aModule, WCHAR* aSystemPath,
   if (systemDirLen) {
     if (systemDirLen < aSize - fileLen) {
       // Make the system directory path terminate with a slash.
-      if (aSystemPath[systemDirLen - 1] != L'\') {
+      if (aSystemPath[systemDirLen - 1] != L'\\') {
         if (systemDirLen + 1 < aSize - fileLen) {
-          aSystemPath[systemDirLen] = L'\';
+          aSystemPath[systemDirLen] = L'\\';
           ++systemDirLen;
           // No need to re-nullptr terminate.
         } else {
