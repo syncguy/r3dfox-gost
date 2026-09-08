@@ -8,6 +8,85 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-07 — full XP x32 YY DLL entry-point experiment reaches 13/13 contracts; aggregate RED is supplemental warm-relink failure
+
+Track: Windows XP SP3 x86 build/static compatibility. This is independent of GOST TLS runtime and does not prove physical-XP startup or a GOST TLS handshake.
+
+Exact workflow/source identity:
+
+- workflow-definition / run-head branch: `agent/gost-tls-poc`;
+- workflow-definition / run-head SHA: `4ea3b94c048436c3f316704c54605567dba975bd`;
+- checked-out implementation branch: `agent/winrt-source-poc`;
+- source-under-test: `6885135565f7262bb88c80c4751f4a6c4b93e3ef`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- Actions run `34138054280`, attempt `1`;
+- job `101793510758` (`Windows x86 / r3dfox GOST / XP YY DLL entry-point experiment`);
+- aggregate job conclusion: **failure**.
+
+Exact artifacts were successfully produced before the final summary gate:
+
+- package artifact `10028971959` (`r3dfox-gost-xp-x32-package`), 327,817,004 bytes, digest `sha256:a856a62da534f774d08cb576978a86001bb063848bc7a30edae362db94749920`;
+- runtime artifact `10028972525` (`r3dfox-gost-xp-x32-runtime`), 74,931,692 bytes, digest `sha256:29b8b69d59a7c8ac99f1d5919eee1bba7a97f89a0ecdba209ccd821018523391`;
+- diagnostics artifact `10028995017` (`r3dfox-gost-xp-x32-diagnostics`), 420,495,148 bytes, digest `sha256:6ff6bb1f934ba814059848fd640312bf422446ece11ead93408782872a48e864`.
+
+The normal full Firefox compile/link succeeded. Packaging, runtime archive creation, source/import compatibility gates, PE floor/direct-import audit, artifact uploads and `GATE - Verify YY-Thunks DLL entry-point coverage` all succeeded.
+
+The preceding all-GREEN build `34107793132` / source `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` reported:
+
+```text
+strong candidates=13
+contracts=3
+missing-contract candidates=10
+```
+
+This exact experiment reports:
+
+```text
+strong candidates=13
+contracts=13
+missing-contract candidates=0
+xul_positive_control=true
+```
+
+`yy-dll-entrypoint-missing-contract.txt` contains:
+
+```text
+none
+```
+
+All ten candidates that were missing the contract in run `34107793132` now have `contract=true`:
+
+```text
+gkcodecs.dll
+gmp-clearkey/0.1/clearkey.dll
+gmp-fake/1.0/fake.dll
+gmp-fakeopenh264/1.0/fakeopenh264.dll
+libGLESv2.dll
+mozavcodec.dll
+mozavutil.dll
+mozglue.dll
+mozinference.dll
+nss3.dll
+```
+
+Interpretation of the YY result: **PASS / CURRENT STRONG-CANDIDATE STATIC YY DLL STARTUP COVERAGE = 13/13, MISSING=0.** The one full build was sufficient to prove the ten additional final DLLs; separate per-library builds are not required merely to reproduce this static result.
+
+The aggregate RED is caused by a separate supplemental experiment, `GATE - Warm-relink early YY DLLs from completed objdir`. It ran under `continue-on-error` but its internal outcome was `failure` because its generated-objdir layout assumptions were wrong:
+
+```text
+mozglue.dll   — Expected one local mozglue.dll before warm relink; found 0
+nss3.dll      — Expected one generated nss_nss3 target directory; found 0
+libGLESv2.dll — Expected one local libGLESv2.dll before warm relink; found 0
+```
+
+No intended second relink occurred in that supplemental step. Because `continue-on-error` allowed the job to proceed, GitHub showed the step as completed while preserving its internal failed outcome. The final `GATE - Summarize XP YY x32 full build` inspected that outcome and deliberately made the job RED.
+
+This does not invalidate the normal full-build links: the final produced `mozglue.dll`, `nss3.dll`, `libGLESv2.dll` and the other seven formerly missing candidates all pass the final YY contract audit in diagnostics artifact `10028995017`.
+
+Status: **static YY DLL entry-point/TLS coverage debt for the current 13 strong candidates is closed by source `688513...` / run `34138054280`; aggregate RED is an orchestration/experimental warm-relink issue. Physical XP remains separately blocked by the SharedPrefMap mapping failure observed on the prior exact runtime.**
+
+---
+
 ## 2026-09-07 — physical XP: repeated `0x80000003` resolves to `SharedPrefMap.cpp:25`; one separate Moz2D replay assert
 
 Track: Windows XP SP3 x86 physical runtime. This is independent of GOST TLS runtime and does not prove a GOST TLS handshake.
@@ -96,4 +175,4 @@ Exact artifacts:
 
 Interpretation: **PASS / CURRENT SOURCE CLUSTER IS BUILD-VALID AT EXACT SHA `cd5e715...`.** This result proves compile/package/static compatibility gates only. Physical-XP runtime acceptance is separate and, for this exact build, now fails at the SharedPrefMap mapping boundary recorded immediately above.
 
-Status: **current authoritative build/static validation for source `cd5e715...` / run `34107793132`; physical runtime failure recorded above.**
+Status: **current authoritative all-GREEN build/static baseline for source `cd5e715...` / run `34107793132`; later run `34138054280` strengthens static YY DLL coverage to 13/13 but is aggregate RED for the separately logged warm-relink orchestration issue.**
