@@ -298,25 +298,16 @@ bool inline ConstructSystem32Path(LPCWSTR aModule, WCHAR* aSystemPath,
 }
 
 HMODULE inline LoadLibrarySystem32(LPCWSTR aModule) {
-  HMODULE module = nullptr;
   static const auto setDefaultDllDirectories =
       GetProcAddress(GetModuleHandleW(L"kernel32"), "SetDefaultDllDirectories");
   if (setDefaultDllDirectories) {
-    module = LoadLibraryExW(aModule, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-  } else {
-    WCHAR systemPath[MAX_PATH + 1];
-    if (!ConstructSystem32Path(aModule, systemPath, MAX_PATH + 1)) {
-      return NULL;
-    }
-    module =
-        LoadLibraryExW(systemPath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    return LoadLibraryExW(aModule, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   }
-#ifdef MOZ_XP_COMPAT
-  if (!module && wcscmp(aModule, L"dwrite.dll") == 0) {
-    module = LoadLibraryW(aModule);
+  WCHAR systemPath[MAX_PATH + 1];
+  if (!ConstructSystem32Path(aModule, systemPath, MAX_PATH + 1)) {
+    return NULL;
   }
-#endif
-  return module;
+  return LoadLibraryExW(systemPath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 }
 
 // for UniquePtr
