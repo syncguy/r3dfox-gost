@@ -50,69 +50,47 @@ This track is independent of GOST TLS runtime. Active implementation work is on 
 
 ## Current all-GREEN build/static baseline
 
-Current all-GREEN tested implementation source:
+Current tested implementation source:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` (`fix(xp): use legacy ProgramData shell folder`).
+- source-under-test `cae81ff9798f759b9a2b162e3455a8ddf382c8ad` (`fix(xp): use section-specific rights for frozen shared memory`).
 
 Exact completed full build:
 
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `34107793132`, attempt `1`;
-- job `101696721232` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- run `34146514899`, attempt `1`;
+- job `101819627976` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate conclusion: **success**.
 
 Exact artifacts:
 
-- package `10018222073` (`r3dfox-gost-xp-x32-package`), digest `sha256:e2d535dc622c67cffb754f8bcafbb6d89127e7cdd7d0e40a298c2f675fda5b38`;
-- runtime `10018223364` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:ea39193e3f8422ee5e35bbe8f830cef936bb45273eff299392480c17357db61d`;
-- diagnostics `10018257313` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:8a4f3939b2bf8d30837060172b7cf4dc5de58dcb4a2b06a4a2e9d7220945a325`.
+- package `10031193476`, digest `sha256:196cc57802dd626e01cdb1e9ad9946c038f4d61ce6e48bbc305feec852d907e6`;
+- runtime `10031194866`, digest `sha256:6b0e64bb02ad7938d14efdaddf41ebea9a6f2cd0973b07c050d0219b07053867`;
+- diagnostics `10031215333`, digest `sha256:5be1bc9ec15ab877602919b90b6988e532481f8d65db696f68c9fffdd3de75cd`.
 
-The build, packaging, runtime archive, current XP PE/import gates, matching-PDB diagnostics, YY-Thunks inventory, uploads and final summary are GREEN. This remains the authoritative all-GREEN build/static baseline for the current source lineage. It is not physical-XP acceptance.
+The build, packaging, runtime archive, current XP PE/import gates, matching-PDB diagnostics, YY-Thunks inventory, uploads and final summary are GREEN. This is the current all-GREEN build/static baseline. It is not physical-XP acceptance.
+
+The user physically tested the exact package artifact. Reported hashes match the package exactly:
+
+- `r3dfox.exe` SHA-1 `9f3f03ceb2d767982f1e83aff20703af1ba740d8`;
+- `xul.dll` SHA-1 `d1b57749d82bac77030c98d26b9b13019e8e4274`.
 
 ## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
 
-A later full-build experiment expands the scoped YY-Thunks DLL/TLS startup contract from the prior xul-focused coverage to every strong YY-resolver candidate detected by the current diagnostics.
+Run `34138054280`, job `101793510758`, source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef` expanded the scoped YY-Thunks DLL/TLS startup contract from 3/13 to 13/13 strong candidates. Its normal Firefox compile/link, package/runtime generation, PE/import audit and final YY contract audit succeeded. The aggregate job is RED only because a separate supplemental warm-relink experiment used incorrect generated-objdir assumptions.
 
-Exact experiment identity:
-
-- workflow-definition / run-head branch `agent/gost-tls-poc`;
-- workflow-definition / run-head SHA `4ea3b94c048436c3f316704c54605567dba975bd`;
-- checked-out XP implementation branch `agent/winrt-source-poc`;
-- source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef`;
-- run `34138054280`, attempt `1`;
-- job `101793510758` (`Windows x86 / r3dfox GOST / XP YY DLL entry-point experiment`);
-- aggregate conclusion: **failure**, caused by a separate supplemental warm-relink experiment, not by the normal Firefox build or final YY contract audit.
-
-Exact produced artifacts:
-
-- package `10028971959`, digest `sha256:a856a62da534f774d08cb576978a86001bb063848bc7a30edae362db94749920`;
-- runtime `10028972525`, digest `sha256:29b8b69d59a7c8ac99f1d5919eee1bba7a97f89a0ecdba209ccd821018523391`;
-- diagnostics `10028995017`, digest `sha256:6ff6bb1f934ba814059848fd640312bf422446ece11ead93408782872a48e864`.
-
-The normal full Firefox compile/link, package/runtime generation, PE/import audit and final `GATE - Verify YY-Thunks DLL entry-point coverage` all succeeded. YY inventory progression is:
-
-```text
-run 34107793132: strong candidates=13, contracts=3,  missing=10
-run 34138054280: strong candidates=13, contracts=13, missing=0
-```
-
-The xul positive control remains true and `yy-dll-entrypoint-missing-contract.txt` is `none`. The ten formerly missing candidates now all have `contract=true`: `gkcodecs.dll`, the three GMP DLLs (`clearkey.dll`, `fake.dll`, `fakeopenh264.dll`), `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `mozglue.dll`, `mozinference.dll`, and `nss3.dll`.
-
-Therefore the known static YY DLL entry-point/TLS coverage debt for the current 13 strong candidates is closed at source `688513...` / run `34138054280`. This is a stronger static result than the all-GREEN baseline above, but it is not promoted to the canonical all-GREEN baseline because the job aggregate is RED.
-
-The RED reason is fully classified: supplemental `Warm-relink early YY DLLs from completed objdir` assumed generated paths/targets that were not present for `mozglue.dll`, `nss3.dll` and `libGLESv2.dll`. Its internal outcome was `failure` under `continue-on-error`; final summarization propagated that recorded outcome. The intended second relink did not occur, but this does not invalidate the normal full-build final DLLs, which pass the 13/13 audit. Do not schedule separate per-library builds merely to re-prove this static closure.
+The 13/13 static closure therefore remains valid and does not need separate per-library rebuilds. It is independent of the physical SharedPrefMap runtime blocker below.
 
 ## Current physical-XP blocker — `SharedPrefMap` read-only mapping failure
 
-The exact `cd5e715...` browser above has now been physically executed on Windows XP SP3 x86 with:
+The exact current `cae81ff...` browser was physically executed on Windows XP SP3 x86 with:
 
 ```bat
 set MOZ_GFX_CRASH_MOZ_CRASH=
 r3dfox.exe
 ```
 
-The supplied Dr. Watson capture contains ten `0x80000003` hardcoded-breakpoint exceptions. Nine processes fail at the same `xul.dll` location:
+The supplied current Dr. Watson capture contains eight `0x80000003` events. Seven processes fail at the same `xul.dll` location as the preceding build:
 
 ```text
 xul load base  0x01bb0000
@@ -121,72 +99,85 @@ fault RVA      0x002848e6
 instruction    int 3
 ```
 
-Exact binary/symbol identity from the same run:
-
-- `xul.dll`: 155,288,576 bytes, SHA-256 `ba777e5f72332aa93151c068d82c9ea877a2826bf0058393db680ec6fd595e0e`;
-- matching `xul.pdb`: 1,864,507,392 bytes, SHA-256 `5748e64d3cfd335a02fac2ec2e906d20db9527d6c7c4151cce89e2ae8c06f326`.
-
-Exact-binary disassembly resolves the repeated fault to:
+Exact matching-PDB symbolization resolves the repeated fault to:
 
 ```text
+mozilla::SharedPrefMap::SharedPrefMap(...)
 modules/libpref/SharedPrefMap.cpp:25
-SharedPrefMap::SharedPrefMap(const ReadOnlySharedMemoryHandle&)
 MOZ_RELEASE_ASSERT(map)
 ```
 
-The source path is:
+Exact current binary/symbol identity:
+
+- `xul.dll` SHA-256 `e0d72150fc592bf5737c2ca28c3d49b342c3ea7ae6b6314e1a7cae40c2d96d95`;
+- matching `xul.pdb` SHA-256 `18717ff9f3eda0321cdf7d1a3c9fc51e469bc4b914364acd73381e6d64fe6a18`.
+
+The source path remains:
 
 ```cpp
 auto map = aMapHandle.Map();
 MOZ_RELEASE_ASSERT(map);
 ```
 
-Therefore the current primary blocker is that `ReadOnlySharedMemoryHandle::Map()` returns an invalid mapping on physical XP.
+Therefore the current primary blocker remains that `ReadOnlySharedMemoryHandle::Map()` returns an invalid mapping on physical XP. On Windows this reaches `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Map`, where `MapViewOfFileEx` is requested with `FILE_MAP_READ` and returns `NULL` on the failing path.
 
-On Windows this path reaches `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Map`, which calls `MapViewOfFileEx` with `FILE_MAP_READ` for read-only mappings. The function returns `NULL` in the failing path. The current capture does not preserve `GetLastError()`, so the exact reason is still open: handle rights/duplication, IPC/sandbox transfer, or XP mapping semantics remain hypotheses.
+### Rejected hypothesis — frozen-handle access mask
 
-The later 13/13 YY static result at source `688513...` / run `34138054280` does not supersede this physical blocker until its own exact runtime artifact is physically tested and produces contradictory runtime evidence.
+Source `cae81ff...` changed the XP-only `Platform::Freeze()` duplicate access mask from:
 
-### Correction of the previous Wasm attribution
+```text
+GENERIC_READ | FILE_MAP_READ
+```
 
-The earlier repeated `MOZ_RELEASE_ASSERT(map)` symptom was attributed to `js/src/wasm/WasmProcess.cpp` because the crash-reason string was known but the exact source line was not.
+to:
 
-That attribution is now **superseded**. The exact `cd5e715...` binary contains multiple references to the same assertion string. The Wasm references carry embedded source lines 58, 73 and 254; the physically reached breakpoint carries source line 25, matching `modules/libpref/SharedPrefMap.cpp` exactly.
+```text
+FILE_MAP_READ | SECTION_QUERY
+```
 
-Do not investigate `sThreadSafeCodeBlockMap` as the current primary blocker unless later exact evidence points back to a Wasm line.
+The exact build is GREEN, but physical XP still reaches the identical `SharedPrefMap.cpp:25` breakpoint.
+
+This negative result is meaningful: source tracing confirms `SharedPrefMapBuilder::Finalize()` uses `MemMapSnapshot`, and `MemMapSnapshot::Finalize()` calls `std::move(mMem).Freeze()`. Therefore the tested access-mask change was exercised on the relevant preference-map handle path.
+
+Conclusion: **the local `Freeze()` access-mask hypothesis is rejected.** Do not repeat this change as if untested and do not treat `SECTION_QUERY` as the missing fix.
+
+### Current next analysis target — post-Freeze handle transfer
+
+Trace the already-frozen read-only handle after `Freeze()` through:
+
+```text
+SharedPrefMap::CloneHandle()
+  -> HandleBase::Clone()
+  -> Platform::CloneHandle()
+  -> DuplicateFileHandle(..., DUPLICATE_SAME_ACCESS)
+  -> IPC message attachment/serialization
+  -> actual cross-process HANDLE transfer
+  -> received HandleBase
+  -> Platform::Map()
+```
+
+The local clone path already uses `DUPLICATE_SAME_ACCESS`, so it preserves the frozen handle's rights. The unresolved boundary is the actual Windows IPC target-process transfer / received-handle state, or an XP-specific mapping semantic after that transfer.
+
+Do not weaken `MOZ_RELEASE_ASSERT(map)` and do not add a speculative mapping fallback. `GetLastError()` at the failed `MapViewOfFileEx` remains useful evidence if source analysis does not isolate a concrete XP/Win7 behavioral difference, but the immediate code-analysis focus is the post-Freeze interprocess transfer path rather than another `Freeze()` mask experiment.
 
 ## Separate physical symptom — Moz2D replay failure
 
-One of the ten Dr. Watson events, PID `3036`, fails at a different location:
+One event in the current Dr. Watson capture again resolves to `gfx/webrender_bindings/Moz2DImageRenderer.cpp:487`, where replay failure reaches `MOZ_RELEASE_ASSERT(false)`. Treat this as a separate GFX symptom; it is not established as the cause of the seven repeated SharedPrefMap failures.
 
-```text
-fault VA       0x02da8533
-fault RVA      0x011f8533
-instruction    int 3
-```
+## Correction of the previous Wasm attribution
 
-Exact-binary analysis resolves this to `gfx/webrender_bindings/Moz2DImageRenderer.cpp`, line 487: `translator.TranslateRecording(...)` returned false, emitted `Replay failure: ...`, then reached `MOZ_RELEASE_ASSERT(false)`.
-
-Treat this as a separate GFX symptom. It is not currently established as the cause of the nine repeated SharedPrefMap failures.
+The old attribution of the repeated `MOZ_RELEASE_ASSERT(map)` to `js/src/wasm/WasmProcess.cpp` is superseded. Exact PDB evidence on two successive physical-XP artifacts resolves the reached address to `modules/libpref/SharedPrefMap.cpp:25`. Do not investigate `sThreadSafeCodeBlockMap` as the current primary blocker unless later exact evidence points back to a Wasm line.
 
 ## Shell32 source cluster — build validated; old physical boundary advanced past
 
-Current source lineage contains XP-owned `MOZ_XP_COMPAT` fallbacks for the observed `SHGetKnownFolderPath` family, including:
-
-- `toolkit/xre/nsXREDirProvider.cpp`: XP uses `SHGetFolderPathW` with legacy CSIDL values;
-- `xpcom/io/SpecialSystemDirectory.cpp`: XP Downloads path avoids the Vista+ known-folder API;
-- update ProgramData handling uses `SHGetFolderPathW(CSIDL_COMMON_APPDATA...)` under XP compatibility.
-
-The exact `cd5e715...` full build is GREEN with these changes. In the new physical run the old `SHELL32!SHGetKnownFolderPath` delay-load failure is not the first reached boundary; execution advances to SharedPrefMap shared-memory mapping.
-
-This does not prove every residual Shell32 path is physically closed. Keep remaining candidates evidence-driven.
+Current source lineage contains XP-owned `MOZ_XP_COMPAT` fallbacks for the observed `SHGetKnownFolderPath` family, including legacy `SHGetFolderPathW`/CSIDL paths. Physical execution advances beyond the old Shell32 boundary and reaches SharedPrefMap shared-memory mapping. This does not prove every residual Shell32 path is closed; keep remaining candidates evidence-driven.
 
 ## Earlier physical/runtime boundaries closed in the current lineage
 
 Do not reopen these without contradictory evidence on a later exact artifact:
 
-- `xul.dll` `ntdll!RtlpWaitForCriticalSection` startup failure: physically advanced past after xul YY DLL/TLS entry-point integration, source `b386b7f4...`, run `34038288272`, job `101500284497`, runtime artifact `9992440155`;
-- preceding IP Helper runtime boundary: physically advanced past by source `0a18ba85...`, run `34079480996`, job `101611911453`;
+- `xul.dll` `ntdll!RtlpWaitForCriticalSection` startup failure, physically advanced past after xul YY DLL/TLS entry-point integration;
+- preceding IP Helper runtime boundary;
 - `USER32!SetProcessDPIAware` delay-load boundary;
 - `NtCancelIoFileEx`;
 - ADVAPI32 ETW family;
@@ -194,31 +185,15 @@ Do not reopen these without contradictory evidence on a later exact artifact:
 - PROPSYS ordinary-import dependency;
 - WS2_32 observed compatibility family;
 - ANGLE/DXGI static `CreateDXGIFactory1` edge;
-- current 13-strong-candidate YY DLL entry-point/TLS **static** coverage debt, source `688513...`, run `34138054280`.
+- current 13-strong-candidate YY DLL entry-point/TLS static coverage debt.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility ownership physically narrow by PE/provider/source owner.
-
-## Current next experiment
-
-Primary next experiment is **not** to suppress `MOZ_RELEASE_ASSERT(map)` and not to add a speculative shared-memory fallback. It is also not to split the already-proven 13/13 YY DLL static result into separate library builds.
-
-Instrument the XP Windows shared-memory mapping failure narrowly in/around `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Map` so that a failed `MapViewOfFileEx` records enough sanitized evidence to identify the actual Windows failure:
-
-- `GetLastError()` immediately after `MapViewOfFileEx` returns `NULL`;
-- whether the supplied handle is valid;
-- mapping offset and size;
-- read-only vs read/write mode;
-- whether a fixed address was requested.
-
-Then rebuild from the exact new source SHA and repeat the physical-XP launch. Only after the exact Windows error is known should we choose between handle-rights/duplication, IPC/sandbox transfer, or an XP-specific mapping remediation.
-
-The single Moz2D replay assert remains a parallel secondary symptom; investigate it separately if it persists after the SharedPrefMap path is understood.
 
 ## XP acceptance boundary
 
 Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-Current state: the canonical all-GREEN build/static baseline is `cd5e715...` / run `34107793132`; the later source `688513...` / run `34138054280` closes the current static YY DLL startup inventory at 13/13 despite its separately classified aggregate RED; physical XP on the tested `cd5e715...` artifact repeatedly fails at `SharedPrefMap.cpp:25` because the read-only preference shared-memory mapping is invalid. XP runtime success would still not prove a GOST TLS handshake.
+Current state: all build/static gates are GREEN for source `cae81ff...` / run `34146514899`, but the exact artifact still repeatedly fails at `SharedPrefMap.cpp:25`. The `FILE_MAP_READ | SECTION_QUERY` frozen-handle experiment is rejected; next work is the post-Freeze cross-process HANDLE transfer / received mapping path. XP runtime success would still not prove a GOST TLS handshake.
 
 # Bundled government-system extensions / localization
 
