@@ -661,6 +661,39 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\diag-xul-iphlpapi.ps1
 
+      - name: GATE - Require XP battery Vista-only USER32 imports absent from xul.dll
+        id: battery-power-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-battery-power-import'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          if (-not (Test-Path $xul)) { 'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "xul.dll missing for battery power import gate: $xul" }
+          $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
+          $dumpbinExit = $LASTEXITCODE
+          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
+          if ($dumpbinExit -ne 0) { "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit" }
+          $apis = @('RegisterPowerSettingNotification','UnregisterPowerSettingNotification')
+          $mode = 'none'
+          $currentDll = ''
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($line in $raw) {
+            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
+            if ($mode -notin @('direct','delay') -or $currentDll -notmatch '(?i)^USER32\.dll$') { continue }
+            foreach ($api in $apis) {
+              if ($line.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add("$mode|$api") }
+            }
+          }
+          $unique = @($hits | Sort-Object -Unique)
+          $unique | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-battery-power-imports.txt')
+          if ($unique.Count -gt 0) { ("result=FAIL|surviving=" + ($unique -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw ("xul.dll still imports Vista-only battery USER32 APIs: " + ($unique -join ', ')) }
+          'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+
       - name: GATE - Require source-remediation quartet absent from xul.dll
         id: source-remediation-quartet
         if: steps.build-release.outcome == 'success'
@@ -1282,6 +1315,7 @@ jobs:
             xp-x32-direct-imports.txt
             xp-x32-delay-imports.txt
             xp-x32-forbidden-direct-imports.txt
+            xp-x32-battery-power-import/**
             xp-x32-source-remediation-quartet/**
             xp-x32-advapi32-etw-import/**
             xp-x32-dpi-delay-import/**
@@ -1301,6 +1335,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $checks = @(
             @{ Name='dpi-source-guard'; Outcome='${{ steps.dpi-source-guard.outcome }}' },
+            @{ Name='battery-power-import'; Outcome='${{ steps.battery-power-import-gate.outcome }}' },
             @{ Name='source-remediation-quartet'; Outcome='${{ steps.source-remediation-quartet.outcome }}' },
             @{ Name='advapi32-compat-import'; Outcome='${{ steps.advapi32-etw-import-gate.outcome }}' },
             @{ Name='dpi-import-mode'; Outcome='${{ steps.dpi-import-gate.outcome }}' },
@@ -1323,6 +1358,7 @@ jobs:
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP source defines: MOZ_NO_WINRT + MOZ_XP_COMPAT via CFLAGS/CXXFLAGS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- DPI pre-Vista source guard: ${{ steps.dpi-source-guard.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Battery USER32 import gate: ${{ steps.battery-power-import-gate.outcome }}; RegisterPowerSettingNotification/UnregisterPowerSettingNotification must be absent from both ordinary and delay imports in xul.dll for the MOZ_XP_COMPAT legacy PBT_APMPOWERSTATUSCHANGE path." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source-remediation quartet gate: ${{ steps.source-remediation-quartet.outcome }} (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- ADVAPI32 compatibility final xul.dll gate: ${{ steps.advapi32-etw-import-gate.outcome }}; ETW focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554; RegGetValueW focused capability source 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4 / run 33946751857 / job 101254130849." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- WS2_32 focused YY capability: WSAIoctl + inet_ntop from source 5451673565030445262f5b6ef48b4059e0e0501e / run 34021400841 / job 101454550948; production link uses only their weak-alias pairs plus the shared narrow YY implementation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
