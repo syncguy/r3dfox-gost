@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -48,9 +48,9 @@ Current authoritative Session-default browser source is `afbdad307f63e594d371516
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
-## Current implementation and exact GREEN build/static baseline
+## Current all-GREEN build/static baseline
 
-Current tested implementation source:
+Current all-GREEN tested implementation source:
 
 - branch `agent/winrt-source-poc`;
 - source-under-test `cd5e7155b0f227a22b7c35a0a44e2e24f69456d4` (`fix(xp): use legacy ProgramData shell folder`).
@@ -68,7 +68,40 @@ Exact artifacts:
 - runtime `10018223364` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:ea39193e3f8422ee5e35bbe8f830cef936bb45273eff299392480c17357db61d`;
 - diagnostics `10018257313` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:8a4f3939b2bf8d30837060172b7cf4dc5de58dcb4a2b06a4a2e9d7220945a325`.
 
-The build, packaging, runtime archive, current XP PE/import gates, matching-PDB diagnostics, YY-Thunks inventory, uploads and final summary are GREEN. This is the authoritative build/static baseline for the current Shell32 source cluster. It is not physical-XP acceptance.
+The build, packaging, runtime archive, current XP PE/import gates, matching-PDB diagnostics, YY-Thunks inventory, uploads and final summary are GREEN. This remains the authoritative all-GREEN build/static baseline for the current source lineage. It is not physical-XP acceptance.
+
+## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
+
+A later full-build experiment expands the scoped YY-Thunks DLL/TLS startup contract from the prior xul-focused coverage to every strong YY-resolver candidate detected by the current diagnostics.
+
+Exact experiment identity:
+
+- workflow-definition / run-head branch `agent/gost-tls-poc`;
+- workflow-definition / run-head SHA `4ea3b94c048436c3f316704c54605567dba975bd`;
+- checked-out XP implementation branch `agent/winrt-source-poc`;
+- source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef`;
+- run `34138054280`, attempt `1`;
+- job `101793510758` (`Windows x86 / r3dfox GOST / XP YY DLL entry-point experiment`);
+- aggregate conclusion: **failure**, caused by a separate supplemental warm-relink experiment, not by the normal Firefox build or final YY contract audit.
+
+Exact produced artifacts:
+
+- package `10028971959`, digest `sha256:a856a62da534f774d08cb576978a86001bb063848bc7a30edae362db94749920`;
+- runtime `10028972525`, digest `sha256:29b8b69d59a7c8ac99f1d5919eee1bba7a97f89a0ecdba209ccd821018523391`;
+- diagnostics `10028995017`, digest `sha256:6ff6bb1f934ba814059848fd640312bf422446ece11ead93408782872a48e864`.
+
+The normal full Firefox compile/link, package/runtime generation, PE/import audit and final `GATE - Verify YY-Thunks DLL entry-point coverage` all succeeded. YY inventory progression is:
+
+```text
+run 34107793132: strong candidates=13, contracts=3,  missing=10
+run 34138054280: strong candidates=13, contracts=13, missing=0
+```
+
+The xul positive control remains true and `yy-dll-entrypoint-missing-contract.txt` is `none`. The ten formerly missing candidates now all have `contract=true`: `gkcodecs.dll`, the three GMP DLLs (`clearkey.dll`, `fake.dll`, `fakeopenh264.dll`), `libGLESv2.dll`, `mozavcodec.dll`, `mozavutil.dll`, `mozglue.dll`, `mozinference.dll`, and `nss3.dll`.
+
+Therefore the known static YY DLL entry-point/TLS coverage debt for the current 13 strong candidates is closed at source `688513...` / run `34138054280`. This is a stronger static result than the all-GREEN baseline above, but it is not promoted to the canonical all-GREEN baseline because the job aggregate is RED.
+
+The RED reason is fully classified: supplemental `Warm-relink early YY DLLs from completed objdir` assumed generated paths/targets that were not present for `mozglue.dll`, `nss3.dll` and `libGLESv2.dll`. Its internal outcome was `failure` under `continue-on-error`; final summarization propagated that recorded outcome. The intended second relink did not occur, but this does not invalidate the normal full-build final DLLs, which pass the 13/13 audit. Do not schedule separate per-library builds merely to re-prove this static closure.
 
 ## Current physical-XP blocker — `SharedPrefMap` read-only mapping failure
 
@@ -111,6 +144,8 @@ MOZ_RELEASE_ASSERT(map);
 Therefore the current primary blocker is that `ReadOnlySharedMemoryHandle::Map()` returns an invalid mapping on physical XP.
 
 On Windows this path reaches `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Map`, which calls `MapViewOfFileEx` with `FILE_MAP_READ` for read-only mappings. The function returns `NULL` in the failing path. The current capture does not preserve `GetLastError()`, so the exact reason is still open: handle rights/duplication, IPC/sandbox transfer, or XP mapping semantics remain hypotheses.
+
+The later 13/13 YY static result at source `688513...` / run `34138054280` does not supersede this physical blocker until its own exact runtime artifact is physically tested and produces contradictory runtime evidence.
 
 ### Correction of the previous Wasm attribution
 
@@ -158,13 +193,14 @@ Do not reopen these without contradictory evidence on a later exact artifact:
 - KERNEL32 restart/named-pipe source-remediation quartet;
 - PROPSYS ordinary-import dependency;
 - WS2_32 observed compatibility family;
-- ANGLE/DXGI static `CreateDXGIFactory1` edge.
+- ANGLE/DXGI static `CreateDXGIFactory1` edge;
+- current 13-strong-candidate YY DLL entry-point/TLS **static** coverage debt, source `688513...`, run `34138054280`.
 
 Full YY `kernel32.lib` interposition remains prohibited. Keep compatibility ownership physically narrow by PE/provider/source owner.
 
 ## Current next experiment
 
-Primary next experiment is **not** to suppress `MOZ_RELEASE_ASSERT(map)` and not to add a speculative shared-memory fallback.
+Primary next experiment is **not** to suppress `MOZ_RELEASE_ASSERT(map)` and not to add a speculative shared-memory fallback. It is also not to split the already-proven 13/13 YY DLL static result into separate library builds.
 
 Instrument the XP Windows shared-memory mapping failure narrowly in/around `ipc/glue/SharedMemoryPlatform_windows.cpp::Platform::Map` so that a failed `MapViewOfFileEx` records enough sanitized evidence to identify the actual Windows failure:
 
@@ -182,7 +218,7 @@ The single Moz2D replay assert remains a parallel secondary symptom; investigate
 
 Final XP acceptance still requires one exact candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
 
-Current state: build/static gates are GREEN at `cd5e715...`, but physical XP repeatedly fails at `SharedPrefMap.cpp:25` because the read-only preference shared-memory mapping is invalid. XP runtime success would still not prove a GOST TLS handshake.
+Current state: the canonical all-GREEN build/static baseline is `cd5e715...` / run `34107793132`; the later source `688513...` / run `34138054280` closes the current static YY DLL startup inventory at 13/13 despite its separately classified aggregate RED; physical XP on the tested `cd5e715...` artifact repeatedly fails at `SharedPrefMap.cpp:25` because the read-only preference shared-memory mapping is invalid. XP runtime success would still not prove a GOST TLS handshake.
 
 # Bundled government-system extensions / localization
 
