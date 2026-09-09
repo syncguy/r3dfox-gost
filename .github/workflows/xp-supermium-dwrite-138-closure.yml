@@ -2,6 +2,11 @@ name: XP Supermium 138 DWrite closure smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - .github/workflows/xp-supermium-dwrite-138-closure.yml
 
 permissions:
   contents: read
