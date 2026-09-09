@@ -312,6 +312,11 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\verify-msvcr14x-xp-contract.ps1
 
+      - name: Prepare pinned private DirectWrite integration
+        id: prepare-private-dwrite
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-private-dwrite-integration.ps1
+
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
         run: |
@@ -842,9 +847,15 @@ jobs:
           New-Item -ItemType Directory -Force diagnostics | Out-Null
           @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") | Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
 
+      - name: Stage pinned private DirectWrite closure
+        id: stage-private-dwrite
+        if: steps.stage-legacy-d3dcompiler.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Stage
+
       - name: Retarget dist/bin PE subsystem headers to XP x86
         id: retarget-pe
-        if: steps.stage-legacy-d3dcompiler.outcome == 'success'
+        if: steps.stage-private-dwrite.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -887,9 +898,15 @@ jobs:
           "LEGACY_D3DCOMPILER47_RETARGETED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           @("retargeted_sha256=$hash", "retargeted_file_version=$version", "retargeted_subsystem=5.01") | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
 
+      - name: GATE - Verify private DirectWrite closure after PE retarget
+        id: verify-private-dwrite
+        if: steps.retarget-pe.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Verify
+
       - name: Stage proven XP bcrypt.dll
         id: stage-xp-bcrypt
-        if: always() && steps.retarget-pe.outcome == 'success'
+        if: always() && steps.verify-private-dwrite.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -983,6 +1000,12 @@ jobs:
           }
           if (-not $verifiedArchive) { throw 'No produced portable package contains exactly one matching ucrtbase.dll and msvcp140.dll' }
 
+      - name: GATE - Verify private DirectWrite closure survived portable packaging
+        id: verify-packaged-private-dwrite
+        if: always() && steps.verify-packaged-crt.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode VerifyPackage
+
       - name: GATE - Verify proven bcrypt survived portable packaging
         id: verify-packaged-bcrypt
         if: always() && steps.package-release.outcome == 'success'
@@ -1059,8 +1082,11 @@ jobs:
           $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-import-audit'
           New-Item -ItemType Directory -Force $diagRoot | Out-Null
           $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $binResolved = (Resolve-Path $bin).Path
           $targets = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll') })
           $forbiddenDllPatterns = @('^(?i)(api-ms-win-|ext-ms-)','^(?i)KERNELBASE\.dll$','^(?i)BCRYPTPRIMITIVES\.dll$','^(?i)COMBASE\.dll$','^(?i)NCRYPT\.dll$','^(?i)WEVTAPI\.dll$','^(?i)DWMAPI\.dll$','^(?i)SHCORE\.dll$','^(?i)PATHCCH\.dll$','^(?i)NORMALIZ\.dll$','^(?i)PROPSYS\.dll$','^(?i)DXGI\.dll$','^(?i)VCRUNTIME140(?:_1)?\.dll$')
+          $privateDwriteApiSets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($name in @('api-ms-win-crt-heap-l1-1-0.dll','api-ms-win-crt-math-l1-1-0.dll','api-ms-win-crt-runtime-l1-1-0.dll','api-ms-win-crt-stdio-l1-1-0.dll','api-ms-win-crt-string-l1-1-0.dll')) { [void]$privateDwriteApiSets.Add($name) }
           $forbiddenApis = @(
             'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal','CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
             'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo','CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
@@ -1077,8 +1103,14 @@ jobs:
           $rows = [System.Collections.Generic.List[string]]::new()
           $delayRows = [System.Collections.Generic.List[string]]::new()
           foreach ($target in $targets) {
+            $relativeTarget = $target.FullName.Substring($binResolved.Length).TrimStart('\') -replace '\\','/'
             $imports = Read-Binary $target $diagRoot
-            foreach ($dll in @($imports.Dlls | Sort-Object)) { $rows.Add("$($target.FullName)|DLL|$dll"); foreach ($pattern in $forbiddenDllPatterns) { if ($dll -match $pattern) { $hits.Add("$($target.FullName)|DLL|$dll"); break } } }
+            foreach ($dll in @($imports.Dlls | Sort-Object)) {
+              $rows.Add("$($target.FullName)|DLL|$dll")
+              $privateDwriteApiSet = $relativeTarget -ieq 'xpcompat/dwrite/DWrite.dll' -and $privateDwriteApiSets.Contains($dll)
+              if ($privateDwriteApiSet) { continue }
+              foreach ($pattern in $forbiddenDllPatterns) { if ($dll -match $pattern) { $hits.Add("$($target.FullName)|DLL|$dll"); break } }
+            }
             foreach ($api in @($imports.Apis | Sort-Object)) { $rows.Add("$($target.FullName)|API|$api"); if ($forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") } }
             foreach ($dll in @($imports.DelayDlls | Sort-Object)) { $delayRows.Add("$($target.FullName)|DLL|$dll") }
             foreach ($api in @($imports.DelayApis | Sort-Object)) { $delayRows.Add("$($target.FullName)|API|$api") }
@@ -1132,9 +1164,6 @@ jobs:
             return $true
           }
 
-          # YY-Thunks v1.2.2 / x86 fingerprints validated against the exact b386b7f4
-          # runtime: the wrapper is the PE entry point and FirstCallback is present
-          # in the TLS callback table when the DLL/TLS entry-point contract is active.
           $entryFingerprint = @{
             0=0x53; 1=0x56; 2=0x57; 3=0x8B; 4=0x3D;
             9=0x85; 10=0xFF; 11=0x75; 12=0x05; 13=0xBF;
@@ -1194,10 +1223,6 @@ jobs:
             return [pscustomobject]@{ X86=$true; EntryWrapper=$entryWrapper; FirstTlsCallback=$firstTlsCallback }
           }
 
-          # These names are exactly from the narrow YY provider/alias family injected
-          # through global target LDFLAGS.  A name found in raw DLL data but absent from
-          # dumpbin's ordinary/delay import listing is resolver evidence, not proof by
-          # itself; two or more such names are treated as a strong YY-consumer candidate.
           $trackedApis = @(
             'ProcessPrng','GetSystemTimePreciseAsFileTime','FlsAlloc','FlsFree','FlsSetValue',
             'IsThreadAFiber','SetThreadStackGuarantee','AcquireSRWLockExclusive','AcquireSRWLockShared',
@@ -1341,8 +1366,10 @@ jobs:
             @{ Name='dpi-import-mode'; Outcome='${{ steps.dpi-import-gate.outcome }}' },
             @{ Name='core-import'; Outcome='${{ steps.sync-import-gate.outcome }}' },
             @{ Name='retargeted-d3dcompiler'; Outcome='${{ steps.verify-retargeted-d3dcompiler.outcome }}' },
+            @{ Name='private-dwrite'; Outcome='${{ steps.verify-private-dwrite.outcome }}' },
             @{ Name='packaged-d3dcompiler'; Outcome='${{ steps.verify-legacy-d3dcompiler.outcome }}' },
             @{ Name='packaged-crt'; Outcome='${{ steps.verify-packaged-crt.outcome }}' },
+            @{ Name='packaged-private-dwrite'; Outcome='${{ steps.verify-packaged-private-dwrite.outcome }}' },
             @{ Name='packaged-bcrypt'; Outcome='${{ steps.verify-packaged-bcrypt.outcome }}' },
             @{ Name='broad-import-audit'; Outcome='${{ steps.xp-import-audit.outcome }}' }
           )
@@ -1357,6 +1384,9 @@ jobs:
           "- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP source defines: MOZ_NO_WINRT + MOZ_XP_COMPAT via CFLAGS/CXXFLAGS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Private DirectWrite: focused contract source 8c30be63ea03a289ca24de4e2dc3e3859f34473e / run 34321430843 / job 102368728335; packaged as xpcompat/dwrite with exact 10-member pinned closure, shared msvcr14x ucrtbase.dll, absolute private DWrite path + LOAD_WITH_ALTERED_SEARCH_PATH, and no explicit pwrp preload." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Under MOZ_XP_COMPAT both XRE startup and gfx Factory DirectWrite load paths use LoadLibraryXPPrivateDWrite; LoadLibrarySystem32(DWrite.dll) remains non-XP only. Optimized read-ahead uses the packaged private path." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Broad PE audit retains the api-ms-win-* prohibition except for the five exact pinned CRT API-set imports of xpcompat/dwrite/DWrite.dll; the dedicated private-DWrite closure gate validates that exception recursively." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- DPI pre-Vista source guard: ${{ steps.dpi-source-guard.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Battery USER32 import gate: ${{ steps.battery-power-import-gate.outcome }}; RegisterPowerSettingNotification/UnregisterPowerSettingNotification must be absent from both ordinary and delay imports in xul.dll for the MOZ_XP_COMPAT legacy PBT_APMPOWERSTATUSCHANGE path." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source-remediation quartet gate: ${{ steps.source-remediation-quartet.outcome }} (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
