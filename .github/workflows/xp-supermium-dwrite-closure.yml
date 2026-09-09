@@ -13,9 +13,9 @@ permissions:
 
 jobs:
   dwrite-closure-x86:
-    name: Supermium DWrite / XP x86 dependency closure
+    name: Supermium DWrite / XP x86 closure and dist-bin smoke
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     env:
       SUPERMIUM_TAG: "v132-r5-02"
@@ -28,6 +28,9 @@ jobs:
       YY_THUNKS_SOURCE_SHA: "83d9d0d3f2f212411006e4aa5c5f3db8a6ae2f20"
       YY_THUNKS_LIB_SHA256: "ffe4d9c1b6bb53225ee2af1cac7b36bce90bb1f33ae65f9ba523debcb33ce6ab"
       YY_THUNKS_TARGET: "5.1.2600.0"
+      MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+      MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+      MSVCR14X_PHYSICAL_REFERENCE_UCRT_SHA256: "de0bd4b2152d9877a9f6e8ac05156bbd83fa7836e727f84bcfd9aa279be27906"
       WINDOWS_XP_SUBSYSTEM: "5.01"
 
     steps:
@@ -41,7 +44,7 @@ jobs:
             "workflow_sha=$env:GITHUB_SHA",
             "workflow_ref=$env:GITHUB_REF",
             'firefox_source=NOT_APPLICABLE',
-            'scope=external static Supermium DWrite dependency-closure plus pinned YY-Thunks coverage audit only',
+            'scope=external Supermium DWrite closure, future dist/bin layout, and hosted loader/DWrite initialization smoke',
             "supermium_tag=$env:SUPERMIUM_TAG",
             "supermium_asset=$env:SUPERMIUM_ASSET",
             "supermium_asset_sha256=$env:SUPERMIUM_ASSET_SHA256",
@@ -49,7 +52,9 @@ jobs:
             "yy_thunks_tag=$env:YY_THUNKS_TAG",
             "yy_thunks_source_sha=$env:YY_THUNKS_SOURCE_SHA",
             "yy_thunks_lib_sha256=$env:YY_THUNKS_LIB_SHA256",
-            "yy_thunks_target=$env:YY_THUNKS_TARGET"
+            "yy_thunks_target=$env:YY_THUNKS_TARGET",
+            "msvcr14x_source_sha=$env:MSVCR14X_SHA",
+            "msvcr14x_physical_reference_ucrt_sha256=$env:MSVCR14X_PHYSICAL_REFERENCE_UCRT_SHA256"
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Enable MSVC x86 environment
@@ -423,25 +428,9 @@ jobs:
             'xp_api_compatibility=REQUIRES_IMPORT_REVIEW'
           ) | Set-Content -Encoding utf8 diagnostics\closure-summary.txt
 
-          '=== closure files ===' | Write-Host
-          $filesSorted | Format-Table File,Classification,Size,Subsystem,NeedsRetarget,SHA256 -AutoSize | Out-String | Write-Host
-          '=== closure API edges with YY coverage ===' | Write-Host
-          $edgesSorted | Format-Table From,Kind,To,API,Classification,YYCoverage -AutoSize | Out-String | Write-Host
-          '=== summary ===' | Write-Host
-          Get-Content diagnostics\closure-summary.txt | ForEach-Object { Write-Host $_ }
-
           if ($unresolved.Count -gt 0) {
             $unresolved | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\unresolved-external.csv
           }
-
-      - name: Upload DWrite closure diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xp-supermium-dwrite-closure-${{ github.run_id }}
-          path: diagnostics
-          if-no-files-found: error
-          retention-days: 30
 
       - name: GATE - Require provider graph resolved
         shell: powershell
@@ -452,3 +441,607 @@ jobs:
           if ($status -ne 'provider_graph_status=RESOLVED') {
             throw 'DWrite provider graph is not fully resolved; inspect unresolved-external.csv and raw imports/exports.'
           }
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'msvcr14x'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git init $root
+          git -C $root remote add origin $env:MSVCR14X_REPO
+          git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
+          git -C $root checkout --detach FETCH_HEAD
+          git -C $root submodule update --init --recursive --depth 1
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $env:MSVCR14X_SHA) { throw "Unexpected msvcr14x commit: $actual" }
+
+          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86' -r "/bl:$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-release-x86.binlog"
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x build failed: $LASTEXITCODE" }
+
+          $required = @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')
+          $release = $null
+          $candidateDirs = @(Get-ChildItem -Path $root -Recurse -File -Filter 'ucrtbase.dll' |
+            ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)
+          foreach ($candidate in $candidateDirs) {
+            $missing = @($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) })
+            if ($missing.Count -gt 0) { continue }
+            $headers = (& dumpbin.exe /nologo /headers (Join-Path $candidate 'ucrtbase.dll') 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0 -and $headers -match '(?im)^\s*14C machine \(x86\)') {
+              $release = $candidate
+              break
+            }
+          }
+          if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
+          "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem -LiteralPath $release -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
+            Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
+
+      - name: GATE - Require proven XP x86 msvcr14x UCRT contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:MSVCR14X_RELEASE 'ucrtbase.dll'
+          $headers = @(& dumpbin.exe /nologo /headers $path 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $path" }
+          $headers | Set-Content -Encoding utf8 diagnostics\msvcr14x-ucrtbase-headers.txt
+          $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+          if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw 'msvcr14x ucrtbase.dll is not x86 machine 14C' }
+          $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+          if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw 'Cannot parse msvcr14x ucrtbase subsystem version' }
+          $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+          if ($version -gt [version]'5.1') { throw "msvcr14x ucrtbase subsystem $version is newer than XP x86 5.01" }
+
+          $forbiddenApis = @(
+            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW'
+          )
+          $forbiddenDllPatterns = @(
+            '^(?i)(api-ms-win-|ext-ms-)', '^(?i)KERNELBASE\.dll$', '^(?i)BCRYPT(?:PRIMITIVES)?\.dll$',
+            '^(?i)COMBASE\.dll$', '^(?i)NCRYPT\.dll$', '^(?i)VCRUNTIME140(?:_1)?\.dll$'
+          )
+          $imports = @(& dumpbin.exe /nologo /imports $path 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+          $imports | Set-Content -Encoding utf8 diagnostics\msvcr14x-ucrtbase-imports.txt
+          $text = $imports -join "`n"
+          foreach ($api in $forbiddenApis) {
+            if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "msvcr14x ucrtbase retains forbidden XP direct import $api" }
+          }
+          foreach ($line in $imports) {
+            if ($line -notmatch '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { continue }
+            $dep = $matches[1]
+            foreach ($pattern in $forbiddenDllPatterns) {
+              if ($dep -match $pattern) { throw "msvcr14x ucrtbase retains forbidden XP dependency $dep" }
+            }
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+          @(
+            "source_sha=$env:MSVCR14X_SHA",
+            "built_ucrt_sha256=$hash",
+            "physical_reference_ucrt_sha256=$env:MSVCR14X_PHYSICAL_REFERENCE_UCRT_SHA256",
+            "subsystem=$version",
+            'machine=x86',
+            'physical_identity_match_is_not_required_for_this_source_built_candidate=true',
+            'physical_stub_execution_binds_the_staged_binary=true'
+          ) | Set-Content -Encoding utf8 diagnostics\msvcr14x-ucrt-contract.txt
+
+      - name: GATE - Require DWrite CRT forwarders satisfied by msvcr14x UCRT
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Read-DirectImports([string]$path) {
+            $rows = [System.Collections.Generic.List[object]]::new()
+            $lines = @(& dumpbin.exe /nologo /imports $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $mode = 'none'
+            $module = $null
+            foreach ($line in $lines) {
+              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $module = $null; continue }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $module = $null; continue }
+              if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $module = $matches[1]; continue }
+              if ($mode -ne 'direct' -or -not $module) { continue }
+              $entry = $line.Trim()
+              if ($entry -match '^[0-9A-Fa-f]+(?:\s+[0-9A-Fa-f]+){0,3}\s+(\S+)$') {
+                $rows.Add([pscustomobject]@{ Module=$module; API=$matches[1] })
+              }
+            }
+            return $rows
+          }
+
+          $crtImports = @(Read-DirectImports $env:DWRITE_PATH | Where-Object Module -match '(?i)^api-ms-win-crt-')
+          $crtModules = @($crtImports.Module | Sort-Object -Unique)
+          if ($crtImports.Count -ne 37) { throw "Expected 37 DWrite CRT imports; found $($crtImports.Count)." }
+          if ($crtModules.Count -ne 5) { throw "Expected 5 DWrite CRT API-set modules; found $($crtModules.Count)." }
+
+          $ucrtExportsRaw = @(& dumpbin.exe /nologo /exports (Join-Path $env:MSVCR14X_RELEASE 'ucrtbase.dll') 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /exports failed for msvcr14x ucrtbase.dll' }
+          $ucrtExportsRaw | Set-Content -Encoding utf8 diagnostics\msvcr14x-ucrtbase-exports.txt
+          $ucrtExports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+          foreach ($line in $ucrtExportsRaw) {
+            if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)') { [void]$ucrtExports.Add($matches[1]) }
+          }
+          if ($ucrtExports.Count -eq 0) { throw 'Could not parse msvcr14x ucrtbase exports.' }
+
+          $contract = [System.Collections.Generic.List[object]]::new()
+          foreach ($module in $crtModules) {
+            $apiSetPath = Join-Path $env:DWRITE_ROOT $module
+            if (-not (Test-Path $apiSetPath)) { throw "Missing Supermium CRT API-set provider: $module" }
+            $exportsRaw = @(& dumpbin.exe /nologo /exports $apiSetPath 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /exports failed: $apiSetPath" }
+            $map = @{}
+            foreach ($line in $exportsRaw) {
+              if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+(?:[0-9A-Fa-f]+\s+)?(\S+)\s+\(forwarded to\s+ucrtbase\.([^)]+)\)') {
+                $map[$matches[1]] = $matches[2]
+              }
+            }
+            foreach ($import in @($crtImports | Where-Object Module -ieq $module)) {
+              if (-not $map.ContainsKey($import.API)) { throw "$module does not forward imported API $($import.API) to ucrtbase" }
+              $target = $map[$import.API]
+              $present = $ucrtExports.Contains($target)
+              $contract.Add([pscustomobject]@{
+                ApiSet=$module
+                DWriteImport=$import.API
+                UcrtTarget=$target
+                Msvcr14xExportPresent=$present
+              })
+              if (-not $present) { throw "msvcr14x ucrtbase is missing required export $target for $module!$($import.API)" }
+            }
+          }
+          $contract | Sort-Object ApiSet,DWriteImport | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\dwrite-msvcr14x-ucrt-contract.csv
+          "required_crt_imports=$($contract.Count)" | Set-Content -Encoding utf8 diagnostics\dwrite-msvcr14x-ucrt-summary.txt
+          'msvcr14x_ucrt_coverage=37/37' | Add-Content -Encoding utf8 diagnostics\dwrite-msvcr14x-ucrt-summary.txt
+
+      - name: Stage future dist/bin DWrite component and retarget private PE floor
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateRoot = Join-Path $env:GITHUB_WORKSPACE 'candidate-root'
+          $distBin = Join-Path $candidateRoot 'dist\bin'
+          $private = Join-Path $distBin 'xpcompat\dwrite'
+          if (Test-Path $candidateRoot) { Remove-Item -Recurse -Force $candidateRoot }
+          New-Item -ItemType Directory -Force $private | Out-Null
+
+          $expected = [ordered]@{
+            'DWrite.dll'='945f83efcec25ea71334a2d6117666aa625641cc2a92def474ef96cffa969e77'
+            'p_advp32.dll'='9c493060173a6637b0f903171eaac63c749f0336a0789934cfeeebda381af289'
+            'p_ole.dll'='2fde6c35e1ed76b4bfe2707c3382c81aa60f84f6695c9431c2ae37522171f4cb'
+            'pwp_shd.dll'='5a01c4cdc18d646621dbf7407e607114d5aafee53a8f32f4b9e1e4d80cfe464f'
+            'pwrp_k32.dll'='5e2b41d24f59291fdadce1f57a843e809ecbb444b2f15c0c71f19fe67ebe47cd'
+            'api-ms-win-crt-heap-l1-1-0.dll'='b5d69a1c45ea9e480ad518e2735224983f3885e3ec2a064619be4b02055ea9af'
+            'api-ms-win-crt-math-l1-1-0.dll'='7b4586e58ed1e6a247777093abb00b9815a10b371baf3c81ec1082784a9fd352'
+            'api-ms-win-crt-runtime-l1-1-0.dll'='6cbd9ec2330c8c4f92d3251c850f0a6e6d68cbd647eb8c1c17ca3bedae81e9c5'
+            'api-ms-win-crt-stdio-l1-1-0.dll'='423e9315811aaa783f2ac380232a27692ffb31202450f1fb4693a071aeb129ca'
+            'api-ms-win-crt-string-l1-1-0.dll'='08264ab7c5e3e5c08895a90d208cedf216db2cc36b58776662705a338dd62f62'
+          }
+
+          $manifest = [System.Collections.Generic.List[object]]::new()
+          foreach ($name in $expected.Keys) {
+            $src = Join-Path $env:DWRITE_ROOT $name
+            if (-not (Test-Path $src)) { throw "Pinned Supermium private member missing: $name" }
+            $sourceHash = (Get-FileHash -Algorithm SHA256 $src).Hash.ToLowerInvariant()
+            if ($sourceHash -ne $expected[$name]) { throw "$name SHA256 mismatch: expected=$($expected[$name]) actual=$sourceHash" }
+            $dst = Join-Path $private $name
+            Copy-Item -LiteralPath $src -Destination $dst
+            $manifest.Add([pscustomobject]@{
+              RelativePath="xpcompat/dwrite/$name"
+              Role='private'
+              Provenance="Supermium $env:SUPERMIUM_TAG"
+              SourceSHA256=$sourceHash
+            })
+          }
+
+          $ucrtSrc = Join-Path $env:MSVCR14X_RELEASE 'ucrtbase.dll'
+          $ucrtHash = (Get-FileHash -Algorithm SHA256 $ucrtSrc).Hash.ToLowerInvariant()
+          Copy-Item -LiteralPath $ucrtSrc -Destination (Join-Path $distBin 'ucrtbase.dll')
+          $manifest.Add([pscustomobject]@{
+            RelativePath='ucrtbase.dll'
+            Role='shared'
+            Provenance="msvcr14x $env:MSVCR14X_SHA"
+            SourceSHA256=$ucrtHash
+          })
+
+          if (Test-Path (Join-Path $private 'ucrtbase.dll')) { throw 'Architecture violation: ucrtbase.dll must stay shared at dist/bin, not private under xpcompat/dwrite.' }
+          if (@(Get-ChildItem -LiteralPath $private -File -Filter '*.dll').Count -ne 10) { throw 'Expected exactly 10 private DWrite DLLs.' }
+
+          $retargeted = [System.Collections.Generic.List[string]]::new()
+          foreach ($file in @(Get-ChildItem -LiteralPath $private -File -Filter '*.dll')) {
+            $headers = @(& dumpbin.exe /nologo /headers $file.FullName 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $($file.FullName)" }
+            $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $($file.Name)" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') {
+              & editbin.exe /nologo "/SUBSYSTEM:WINDOWS,$env:WINDOWS_XP_SUBSYSTEM" $file.FullName
+              if ($LASTEXITCODE -ne 0) { throw "editbin subsystem retarget failed: $($file.Name)" }
+              $retargeted.Add($file.Name)
+            }
+          }
+          $retargeted | Sort-Object | Set-Content -Encoding utf8 diagnostics\dist-bin-private-retargeted-files.txt
+
+          $final = [System.Collections.Generic.List[object]]::new()
+          foreach ($row in $manifest) {
+            $path = Join-Path $distBin ($row.RelativePath -replace '/', '\')
+            $headers = @(& dumpbin.exe /nologo /headers $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $path" }
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$($row.RelativePath) is not x86 machine 14C" }
+            $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse final subsystem: $($row.RelativePath)" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$($row.RelativePath) final subsystem $version is newer than XP 5.01" }
+            $final.Add([pscustomobject]@{
+              RelativePath=$row.RelativePath
+              Role=$row.Role
+              Provenance=$row.Provenance
+              SourceSHA256=$row.SourceSHA256
+              StagedSHA256=(Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              Size=(Get-Item $path).Length
+              Machine='14C-x86'
+              Subsystem=$version.ToString(2)
+            })
+          }
+          $final | Sort-Object Role,RelativePath | Export-Csv -NoTypeInformation -Encoding utf8 (Join-Path $distBin 'dwrite-component-manifest.csv')
+          "CANDIDATE_ROOT=$candidateRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DIST_BIN=$distBin" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DWRITE_PRIVATE=$private" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build XP-safe dist/bin DWrite loader stub
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\dwrite-loader-smoke.cpp'
+          $stubSource = @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #include <dwrite.h>
+
+          static void WriteText(const char* text) {
+            DWORD length = 0;
+            while (text[length]) { ++length; }
+            DWORD written = 0;
+            HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+            if (output && output != INVALID_HANDLE_VALUE) {
+              WriteFile(output, text, length, &written, 0);
+            }
+          }
+
+          static DWORD BuildPrivatePath(wchar_t* directory, wchar_t* dwritePath) {
+            wchar_t executable[MAX_PATH];
+            DWORD length = GetModuleFileNameW(0, executable, MAX_PATH);
+            if (!length || length >= MAX_PATH) { return 10; }
+            DWORD slash = length;
+            while (slash && executable[slash - 1] != L'\\' && executable[slash - 1] != L'/') { --slash; }
+            if (!slash) { return 11; }
+
+            static const wchar_t privateSuffix[] = L"xpcompat\\dwrite\\";
+            static const wchar_t dllName[] = L"DWrite.dll";
+            DWORD i = 0;
+            for (; i < slash; ++i) { directory[i] = executable[i]; }
+            DWORD j = 0;
+            while (privateSuffix[j]) {
+              if (i + 1 >= MAX_PATH) { return 12; }
+              directory[i++] = privateSuffix[j++];
+            }
+            directory[i] = 0;
+
+            DWORD k = 0;
+            for (; k < i; ++k) { dwritePath[k] = directory[k]; }
+            j = 0;
+            while (dllName[j]) {
+              if (k + 1 >= MAX_PATH) { return 13; }
+              dwritePath[k++] = dllName[j++];
+            }
+            dwritePath[k] = 0;
+            return 0;
+          }
+
+          typedef HRESULT (WINAPI *DWriteCreateFactoryFn)(DWRITE_FACTORY_TYPE, REFIID, IUnknown**);
+
+          static DWORD RunSmoke() {
+            wchar_t privateDirectory[MAX_PATH];
+            wchar_t dwritePath[MAX_PATH];
+            DWORD pathStatus = BuildPrivatePath(privateDirectory, dwritePath);
+            if (pathStatus) { WriteText("DWRITE_PATH_FAIL\r\n"); return pathStatus; }
+
+            HMODULE module = LoadLibraryExW(dwritePath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+            if (!module) { WriteText("DWRITE_LOAD_FAIL\r\n"); return 20; }
+            WriteText("DWRITE_LOAD_PASS\r\n");
+
+            DWriteCreateFactoryFn createFactory = reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(module, "DWriteCreateFactory"));
+            if (!createFactory) { WriteText("DWRITE_EXPORT_FAIL\r\n"); FreeLibrary(module); return 21; }
+
+            IDWriteFactory* factory = 0;
+            HRESULT hr = createFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&factory));
+            if (FAILED(hr) || !factory) { WriteText("DWRITE_FACTORY_FAIL\r\n"); FreeLibrary(module); return 22; }
+            WriteText("DWRITE_FACTORY_PASS\r\n");
+
+            IDWriteFontCollection* fonts = 0;
+            hr = factory->GetSystemFontCollection(&fonts, FALSE);
+            if (FAILED(hr) || !fonts) {
+              WriteText("DWRITE_FONT_COLLECTION_FAIL\r\n");
+              factory->Release();
+              FreeLibrary(module);
+              return 23;
+            }
+            WriteText("DWRITE_FONT_COLLECTION_PASS\r\n");
+
+            fonts->Release();
+            factory->Release();
+            FreeLibrary(module);
+            WriteText("DWRITE_SMOKE_PASS\r\n");
+            return 0;
+          }
+
+          extern "C" void __cdecl mainCRTStartup() {
+            ExitProcess(RunSmoke());
+          }
+          '@
+          $stubSource | Set-Content -Encoding ascii $source
+
+          $object = Join-Path $env:RUNNER_TEMP 'dwrite-loader-smoke.obj'
+          & cl.exe /nologo /c /O2 /GS- /GR- /Zl /W4 "/Fo$object" $source
+          if ($LASTEXITCODE -ne 0) { throw "DWrite loader stub compile failed: $LASTEXITCODE" }
+          $exe = Join-Path $env:DIST_BIN 'dwrite-loader-smoke.exe'
+          & link.exe /nologo /NODEFAULTLIB /ENTRY:mainCRTStartup "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" /MACHINE:X86 /OUT:$exe $object kernel32.lib
+          if ($LASTEXITCODE -ne 0) { throw "DWrite loader stub link failed: $LASTEXITCODE" }
+
+          $headers = @(& dumpbin.exe /nologo /headers $exe 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /headers failed for dwrite-loader-smoke.exe' }
+          $headers | Set-Content -Encoding utf8 diagnostics\dwrite-loader-smoke.headers.txt
+          $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+          if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw 'DWrite loader stub is not x86 machine 14C' }
+          $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+          if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw 'Cannot parse DWrite loader stub subsystem version' }
+          $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+          if ($version -gt [version]'5.1') { throw "DWrite loader stub subsystem $version is newer than XP 5.01" }
+
+          $imports = @(& dumpbin.exe /nologo /imports $exe 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for dwrite-loader-smoke.exe' }
+          $imports | Set-Content -Encoding utf8 diagnostics\dwrite-loader-smoke.imports.txt
+          $modules = @($imports | ForEach-Object {
+            if ($_ -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $matches[1].ToLowerInvariant() }
+          } | Where-Object { $_ } | Sort-Object -Unique)
+          if ($modules.Count -ne 1 -or $modules[0] -ne 'kernel32.dll') {
+            throw "DWrite loader stub must import only KERNEL32.dll; found: $($modules -join ', ')"
+          }
+          $forbidden = @('CompareStringOrdinal','GetTickCount64','InitializeCriticalSectionEx','SetThreadStackGuarantee')
+          $text = $imports -join "`n"
+          foreach ($api in $forbidden) {
+            if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "DWrite loader stub imports post-XP API $api" }
+          }
+          $stubHash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+          $stubSize = (Get-Item $exe).Length
+          @(
+            "relative_path=dwrite-loader-smoke.exe",
+            "sha256=$stubHash",
+            "size=$stubSize",
+            'machine=14C-x86',
+            "subsystem=$($version.ToString(2))",
+            'imports=KERNEL32.dll only',
+            'loader_contract=absolute dist/bin/xpcompat/dwrite/DWrite.dll + LOAD_WITH_ALTERED_SEARCH_PATH',
+            'initialization_contract=DWriteCreateFactory + IDWriteFactory::GetSystemFontCollection'
+          ) | Set-Content -Encoding utf8 diagnostics\dwrite-loader-smoke.identity.txt
+
+          $manifestPath = Join-Path $env:DIST_BIN 'dwrite-component-manifest.csv'
+          $manifest = @(Import-Csv -LiteralPath $manifestPath)
+          $manifest += [pscustomobject]@{
+            RelativePath='dwrite-loader-smoke.exe'
+            Role='test-stub'
+            Provenance="workflow $env:GITHUB_SHA"
+            SourceSHA256=$stubHash
+            StagedSHA256=$stubHash
+            Size=$stubSize
+            Machine='14C-x86'
+            Subsystem=$version.ToString(2)
+          }
+          $manifest | Sort-Object Role,RelativePath | Export-Csv -NoTypeInformation -Encoding utf8 $manifestPath
+
+      - name: GATE - Audit final dist/bin private/shared module closure
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Normalize-Api([string]$name) {
+            if ($name -match '^_(.+)@\d+$') { return $matches[1] }
+            return $name
+          }
+          function Normalize-Module([string]$name) {
+            $value = $name.Trim()
+            if ($value -notmatch '(?i)\.(dll|drv)$') { $value += '.dll' }
+            return $value
+          }
+
+          $raw = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\dist-bin-raw'
+          New-Item -ItemType Directory -Force $raw | Out-Null
+          $privateNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($file in @(Get-ChildItem -LiteralPath $env:DWRITE_PRIVATE -File -Filter '*.dll')) { [void]$privateNames.Add($file.Name) }
+          $sharedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($file in @(Get-ChildItem -LiteralPath $env:DIST_BIN -File -Filter '*.dll')) { [void]$sharedNames.Add($file.Name) }
+          if ($privateNames.Count -ne 10) { throw "Expected 10 private DWrite DLLs; found $($privateNames.Count)." }
+          if (-not $sharedNames.Contains('ucrtbase.dll')) { throw 'Shared dist/bin ucrtbase.dll is missing.' }
+          if ($privateNames.Contains('ucrtbase.dll')) { throw 'ucrtbase.dll must not be duplicated in the private DWrite directory.' }
+
+          $xpSystemNames = @(
+            'advapi32.dll','comctl32.dll','comdlg32.dll','crypt32.dll','d3d9.dll','dnsapi.dll','gdi32.dll','gdiplus.dll',
+            'imagehlp.dll','imm32.dll','iphlpapi.dll','kernel32.dll','mpr.dll','msctf.dll','msimg32.dll','msvcrt.dll',
+            'netapi32.dll','ntdll.dll','ole32.dll','oleaut32.dll','powrprof.dll','psapi.dll','rpcrt4.dll','secur32.dll',
+            'sensapi.dll','setupapi.dll','shell32.dll','shlwapi.dll','user32.dll','userenv.dll','usp10.dll','uxtheme.dll',
+            'version.dll','wininet.dll','winmm.dll','wintrust.dll','wldap32.dll','ws2_32.dll','winspool.drv'
+          )
+          $xpSystem = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($name in $xpSystemNames) { [void]$xpSystem.Add($name) }
+
+          $forbiddenApis = @(
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal',
+            'CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+            'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo',
+            'CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx',
+            'GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+            'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W',
+            'GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+            'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription',
+            'SetThreadStackGuarantee','SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork',
+            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable',
+            'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
+          )
+
+          function Classify([string]$module) {
+            if ($privateNames.Contains($module)) { return 'private-xpcompat-dwrite' }
+            if ($sharedNames.Contains($module)) { return 'shared-dist-bin' }
+            if ($xpSystem.Contains($module)) { return 'xp-system' }
+            return 'external-unresolved'
+          }
+
+          $allPes = @()
+          $allPes += Get-ChildItem -LiteralPath $env:DWRITE_PRIVATE -File -Filter '*.dll'
+          $allPes += Get-Item (Join-Path $env:DIST_BIN 'ucrtbase.dll')
+          $allPes += Get-Item (Join-Path $env:DIST_BIN 'dwrite-loader-smoke.exe')
+
+          $importRows = [System.Collections.Generic.List[object]]::new()
+          $forwardRows = [System.Collections.Generic.List[object]]::new()
+          $hits = [System.Collections.Generic.List[string]]::new()
+
+          foreach ($file in $allPes) {
+            $imports = @(& dumpbin.exe /nologo /imports $file.FullName 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $($file.FullName)" }
+            $imports | Set-Content -Encoding utf8 (Join-Path $raw "$($file.Name).imports.txt")
+            $mode = 'none'
+            $module = $null
+            foreach ($line in $imports) {
+              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $module = $null; continue }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $module = $null; continue }
+              if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.(?:dll|drv))\s*$') {
+                $module = Normalize-Module $matches[1]
+                continue
+              }
+              if ($mode -ne 'direct' -or -not $module) { continue }
+              $entry = $line.Trim()
+              if ($entry -match '^[0-9A-Fa-f]+(?:\s+[0-9A-Fa-f]+){0,3}\s+(\S+)$') {
+                $api = Normalize-Api $matches[1]
+                $class = Classify $module
+                $relative = $file.FullName.Substring($env:DIST_BIN.Length).TrimStart([char[]]'\/')
+                $importRows.Add([pscustomobject]@{ From=$relative; To=$module; API=$api; Classification=$class })
+                if ($class -eq 'external-unresolved') { $hits.Add("$relative|DLL|$module|external-unresolved") }
+                if ($class -eq 'xp-system' -and $forbiddenApis -contains $api) { $hits.Add("$relative|API|$module!$api|known-post-xp") }
+              }
+            }
+
+            if ($file.Extension -ieq '.dll') {
+              $exports = @(& dumpbin.exe /nologo /exports $file.FullName 2>&1)
+              if ($LASTEXITCODE -ne 0) { throw "dumpbin /exports failed: $($file.FullName)" }
+              $exports | Set-Content -Encoding utf8 (Join-Path $raw "$($file.Name).exports.txt")
+              foreach ($line in $exports) {
+                if ($line -notmatch '\(forwarded to\s+([A-Za-z0-9_.-]+)\.([^)]+)\)') { continue }
+                $module = Normalize-Module $matches[1]
+                $api = Normalize-Api $matches[2]
+                $class = Classify $module
+                $relative = $file.FullName.Substring($env:DIST_BIN.Length).TrimStart([char[]]'\/')
+                $forwardRows.Add([pscustomobject]@{ From=$relative; To=$module; API=$api; Classification=$class })
+                if ($class -eq 'external-unresolved') { $hits.Add("$relative|FORWARDER_DLL|$module|external-unresolved") }
+                if ($class -eq 'xp-system' -and $forbiddenApis -contains $api) { $hits.Add("$relative|FORWARDER_API|$module!$api|known-post-xp") }
+              }
+            }
+          }
+
+          $importRows | Sort-Object From,To,API -Unique | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\dist-bin-import-edges.csv
+          $forwardRows | Sort-Object From,To,API -Unique | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\dist-bin-forwarder-edges.csv
+          $hits | Sort-Object -Unique | Set-Content -Encoding utf8 diagnostics\dist-bin-compatibility-hits.txt
+          if ($hits.Count -gt 0) { throw 'Final dist/bin DWrite layout retains unresolved or known post-XP edges; inspect dist-bin-compatibility-hits.txt.' }
+
+          @(
+            "private_dll_count=$($privateNames.Count)",
+            "shared_dll_count=$($sharedNames.Count)",
+            'private_ucrtbase_present=false',
+            'shared_ucrtbase_present=true',
+            "direct_import_edge_count=$($importRows.Count)",
+            "forwarder_edge_count=$($forwardRows.Count)",
+            'module_provider_graph=RESOLVED',
+            'known_post_xp_system_api_hits=0',
+            'msvcr14x_ucrt_coverage=37/37',
+            'pe_floor=x86_subsystem_5.01_or_lower',
+            'hosted_runtime_status=PENDING',
+            'physical_xp_runtime=NOT_TESTED'
+          ) | Set-Content -Encoding utf8 diagnostics\dist-bin-summary.txt
+
+      - name: GATE - Hosted LoadLibraryEx and DWrite core initialization smoke
+        shell: powershell
+        working-directory: ${{ github.workspace }}\candidate-root\dist\bin
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = @(& .\dwrite-loader-smoke.exe 2>&1)
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          $output | Set-Content -Encoding utf8 $env:GITHUB_WORKSPACE\diagnostics\dwrite-loader-smoke.hosted.txt
+          if ($exitCode -ne 0) { throw "DWrite loader smoke failed with exit $exitCode" }
+          $text = $output -join "`n"
+          foreach ($marker in @('DWRITE_LOAD_PASS','DWRITE_FACTORY_PASS','DWRITE_FONT_COLLECTION_PASS','DWRITE_SMOKE_PASS')) {
+            if ($text -notmatch ('(?m)^' + [regex]::Escape($marker) + '$')) { throw "Missing DWrite loader smoke marker: $marker" }
+          }
+          $summaryPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\dist-bin-summary.txt'
+          @(Get-Content $summaryPath | ForEach-Object {
+            if ($_ -like 'hosted_runtime_status=*') { 'hosted_runtime_status=PASS_WINDOWS_2022' } else { $_ }
+          }) | Set-Content -Encoding utf8 $summaryPath
+          @(
+            'hosted_os=windows-2022',
+            'result=PASS',
+            'loader=LoadLibraryExW(absolute private DWrite path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)',
+            'dwrite_factory=PASS',
+            'system_font_collection=PASS',
+            'physical_xp_runtime=NOT_TESTED',
+            'note=Windows 2022 may resolve API-set contracts through its system schema; this hosted pass does not replace the static private/shared closure gates or a physical XP execution of the same stub.'
+          ) | Set-Content -Encoding utf8 $env:GITHUB_WORKSPACE\diagnostics\dwrite-loader-smoke.result.txt
+
+      - name: Write candidate README
+        shell: powershell
+        run: |
+          @(
+            'r3dfox XP DWrite private-component candidate',
+            '',
+            'Layout:',
+            '  dist/bin/dwrite-loader-smoke.exe',
+            '  dist/bin/ucrtbase.dll                     shared project XP runtime',
+            '  dist/bin/xpcompat/dwrite/DWrite.dll       private DWrite component',
+            '  dist/bin/xpcompat/dwrite/<companions>     private DWrite dependency closure',
+            '',
+            'The smoke executable derives an absolute private DWrite path from its own dist/bin location and calls:',
+            '  LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)',
+            'then DWriteCreateFactory and IDWriteFactory::GetSystemFontCollection.',
+            '',
+            'Hosted Windows-2022 PASS is a loader/initialization sanity check only.',
+            'Run the same dist/bin/dwrite-loader-smoke.exe on physical Windows XP SP3 x86 for physical loader/runtime evidence.',
+            'A physical stub PASS is still not a full Firefox runtime PASS and not a GOST TLS handshake result.'
+          ) | Set-Content -Encoding utf8 (Join-Path $env:CANDIDATE_ROOT 'README.txt')
+
+      - name: Upload DWrite closure and dist-bin diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-supermium-dwrite-diagnostics-${{ github.run_id }}
+          path: diagnostics
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload complete dist-bin DWrite candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-supermium-dwrite-dist-bin-${{ github.run_id }}
+          path: candidate-root
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Summarize DWrite closure and loader smoke
+        shell: powershell
+        run: |
+          "## XP DWrite private component: CLOSURE + HOSTED SMOKE PASS" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Workflow SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- External baseline: pinned Supermium $env:SUPERMIUM_TAG and YY-Thunks $env:YY_THUNKS_TAG recursive closure audit." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Future layout: 10 private DLLs under dist/bin/xpcompat/dwrite; msvcr14x ucrtbase.dll remains shared at dist/bin." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- UCRT contract: all 37 DWrite CRT imports resolve through the five private API-set forwarders to the staged msvcr14x ucrtbase exports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Stub: dist/bin/dwrite-loader-smoke.exe, x86/subsystem 5.01, KERNEL32-only static import surface." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Hosted smoke: absolute private DWrite path + LOAD_WITH_ALTERED_SEARCH_PATH + DWriteCreateFactory + GetSystemFontCollection." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Physical Windows XP execution of the exact uploaded stub/layout remains a separate mandatory gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
