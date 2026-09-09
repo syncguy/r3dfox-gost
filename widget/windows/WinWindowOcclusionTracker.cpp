@@ -262,7 +262,7 @@ void SerializedTaskDispatcher::HandleTasks() {
       return;
     }
     MOZ_RELEASE_ASSERT(data->mCurrentRunnable);
-    MOZ_RELEASE_ASSERT(!data->mTasks.empty());
+    MOZ_RELEASE_ASSERT(!aProofOfLock->mTasks.empty());
 
     frontTask = data->mTasks.front().first;
 
@@ -594,8 +594,9 @@ bool WinWindowOcclusionTracker::IsWindowVisibleAndFullyOpaque(
   // size of the desktop. It's usually behind Chrome windows in the z-order,
   // but using a remote desktop can move it up in the z-order. So, ignore them.
   DWORD reason;
-  if (WinUtils::dwmGetWindowAttributePtr && SUCCEEDED(WinUtils::dwmGetWindowAttributePtr(aHwnd, DWMWA_CLOAKED, &reason,
-                                        sizeof(reason))) &&
+  if (WinUtils::dwmGetWindowAttributePtr &&
+      SUCCEEDED(WinUtils::dwmGetWindowAttributePtr(
+          aHwnd, DWMWA_CLOAKED, &reason, sizeof(reason))) &&
       reason != 0) {
     return false;
   }
@@ -1084,7 +1085,7 @@ void WinWindowOcclusionTracker::WindowOcclusionCalculator::
       // XXX simplify
       for (auto it = mPidsForLocationChangeHook.begin();
            it != mPidsForLocationChangeHook.end();) {
-        if (pidsToRemove.find(*it) != pidsToRemove.end()) {
+        if (pidsToRemove.find(*it) != mPidsForLocationChangeHook.end()) {
           it = mPidsForLocationChangeHook.erase(it);
         } else {
           ++it;
@@ -1432,8 +1433,9 @@ Maybe<bool> WinWindowOcclusionTracker::WindowOcclusionCalculator::
   // real (non-null) GUID -- the existing GUID_NULL workaround below misses
   // this case.
   BOOL isCloaked = FALSE;
-  if (FAILED(::DwmGetWindowAttribute(aHwnd, DWMWA_CLOAKED, &isCloaked,
-                                     sizeof(isCloaked))) ||
+  if (!WinUtils::dwmGetWindowAttributePtr ||
+      FAILED(WinUtils::dwmGetWindowAttributePtr(
+          aHwnd, DWMWA_CLOAKED, &isCloaked, sizeof(isCloaked))) ||
       !isCloaked) {
     return Some(true);
   }
