@@ -454,8 +454,8 @@ already_AddRefed<UnscaledFont> Factory::CreateUnscaledFontFromFontDescriptor(
           aData, aDataLength, aIndex);
 #elif defined(MOZ_WIDGET_ANDROID)
     case FontType::FREETYPE:
-      return UnscaledFontFreeType::CreateFromFontDescriptor(
-          aData, aDataLength, aIndex);
+      return UnscaledFontFreeType::CreateFromFontDescriptor(aData, aDataLength,
+                                                            aIndex);
 #endif
     default:
       gfxWarning() << "Invalid type specified for UnscaledFont font descriptor";
@@ -753,7 +753,7 @@ already_AddRefed<DrawTarget> Factory::CreateDrawTargetForCairoSurface(
   RefPtr newTarget = MakeRefPtr<DrawTargetCairo>();
 
   if (newTarget->Init(aSurface, aSize, aFormat)) {
-    retVal = std::move(newTarget);
+    retVal = newTarget;
   }
 #endif
   return retVal.forget();
@@ -887,8 +887,8 @@ void Factory::CopyDataSourceSurface(DataSourceSurface* aSource,
              aSource->GetFormat() == SurfaceFormat::B8G8R8A8 ||
              aSource->GetFormat() == SurfaceFormat::B8G8R8X8 ||
              aSource->GetFormat() == SurfaceFormat::A8);
-  MOZ_ASSERT(aDest->GetFormat() == SurfaceFormat::R8G8R8A8 ||
-             aDest->GetFormat() == SurfaceFormat::R8G8R8X8 ||
+  MOZ_ASSERT(aDest->GetFormat() == SurfaceFormat::R8G8B8A8 ||
+             aDest->GetFormat() == SurfaceFormat::R8G8B8X8 ||
              aDest->GetFormat() == SurfaceFormat::B8G8R8A8 ||
              aDest->GetFormat() == SurfaceFormat::B8G8R8X8 ||
              aDest->GetFormat() == SurfaceFormat::R5G6B5_UINT16 ||
