@@ -319,16 +319,52 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          function Normalize-Api([string]$name) {
-            $value = $name.Trim()
-            if ($value -match '^__imp_(.+)$') { $value = $matches[1] }
-            if ($value -match '^_(.+)$') { $value = $matches[1] }
-            if ($value -match '^(.+)@\d+$') { $value = $matches[1] }
-            return $value
+          function Read-DirectImports([string]$path) {
+            $rows = [System.Collections.Generic.List[object]]::new()
+            $lines = @(& dumpbin.exe /nologo /imports $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $mode = 'none'
+            $module = $null
+            foreach ($line in $lines) {
+              if ($line -match '^\s*Summary\s*$') { break }
+              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode='direct'; $module=$null; continue }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode='delay'; $module=$null; continue }
+              if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $module=$matches[1]; continue }
+              if ($mode -ne 'direct' -or -not $module) { continue }
+              $entry = $line.Trim()
+              if ($entry -match '^[0-9A-Fa-f]+(?:\s+[0-9A-Fa-f]+){0,3}\s+(\S+)$') {
+                $rows.Add([pscustomobject]@{ Module=$module; API=$matches[1] })
+              }
+            }
+            return $rows
+          }
+
+          function Read-UcrtForwarders([string]$path) {
+            $map = @{}
+            $lines = @(& dumpbin.exe /nologo /exports $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /exports failed: $path" }
+            foreach ($line in $lines) {
+              $source = $null
+              $target = $null
+              if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+(?:[0-9A-Fa-f]+\s+)?(\S+)\s+\(forwarded to\s+ucrtbase\.([^)]+)\)') {
+                $source = $matches[1]
+                $target = $matches[2]
+              } elseif ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+(?:[0-9A-Fa-f]+\s+)?(\S+)\s+=\s*ucrtbase\.([A-Za-z0-9_@?$#-]+)\s*$') {
+                $source = $matches[1]
+                $target = $matches[2]
+              }
+              if (-not $source -or -not $target) { continue }
+              if ($map.ContainsKey($source) -and $map[$source] -cne $target) {
+                throw "Conflicting UCRT forwarders for $source in $path"
+              }
+              $map[$source] = $target
+            }
+            return $map
           }
 
           $ucrtExportsRaw = @(& dumpbin.exe /nologo /exports (Join-Path $env:MSVCR14X_RELEASE 'ucrtbase.dll') 2>&1)
           if ($LASTEXITCODE -ne 0) { throw 'dumpbin /exports failed for msvcr14x ucrtbase.dll' }
+          $ucrtExportsRaw | Set-Content -Encoding utf8 diagnostics\dwrite-138-msvcr14x-ucrtbase-exports.txt
           $ucrtExports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
           foreach ($line in $ucrtExportsRaw) {
             if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)') { [void]$ucrtExports.Add($matches[1]) }
@@ -336,42 +372,69 @@ jobs:
           if ($ucrtExports.Count -eq 0) { throw 'Could not parse msvcr14x ucrtbase exports.' }
 
           $requirements = [System.Collections.Generic.List[object]]::new()
+          $apiSetImports = [System.Collections.Generic.List[object]]::new()
           foreach ($file in @(Get-ChildItem -LiteralPath $env:DWRITE_PRIVATE -File -Filter '*.dll')) {
-            $imports = @(& dumpbin.exe /nologo /imports $file.FullName 2>&1)
-            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $($file.FullName)" }
-            $mode = 'none'
-            $module = $null
-            foreach ($line in $imports) {
-              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode='direct'; $module=$null; continue }
-              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode='delay'; $module=$null; continue }
-              if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $module=$matches[1]; continue }
-              if ($mode -ne 'direct' -or $module -ine 'ucrtbase.dll') { continue }
-              $entry = $line.Trim()
-              if ($entry -match '^[0-9A-Fa-f]+(?:\s+[0-9A-Fa-f]+){0,3}\s+(\S+)$') {
-                $target = Normalize-Api $matches[1]
-                $present = $ucrtExports.Contains($target)
-                $requirements.Add([pscustomobject]@{ From=$file.Name; Kind='direct'; UcrtTarget=$target; Present=$present })
-                if (-not $present) { throw "msvcr14x ucrtbase is missing direct requirement $target from $($file.Name)" }
+            foreach ($import in @(Read-DirectImports $file.FullName)) {
+              if ($import.Module -ieq 'ucrtbase.dll') {
+                $present = $ucrtExports.Contains($import.API)
+                $requirements.Add([pscustomobject]@{
+                  From=$file.Name
+                  Kind='direct-ucrt'
+                  Provider='ucrtbase.dll'
+                  ImportedApi=$import.API
+                  UcrtTarget=$import.API
+                  Present=$present
+                })
+                if (-not $present) { throw "msvcr14x ucrtbase is missing direct requirement $($import.API) from $($file.Name)" }
+              } elseif ($import.Module -match '(?i)^api-ms-win-crt-.*\.dll$') {
+                $apiSetImports.Add([pscustomobject]@{ From=$file.Name; ApiSet=$import.Module; ImportedApi=$import.API })
               }
             }
+          }
 
-            $exports = @(& dumpbin.exe /nologo /exports $file.FullName 2>&1)
-            if ($LASTEXITCODE -ne 0) { throw "dumpbin /exports failed: $($file.FullName)" }
-            foreach ($line in $exports) {
-              $target = $null
-              if ($line -match '(?i)\(forwarded to\s+ucrtbase\.([^)]+)\)') { $target = Normalize-Api $matches[1] }
-              elseif ($line -match '=\s*ucrtbase\.([A-Za-z0-9_@?$#-]+)\s*$') { $target = Normalize-Api $matches[1] }
-              if (-not $target) { continue }
-              $present = $ucrtExports.Contains($target)
-              $requirements.Add([pscustomobject]@{ From=$file.Name; Kind='forwarder'; UcrtTarget=$target; Present=$present })
-              if (-not $present) { throw "msvcr14x ucrtbase is missing forwarded requirement $target from $($file.Name)" }
+          if (($requirements.Count + $apiSetImports.Count) -eq 0) {
+            throw 'No direct UCRT or CRT API-set requirements were discovered in the staged DWrite closure.'
+          }
+
+          $forwarderMaps = @{}
+          foreach ($edge in $apiSetImports) {
+            $key = $edge.ApiSet.ToLowerInvariant()
+            if (-not $forwarderMaps.ContainsKey($key)) {
+              $provider = Join-Path $env:DWRITE_PRIVATE $edge.ApiSet
+              if (-not (Test-Path $provider)) { throw "Missing staged CRT API-set provider: $($edge.ApiSet)" }
+              $map = Read-UcrtForwarders $provider
+              if ($map.Count -eq 0) { throw "No ucrtbase forwarders parsed from $($edge.ApiSet)" }
+              $forwarderMaps[$key] = $map
+            }
+            $map = $forwarderMaps[$key]
+            if (-not $map.ContainsKey($edge.ImportedApi)) {
+              throw "$($edge.ApiSet) does not forward imported API $($edge.ImportedApi) to ucrtbase"
+            }
+            $target = $map[$edge.ImportedApi]
+            $present = $ucrtExports.Contains($target)
+            $requirements.Add([pscustomobject]@{
+              From=$edge.From
+              Kind='api-set-forwarder'
+              Provider=$edge.ApiSet
+              ImportedApi=$edge.ImportedApi
+              UcrtTarget=$target
+              Present=$present
+            })
+            if (-not $present) {
+              throw "msvcr14x ucrtbase is missing required export $target for $($edge.From) -> $($edge.ApiSet)!$($edge.ImportedApi)"
             }
           }
-          $unique = @($requirements | Sort-Object From,Kind,UcrtTarget -Unique)
+
+          $unique = @($requirements | Sort-Object From,Kind,Provider,ImportedApi,UcrtTarget -Unique)
+          $uniqueTargets = @($unique.UcrtTarget | Sort-Object -Unique)
+          $uniqueApiSets = @($apiSetImports.ApiSet | Sort-Object -Unique)
           $unique | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\dwrite-138-msvcr14x-ucrt-contract.csv
           @(
             "ucrt_requirement_edges=$($unique.Count)",
-            "ucrt_unique_exports_required=$(@($unique.UcrtTarget | Sort-Object -Unique).Count)",
+            "ucrt_direct_import_edges=$(@($unique | Where-Object Kind -eq 'direct-ucrt').Count)",
+            "ucrt_api_set_import_edges=$(@($unique | Where-Object Kind -eq 'api-set-forwarder').Count)",
+            "ucrt_api_set_modules=$($uniqueApiSets.Count)",
+            "ucrt_unique_exports_required=$($uniqueTargets.Count)",
             'msvcr14x_ucrt_coverage=FULL'
           ) | Set-Content -Encoding utf8 diagnostics\dwrite-138-msvcr14x-ucrt-summary.txt
 
@@ -682,5 +745,5 @@ jobs:
           "- msvcr14x: $env:MSVCR14X_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Private closure DLL count: $env:DWRITE_PRIVATE_COUNT" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- The 138 closure is discovered from the pinned archive rather than assuming the old 132 ten-DLL/hash set." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Every observed UCRT direct/forwarded requirement must resolve against the built pinned msvcr14x UCRT." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Every actually imported UCRT/API-set requirement must resolve against the built pinned msvcr14x UCRT." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Physical Windows XP execution of the exact candidate remains a separate acceptance gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
