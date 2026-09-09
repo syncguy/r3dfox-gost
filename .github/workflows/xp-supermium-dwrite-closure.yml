@@ -44,7 +44,7 @@ jobs:
             "workflow_sha=$env:GITHUB_SHA",
             "workflow_ref=$env:GITHUB_REF",
             'firefox_source=NOT_APPLICABLE',
-            'scope=external Supermium DWrite closure, future dist/bin layout, and hosted loader/DWrite initialization smoke',
+            'scope=external Supermium DWrite closure, future dist/bin layout, private pwrp preload, and hosted loader/DWrite initialization smoke',
             "supermium_tag=$env:SUPERMIUM_TAG",
             "supermium_asset=$env:SUPERMIUM_ASSET",
             "supermium_asset_sha256=$env:SUPERMIUM_ASSET_SHA256",
@@ -708,7 +708,37 @@ jobs:
             }
           }
 
-          static DWORD BuildPaths(wchar_t* ucrtPath, wchar_t* dwritePath) {
+          static void WriteHex(DWORD value) {
+            static const char digits[] = "0123456789ABCDEF";
+            char buffer[9];
+            for (DWORD i = 0; i < 8; ++i) {
+              DWORD shift = (7 - i) * 4;
+              buffer[i] = digits[(value >> shift) & 0xF];
+            }
+            buffer[8] = 0;
+            WriteText(buffer);
+          }
+
+          static void WriteLoadError(const char* marker, DWORD error) {
+            WriteText(marker);
+            WriteText(" GetLastError=0x");
+            WriteHex(error);
+            WriteText("\r\n");
+          }
+
+          static DWORD AppendPath(const wchar_t* base, DWORD baseLength, const wchar_t* suffix, wchar_t* out, DWORD errorCode) {
+            DWORD i = 0;
+            for (; i < baseLength; ++i) { out[i] = base[i]; }
+            DWORD j = 0;
+            while (suffix[j]) {
+              if (i + 1 >= MAX_PATH) { return errorCode; }
+              out[i++] = suffix[j++];
+            }
+            out[i] = 0;
+            return 0;
+          }
+
+          static DWORD BuildPaths(wchar_t* ucrtPath, wchar_t* pwrpPath, wchar_t* dwritePath) {
             wchar_t executable[MAX_PATH];
             DWORD length = GetModuleFileNameW(0, executable, MAX_PATH);
             if (!length || length >= MAX_PATH) { return 10; }
@@ -717,49 +747,83 @@ jobs:
             if (!slash) { return 11; }
 
             static const wchar_t ucrtName[] = L"ucrtbase.dll";
-            DWORD i = 0;
-            for (; i < slash; ++i) { ucrtPath[i] = executable[i]; }
-            DWORD j = 0;
-            while (ucrtName[j]) {
-              if (i + 1 >= MAX_PATH) { return 12; }
-              ucrtPath[i++] = ucrtName[j++];
-            }
-            ucrtPath[i] = 0;
+            static const wchar_t pwrpSuffix[] = L"xpcompat\\dwrite\\pwrp_k32.dll";
+            static const wchar_t dwriteSuffix[] = L"xpcompat\\dwrite\\DWrite.dll";
 
-            static const wchar_t privateSuffix[] = L"xpcompat\\dwrite\\DWrite.dll";
-            i = 0;
-            for (; i < slash; ++i) { dwritePath[i] = executable[i]; }
-            j = 0;
-            while (privateSuffix[j]) {
-              if (i + 1 >= MAX_PATH) { return 13; }
-              dwritePath[i++] = privateSuffix[j++];
+            DWORD status = AppendPath(executable, slash, ucrtName, ucrtPath, 12);
+            if (status) { return status; }
+            status = AppendPath(executable, slash, pwrpSuffix, pwrpPath, 13);
+            if (status) { return status; }
+            return AppendPath(executable, slash, dwriteSuffix, dwritePath, 14);
+          }
+
+          static void WriteModulePath(HMODULE module) {
+            wchar_t widePath[MAX_PATH];
+            DWORD length = GetModuleFileNameW(module, widePath, MAX_PATH);
+            if (!length || length >= MAX_PATH) {
+              WriteText("PWRP_PATH_UNAVAILABLE\r\n");
+              return;
             }
-            dwritePath[i] = 0;
-            return 0;
+            char path[MAX_PATH * 2];
+            int converted = WideCharToMultiByte(CP_ACP, 0, widePath, -1, path, sizeof(path), 0, 0);
+            if (!converted) {
+              WriteText("PWRP_PATH_UNAVAILABLE\r\n");
+              return;
+            }
+            WriteText("PWRP_PATH=");
+            WriteText(path);
+            WriteText("\r\n");
           }
 
           typedef HRESULT (WINAPI *DWriteCreateFactoryFn)(DWRITE_FACTORY_TYPE, REFIID, IUnknown**);
 
           static DWORD RunSmoke() {
             wchar_t ucrtPath[MAX_PATH];
+            wchar_t pwrpPath[MAX_PATH];
             wchar_t dwritePath[MAX_PATH];
-            DWORD pathStatus = BuildPaths(ucrtPath, dwritePath);
+            DWORD pathStatus = BuildPaths(ucrtPath, pwrpPath, dwritePath);
             if (pathStatus) { WriteText("DWRITE_PATH_FAIL\r\n"); return pathStatus; }
 
             HMODULE ucrt = LoadLibraryExW(ucrtPath, 0, 0);
-            if (!ucrt) { WriteText("UCRT_LOAD_FAIL\r\n"); return 18; }
+            if (!ucrt) { WriteLoadError("UCRT_LOAD_FAIL", GetLastError()); return 18; }
             WriteText("UCRT_LOAD_PASS\r\n");
 
+            HMODULE pwrp = LoadLibraryExW(pwrpPath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+            if (!pwrp) {
+              WriteLoadError("PWRP_LOAD_FAIL", GetLastError());
+              FreeLibrary(ucrt);
+              return 19;
+            }
+            WriteText("PWRP_LOAD_PASS\r\n");
+            WriteModulePath(pwrp);
+
             HMODULE module = LoadLibraryExW(dwritePath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
-            if (!module) { WriteText("DWRITE_LOAD_FAIL\r\n"); FreeLibrary(ucrt); return 20; }
+            if (!module) {
+              WriteLoadError("DWRITE_LOAD_FAIL", GetLastError());
+              FreeLibrary(pwrp);
+              FreeLibrary(ucrt);
+              return 20;
+            }
             WriteText("DWRITE_LOAD_PASS\r\n");
 
             DWriteCreateFactoryFn createFactory = reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(module, "DWriteCreateFactory"));
-            if (!createFactory) { WriteText("DWRITE_EXPORT_FAIL\r\n"); FreeLibrary(module); FreeLibrary(ucrt); return 21; }
+            if (!createFactory) {
+              WriteLoadError("DWRITE_EXPORT_FAIL", GetLastError());
+              FreeLibrary(module);
+              FreeLibrary(pwrp);
+              FreeLibrary(ucrt);
+              return 21;
+            }
 
             IDWriteFactory* factory = 0;
             HRESULT hr = createFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&factory));
-            if (FAILED(hr) || !factory) { WriteText("DWRITE_FACTORY_FAIL\r\n"); FreeLibrary(module); FreeLibrary(ucrt); return 22; }
+            if (FAILED(hr) || !factory) {
+              WriteText("DWRITE_FACTORY_FAIL\r\n");
+              FreeLibrary(module);
+              FreeLibrary(pwrp);
+              FreeLibrary(ucrt);
+              return 22;
+            }
             WriteText("DWRITE_FACTORY_PASS\r\n");
 
             IDWriteFontCollection* fonts = 0;
@@ -768,6 +832,7 @@ jobs:
               WriteText("DWRITE_FONT_COLLECTION_FAIL\r\n");
               factory->Release();
               FreeLibrary(module);
+              FreeLibrary(pwrp);
               FreeLibrary(ucrt);
               return 23;
             }
@@ -776,6 +841,7 @@ jobs:
             fonts->Release();
             factory->Release();
             FreeLibrary(module);
+            FreeLibrary(pwrp);
             FreeLibrary(ucrt);
             WriteText("DWRITE_SMOKE_PASS\r\n");
             return 0;
@@ -827,8 +893,9 @@ jobs:
             'machine=14C-x86',
             "subsystem=$($version.ToString(2))",
             'imports=KERNEL32.dll only',
-            'shared_runtime_contract=preload absolute dist/bin/ucrtbase.dll before private DWrite',
-            'loader_contract=absolute dist/bin/xpcompat/dwrite/DWrite.dll + LOAD_WITH_ALTERED_SEARCH_PATH',
+            'shared_runtime_contract=preload absolute dist/bin/ucrtbase.dll (msvcr14x)',
+            'private_provider_contract=preload absolute dist/bin/xpcompat/dwrite/pwrp_k32.dll with LOAD_WITH_ALTERED_SEARCH_PATH',
+            'loader_contract=then load absolute dist/bin/xpcompat/dwrite/DWrite.dll with LOAD_WITH_ALTERED_SEARCH_PATH',
             'initialization_contract=DWriteCreateFactory + IDWriteFactory::GetSystemFontCollection'
           ) | Set-Content -Encoding utf8 diagnostics\dwrite-loader-smoke.identity.txt
 
@@ -965,6 +1032,7 @@ jobs:
             "shared_dll_count=$($sharedNames.Count)",
             'private_ucrtbase_present=false',
             'shared_ucrtbase_present=true',
+            'private_pwrp_preload_required_by_smoke=true',
             "direct_import_edge_count=$($importRows.Count)",
             "forwarder_edge_count=$($forwardRows.Count)",
             'module_provider_graph=RESOLVED',
@@ -986,8 +1054,11 @@ jobs:
           $output | Set-Content -Encoding utf8 $env:GITHUB_WORKSPACE\diagnostics\dwrite-loader-smoke.hosted.txt
           if ($exitCode -ne 0) { throw "DWrite loader smoke failed with exit $exitCode" }
           $text = $output -join "`n"
-          foreach ($marker in @('UCRT_LOAD_PASS','DWRITE_LOAD_PASS','DWRITE_FACTORY_PASS','DWRITE_FONT_COLLECTION_PASS','DWRITE_SMOKE_PASS')) {
+          foreach ($marker in @('UCRT_LOAD_PASS','PWRP_LOAD_PASS','DWRITE_LOAD_PASS','DWRITE_FACTORY_PASS','DWRITE_FONT_COLLECTION_PASS','DWRITE_SMOKE_PASS')) {
             if ($text -notmatch ('(?m)^' + [regex]::Escape($marker) + '$')) { throw "Missing DWrite loader smoke marker: $marker" }
+          }
+          if ($text -notmatch '(?im)^PWRP_PATH=.*\\xpcompat\\dwrite\\pwrp_k32\.dll$') {
+            throw 'Private pwrp_k32.dll was not loaded from dist/bin/xpcompat/dwrite.'
           }
           $summaryPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\dist-bin-summary.txt'
           @(Get-Content $summaryPath | ForEach-Object {
@@ -997,7 +1068,8 @@ jobs:
             'hosted_os=windows-2022',
             'result=PASS',
             'shared_ucrt=preloaded from absolute dist/bin/ucrtbase.dll path',
-            'loader=LoadLibraryExW(absolute private DWrite path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)',
+            'private_pwrp=preloaded from absolute dist/bin/xpcompat/dwrite/pwrp_k32.dll path',
+            'loader=LoadLibraryExW(absolute private pwrp path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH) then LoadLibraryExW(absolute private DWrite path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)',
             'dwrite_factory=PASS',
             'system_font_collection=PASS',
             'physical_xp_runtime=NOT_TESTED',
@@ -1012,17 +1084,21 @@ jobs:
             '',
             'Layout:',
             '  dist/bin/dwrite-loader-smoke.exe',
-            '  dist/bin/ucrtbase.dll                     shared project XP runtime',
+            '  dist/bin/ucrtbase.dll                     shared project msvcr14x XP runtime',
             '  dist/bin/xpcompat/dwrite/DWrite.dll       private DWrite component',
-            '  dist/bin/xpcompat/dwrite/<companions>     private DWrite dependency closure',
+            '  dist/bin/xpcompat/dwrite/pwrp_k32.dll     private KERNEL32 compatibility provider',
+            '  dist/bin/xpcompat/dwrite/<companions>     remaining private DWrite dependency closure',
             '',
             'The smoke executable derives absolute paths from its own dist/bin location.',
-            'It first loads shared dist/bin/ucrtbase.dll explicitly to reproduce the browser shared-runtime state.',
-            'It then calls LoadLibraryExW(private DWrite path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH),',
-            'followed by DWriteCreateFactory and IDWriteFactory::GetSystemFontCollection.',
+            'It first loads shared dist/bin/ucrtbase.dll explicitly to reproduce the browser msvcr14x runtime state.',
+            'It then preloads private xpcompat/dwrite/pwrp_k32.dll with LOAD_WITH_ALTERED_SEARCH_PATH,',
+            'prints the actual loaded pwrp module path, and only then loads private DWrite.dll the same way.',
+            'The smoke does not stage or load the Supermium ucrtbase.dll.',
+            'After DWrite load it calls DWriteCreateFactory and IDWriteFactory::GetSystemFontCollection.',
             '',
             'Hosted Windows-2022 PASS is a loader/initialization sanity check only.',
             'Run the same dist/bin/dwrite-loader-smoke.exe on physical Windows XP SP3 x86 for physical loader/runtime evidence.',
+            'On loader failure the stub prints GetLastError in hexadecimal.',
             'A physical stub PASS is still not a full Firefox runtime PASS and not a GOST TLS handshake result.'
           ) | Set-Content -Encoding utf8 (Join-Path $env:CANDIDATE_ROOT 'README.txt')
 
@@ -1051,8 +1127,8 @@ jobs:
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Workflow SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- External baseline: pinned Supermium $env:SUPERMIUM_TAG and YY-Thunks $env:YY_THUNKS_TAG recursive closure audit." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Future layout: 10 private DLLs under dist/bin/xpcompat/dwrite; msvcr14x ucrtbase.dll remains shared at dist/bin." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Future layout: 10 private DLLs under dist/bin/xpcompat/dwrite; msvcr14x ucrtbase.dll remains shared at dist/bin; Supermium ucrtbase.dll is not staged." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- UCRT contract: all 37 DWrite CRT imports resolve through the five private API-set forwarders to the staged msvcr14x ucrtbase exports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Stub: dist/bin/dwrite-loader-smoke.exe, x86/subsystem 5.01, KERNEL32-only static import surface; explicitly preloads shared dist/bin/ucrtbase.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Hosted smoke: shared UCRT preload + absolute private DWrite path + LOAD_WITH_ALTERED_SEARCH_PATH + DWriteCreateFactory + GetSystemFontCollection." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Physical Windows XP execution of the exact uploaded stub/layout remains a separate mandatory gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Stub: x86/subsystem 5.01, KERNEL32-only static import surface; preloads shared msvcr14x UCRT, then private pwrp_k32.dll, then private DWrite.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Hosted smoke: private pwrp path verification + LOAD_WITH_ALTERED_SEARCH_PATH + DWriteCreateFactory + GetSystemFontCollection." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Physical Windows XP execution of the exact uploaded stub/layout remains the decisive gate for the pwrp-preload hypothesis." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
