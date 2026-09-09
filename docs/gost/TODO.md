@@ -112,6 +112,13 @@ The standalone DWrite dependency/runtime line has reached its intended focused a
 
 Do not spend another cycle trying alternate standalone UCRT/provider layouts without contradictory evidence. Supermium UCRT is not required by the proven focused architecture.
 
+#### Supermium DWrite component refresh
+
+Keep the physically proven 132 component as the browser-integration control while testing newer Supermium component generations separately; do not replace the full-browser pin merely because a newer Supermium release exists.
+
+1. **Supermium 138 R9 — active focused refresh experiment.** Use final ESR release `v138-r9`, exact x86 nonsetup asset `supermium_138_32_nonsetup.zip`, SHA-256 `7d5e7578d9e4fe27f1f46530f1614e8ac885c27e36e64004eb97216a54a6bde9`. Focused workflow `.github/workflows/xp-supermium-dwrite-138-closure.yml` must rediscover the DWrite closure from that pinned archive, record exact component hashes/imports/exports, verify every observed UCRT requirement against the project-pinned `msvcr14x`, build the XP 5.01 loader candidate, and require `DWriteCreateFactory` plus `GetSystemFontCollection` before physical XP testing.
+2. **Supermium 144 R5 — planned follow-up after the 138 result.** Evaluate current release `v144-r5`, exact x86 nonsetup asset `supermium_144_32_nonsetup.zip`, SHA-256 `17acfcdf89ea651905053b50b0fce5a28db19cb2c69ed5579c7b177806ed6d31`, using the same dynamic closure/UCRT-contract methodology. Compare its DWrite/wrapper dependency surface and physical XP behavior against both the proven 132 control and final 138 R9 before considering any browser pin migration.
+
 Immediate integration work:
 
 1. **Transfer the exact private subtree to `agent/winrt-source-poc`.** Stage the ten pinned non-UCRT DWrite PEs under `dist/bin/xpcompat/dwrite`; keep project msvcr14x `ucrtbase.dll` shared at `dist/bin`.
