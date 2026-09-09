@@ -538,6 +538,7 @@ jobs:
             $mode = 'none'
             $module = $null
             foreach ($line in $lines) {
+              if ($line -match '^\s*Summary\s*$') { break }
               if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $module = $null; continue }
               if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $module = $null; continue }
               if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $module = $matches[1]; continue }
@@ -918,6 +919,7 @@ jobs:
             $mode = 'none'
             $module = $null
             foreach ($line in $imports) {
+              if ($line -match '^\s*Summary\s*$') { break }
               if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $module = $null; continue }
               if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $module = $null; continue }
               if ($mode -eq 'direct' -and $line -match '^\s{4}([A-Za-z0-9_.-]+\.(?:dll|drv))\s*$') {
