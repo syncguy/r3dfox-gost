@@ -8,6 +8,86 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-09 — Supermium DWrite private component physically passes on XP with load-time project msvcr14x UCRT
+
+Track: Windows XP SP3 x86 graphics/runtime dependency compatibility. Independent of GOST TLS runtime. This is a focused private-component runtime proof; it does not build or run Firefox and does not establish full-browser XP startup.
+
+Exact experiment identity:
+
+- workflow `.github/workflows/xp-supermium-dwrite-closure.yml` / `XP Supermium DWrite closure audit`;
+- workflow/head SHA `a42b144cbeeeac6a3765d132111208d600f1a3fc`;
+- Firefox source-under-test: **NOT_APPLICABLE**;
+- run `34317489430`, attempt `1`;
+- job `102356664699` (`Supermium DWrite / XP x86 closure and dist-bin smoke`);
+- aggregate result: **completed / success / GREEN**;
+- candidate artifact `10090864697` (`xp-supermium-dwrite-dist-bin-34317489430`), 9,022,276 bytes, digest `sha256:de0765b8ed2e28259420d9671c2b4e4a54b492555698724187a7f6ea2ee40a47`;
+- diagnostics artifact `10090863781` (`xp-supermium-dwrite-diagnostics-34317489430`), 3,793,851 bytes, digest `sha256:549913f8ea9a92a87bc602bc486e627be25667cec66fe4ef917939fabd29a8ef`.
+
+The candidate preserves the intended future layout:
+
+```text
+dist/bin/
+  dwrite-loader-smoke.exe
+  ucrtbase.dll                         project msvcr14x shared runtime
+  xpcompat/dwrite/
+    DWrite.dll
+    p_advp32.dll
+    p_ole.dll
+    pwp_shd.dll
+    pwrp_k32.dll
+    api-ms-win-crt-heap-l1-1-0.dll
+    api-ms-win-crt-math-l1-1-0.dll
+    api-ms-win-crt-runtime-l1-1-0.dll
+    api-ms-win-crt-stdio-l1-1-0.dll
+    api-ms-win-crt-string-l1-1-0.dll
+```
+
+Supermium `ucrtbase.dll` is **not** staged. The shared `dist/bin/ucrtbase.dll` is built from the project-pinned `Chuyu-Team/msvcr14x` source `6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384`.
+
+The final focused workflow preserves and passes the static gates established by the preceding closure work:
+
+- recursive provider graph resolved;
+- exact Supermium DWrite identity pinned;
+- all 37 DWrite CRT imports through the five private `api-ms-win-crt-*` forwarders are satisfied by the staged msvcr14x UCRT export surface;
+- final private/shared module graph contains no unresolved edge and no known post-XP direct system-API hit under the workflow policy;
+- all staged target PEs are x86 with subsystem 5.01-or-lower after the controlled retarget step;
+- the smoke executable itself has a normal **load-time** import on `ucrtbase.dll` via the pinned msvcr14x `ucrt.lib`, rather than late-loading UCRT with `LoadLibraryEx`;
+- `_errno` is retained as a static-TLS positive control before private DWrite loading;
+- `pwrp_k32.dll` and `DWrite.dll` are loaded by absolute path from `xpcompat/dwrite` with `LOAD_WITH_ALTERED_SEARCH_PATH`.
+
+Physical Windows XP SP3 x86 execution of the exact candidate artifact produced:
+
+```text
+UCRT_STARTUP_LOAD_PASS
+UCRT_PATH=D:\2026\09\09\xp-supermium-dwrite-dist-bin-34317489430\dist\bin\ucrtbase.dll
+UCRT_STATIC_TLS_PASS
+PWRP_LOAD_PASS
+PWRP_PATH=D:\2026\09\09\xp-supermium-dwrite-dist-bin-34317489430\dist\bin\xpcompat\dwrite\pwrp_k32.dll
+DWRITE_LOAD_PASS
+DWRITE_FACTORY_PASS
+DWRITE_FONT_COLLECTION_PASS
+DWRITE_SMOKE_PASS
+```
+
+This directly proves all of the following for the exact focused artifact on physical XP:
+
+1. the project msvcr14x `ucrtbase.dll` is loaded from `dist/bin` at process startup;
+2. its static TLS is valid for the main thread (`_errno` read/write/restore positive control passes);
+3. the exact private `pwrp_k32.dll` is loaded from `dist/bin/xpcompat/dwrite`;
+4. the exact private Supermium `DWrite.dll` then loads successfully;
+5. `DWriteCreateFactory` succeeds;
+6. `IDWriteFactory::GetSystemFontCollection()` succeeds.
+
+The immediately preceding focused artifact from run `34312848959`, job `102342884960`, had produced `UCRT_LOAD_PASS`, `PWRP_LOAD_PASS`, then `DWRITE_LOAD_FAIL GetLastError=0x000003E6` on physical XP. WinDbg localized that failure inside the project msvcr14x UCRT static-TLS access during DWrite CRT process attach. That test late-loaded `ucrtbase.dll` with `LoadLibraryEx`, which is not equivalent to the project's proven XP process-startup CRT model. The final run above fixes only that modeling error by making UCRT a normal executable import; it does **not** substitute Supermium UCRT.
+
+Conclusion: **FOCUSED PHYSICAL XP RUNTIME PASS.** The selected DWrite compatibility architecture is now physically proven at component scale: shared project msvcr14x UCRT loaded at process startup plus an isolated `xpcompat/dwrite` private subtree, with `pwrp_k32.dll` preloaded and `DWrite.dll` loaded through `LOAD_WITH_ALTERED_SEARCH_PATH`. The earlier idea that Supermium UCRT is required is rejected for this focused path.
+
+Next step is Firefox integration, not another standalone DWrite closure experiment: stage the proven private subtree in the main XP package and implement the narrow XP DWrite owner load path while preserving normal system DWrite behavior on Vista/7. A successful full build will still require a separate physical Firefox XP runtime test before the graphics/runtime blocker is called closed.
+
+Status: **current focused DWrite runtime baseline; component-scale physical XP PASS, Firefox integration pending.**
+
+---
+
 ## 2026-09-09 — external Supermium DWrite dependency closure GREEN; project msvcr14x UCRT is a 37/37 export-compatible candidate
 
 Track: Windows XP SP3 x86 graphics/runtime dependency compatibility. Independent of GOST TLS runtime. This is external static dependency evidence only; the workflow does not checkout or build Firefox and does not establish physical-XP runtime behavior.
@@ -54,7 +134,7 @@ Conclusion: **STATIC PROVIDER CLOSURE PASS, WITH STRONG MSVCR14X UCRT REUSE EVID
 
 Before transfer into the main XP browser workflow, require an automated exact-export compatibility gate against the msvcr14x UCRT used by that build and complete API-level XP review of the DWrite/wrapper closure. When staged, the ten new non-UCRT PEs must enter before the existing subsystem-retarget step, and any current `api-ms-win-*` import-policy exception must be narrow and bound to the exact pinned DWrite/forwarder set. Only after that should a full browser build and physical-XP runtime test be used to claim runtime progress.
 
-Status: **current external static dependency baseline; Firefox integration and physical-XP validation pending.**
+Status: **historical static dependency baseline; superseded for component runtime by the physical PASS above.**
 
 ---
 
