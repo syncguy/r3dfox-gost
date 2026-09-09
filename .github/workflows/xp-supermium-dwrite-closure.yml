@@ -2,6 +2,11 @@ name: XP Supermium DWrite closure audit
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - .github/workflows/xp-supermium-dwrite-closure.yml
 
 permissions:
   contents: read
@@ -247,11 +252,20 @@ jobs:
           function Get-ForwarderEdges([string[]]$lines) {
             $result = [System.Collections.Generic.List[object]]::new()
             foreach ($line in $lines) {
-              if ($line -match '=\s*([A-Za-z0-9_.-]+)\.([A-Za-z0-9_@?$#-]+)\s*$') {
+              $module = $null
+              $symbol = $null
+              if ($line -match '(?i)\(forwarded to\s+([A-Za-z0-9_.-]+)\.([A-Za-z0-9_@?$#-]+)\)') {
+                $module = $matches[1]
+                $symbol = $matches[2]
+              } elseif ($line -match '=\s*([A-Za-z0-9_.-]+)\.([A-Za-z0-9_@?$#-]+)\s*$') {
+                $module = $matches[1]
+                $symbol = $matches[2]
+              }
+              if ($module -and $symbol) {
                 $result.Add([pscustomobject]@{
                   Kind='forwarder'
-                  Module=(Normalize-ModuleName $matches[1])
-                  Symbol=(Normalize-Api $matches[2])
+                  Module=(Normalize-ModuleName $module)
+                  Symbol=(Normalize-Api $symbol)
                 })
               }
             }
