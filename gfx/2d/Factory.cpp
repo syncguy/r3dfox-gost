@@ -454,8 +454,8 @@ already_AddRefed<UnscaledFont> Factory::CreateUnscaledFontFromFontDescriptor(
           aData, aDataLength, aIndex);
 #elif defined(MOZ_WIDGET_ANDROID)
     case FontType::FREETYPE:
-      return UnscaledFontFreeType::CreateFromFontDescriptor(aData, aDataLength,
-                                                            aIndex);
+      return UnscaledFontFreeType::CreateFromFontDescriptor(
+          aData, aDataLength, aIndex);
 #endif
     default:
       gfxWarning() << "Invalid type specified for UnscaledFont font descriptor";
@@ -641,12 +641,16 @@ RefPtr<IDWriteFactory> Factory::EnsureDWriteFactory() {
     return mDWriteFactory;
   }
 
-  HMODULE dwriteModule = LoadLibrarySystem32(L"dwrite.dll");
 #ifdef MOZ_XP_COMPAT
-  if (!dwriteModule) {
-    dwriteModule = LoadLibraryW(L"dwrite.dll");
-  }
+  HMODULE dwriteModule = LoadLibraryXPPrivateDWrite();
+#else
+  HMODULE dwriteModule = LoadLibrarySystem32(L"dwrite.dll");
 #endif
+  if (!dwriteModule) {
+    gfxWarning() << "Failed to load DWrite module.";
+    return nullptr;
+  }
+
   decltype(DWriteCreateFactory)* createDWriteFactory =
       (decltype(DWriteCreateFactory)*)GetProcAddress(dwriteModule,
                                                      "DWriteCreateFactory");
@@ -749,7 +753,7 @@ already_AddRefed<DrawTarget> Factory::CreateDrawTargetForCairoSurface(
   RefPtr newTarget = MakeRefPtr<DrawTargetCairo>();
 
   if (newTarget->Init(aSurface, aSize, aFormat)) {
-    retVal = newTarget;
+    retVal = std::move(newTarget);
   }
 #endif
   return retVal.forget();
@@ -883,8 +887,8 @@ void Factory::CopyDataSourceSurface(DataSourceSurface* aSource,
              aSource->GetFormat() == SurfaceFormat::B8G8R8A8 ||
              aSource->GetFormat() == SurfaceFormat::B8G8R8X8 ||
              aSource->GetFormat() == SurfaceFormat::A8);
-  MOZ_ASSERT(aDest->GetFormat() == SurfaceFormat::R8G8B8A8 ||
-             aDest->GetFormat() == SurfaceFormat::R8G8B8X8 ||
+  MOZ_ASSERT(aDest->GetFormat() == SurfaceFormat::R8G8R8A8 ||
+             aDest->GetFormat() == SurfaceFormat::R8G8R8X8 ||
              aDest->GetFormat() == SurfaceFormat::B8G8R8A8 ||
              aDest->GetFormat() == SurfaceFormat::B8G8R8X8 ||
              aDest->GetFormat() == SurfaceFormat::R5G6B5_UINT16 ||
