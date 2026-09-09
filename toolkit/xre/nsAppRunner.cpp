@@ -756,7 +756,7 @@ nsIXULRuntime::ContentWin32kLockdownState GetLiveWin32kLockdownState() {
   }
 
   if (!mozilla::BrowserTabsRemoteAutostart()) {
-    return nsIXULRuntime::ContentWin32kLockdownState::DisabledByE10S;
+    return nsIXULRuntime::ContentWin32kLockdownState::DisabledByE10s;
   }
 
   // Win32k lockdown is available on Win8+, but we are initially limiting it to
@@ -1185,6 +1185,722 @@ nsXULAppInfo::GetLogConsoleErrors(bool* aResult) {
 }
 
 NS_IMETHODIMP
-nsXULAppInfo::SetEnabled(bool aEnabled) {
+nsXULAppInfo::SetLogConsoleErrors(bool aValue) {
+  gLogConsoleErrors = aValue;
   return NS_OK;
 }
+
+NS_IMETHODIMP
+nsXULAppInfo::GetInSafeMode(bool* aResult) {
+  *aResult = gSafeMode;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetOS(nsACString& aResult) {
+  aResult.AssignLiteral(OS_TARGET);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetXPCOMABI(nsACString& aResult) {
+#ifdef TARGET_XPCOM_ABI
+  aResult.AssignLiteral(TARGET_XPCOM_ABI);
+  return NS_OK;
+#else
+  return NS_ERROR_NOT_AVAILABLE;
+#endif
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetWidgetToolkit(nsACString& aResult) {
+  aResult.AssignLiteral(MOZ_WIDGET_TOOLKIT);
+  return NS_OK;
+}
+
+// Ensure that the GeckoProcessType enum, defined in xpcom/build/nsXULAppAPI.h,
+// is synchronized with the const unsigned longs defined in
+// xpcom/system/nsIXULRuntime.idl.
+#define GECKO_PROCESS_TYPE(enum_value, enum_name, string_name, proc_typename, \
+                           process_bin_type, procinfo_typename,               \
+                           webidl_typename, allcaps_name)                     \
+  static_assert(nsIXULRuntime::PROCESS_TYPE_##allcaps_name ==                 \
+                    static_cast<int>(GeckoProcessType_##enum_name),           \
+                "GeckoProcessType in nsXULAppAPI.h not synchronized with "    \
+                "nsIXULRuntime.idl");
+#include "mozilla/GeckoProcessTypes.h"
+#undef GECKO_PROCESS_TYPE
+
+// .. and ensure that that is all of them:
+static_assert(GeckoProcessType_Utility + 1 == GeckoProcessType_End,
+              "Did not find the final GeckoProcessType");
+
+NS_IMETHODIMP
+nsXULAppInfo::GetProcessType(uint32_t* aResult) {
+  NS_ENSURE_ARG_POINTER(aResult);
+  *aResult = XRE_GetProcessType();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetProcessID(uint32_t* aResult) {
+#ifdef XP_WIN
+  *aResult = GetCurrentProcessId();
+#else
+  *aResult = getpid();
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetUniqueProcessID(uint64_t* aResult) {
+  if (XRE_IsContentProcess()) {
+    ContentChild* cc = ContentChild::GetSingleton();
+    *aResult = cc->GetID();
+  } else {
+    *aResult = 0;
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetRemoteType(nsACString& aRemoteType) {
+  if (XRE_IsContentProcess()) {
+    aRemoteType = ContentChild::GetSingleton()->GetRemoteType();
+  } else {
+    aRemoteType = NOT_REMOTE_TYPE;
+  }
+
+  return NS_OK;
+}
+
+constinit static nsCString gLastAppVersion;
+constinit static nsCString gLastAppBuildID;
+
+// Whether the loaded profile's compatibility.ini carries EncryptedDatabases=1.
+// Populated by CheckCompatibility() (which already parses compatibility.ini)
+// and consulted by the encryption-compatibility gate in XRE_mainStartup.
+static bool gProfileEncryptedDatabases = false;
+
+NS_IMETHODIMP
+nsXULAppInfo::GetLastAppVersion(nsACString& aResult) {
+  if (XRE_IsContentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  if (!gLastAppVersion.IsVoid() && gLastAppVersion.IsEmpty()) {
+    NS_WARNING("Attempt to retrieve lastAppVersion before it has been set.");
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  aResult.Assign(gLastAppVersion);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetLastAppBuildID(nsACString& aResult) {
+  if (XRE_IsContentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  if (!gLastAppBuildID.IsVoid() && gLastAppBuildID.IsEmpty()) {
+    NS_WARNING("Attempt to retrieve lastAppBuildID before it has been set.");
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  aResult.Assign(gLastAppBuildID);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetFissionAutostart(bool* aResult) {
+  *aResult = FissionAutostart();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetWin32kExperimentStatus(ExperimentStatus* aResult) {
+  if (!XRE_IsParentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  EnsureWin32kInitialized();
+  *aResult = gWin32kExperimentStatus;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetWin32kLiveStatusTestingOnly(
+    nsIXULRuntime::ContentWin32kLockdownState* aResult) {
+  if (!XRE_IsParentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  EnsureWin32kInitialized();
+  *aResult = GetLiveWin32kLockdownState();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetWin32kSessionStatus(
+    nsIXULRuntime::ContentWin32kLockdownState* aResult) {
+  if (!XRE_IsParentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  EnsureWin32kInitialized();
+  *aResult = gWin32kStatus;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetFissionDecisionStatus(FissionDecisionStatus* aResult) {
+  if (!XRE_IsParentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  EnsureFissionAutostartInitialized();
+
+  MOZ_ASSERT(gFissionDecisionStatus != eFissionStatusUnknown);
+  *aResult = gFissionDecisionStatus;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetFissionDecisionStatusString(nsACString& aResult) {
+  if (!XRE_IsParentProcess()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  EnsureFissionAutostartInitialized();
+  switch (gFissionDecisionStatus) {
+    case eFissionDisabledByE10sEnv:
+      aResult = "disabledByE10sEnv";
+      break;
+    case eFissionEnabledByEnv:
+      aResult = "enabledByEnv";
+      break;
+    case eFissionDisabledByEnv:
+      aResult = "disabledByEnv";
+      break;
+    case eFissionEnabledByDefault:
+      aResult = "enabledByDefault";
+      break;
+    case eFissionDisabledByDefault:
+      aResult = "disabledByDefault";
+      break;
+    case eFissionEnabledByUserPref:
+      aResult = "enabledByUserPref";
+      break;
+    case eFissionDisabledByUserPref:
+      aResult = "disabledByUserPref";
+      break;
+    case eFissionDisabledByE10sOther:
+      aResult = "disabledByE10sOther";
+      break;
+    default:
+      MOZ_ASSERT_UNREACHABLE("Unexpected enum value");
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetSessionStorePlatformCollection(bool* aResult) {
+  *aResult = SessionStorePlatformCollection();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetBrowserTabsRemoteAutostart(bool* aResult) {
+  *aResult = BrowserTabsRemoteAutostart();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetMaxWebProcessCount(uint32_t* aResult) {
+  *aResult = mozilla::GetMaxWebProcessCount();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetAccessibilityEnabled(bool* aResult) {
+#ifdef ACCESSIBILITY
+  *aResult = GetAccService() != nullptr;
+#else
+  *aResult = false;
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetAccessibilityInstantiator(nsAString& aInstantiator) {
+  aInstantiator.Truncate();
+#if defined(ACCESSIBILITY)
+  if (GetAccService()) {
+    a11y::GetHumanReadableInstantiatorStr(aInstantiator);
+#  if defined(XP_WIN)
+    aInstantiator.AppendLiteral("|");
+
+    nsCOMPtr<nsIFile> oopClientExe;
+    if (a11y::GetInstantiator(getter_AddRefs(oopClientExe))) {
+      nsAutoString oopClientInfo;
+      if (NS_SUCCEEDED(oopClientExe->GetPath(oopClientInfo))) {
+        aInstantiator.Append(oopClientInfo);
+      }
+    }
+#  endif
+  }
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetIs64Bit(bool* aResult) {
+#ifdef HAVE_64BIT_BUILD
+  *aResult = true;
+#else
+  *aResult = false;
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetIsTextRecognitionSupported(bool* aResult) {
+  *aResult = widget::TextRecognition::IsSupported();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::InvalidateCachesOnRestart() {
+  nsCOMPtr<nsIFile> file;
+  nsresult rv =
+      NS_GetSpecialDirectory(NS_APP_PROFILE_DIR_STARTUP, getter_AddRefs(file));
+  if (NS_FAILED(rv)) return rv;
+  if (!file) return NS_ERROR_NOT_AVAILABLE;
+
+  file->AppendNative(FILE_COMPATIBILITY_INFO);
+
+  nsINIParser parser;
+  rv = parser.Init(file);
+  if (NS_FAILED(rv)) {
+    // This fails if compatibility.ini is not there, so we'll
+    // flush the caches on the next restart anyways.
+    return NS_OK;
+  }
+
+  nsAutoCString buf;
+  rv = parser.GetString("Compatibility", "InvalidateCaches", buf);
+
+  if (NS_FAILED(rv)) {
+    PRFileDesc* fd;
+    rv = file->OpenNSPRFileDesc(PR_RDWR | PR_APPEND, 0600, &fd);
+    if (NS_FAILED(rv)) {
+      NS_ERROR("could not create output stream");
+      return NS_ERROR_NOT_AVAILABLE;
+    }
+    static const char kInvalidationHeader[] =
+        NS_LINEBREAK "InvalidateCaches=1" NS_LINEBREAK;
+    PR_Write(fd, kInvalidationHeader, sizeof(kInvalidationHeader) - 1);
+    PR_Close(fd);
+  }
+  return NS_OK;
+}
+
+nsresult mozilla::MarkProfileEncryptedDatabases() {
+  nsCOMPtr<nsIFile> file;
+  nsresult rv =
+      NS_GetSpecialDirectory(NS_APP_PROFILE_DIR_STARTUP, getter_AddRefs(file));
+  if (NS_FAILED(rv) || !file) return NS_OK;
+
+  file->AppendNative(FILE_COMPATIBILITY_INFO);
+
+  nsINIParser parser;
+  rv = parser.Init(file);
+  if (NS_FAILED(rv)) {
+    return NS_OK;
+  }
+
+  nsAutoCString buf;
+  rv = parser.GetString("Compatibility", "EncryptedDatabases", buf);
+  if (NS_SUCCEEDED(rv)) {
+    return NS_OK;
+  }
+
+  PRFileDesc* fd;
+  rv = file->OpenNSPRFileDesc(PR_RDWR | PR_APPEND, 0600, &fd);
+  if (NS_FAILED(rv)) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+  static const char kEncryptedHeader[] =
+      NS_LINEBREAK "EncryptedDatabases=1" NS_LINEBREAK;
+  PR_Write(fd, kEncryptedHeader, sizeof(kEncryptedHeader) - 1);
+  PR_Close(fd);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::MarkProfileEncryptedDatabases() {
+  return mozilla::MarkProfileEncryptedDatabases();
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetReplacedLockTime(PRTime* aReplacedLockTime) {
+  if (!gProfileLock) return NS_ERROR_NOT_AVAILABLE;
+  gProfileLock->GetReplacedLockTime(aReplacedLockTime);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetDefaultUpdateChannel(nsACString& aResult) {
+  aResult.AssignLiteral(MOZ_STRINGIFY(MOZ_UPDATE_CHANNEL));
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetDistributionID(nsACString& aResult) {
+  aResult.AssignLiteral(MOZ_DISTRIBUTION_ID);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetWindowsDLLBlocklistStatus(bool* aResult) {
+#if defined(HAS_DLL_BLOCKLIST)
+  *aResult = DllBlocklist_CheckStatus();
+#else
+  *aResult = false;
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetRestartedByOS(bool* aResult) {
+  *aResult = gRestartedByOS;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetChromeColorSchemeIsDark(bool* aResult) {
+  *aResult = PreferenceSheet::ColorSchemeForChrome() == ColorScheme::Dark;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetNativeMenubar(bool* aResult) {
+  *aResult = !!LookAndFeel::GetInt(LookAndFeel::IntID::NativeMenubar);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetContentThemeDerivedColorSchemeIsDark(bool* aResult) {
+  *aResult =
+      PreferenceSheet::ThemeDerivedColorSchemeForContent() == ColorScheme::Dark;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetPrefersReducedMotion(bool* aResult) {
+  *aResult =
+      LookAndFeel::GetInt(LookAndFeel::IntID::PrefersReducedMotion, 0) == 1;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetDrawInTitlebar(bool* aResult) {
+  *aResult = LookAndFeel::DrawInTitlebar();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetCaretBlinkCount(int32_t* aResult) {
+  *aResult = LookAndFeel::CaretBlinkCount();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetCaretBlinkTime(int32_t* aResult) {
+  *aResult = LookAndFeel::CaretBlinkTime();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetDesktopEnvironment(nsACString& aDesktopEnvironment) {
+#ifdef MOZ_WIDGET_GTK
+  aDesktopEnvironment.Assign(GetDesktopEnvironmentIdentifier());
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetIsWayland(bool* aResult) {
+#ifdef MOZ_WIDGET_GTK
+  *aResult = GdkIsWaylandDisplay();
+#else
+  *aResult = false;
+#endif
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetProcessStartupShortcut(nsAString& aShortcut) {
+#if defined(XP_WIN)
+  if (XRE_IsParentProcess()) {
+    aShortcut.Assign(gProcessStartupShortcut);
+    return NS_OK;
+  }
+#endif
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+#if defined(XP_WIN) && defined(MOZ_LAUNCHER_PROCESS)
+void SetupLauncherProcessPref();
+static Maybe<LauncherRegistryInfo::EnabledState> gLauncherProcessState;
+#endif
+
+NS_IMETHODIMP
+nsXULAppInfo::GetLauncherProcessState(uint32_t* aResult) {
+#if defined(XP_WIN) && defined(MOZ_LAUNCHER_PROCESS)
+  SetupLauncherProcessPref();
+  if (!gLauncherProcessState) {
+    return NS_ERROR_UNEXPECTED;
+  }
+  *aResult = static_cast<uint32_t>(gLauncherProcessState.value());
+  return NS_OK;
+#else
+  return NS_ERROR_NOT_AVAILABLE;
+#endif
+}
+
+#ifdef XP_WIN
+NS_IMETHODIMP
+nsXULAppInfo::GetUserCanElevate(bool* aUserCanElevate) {
+  HANDLE rawToken;
+  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &rawToken)) {
+    *aUserCanElevate = false;
+    return NS_OK;
+  }
+  nsAutoHandle token(rawToken);
+  LauncherResult<TOKEN_ELEVATION_TYPE> elevationType = GetElevationType(token);
+  if (elevationType.isErr()) {
+    *aUserCanElevate = false;
+    return NS_OK;
+  }
+  *aUserCanElevate = (elevationType.inspect() == TokenElevationTypeLimited);
+  return NS_OK;
+}
+#endif
+
+static Result<CrashReporter::Annotation, nsresult> GetCrashAnnotation(
+    const nsACString& aKey) {
+  auto maybeAnnotation = CrashReporter::AnnotationFromString(aKey);
+#ifdef DEBUG
+  if (!maybeAnnotation.isSome()) {
+    std::string warning = "Annotation identifier not found: \"";
+    warning += aKey.View();
+    warning += "\"";
+    NS_WARNING(warning.c_str());
+  }
+  if (!StaticPrefs::toolkit_crash_annotation_testing_validation()) {
+    MOZ_ASSERT(maybeAnnotation.isSome(),
+               "Invalid annotation identifier; ensure it exists in "
+               "CrashAnnotations.yaml");
+  }
+#endif
+  NS_ENSURE_TRUE(maybeAnnotation.isSome(), Err(NS_ERROR_INVALID_ARG));
+  return maybeAnnotation.extract();
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetCrashReporterEnabled(bool* aEnabled) {
+  *aEnabled = CrashReporter::GetEnabled();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::SetEnabled(bool aEnabled) {
+  if (aEnabled) {
+    if (CrashReporter::GetEnabled()) {
+      return NS_OK;
+    }
+    nsCOMPtr<nsIFile> greBinDir;
+    NS_GetSpecialDirectory(NS_GRE_BIN_DIR, getter_AddRefs(greBinDir));
+    if (!greBinDir) {
+      return NS_ERROR_FAILURE;
+    }
+    nsCOMPtr<nsIFile> xreBinDirectory = greBinDir;
+    if (!xreBinDirectory) {
+      return NS_ERROR_FAILURE;
+    }
+    return CrashReporter::SetExceptionHandler(xreBinDirectory, true);
+  }
+  if (!CrashReporter::GetEnabled()) {
+    return NS_OK;
+  }
+  return CrashReporter::UnsetExceptionHandler();
+}
+
+NS_VISIBILITY_DEFAULT PRBool nspr_use_zone_allocator = PR_FALSE;
+
+#ifdef CAIRO_HAS_DWRITE_FONT
+#  include <dwrite.h>
+#  include "nsWindowsHelpers.h"
+#  ifdef DEBUG_DWRITE_STARTUP
+#    define LOGREGISTRY(msg) LogRegistryEvent(msg)
+static void LogRegistryEvent(const wchar_t* msg) {
+  HKEY dummyKey;
+  HRESULT hr;
+  wchar_t buf[512];
+  wsprintf(buf, L" log %s", msg);
+  hr = RegOpenKeyEx(HKEY_LOCAL_MACHINE, buf, 0, KEY_READ, &dummyKey);
+  if (SUCCEEDED(hr)) {
+    RegCloseKey(dummyKey);
+  }
+}
+#  else
+#    define LOGREGISTRY(msg)
+#  endif
+static DWORD WINAPI InitDwriteBG(LPVOID lpdwThreadParam) {
+  SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+  LOGREGISTRY(L"loading dwrite.dll");
+  HMODULE dwdll = LoadLibrarySystem32(L"dwrite.dll");
+  if (dwdll) {
+    decltype(DWriteCreateFactory)* createDWriteFactory =
+        (decltype(DWriteCreateFactory)*)GetProcAddress(dwdll,
+                                                       "DWriteCreateFactory");
+    if (createDWriteFactory) {
+      LOGREGISTRY(L"creating dwrite factory");
+      IDWriteFactory* factory;
+      HRESULT hr = createDWriteFactory(DWRITE_FACTORY_TYPE_SHARED,
+                                       __uuidof(IDWriteFactory),
+                                       reinterpret_cast<IUnknown**>(&factory));
+      if (SUCCEEDED(hr)) {
+        LOGREGISTRY(L"dwrite factory done");
+        factory->Release();
+        LOGREGISTRY(L"freed factory");
+      } else {
+        LOGREGISTRY(L"failed to create factory");
+      }
+    }
+  }
+  SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+  return 0;
+}
+#endif
+
+#include "GeckoProfiler.h"
+#include "ProfilerControl.h"
+
+#ifdef XP_WIN
+static void ReadAheadSystemDll(const wchar_t* dllName) {
+  wchar_t dllPath[MAX_PATH];
+  if (ConstructSystem32Path(dllName, dllPath, MAX_PATH)) {
+    ReadAheadLib(dllPath);
+  }
+}
+
+static void ReadAheadPackagedDll(const wchar_t* dllName,
+                                 const wchar_t* aGREDir) {
+  wchar_t dllPath[MAX_PATH];
+  swprintf(dllPath, MAX_PATH, L"%s\\%s", aGREDir, dllName);
+  ReadAheadLib(dllPath);
+}
+
+static void ReadAheadDlls(const wchar_t* greDir) {
+  if (greDir) {
+    ReadAheadPackagedDll(L"libegl.dll", greDir);
+    ReadAheadPackagedDll(L"libGLESv2.dll", greDir);
+    ReadAheadPackagedDll(L"freebl3.dll", greDir);
+    ReadAheadPackagedDll(L"softokn3.dll", greDir);
+    ReadAheadSystemDll(L"DWrite.dll");
+    ReadAheadSystemDll(L"D3DCompiler_47.dll");
+  } else {
+    ReadAheadSystemDll(L"DataExchange.dll");
+    ReadAheadSystemDll(L"twinapi.appcore.dll");
+    ReadAheadSystemDll(L"twinapi.dll");
+    ReadAheadSystemDll(L"ExplorerFrame.dll");
+    ReadAheadSystemDll(L"WinTypes.dll");
+  }
+}
+#endif
+
+void SetupErrorHandling(const char* progname) {
+#ifdef XP_WIN
+  HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+  SetProcessDEPPolicyFunc _SetProcessDEPPolicy =
+      (SetProcessDEPPolicyFunc)GetProcAddress(kernel32, "SetProcessDEPPolicy");
+  if (_SetProcessDEPPolicy) _SetProcessDEPPolicy(PROCESS_DEP_ENABLE);
+  UINT realMode = SetErrorMode(0);
+  realMode |= SEM_FAILCRITICALERRORS;
+  if (getenv("XRE_NO_WINDOWS_CRASH_DIALOG"))
+    realMode |= SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX;
+  SetErrorMode(realMode);
+#endif
+  InstallSignalHandlers(progname);
+  setbuf(stdout, nullptr);
+}
+
+static bool gRunSelfAsContentProc = false;
+
+void XRE_EnableSameExecutableForContentProc() {
+  if (!PR_GetEnv("MOZ_SEPARATE_CHILD_PROCESS")) {
+    gRunSelfAsContentProc = true;
+  }
+}
+
+mozilla::BinPathType XRE_GetChildProcBinPathType(
+    GeckoProcessType aProcessType) {
+  MOZ_ASSERT(aProcessType != GeckoProcessType_Default);
+  if (!gRunSelfAsContentProc) {
+    return BinPathType::PluginContainer;
+  }
+#ifdef XP_WIN
+  if (StaticPrefs::dom_ipc_alwaysUseParentBinary()) {
+    return BinPathType::Self;
+  }
+  switch (aProcessType) {
+#  define GECKO_PROCESS_TYPE(enum_value, enum_name, string_name,               \
+                             proc_typename, process_bin_type,                  \
+                             procinfo_typename, webidl_typename, allcaps_name) \
+    case GeckoProcessType_##enum_name:                                         \
+      return BinPathType::process_bin_type;
+#  include "mozilla/GeckoProcessTypes.h"
+#  undef GECKO_PROCESS_TYPE
+    default:
+      return BinPathType::PluginContainer;
+  }
+#else
+  return BinPathType::Self;
+#endif
+}
+
+extern "C" void install_rust_hooks();
+
+struct InstallRustHooks {
+  InstallRustHooks() { install_rust_hooks(); }
+};
+
+MOZ_RUNINIT InstallRustHooks sInstallRustHooks;
+
+#ifdef MOZ_ASAN_REPORTER
+void setASanReporterPath(nsIFile* aDir) {
+  nsCOMPtr<nsIFile> dir;
+  aDir->Clone(getter_AddRefs(dir));
+  dir->Append(u"asan"_ns);
+  nsresult rv = dir->Create(nsIFile::DIRECTORY_TYPE, 0700);
+  if (NS_WARN_IF(NS_FAILED(rv) && rv != NS_ERROR_FILE_ALREADY_EXISTS)) {
+    MOZ_CRASH("[ASan Reporter] Unable to create crash directory.");
+  }
+  dir->Append(u"ff_asan_log"_ns);
+#  ifdef XP_WIN
+  nsAutoString nspathW;
+  rv = dir->GetPath(nspathW);
+  NS_ConvertUTF16toUTF8 nspath(nspathW);
+#  else
+  nsAutoCString nspath;
+  rv = dir->GetNativePath(nspath);
+#  endif
+  if (NS_FAILED(rv)) {
+    MOZ_CRASH("[ASan Reporter] Unable to get native path for crash directory.");
+  }
+  __sanitizer_set_report_path(nspath.get());
+}
+#endif
