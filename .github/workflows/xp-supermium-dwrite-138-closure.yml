@@ -339,10 +339,11 @@ jobs:
             return $rows
           }
 
-          function Read-UcrtForwarders([string]$path) {
-            $map = @{}
+          function Read-UcrtForwarderRows([string]$path, [string]$diagnosticPath) {
+            $rows = [System.Collections.Generic.List[object]]::new()
             $lines = @(& dumpbin.exe /nologo /exports $path 2>&1)
             if ($LASTEXITCODE -ne 0) { throw "dumpbin /exports failed: $path" }
+            $lines | Set-Content -Encoding utf8 $diagnosticPath
             foreach ($line in $lines) {
               $source = $null
               $target = $null
@@ -353,13 +354,11 @@ jobs:
                 $source = $matches[1]
                 $target = $matches[2]
               }
-              if (-not $source -or -not $target) { continue }
-              if ($map.ContainsKey($source) -and $map[$source] -cne $target) {
-                throw "Conflicting UCRT forwarders for $source in $path"
+              if ($source -and $target) {
+                $rows.Add([pscustomobject]@{ Source=$source; Target=$target })
               }
-              $map[$source] = $target
             }
-            return $map
+            return $rows
           }
 
           $ucrtExportsRaw = @(& dumpbin.exe /nologo /exports (Join-Path $env:MSVCR14X_RELEASE 'ucrtbase.dll') 2>&1)
@@ -396,21 +395,31 @@ jobs:
             throw 'No direct UCRT or CRT API-set requirements were discovered in the staged DWrite closure.'
           }
 
-          $forwarderMaps = @{}
+          $forwarderRows = @{}
           foreach ($edge in $apiSetImports) {
             $key = $edge.ApiSet.ToLowerInvariant()
-            if (-not $forwarderMaps.ContainsKey($key)) {
+            if (-not $forwarderRows.ContainsKey($key)) {
               $provider = Join-Path $env:DWRITE_PRIVATE $edge.ApiSet
               if (-not (Test-Path $provider)) { throw "Missing staged CRT API-set provider: $($edge.ApiSet)" }
-              $map = Read-UcrtForwarders $provider
-              if ($map.Count -eq 0) { throw "No ucrtbase forwarders parsed from $($edge.ApiSet)" }
-              $forwarderMaps[$key] = $map
+              $safe = $edge.ApiSet -replace '[^A-Za-z0-9_.-]', '_'
+              $diagnosticPath = Join-Path $env:GITHUB_WORKSPACE "diagnostics\dwrite-138-$safe-exports.txt"
+              $rows = @(Read-UcrtForwarderRows $provider $diagnosticPath)
+              if ($rows.Count -eq 0) { throw "No ucrtbase forwarders parsed from $($edge.ApiSet)" }
+              $forwarderRows[$key] = $rows
             }
-            $map = $forwarderMaps[$key]
-            if (-not $map.ContainsKey($edge.ImportedApi)) {
+            $rows = @($forwarderRows[$key])
+            $targets = @(
+              $rows |
+                Where-Object { $_.Source -ceq $edge.ImportedApi } |
+                Select-Object -ExpandProperty Target -Unique
+            )
+            if ($targets.Count -eq 0) {
               throw "$($edge.ApiSet) does not forward imported API $($edge.ImportedApi) to ucrtbase"
             }
-            $target = $map[$edge.ImportedApi]
+            if ($targets.Count -gt 1) {
+              throw "Ambiguous UCRT forwarder for actually imported API $($edge.ImportedApi) in $($edge.ApiSet): $($targets -join ', ')"
+            }
+            $target = $targets[0]
             $present = $ucrtExports.Contains($target)
             $requirements.Add([pscustomobject]@{
               From=$edge.From
