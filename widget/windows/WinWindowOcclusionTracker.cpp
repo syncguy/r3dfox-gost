@@ -262,7 +262,7 @@ void SerializedTaskDispatcher::HandleTasks() {
       return;
     }
     MOZ_RELEASE_ASSERT(data->mCurrentRunnable);
-    MOZ_RELEASE_ASSERT(!aProofOfLock->mTasks.empty());
+    MOZ_RELEASE_ASSERT(!data->mTasks.empty());
 
     frontTask = data->mTasks.front().first;
 
@@ -594,9 +594,8 @@ bool WinWindowOcclusionTracker::IsWindowVisibleAndFullyOpaque(
   // size of the desktop. It's usually behind Chrome windows in the z-order,
   // but using a remote desktop can move it up in the z-order. So, ignore them.
   DWORD reason;
-  if (WinUtils::dwmGetWindowAttributePtr &&
-      SUCCEEDED(WinUtils::dwmGetWindowAttributePtr(
-          aHwnd, DWMWA_CLOAKED, &reason, sizeof(reason))) &&
+  if (WinUtils::dwmGetWindowAttributePtr && SUCCEEDED(WinUtils::dwmGetWindowAttributePtr(aHwnd, DWMWA_CLOAKED, &reason,
+                                        sizeof(reason))) &&
       reason != 0) {
     return false;
   }
@@ -1085,7 +1084,7 @@ void WinWindowOcclusionTracker::WindowOcclusionCalculator::
       // XXX simplify
       for (auto it = mPidsForLocationChangeHook.begin();
            it != mPidsForLocationChangeHook.end();) {
-        if (pidsToRemove.find(*it) != mPidsForLocationChangeHook.end()) {
+        if (pidsToRemove.find(*it) != pidsToRemove.end()) {
           it = mPidsForLocationChangeHook.erase(it);
         } else {
           ++it;
