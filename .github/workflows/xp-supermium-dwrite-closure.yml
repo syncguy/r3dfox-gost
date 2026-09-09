@@ -663,7 +663,7 @@ jobs:
 
           $final = [System.Collections.Generic.List[object]]::new()
           foreach ($row in $manifest) {
-            $path = Join-Path $distBin ($row.RelativePath -replace '/', '\\')
+            $path = Join-Path $distBin ($row.RelativePath -replace '/', '\')
             $headers = @(& dumpbin.exe /nologo /headers $path 2>&1)
             if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $path" }
             $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
