@@ -100,26 +100,33 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md). The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current exact boundary
+### DWrite private component — focused work complete; integrate into browser
 
-Latest physically exercised candidate remains:
+The standalone DWrite dependency/runtime line has reached its intended focused acceptance boundary:
+
+- workflow `.github/workflows/xp-supermium-dwrite-closure.yml`;
+- workflow/head SHA `a42b144cbeeeac6a3765d132111208d600f1a3fc`;
+- run `34317489430`, job `102356664699`, **GREEN**;
+- candidate artifact `10090864697`, digest `sha256:de0765b8ed2e28259420d9671c2b4e4a54b492555698724187a7f6ea2ee40a47`;
+- physical XP SP3 x86 result: load-time project msvcr14x UCRT static-TLS control PASS, private `pwrp_k32.dll` load PASS, private `DWrite.dll` load PASS, `DWriteCreateFactory` PASS, `GetSystemFontCollection` PASS.
+
+Do not spend another cycle trying alternate standalone UCRT/provider layouts without contradictory evidence. Supermium UCRT is not required by the proven focused architecture.
+
+Immediate integration work:
+
+1. **Transfer the exact private subtree to `agent/winrt-source-poc`.** Stage the ten pinned non-UCRT DWrite PEs under `dist/bin/xpcompat/dwrite`; keep project msvcr14x `ucrtbase.dll` shared at `dist/bin`.
+2. **Implement the XP-only owner load path in `gfx/2d/Factory.cpp`.** Keep system `dwrite.dll` first for normal Vista/7 behavior. For `MOZ_XP_COMPAT`, load the private absolute `pwrp_k32.dll` provider and then private absolute `xpcompat/dwrite/DWrite.dll` using `LOAD_WITH_ALTERED_SEARCH_PATH`; do not change the generic system DLL loader globally.
+3. **Integrate packaging and exact gates.** Package `xpcompat/dwrite/*`, preserve pinned source/staged hashes, x86/5.01 PE floor, dependency/import closure and the 37/37 msvcr14x-UCRT contract. Do not duplicate Supermium UCRT.
+4. **Build one new full XP x32 browser candidate.** Preserve all already proven SharedPrefMap, battery, YY, bcrypt, D3DCompiler, Rust and other compatibility fixes.
+5. **Physically test the exact integrated browser artifact on XP.** Bind runtime evidence to exact `r3dfox.exe`, `xul.dll` and artifact identities. Require advance through the previous DirectWrite/WebRender boundary; if another blocker appears, record that exact new boundary.
+
+The focused DWrite PASS is component evidence, not full Firefox runtime proof and not GOST TLS evidence.
+
+### Current full-browser baseline
+
+The most recent documented all-GREEN full-browser build/static baseline remains:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `897e1cdf98bcc091e13283fa8004177971d30f27`;
-- workflow run `34194737456`, job `101959901573`;
-- physical `r3dfox.exe` SHA-1 `dbfaed8d2d06d50195a572f8364186e4032f8a97`;
-- physical `xul.dll` SHA-1 `fcc09439c4e36be056b5796303f7e433a7afe585`.
-
-Physical XP repeatedly advances past the former `SharedPrefMap.cpp:25` / `0x80000003` child-HANDLE blocker on that exact candidate. The next physical exception `0xC06D007F` is now exactly localized to the MSVC delay-load of:
-
-```text
-USER32.dll!RegisterPowerSettingNotification
-```
-
-The owner is `hal/windows/WindowsBattery.cpp` reached from `GPUProcessManager::BatteryObserver`. This root cause is established; do not relocalize it without contradictory evidence.
-
-Current implementation HEAD and latest all-GREEN build/static candidate:
-
 - source-under-test `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`;
 - run `34213345771`, job `102019253738`;
 - aggregate result **success / GREEN**;
@@ -127,23 +134,7 @@ Current implementation HEAD and latest all-GREEN build/static candidate:
 - runtime artifact `10056088395`, digest `sha256:2cf7cf6ca44c0d8abddb930564a65bdf57188f4a2ae0fd5a56b29d7c522ce57f`;
 - diagnostics artifact `10056127829`, digest `sha256:04d284ce8738a63b72508e00747576c56fb2dfb86233e6e460fc1803b4234b33`.
 
-This source includes three relevant pieces of the current lineage:
-
-1. the physically successful XP classic child-HANDLE inheritance fallback;
-2. removal of the rejected `Platform::Freeze()` `FILE_MAP_READ | SECTION_QUERY` access-mask experiment;
-3. the narrow XP battery fallback using `PBT_APMPOWERSTATUSCHANGE`, with the Vista-only registration APIs compiled out.
-
-The dedicated final `xul.dll` battery gate passed and proves both `RegisterPowerSettingNotification` and `UnregisterPowerSettingNotification` are absent from ordinary and delay-load USER32 imports in the exact new build.
-
-### Open work, in order
-
-1. **Physically test exact runtime artifact `10056088395` from run `34213345771`.** Keep its identity tied to source `db334d...`; record local `r3dfox.exe` / `xul.dll` hashes before attributing runtime evidence.
-2. **Confirm SharedPrefMap remains physically closed after the cleanup.** The exact new artifact must still advance past `SharedPrefMap.cpp:25` without `ERROR_INVALID_HANDLE`; this is the remaining physical causal control for removal of the rejected access-mask override.
-3. **Confirm the old battery delay-load boundary is physically passed.** The new artifact must not reproduce `0xC06D007F` from `USER32!RegisterPowerSettingNotification`.
-4. **Record the next actual boundary.** If startup advances and another blocker appears, establish its exact process/module/stack/API identity before changing code.
-5. **Keep GOST TLS runtime separate.** Ordinary browsing/startup success on XP still does not prove MSSPI/CryptoPro GOST TLS behavior.
-
-No additional build is justified before this physical test: the required full browser candidate and diagnostics already exist and all current static gates are GREEN.
+This old browser artifact does not contain the newly proven private DWrite component. It remains useful baseline evidence for the already integrated compatibility fixes, but the next expensive build is now justified specifically to transfer the focused DWrite PASS rather than to repeat the old standalone runtime boundary.
 
 ### Deferred XP cleanup — battery observer simplification
 
@@ -175,9 +166,10 @@ The current lineage has already closed or physically advanced past the following
 - ANGLE/DXGI `CreateDXGIFactory1` static closure;
 - IP Helper physical boundary;
 - old `xul.dll` `RtlpWaitForCriticalSection` startup failure;
-- YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13).
+- YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
+- focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
-The battery `RegisterPowerSettingNotification` edge is **statically removed but not yet physically closed** on the successor candidate, so keep it out of the physically closed list until exact XP execution confirms the advance.
+The battery `RegisterPowerSettingNotification` edge is **statically removed but not yet physically closed on an exact integrated successor browser**, so keep it out of the physically closed browser list until exact XP execution confirms the advance.
 
 Full YY `kernel32.lib` interposition remains prohibited.
 
