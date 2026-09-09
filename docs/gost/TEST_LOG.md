@@ -8,6 +8,56 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-09 — external Supermium DWrite dependency closure GREEN; project msvcr14x UCRT is a 37/37 export-compatible candidate
+
+Track: Windows XP SP3 x86 graphics/runtime dependency compatibility. Independent of GOST TLS runtime. This is external static dependency evidence only; the workflow does not checkout or build Firefox and does not establish physical-XP runtime behavior.
+
+Exact audit identity:
+
+- workflow `.github/workflows/xp-supermium-dwrite-closure.yml` / `XP Supermium DWrite closure audit`;
+- workflow/head SHA `13acb1557b8f96f942e138778f36105bcfed4c4b`;
+- Firefox source-under-test: **NOT_APPLICABLE**;
+- run `34295093838`;
+- job `102289873905` (`Supermium DWrite / XP x86 dependency closure`);
+- aggregate result: **completed / success / GREEN**;
+- diagnostics artifact `10082963214`, digest `sha256:7b38da13b8c4cd8aba1831c4d0e8cfdcde3c78854ffe76448cea039735d1874e`.
+
+Pinned external identities:
+
+- Supermium tag `v132-r5-02`, asset `supermium_132_32_nonsetup.zip`, SHA-256 `3e181d50818fc95769f123012ad4cc0ffefe882f2fa4606620d2c031638a5912`;
+- exact `DWrite.dll`: size `2667048`, SHA-1 `4e466d98bebea7b31764cfb15603b91a5f53fe72`, SHA-256 `945f83efcec25ea71334a2d6117666aa625641cc2a92def474ef96cffa969e77`, file version `1.5.0.2311`;
+- YY-Thunks tag `v1.2.2`, source `83d9d0d3f2f212411006e4aa5c5f3db8a6ae2f20`, `YY-Thunks-Lib.zip` SHA-256 `ffe4d9c1b6bb53225ee2af1cac7b36bce90bb1f33ae65f9ba523debcb33ce6ab`, target `5.1.2600.0/x86`.
+
+The corrected forwarder parser includes `(forwarded to module.symbol)` exports, so the UCRT leg that the preceding run omitted is now part of the recursive graph. The exact closure contains 11 app-local PEs:
+
+- `DWrite.dll`;
+- Supermium compatibility wrappers `p_advp32.dll`, `p_ole.dll`, `pwp_shd.dll`, `pwrp_k32.dll`;
+- five CRT forwarders: `api-ms-win-crt-heap-l1-1-0.dll`, `api-ms-win-crt-math-l1-1-0.dll`, `api-ms-win-crt-runtime-l1-1-0.dll`, `api-ms-win-crt-stdio-l1-1-0.dll`, `api-ms-win-crt-string-l1-1-0.dll`;
+- `ucrtbase.dll`.
+
+Audit summary:
+
+- `closure_file_count=11`;
+- `companion_file_count=10`;
+- `unresolved_external_count=0`;
+- `retarget_required_count=10`;
+- `yy_fallback_edge_count=9`;
+- `provider_graph_status=RESOLVED`;
+- `runtime_status=NOT_TESTED`;
+- `xp_api_compatibility=REQUIRES_IMPORT_REVIEW`.
+
+The five `api-ms-win-crt-*` DLLs in this closure are pure export-forwarder PEs in the observed graph: their relevant edges forward to `ucrtbase.dll` and they add no ordinary dependency-module edges. Exact `DWrite.dll` directly imports 37 CRT functions through those five forwarders: 5 heap, 11 math, 16 runtime, 3 stdio and 2 string functions.
+
+A post-run static comparison was made against the physically proven project msvcr14x runtime artifact `9756275917` from source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`, run `33387080767`, job `99472017220`. Its exact `ucrtbase.dll` is 908800 bytes, SHA-1 `1cb841790d61c3ed0c48a2a7b3dc8339bee91499`, SHA-256 `de0bd4b2152d9877a9f6e8ac05156bbd83fa7836e727f84bcfd9aa279be27906`, PE subsystem 5.1. All 37 UCRT target export names required by the exact DWrite/API-set path are present in this physically proven msvcr14x `ucrtbase.dll`.
+
+Conclusion: **STATIC PROVIDER CLOSURE PASS, WITH STRONG MSVCR14X UCRT REUSE EVIDENCE.** The preferred integration candidate is to keep the exact Supermium DWrite/wrapper/API-set layer while reusing the project's already selected msvcr14x `ucrtbase.dll` instead of introducing Supermium's separate UCRT binary. Because prebuilt `DWrite.dll` imports the five `api-ms-win-crt-*` DLL names directly, msvcr14x does not by itself remove those five forwarder DLLs; eliminating them would require a separate rebuild/relink or import-rewrite experiment.
+
+Before transfer into the main XP browser workflow, require an automated exact-export compatibility gate against the msvcr14x UCRT used by that build and complete API-level XP review of the DWrite/wrapper closure. When staged, the ten new non-UCRT PEs must enter before the existing subsystem-retarget step, and any current `api-ms-win-*` import-policy exception must be narrow and bound to the exact pinned DWrite/forwarder set. Only after that should a full browser build and physical-XP runtime test be used to claim runtime progress.
+
+Status: **current external static dependency baseline; Firefox integration and physical-XP validation pending.**
+
+---
+
 ## 2026-09-08 — XP x32 battery legacy-path remediation builds GREEN and removes the Vista-only USER32 delay imports
 
 Track: Windows XP SP3 x86 build/static compatibility. Independent of GOST TLS runtime. This entry is CI/static evidence, not physical-XP runtime proof.
@@ -17,7 +67,7 @@ Exact source/build identity:
 - branch `agent/winrt-source-poc`;
 - source-under-test `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`;
 - battery implementation commit `b68b925efc504ffe6696fc28848f8df0b3cae343` (`fix(xp): use legacy battery power notifications`);
-- battery import-gate commit `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4` (`ci(xp): gate Vista-only battery imports`);
+- battery final-import gate commit `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4` (`ci(xp): gate Vista-only battery imports`);
 - lineage also includes `dad33d25dddc060ee74d773dcc492d835a78fd1e`, which removes the earlier rejected shared-memory access-mask override while preserving the successful child-HANDLE inheritance remediation;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
 - run `34213345771`, attempt `1`;
