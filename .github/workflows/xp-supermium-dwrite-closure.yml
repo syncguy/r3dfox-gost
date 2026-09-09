@@ -26,25 +26,17 @@ jobs:
       WINDOWS_XP_SUBSYSTEM: "5.01"
 
     steps:
-      - name: Checkout XP implementation source identity
-        uses: actions/checkout@v4
-        with:
-          ref: agent/winrt-source-poc
-          fetch-depth: 1
-
       - name: Record experiment identity
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force diagnostics | Out-Null
-          $source = (& git.exe rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $source) { throw 'Cannot resolve checked-out source SHA.' }
           @(
             "repo=$env:GITHUB_REPOSITORY",
             "workflow_sha=$env:GITHUB_SHA",
-            "checkout_source=$source",
-            "ref=$env:GITHUB_REF",
-            'scope=static Supermium DWrite dependency-closure plus pinned YY-Thunks coverage audit only',
+            "workflow_ref=$env:GITHUB_REF",
+            'firefox_source=NOT_APPLICABLE',
+            'scope=external static Supermium DWrite dependency-closure plus pinned YY-Thunks coverage audit only',
             "supermium_tag=$env:SUPERMIUM_TAG",
             "supermium_asset=$env:SUPERMIUM_ASSET",
             "supermium_asset_sha256=$env:SUPERMIUM_ASSET_SHA256",
@@ -84,36 +76,64 @@ jobs:
             'architecture=x86'
           ) | Set-Content -Encoding utf8 diagnostics\yy-thunks-source.txt
 
-      - name: Index pinned YY-Thunks weak-alias providers
+      - name: Index pinned YY-Thunks fallback providers
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $rows = [System.Collections.Generic.List[object]]::new()
+          $rawRoot = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\yy-linkermember'
+          New-Item -ItemType Directory -Force $rawRoot | Out-Null
+
+          $allLibs = @(Get-ChildItem -LiteralPath $env:YY_LIB_ROOT -Recurse -File -Filter '*.lib')
+          $allLibs | ForEach-Object {
+            $_.FullName.Substring($env:YY_LIB_ROOT.Length).TrimStart([char[]]'\/')
+          } | Sort-Object | Set-Content -Encoding utf8 diagnostics\yy-lib-paths.txt
+
           $targetToken = [regex]::Escape($env:YY_THUNKS_TARGET)
-          foreach ($obj in @(Get-ChildItem -LiteralPath $env:YY_LIB_ROOT -Recurse -File -Filter '*.obj')) {
-            $normalizedPath = $obj.FullName -replace '/', '\'
-            if ($normalizedPath -notmatch "(?i)\\$targetToken\\x86\\") { continue }
-            if ($obj.Directory.Name -notmatch '(?i)^(.+)\.Lib_WeakAlias$') { continue }
-            $module = $matches[1]
-            $base = [System.IO.Path]::GetFileNameWithoutExtension($obj.Name)
-            $api = $base
-            if ($api -match '^_([^@]+)@\d+$') { $api = $matches[1] }
-            elseif ($api -match '^_([^@]+)$') { $api = $matches[1] }
-            $rows.Add([pscustomobject]@{
-              Module=("$module.dll").ToLowerInvariant()
-              API=$api
-              Object=$obj.FullName
-            })
+          $targetPattern = "(?i)[\\/]$targetToken[\\/]x86[\\/]"
+          $libs = @($allLibs | Where-Object { $_.FullName -match $targetPattern })
+          if ($libs.Count -eq 0) {
+            throw "No YY-Thunks libraries found for target $env:YY_THUNKS_TARGET x86; inspect yy-lib-paths.txt."
           }
-          if ($rows.Count -eq 0) {
-            throw "No YY-Thunks weak-alias providers found for target $env:YY_THUNKS_TARGET x86."
+
+          $rows = [System.Collections.Generic.List[object]]::new()
+          foreach ($lib in $libs) {
+            $module = (([System.IO.Path]::GetFileNameWithoutExtension($lib.Name)) + '.dll').ToLowerInvariant()
+            $safe = $lib.Name -replace '[^A-Za-z0-9_.-]', '_'
+            $lines = @(& dumpbin.exe /nologo /linkermember:2 $lib.FullName 2>&1)
+            $exitCode = $LASTEXITCODE
+            $lines | Set-Content -Encoding utf8 (Join-Path $rawRoot "$safe.txt")
+            if ($exitCode -ne 0) { throw "dumpbin /linkermember:2 failed for $($lib.FullName) with exit $exitCode" }
+
+            foreach ($line in $lines) {
+              $text = $line.Trim()
+              if ($text -notmatch '^[0-9A-Fa-f]+\s+(\S+)$') { continue }
+              $symbol = $matches[1]
+              if ($symbol -match '^__imp_(.+)$') { $symbol = $matches[1] }
+              if ($symbol -match '^_(.+)$') { $symbol = $matches[1] }
+              if ($symbol -match '^(.+)@\d+$') { $symbol = $matches[1] }
+              if ($symbol -notmatch '^YY_Thunks_([A-Za-z][A-Za-z0-9_]*)$') { continue }
+              $api = $matches[1]
+              $rows.Add([pscustomobject]@{
+                Module=$module
+                API=$api
+                Provider=("$($lib.Name)!YY_Thunks_$api")
+                Library=$lib.FullName
+              })
+            }
           }
-          $rows | Sort-Object Module,API,Object | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\yy-weak-alias-providers.csv
-          "YY_PROVIDER_INDEX=$env:GITHUB_WORKSPACE\diagnostics\yy-weak-alias-providers.csv" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          $unique = @($rows | Sort-Object Module,API,Provider -Unique)
+          if ($unique.Count -eq 0) {
+            throw "No explicit YY_Thunks_* fallback symbols found for target $env:YY_THUNKS_TARGET x86; inspect yy-linkermember diagnostics."
+          }
+          $unique | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\yy-fallback-providers.csv
+          "YY_PROVIDER_INDEX=$env:GITHUB_WORKSPACE\diagnostics\yy-fallback-providers.csv" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           @(
-            "provider_count=$($rows.Count)",
+            "library_count=$($libs.Count)",
+            "fallback_provider_count=$($unique.Count)",
             "target=$env:YY_THUNKS_TARGET",
-            'architecture=x86'
+            'architecture=x86',
+            'coverage_basis=explicit YY_Thunks_<API> public symbol in pinned target library'
           ) | Add-Content -Encoding utf8 diagnostics\yy-thunks-source.txt
 
       - name: Download and verify pinned Supermium x86 package
@@ -141,13 +161,13 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $matches = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+          $matchesFound = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
           foreach ($candidate in @(Get-ChildItem -LiteralPath $env:SUPERMIUM_EXTRACT -Recurse -File -Filter 'DWrite.dll')) {
             $sha256 = (Get-FileHash -Algorithm SHA256 $candidate.FullName).Hash.ToLowerInvariant()
-            if ($sha256 -eq $env:DWRITE_SHA256) { $matches.Add($candidate) }
+            if ($sha256 -eq $env:DWRITE_SHA256) { $matchesFound.Add($candidate) }
           }
-          if ($matches.Count -ne 1) { throw "Expected exactly one exact DWrite.dll; found $($matches.Count)." }
-          $dwrite = $matches[0]
+          if ($matchesFound.Count -ne 1) { throw "Expected exactly one exact DWrite.dll; found $($matchesFound.Count)." }
+          $dwrite = $matchesFound[0]
           $item = Get-Item $dwrite.FullName
           $sha1 = (Get-FileHash -Algorithm SHA1 $dwrite.FullName).Hash.ToLowerInvariant()
           $sha256 = (Get-FileHash -Algorithm SHA256 $dwrite.FullName).Hash.ToLowerInvariant()
@@ -178,7 +198,9 @@ jobs:
 
           function Normalize-Api([string]$name) {
             $value = $name.Trim()
-            if ($value -match '^_(.+)@\d+$') { return $matches[1] }
+            if ($value -match '^__imp_(.+)$') { $value = $matches[1] }
+            if ($value -match '^_(.+)$') { $value = $matches[1] }
+            if ($value -match '^(.+)@\d+$') { $value = $matches[1] }
             return $value
           }
 
@@ -187,7 +209,7 @@ jobs:
             $exitCode = $LASTEXITCODE
             $lines | Set-Content -Encoding utf8 $output
             if ($exitCode -ne 0) { throw "dumpbin /$mode failed for $path with exit $exitCode" }
-            return ,$lines
+            return $lines
           }
 
           function Get-ImportEdges([string[]]$lines) {
@@ -211,7 +233,7 @@ jobs:
               }
               if ($mode -eq 'none' -or -not $currentModule) { continue }
               $entry = $line.Trim()
-              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+              if ($entry -match '^[0-9A-Fa-f]+(?:\s+[0-9A-Fa-f]+){0,3}\s+([A-Za-z_?@$][^\s]*)$') {
                 $result.Add([pscustomobject]@{
                   Kind=$mode
                   Module=$currentModule
@@ -219,7 +241,7 @@ jobs:
                 })
               }
             }
-            return ,$result
+            return $result
           }
 
           function Get-ForwarderEdges([string[]]$lines) {
@@ -233,13 +255,13 @@ jobs:
                 })
               }
             }
-            return ,$result
+            return $result
           }
 
           $yyProviders = @{}
           foreach ($row in @(Import-Csv -LiteralPath $env:YY_PROVIDER_INDEX)) {
             $key = ($row.Module.ToLowerInvariant() + '!' + $row.API.ToLowerInvariant())
-            if (-not $yyProviders.ContainsKey($key)) { $yyProviders[$key] = $row.Object }
+            if (-not $yyProviders.ContainsKey($key)) { $yyProviders[$key] = $row.Provider }
           }
 
           function Get-YyProvider([string]$module, [string]$api) {
@@ -293,9 +315,9 @@ jobs:
             $visited[$key] = $true
 
             $safe = $file.Name -replace '[^A-Za-z0-9_.-]', '_'
-            $headers = Invoke-Dumpbin 'headers' $file.FullName (Join-Path $rawRoot "$safe.headers.txt")
-            $imports = Invoke-Dumpbin 'imports' $file.FullName (Join-Path $rawRoot "$safe.imports.txt")
-            $exports = Invoke-Dumpbin 'exports' $file.FullName (Join-Path $rawRoot "$safe.exports.txt")
+            $headers = @(Invoke-Dumpbin 'headers' $file.FullName (Join-Path $rawRoot "$safe.headers.txt"))
+            $imports = @(Invoke-Dumpbin 'imports' $file.FullName (Join-Path $rawRoot "$safe.imports.txt"))
+            $exports = @(Invoke-Dumpbin 'exports' $file.FullName (Join-Path $rawRoot "$safe.exports.txt"))
 
             $machineLine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
             if (-not $machineLine -or $machineLine -notmatch '(?i)^\s*14C machine \(x86\)') {
@@ -333,7 +355,7 @@ jobs:
               $module = Normalize-ModuleName $edge.Module
               $classification = Get-Classification $module
               $yyProvider = Get-YyProvider $module $edge.Symbol
-              $yyCoverage = if ($yyProvider) { 'provider-present' } else { 'provider-absent' }
+              $yyCoverage = if ($yyProvider) { 'fallback-present' } else { 'fallback-absent' }
               $yyApplicability = if ($yyProvider) {
                 'prebuilt-pe-relink-or-provider-shim-required'
               } else {
@@ -347,7 +369,7 @@ jobs:
                 Classification=$classification
                 YYCoverage=$yyCoverage
                 YYApplicability=$yyApplicability
-                YYProviderObject=$yyProvider
+                YYProvider=$yyProvider
               })
               $localKey = $module.ToLowerInvariant()
               if ($local.ContainsKey($localKey)) {
@@ -365,8 +387,10 @@ jobs:
           $unresolved = @($edgesSorted | Where-Object Classification -eq 'external-unresolved')
           $retarget = @($filesSorted | Where-Object NeedsRetarget -eq $true)
           $localCompat = @($filesSorted | Where-Object Classification -in @('supermium-compat','crt-api-set','crt-ucrtbase','app-local-d3dcompiler','app-local-other'))
-          $yyCovered = @($edgesSorted | Where-Object YYCoverage -eq 'provider-present')
-          $yyCovered | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\yy-covered-closure-edges.csv
+          $yyCovered = @($edgesSorted | Where-Object YYCoverage -eq 'fallback-present')
+          if ($yyCovered.Count -gt 0) {
+            $yyCovered | Export-Csv -NoTypeInformation -Encoding utf8 diagnostics\yy-covered-closure-edges.csv
+          }
 
           @(
             "dwrite_root=$env:DWRITE_ROOT",
@@ -374,7 +398,8 @@ jobs:
             "companion_file_count=$($localCompat.Count)",
             "unresolved_external_count=$($unresolved.Count)",
             "retarget_required_count=$($retarget.Count)",
-            "yy_provider_edge_count=$($yyCovered.Count)",
+            "yy_fallback_edge_count=$($yyCovered.Count)",
+            'yy_coverage_basis=explicit YY_Thunks_<API> fallback symbol in pinned v1.2.2 target library',
             'yy_direct_runtime_interposition=NO',
             'yy_note=providers linked into r3dfox/xul do not rewrite imports of prebuilt Supermium DLLs',
             'yy_candidate_use=relink source if available, or build a narrow provider shim for exact required exports',
