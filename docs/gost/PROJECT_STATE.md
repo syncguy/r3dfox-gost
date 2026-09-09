@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -47,6 +47,36 @@ Current authoritative Session-default browser source is `afbdad307f63e594d371516
 # Windows XP SP3 x86 compatibility
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
+
+## Supermium DWrite external closure — provider graph resolved; integration/API review next
+
+The external-only audit `.github/workflows/xp-supermium-dwrite-closure.yml` no longer checks out Firefox. Its source identity is the workflow plus pinned external assets; `firefox_source=NOT_APPLICABLE`.
+
+Current authoritative corrected audit:
+
+- workflow/head SHA `13acb1557b8f96f942e138778f36105bcfed4c4b`;
+- run `34295093838`;
+- job `102289873905`;
+- result **completed / success / GREEN**;
+- diagnostics artifact `10082963214`, digest `sha256:7b38da13b8c4cd8aba1831c4d0e8cfdcde3c78854ffe76448cea039735d1874e`.
+
+The corrected parser includes PE export forwarders of the form `(forwarded to module.symbol)`. The resulting recursive app-local graph contains 11 PEs: exact Supermium `DWrite.dll`, four Supermium compatibility wrappers (`p_advp32.dll`, `p_ole.dll`, `pwp_shd.dll`, `pwrp_k32.dll`), five `api-ms-win-crt-*` forwarder DLLs, and `ucrtbase.dll`. It reports `unresolved_external_count=0`, `provider_graph_status=RESOLVED`, and 10 PEs requiring subsystem retarget. This is provider/module closure only; the same run explicitly leaves `runtime_status=NOT_TESTED` and `xp_api_compatibility=REQUIRES_IMPORT_REVIEW`.
+
+The five CRT API-set DLLs are pure forwarders in the observed graph. Exact DWrite imports 37 functions through them: 5 heap, 11 math, 16 runtime, 3 stdio and 2 string functions.
+
+The project already uses pinned `Chuyu-Team/msvcr14x` source `6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384` in the main XP workflow. Post-run comparison against the physically proven msvcr14x runtime artifact `9756275917` from run `33387080767`, job `99472017220`, shows that its exact XP-tested `ucrtbase.dll` exports all 37 UCRT target names required by the DWrite/API-set path. That binary is 908800 bytes, SHA-256 `de0bd4b2152d9877a9f6e8ac05156bbd83fa7836e727f84bcfd9aa279be27906`, subsystem 5.1.
+
+Preferred integration direction: **reuse the project's msvcr14x `ucrtbase.dll` rather than stage Supermium's separate UCRT**, while retaining the exact Supermium DWrite/wrapper layer. Prebuilt DWrite still imports the five `api-ms-win-crt-*` DLL names directly, so those forwarders remain required unless a separate rebuild/relink or binary-import rewrite is deliberately tested.
+
+Current stage is between external dependency closure and Firefox integration. Before a full browser build:
+
+1. add an automated gate that the actual msvcr14x `ucrtbase.dll` produced by the XP build exports every UCRT target required by the pinned DWrite/API-set set;
+2. complete API-level XP review of the DWrite/wrapper closure rather than treating an XP system DLL name as proof that every imported API exists on XP;
+3. stage the ten new non-UCRT PEs before the existing subsystem-retarget step;
+4. keep any `api-ms-win-*` import-policy exception narrow and bound to the exact pinned DWrite/forwarder identities;
+5. only then run one full XP browser build and a separate physical-XP runtime test.
+
+Do not interpret the external audit as Firefox startup proof or as proof that the graphics/runtime blocker is physically closed.
 
 ## Current all-GREEN build/static candidate
 
