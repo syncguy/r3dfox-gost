@@ -216,6 +216,28 @@ class nsHPRINTER {
  public:
   MOZ_IMPLICIT nsHPRINTER(HANDLE hPrinter) : m_hPrinter(hPrinter) {}
 
+  operator HGLOBAL() const { return m_hGlobal; }
+
+ private:
+  HGLOBAL m_hGlobal;
+};
+
+template <>
+class nsAutoRefTraits<nsHGLOBAL> {
+ public:
+  typedef nsHGLOBAL RawRef;
+  static RawRef Void() { return nullptr; }
+
+  static void Release(RawRef hGlobal) { ::GlobalFree(hGlobal); }
+};
+
+// Because Printer's HANDLE uses ClosePrinter and we already have
+// nsAutoRef<HANDLE> which uses CloseHandle so we need to create a wrapper class
+// for HANDLE to have another specialization for nsAutoRefTraits.
+class nsHPRINTER {
+ public:
+  MOZ_IMPLICIT nsHPRINTER(HANDLE hPrinter) : m_hPrinter(hPrinter) {}
+
   operator HANDLE() const { return m_hPrinter; }
 
   HANDLE* operator&() { return &m_hPrinter; }
@@ -345,6 +367,10 @@ struct VirtualFreeDeleter {
   void operator()(void* aPtr) { ::VirtualFree(aPtr, 0, MEM_RELEASE); }
 };
 
+// for UniquePtr to store a PSID
+struct FreeSidDeleter {
+  void operator()(void* aPtr) { ::FreeSid(aPtr); }
+};
 // Unfortunately, although SID is a struct, PSID is a void*
 // This typedef will work for storing a PSID in a UniquePtr and should make
 // things a bit more readable.
