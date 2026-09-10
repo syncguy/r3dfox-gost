@@ -121,20 +121,10 @@ if ($Mode -eq 'Prepare') {
   Write-Env 'DWRITE_FOCUSED_SOURCE' $FocusedSource
 
   $manifestPath = Join-Path $env:GITHUB_WORKSPACE 'browser\installer\package-manifest.in'
-  $text = [System.IO.File]::ReadAllText($manifestPath)
   $entry = '@BINPATH@/xpcompat/dwrite/*'
-  if (-not $text.Contains($entry)) {
-    $anchor = '@BINPATH@/bcrypt.dll'
-    $first = $text.IndexOf($anchor, [System.StringComparison]::Ordinal)
-    $last = $text.LastIndexOf($anchor, [System.StringComparison]::Ordinal)
-    if ($first -lt 0 -or $first -ne $last) { throw 'Expected unique bcrypt package-manifest anchor was not found.' }
-    $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $text = $text.Insert($first + $anchor.Length, $newline + $entry)
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($manifestPath, $text, $utf8NoBom)
-  }
-  if (-not ([System.IO.File]::ReadAllText($manifestPath)).Contains($entry)) {
-    throw 'XP private DWrite package-manifest entry was not installed.'
+  $manifestText = [System.IO.File]::ReadAllText($manifestPath)
+  if (-not $manifestText.Contains($entry)) {
+    throw 'Committed XP private DWrite package-manifest entry is missing.'
   }
 
   @(
