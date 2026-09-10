@@ -97,6 +97,7 @@
 @BINPATH@/ucrtbase.dll
 @BINPATH@/msvcp140.dll
 @BINPATH@/bcrypt.dll
+@BINPATH@/xpcompat/dwrite/*
 #ifdef MOZ_LAUNCHER_PROCESS
 @BINPATH@/@DLL_PREFIX@InstallationDirLayout@DLL_SUFFIX@
 @BINPATH@/installation_dir_layout/versioned/@DLL_PREFIX@InstallationDirLayout@DLL_SUFFIX@
