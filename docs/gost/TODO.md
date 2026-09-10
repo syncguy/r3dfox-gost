@@ -100,48 +100,40 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md). The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### DWrite private component — focused work complete; integrate into browser
+### Integrated private DWrite browser — build/package transfer complete; broad acceptance policy is the immediate blocker
 
-The standalone DWrite dependency/runtime line has reached its intended focused acceptance boundary:
+The standalone component work and the transfer into the full browser are complete at their respective proven boundaries:
 
-- workflow `.github/workflows/xp-supermium-dwrite-closure.yml`;
-- workflow/head SHA `a42b144cbeeeac6a3765d132111208d600f1a3fc`;
-- run `34317489430`, job `102356664699`, **GREEN**;
-- candidate artifact `10090864697`, digest `sha256:de0765b8ed2e28259420d9671c2b4e4a54b492555698724187a7f6ea2ee40a47`;
-- physical XP SP3 x86 result: load-time project msvcr14x UCRT static-TLS control PASS, private `pwrp_k32.dll` load PASS, private `DWrite.dll` load PASS, `DWriteCreateFactory` PASS, `GetSystemFontCollection` PASS.
+- focused physical component: workflow `.github/workflows/xp-supermium-dwrite-closure.yml`, run `34317489430`, job `102356664699`, artifact `10090864697`, **GREEN / PHYSICAL XP COMPONENT PASS**;
+- current full-browser source-under-test `c0b5561dc58d588ecb970a333d49ac78fae84eb0`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
+- run `34439013068`, job `102749929410`, **aggregate RED**;
+- package `10141487002`, runtime `10141488631`, diagnostics `10141520421`.
 
-Do not spend another cycle trying alternate standalone UCRT/provider layouts without contradictory evidence. Supermium UCRT is not required by the proven focused architecture.
+The current full-browser run successfully compiles, links, stages and packages the private DWrite closure and preserves the existing xul/mozglue XP gates. Its only failed Actions step is the final summary with `gate:broad-import-audit=failure`.
 
-#### Supermium DWrite component refresh
+Diagnostics now localize that aggregate failure exactly: `xp-x32-forbidden-direct-imports.txt` has **22 rows total, all belonging to `xpcompat/dwrite/DWrite.dll`**. The set is unchanged from preceding integrated run `34353829276`; there are no broad forbidden rows for `xul.dll`, `mozglue.dll` or any other browser PE.
 
-Keep the physically proven 132 component as the browser-integration control while testing newer Supermium component generations separately; do not replace the full-browser pin merely because a newer Supermium release exists.
+Immediate work:
 
-1. **Supermium 138 R9 — active focused refresh experiment.** Use final ESR release `v138-r9`, exact x86 nonsetup asset `supermium_138_32_nonsetup.zip`, SHA-256 `7d5e7578d9e4fe27f1f46530f1614e8ac885c27e36e64004eb97216a54a6bde9`. Focused workflow `.github/workflows/xp-supermium-dwrite-138-closure.yml` must rediscover the DWrite closure from that pinned archive, record exact component hashes/imports/exports, verify every observed UCRT requirement against the project-pinned `msvcr14x`, build the XP 5.01 loader candidate, and require `DWriteCreateFactory` plus `GetSystemFontCollection` before physical XP testing.
-2. **Supermium 144 R5 — planned follow-up after the 138 result.** Evaluate current release `v144-r5`, exact x86 nonsetup asset `supermium_144_32_nonsetup.zip`, SHA-256 `17acfcdf89ea651905053b50b0fce5a28db19cb2c69ed5579c7b177806ed6d31`, using the same dynamic closure/UCRT-contract methodology. Compare its DWrite/wrapper dependency surface and physical XP behavior against both the proven 132 control and final 138 R9 before considering any browser pin migration.
+1. **Repair/classify the broad PE/import acceptance rule for the pinned private DWrite component.** Preserve the broad audit as a real hard-import gate for ordinary PEs, but make its DWrite treatment aware of the exact private provider closure already proven by the focused workflow. Do not simply delete the 22 API names from the global forbidden list and do not blanket-whitelist post-XP API names for unrelated binaries.
+2. **Require the successor full build to finish aggregate GREEN.** Preserve all targeted xul/mozglue import gates, DWrite hash/provider/package-survival gates, msvcr14x, bcrypt, legacy D3DCompiler, YY TLS-entry-point contract, Rust XP cfg and PE-floor checks.
+3. **Then physically test that exact accepted integrated browser artifact on XP.** Bind evidence to source SHA, run/job, artifact IDs and exact `r3dfox.exe`/`xul.dll` identities. Require advance through the previously reached SharedPrefMap and battery/DirectWrite boundaries; record the next exact runtime boundary if one appears.
 
-Immediate integration work:
+Do not spend another cycle re-integrating the same DWrite subtree or treating the unchanged DWrite-only broad rows as a newly discovered xul/mozglue regression. The focused physical DWrite PASS remains component evidence; it does not substitute for full Firefox startup.
 
-1. **Transfer the exact private subtree to `agent/winrt-source-poc`.** Stage the ten pinned non-UCRT DWrite PEs under `dist/bin/xpcompat/dwrite`; keep project msvcr14x `ucrtbase.dll` shared at `dist/bin`.
-2. **Implement the XP-only owner load path in `gfx/2d/Factory.cpp`.** Keep system `dwrite.dll` first for normal Vista/7 behavior. For `MOZ_XP_COMPAT`, load the private absolute `pwrp_k32.dll` provider and then private absolute `xpcompat/dwrite/DWrite.dll` using `LOAD_WITH_ALTERED_SEARCH_PATH`; do not change the generic system DLL loader globally.
-3. **Integrate packaging and exact gates.** Package `xpcompat/dwrite/*`, preserve pinned source/staged hashes, x86/5.01 PE floor, dependency/import closure and the 37/37 msvcr14x-UCRT contract. Do not duplicate Supermium UCRT.
-4. **Build one new full XP x32 browser candidate.** Preserve all already proven SharedPrefMap, battery, YY, bcrypt, D3DCompiler, Rust and other compatibility fixes.
-5. **Physically test the exact integrated browser artifact on XP.** Bind runtime evidence to exact `r3dfox.exe`, `xul.dll` and artifact identities. Require advance through the previous DirectWrite/WebRender boundary; if another blocker appears, record that exact new boundary.
+#### Supermium DWrite component refresh — separate follow-up
 
-The focused DWrite PASS is component evidence, not full Firefox runtime proof and not GOST TLS evidence.
+Keep the physically proven 132 component as the browser-integration control while testing newer Supermium component generations separately; do not replace the full-browser pin merely because a newer release exists.
 
-### Current full-browser baseline
+1. **Supermium 138 R9 — active focused refresh experiment.** Use final ESR release `v138-r9`, exact x86 nonsetup asset `supermium_138_32_nonsetup.zip`, SHA-256 `7d5e7578d9e4fe27f1f46530f1614e8ac885c27e36e64004eb97216a54a6bde9`; use the dynamic closure/UCRT-contract methodology and require `DWriteCreateFactory` plus `GetSystemFontCollection` before physical XP testing.
+2. **Supermium 144 R5 — planned follow-up after the 138 result.** Evaluate `v144-r5`, exact x86 nonsetup asset `supermium_144_32_nonsetup.zip`, SHA-256 `17acfcdf89ea651905053b50b0fce5a28db19cb2c69ed5579c7b177806ed6d31`, against the proven 132 control and final 138 R9 before any browser pin migration.
 
-The most recent documented all-GREEN full-browser build/static baseline remains:
+### Current full-browser baselines
 
-- branch `agent/winrt-source-poc`;
-- source-under-test `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`;
-- run `34213345771`, job `102019253738`;
-- aggregate result **success / GREEN**;
-- package artifact `10056086223`, digest `sha256:9135b55913dfcf49390d022b94c21520ed2f5852e8b846f4b117635696634949`;
-- runtime artifact `10056088395`, digest `sha256:2cf7cf6ca44c0d8abddb930564a65bdf57188f4a2ae0fd5a56b29d7c522ce57f`;
-- diagnostics artifact `10056127829`, digest `sha256:04d284ce8738a63b72508e00747576c56fb2dfb86233e6e460fc1803b4234b33`.
+Current latest integrated full-build evidence is source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`, run `34439013068`, job `102749929410`: compile/package integration PASS, aggregate static acceptance RED only through the DWrite-only 22-row broad policy result.
 
-This old browser artifact does not contain the newly proven private DWrite component. It remains useful baseline evidence for the already integrated compatibility fixes, but the next expensive build is now justified specifically to transfer the focused DWrite PASS rather than to repeat the old standalone runtime boundary.
+The latest completed all-GREEN pre-DWrite full-browser build/static baseline remains source `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`, run `34213345771`, job `102019253738`, package `10056086223`, runtime `10056088395`, diagnostics `10056127829`. It remains useful control evidence for earlier compatibility fixes but does not contain the private DWrite integration.
 
 ### Deferred XP cleanup — battery observer simplification
 
@@ -177,36 +169,3 @@ The current lineage has already closed or physically advanced past the following
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
 The battery `RegisterPowerSettingNotification` edge is **statically removed but not yet physically closed on an exact integrated successor browser**, so keep it out of the physically closed browser list until exact XP execution confirms the advance.
-
-Full YY `kernel32.lib` interposition remains prohibited.
-
-### Deferred optional hardening — restore x86 sandbox
-
-Sandbox-on Win7/RNG work remains outside the XP startup critical path. Do not spend new full-build cycles on sandbox restoration unless the user explicitly reopens it as a separate goal.
-
-## Bundled government-system extensions — independent
-
-Current packaged three-extension artifact `9614275050` is packaging-proven and clean-profile discovery/enabled-state is proven for all three project extensions.
-
-Next:
-
-1. re-check CryptoPro basic functionality on this exact package;
-2. test legacy IFCPlugin with installed native host;
-3. test Gosplugin with its local/native component;
-4. verify the Russian-first content-language preference in runtime if desired;
-5. generalize the historically CryptoPro-named packaging workflow to assert all three XPI + language pref;
-6. transfer only proven shared packaging gates into the two main browser workflows;
-7. later prove real version-to-version update behavior where a valid older/newer signed extension is available.
-
-## CI artifact ergonomics — project-wide
-
-For every heavyweight workflow that performs a full browser compilation/package, add a dedicated portable artifact containing only the produced runnable `.7z` archive.
-
-- Keep the existing package, runtime, diagnostics, import-audit, evidence, and other artifacts; the portable artifact is additional, not a replacement.
-- Publish the exact `.7z` produced by the successful full compilation/package as its own artifact payload, without unrelated build trees or diagnostics in that artifact.
-- Apply this consistently to the project's heavy full-build lines so a tester can retrieve the portable browser from every successful full compilation without downloading the much larger general package/runtime bundle.
-- Treat this as a developer/test ergonomics requirement only; it does not change the evidentiary meaning of the existing build, runtime, packaging, or compatibility artifacts.
-
-## Upstream base — deferred
-
-Stay on r3dfox / Firefox 153. Do not migrate to Firefox 154 merely because upstream Mozilla has released it. Evaluate a newer base only after r3dfox itself publishes one and the user explicitly decides to upgrade.
