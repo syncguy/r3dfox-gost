@@ -4853,7 +4853,11 @@ static void ReadAheadDlls(const wchar_t* greDir) {
     ReadAheadPackagedDll(L"softokn3.dll", greDir);
 
     // Prefetch the system DLLs
+    #ifdef MOZ_XP_COMPAT
+    ReadAheadPackagedDll(L"xpcompat\\dwrite\\DWrite.dll", greDir);
+    #else
     ReadAheadSystemDll(L"DWrite.dll");
+    #endif
     ReadAheadSystemDll(L"D3DCompiler_47.dll");
   } else {
     // Load DataExchange.dll and twinapi.appcore.dll for
