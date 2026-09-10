@@ -253,11 +253,7 @@ jobs:
 
       - name: GATE - Compile security manager SSL target objects
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
-          & $mozmake -C $env:OBJDIR 'security/manager/ssl/target-objects'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: .\.github\scripts\xp\compile-security-manager-ssl-targets.ps1
 
       - name: Build release r3dfox XP x32
         id: build-release
