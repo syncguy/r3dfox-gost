@@ -1,5 +1,6 @@
 name: WinRT source PoC x86
 
+# Trigger marker: validate current agent/winrt-source-poc source state.
 on:
   workflow_dispatch:
   push:
