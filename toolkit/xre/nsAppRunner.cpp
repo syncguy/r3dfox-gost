@@ -4042,7 +4042,11 @@ static void LogRegistryEvent(const wchar_t* msg) {
 static DWORD WINAPI InitDwriteBG(LPVOID lpdwThreadParam) {
   SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
   LOGREGISTRY(L"loading dwrite.dll");
+  #ifdef MOZ_XP_COMPAT
+  HMODULE dwdll = LoadLibraryXPPrivateDWrite();
+  #else
   HMODULE dwdll = LoadLibrarySystem32(L"dwrite.dll");
+  #endif
   if (dwdll) {
     decltype(DWriteCreateFactory)* createDWriteFactory =
         (decltype(DWriteCreateFactory)*)GetProcAddress(dwdll,
