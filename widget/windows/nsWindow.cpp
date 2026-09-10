@@ -251,6 +251,9 @@ using namespace mozilla::plugins;
  **************************************************************/
 static const wchar_t kUser32LibName[] = L"user32.dll";
 
+static HRESULT SafeDwmSetWindowAttribute(HWND aWnd, DWORD aAttribute,
+                                         LPCVOID aValue, DWORD aValueSize);
+
 uint32_t nsWindow::sInstanceCount = 0;
 bool nsWindow::sIsOleInitialized = false;
 constinit nsIWidget::Cursor nsWindow::sCurrentCursor = {};
