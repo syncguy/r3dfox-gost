@@ -249,13 +249,7 @@ jobs:
 
       - name: Build export prerequisites
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
-          & $mozmake -C $env:OBJDIR recurse_pre-export
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $mozmake -C $env:OBJDIR recurse_export
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: .\.github\scripts\xp\build-export-prerequisites.ps1
 
       - name: GATE - Compile security manager SSL target objects
         shell: powershell
