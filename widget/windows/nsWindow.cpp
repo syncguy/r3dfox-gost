@@ -827,7 +827,7 @@ static bool IsCloaked(HWND hwnd) {
   if (!WinUtils::dwmGetWindowAttributePtr) {
     return false;
   }
-  HRESULT hr = WinUtils::dwmGetWindowAttributePtr(hwnd, DWMWA_CLOAKED, &cloakedState,
+  HRESULT hr = DwmSetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloakedState,
                                        sizeof(cloakedState));
 
   if (FAILED(hr)) {
@@ -1271,7 +1271,7 @@ const wchar_t kShellLibraryName[] =  L"shell32.dll";
 
   if (mIsRTL && WinUtils::dwmSetWindowAttributePtr) {
     DWORD dwAttribute = TRUE;
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
+    DwmSetWindowAttribute(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
                           sizeof dwAttribute);
   }
 
@@ -1382,7 +1382,7 @@ void nsWindow::LocalesChanged() {
   bool isRTL = intl::LocaleService::GetInstance()->IsAppLocaleRTL();
   if (mIsRTL != isRTL && WinUtils::dwmSetWindowAttributePtr) {
     DWORD dwAttribute = isRTL;
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
+    DwmSetWindowAttribute(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
                           sizeof dwAttribute);
     mIsRTL = isRTL;
   }
@@ -2421,9 +2421,19 @@ void nsWindow::MoveToWorkspace(const nsAString& workspaceID) {
   }
 }
 
+static HRESULT DwmSetWindowAttribute(HWND aWnd, DWORD aAttribute,
+                                     LPCVOID aValue, DWORD aValueSize) {
+  if (!WinUtils::dwmSetWindowAttributePtr) {
+    return E_NOTIMPL;
+  }
+
+  return WinUtils::dwmSetWindowAttributePtr(aWnd, aAttribute, aValue,
+                                            aValueSize);
+}
+
 void nsWindow::SuppressAnimation(bool aSuppress) {
   DWORD dwAttribute = aSuppress ? TRUE : FALSE;
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &dwAttribute,
+  DwmSetWindowAttribute(mWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &dwAttribute,
                         sizeof dwAttribute);
 }
 
@@ -2781,9 +2791,9 @@ void nsWindow::SetColorScheme(const Maybe<ColorScheme>& aScheme) {
   }
   BOOL dark =
       aScheme.valueOrFrom(LookAndFeel::SystemColorScheme) == ColorScheme::Dark;
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, &dark,
+  DwmSetWindowAttribute(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, &dark,
                         sizeof dark);
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
+  DwmSetWindowAttribute(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
                         sizeof dark);
 }
 
@@ -2825,7 +2835,7 @@ void nsWindow::UpdateMicaBackdrop(bool aForce) {
         return DWMSBT_TABBEDWINDOW;
     }
   }();
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
+  DwmSetWindowAttribute(mWnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
                           sizeof backdrop);
   if (IsPopup()) {
     // For popups, we need a couple extra tweaks:
@@ -2836,7 +2846,7 @@ void nsWindow::UpdateMicaBackdrop(bool aForce) {
     //    acrylic). See also the WM_NCACTIVATE implementation.
     const DWM_WINDOW_CORNER_PREFERENCE corner =
         useBackdrop ? DWMWCP_ROUND : DWMWCP_DEFAULT;
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner,
+    DwmSetWindowAttribute(mWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner,
                             sizeof corner);
     ::PostMessageW(mWnd, WM_NCACTIVATE, TRUE, -1);
   }
@@ -3462,7 +3472,7 @@ void nsWindow::UpdateGlass() {
   // Extends the window frame behind the client area
   if (dwmCompositionEnabled) {
     WinUtils::dwmExtendFrameIntoClientAreaPtr(mWnd, &margins);
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_NCRENDERING_POLICY, &policy,
+    DwmSetWindowAttribute(mWnd, DWMWA_NCRENDERING_POLICY, &policy,
                           sizeof policy);
   }
 }
