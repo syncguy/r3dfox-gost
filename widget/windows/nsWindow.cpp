@@ -823,7 +823,7 @@ class InitializeVirtualDesktopManagerTask : public Task {
 
 // Ground-truth query: does Windows claim the window is cloaked right now?
 static bool IsCloaked(HWND hwnd) {
-  DWORD cloakedState;
+  DWORD cloakedState = 0;
   if (!WinUtils::dwmGetWindowAttributePtr) {
     return false;
   }
