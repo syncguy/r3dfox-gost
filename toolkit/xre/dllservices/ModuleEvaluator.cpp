@@ -68,6 +68,25 @@ bool ModuleEvaluator::ResolveKnownFolder(REFKNOWNFOLDERID aFolderId,
   *aOutFile = nullptr;
 
   // Since we're running off main thread, we can't use NS_GetSpecialDirectory
+#ifdef MOZ_XP_COMPAT
+  wchar_t path[MAX_PATH] = {};
+  UINT length = 0;
+  if (IsEqualGUID(aFolderId, FOLDERID_Windows)) {
+    length = ::GetWindowsDirectoryW(path, std::size(path));
+  } else if (IsEqualGUID(aFolderId, FOLDERID_System) ||
+             IsEqualGUID(aFolderId, FOLDERID_SystemX86)) {
+    length = ::GetSystemDirectoryW(path, std::size(path));
+  } else {
+    return false;
+  }
+
+  if (length == 0 || length >= std::size(path)) {
+    return false;
+  }
+
+  nsresult rv = NS_NewLocalFile(nsDependentString(path), aOutFile);
+  return NS_SUCCEEDED(rv);
+#else
   PWSTR rawPath = nullptr;
   HRESULT hr =
       ::SHGetKnownFolderPath(aFolderId, KF_FLAG_DEFAULT, nullptr, &rawPath);
@@ -82,6 +101,7 @@ bool ModuleEvaluator::ResolveKnownFolder(REFKNOWNFOLDERID aFolderId,
 
   nsresult rv = NS_NewLocalFile(nsDependentString(path.get()), aOutFile);
   return NS_SUCCEEDED(rv);
+#endif
 }
 
 ModuleEvaluator::ModuleEvaluator()
