@@ -289,30 +289,7 @@ jobs:
         if: steps.build-release.outcome == 'success'
         continue-on-error: true
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
-          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-advapi32-etw-import'
-          New-Item -ItemType Directory -Force $diag | Out-Null
-          if (-not (Test-Path $xul)) { 'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "xul.dll missing for ADVAPI32 compatibility gate: $xul" }
-          $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
-          $dumpbinExit = $LASTEXITCODE
-          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
-          if ($dumpbinExit -ne 0) { "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit" }
-          $apis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
-          $mode = 'none'
-          $currentDll = ''
-          $hits = [System.Collections.Generic.List[string]]::new()
-          foreach ($line in $raw) {
-            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
-            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
-            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
-            if ($mode -ne 'direct' -or $currentDll -notmatch '(?i)^ADVAPI32\.dll$') { continue }
-            foreach ($api in $apis) { if ($line.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($api) } }
-          }
-          $hits | Sort-Object -Unique | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-etw-imports.txt')
-          if ($hits.Count -gt 0) { ("result=FAIL|surviving=" + (($hits | Sort-Object -Unique) -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw ("xul.dll still imports ADVAPI32 compatibility family members: " + (($hits | Sort-Object -Unique) -join ', ')) }
-          'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+        run: .\.github\scripts\xp\verify-xul-advapi32-compat-imports.ps1
 
       - name: GATE - Verify mozglue SetProcessDPIAware stays delay-loaded
         id: dpi-import-gate
