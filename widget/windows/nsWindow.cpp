@@ -2421,7 +2421,7 @@ void nsWindow::MoveToWorkspace(const nsAString& workspaceID) {
   }
 }
 
-static HRESULT DwmSetWindowAttribute(HWND aWnd, DWORD aAttribute,
+static HRESULT SafeDwmSetWindowAttribute(HWND aWnd, DWORD aAttribute,
                                      LPCVOID aValue, DWORD aValueSize) {
   if (!WinUtils::dwmSetWindowAttributePtr) {
     return E_NOTIMPL;
@@ -5304,7 +5304,7 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
   if (mCustomNonClient && dwmCompositionEnabled &&
       /* We don't do this for win10 glass with a custom titlebar,
        * in order to avoid the caption buttons breaking. */
-      !(isWin10 && HasGlass()) &&
+      !(isWin10 && HasGlass()) && WinUtils::dwmDwmDefWindowProcPtr &&
       WinUtils::dwmDwmDefWindowProcPtr(mWnd, msg, wParam, lParam, &dwmHitResult)) {
     *aRetValue = dwmHitResult;
     return true;
