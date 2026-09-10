@@ -68,11 +68,11 @@ pub use winapi::um::dwrite_1::DWRITE_FONT_METRICS1 as FontMetrics1;
 pub use winapi::um::dwrite_3::DWRITE_FONT_AXIS_VALUE;
 use winapi::um::libloaderapi::GetProcAddress;
 #[cfg(moz_xp_compat)]
-use winapi::um::libloaderapi::{GetModuleFileNameW, LoadLibraryExW};
+use winapi::um::libloaderapi::{
+    GetModuleFileNameW, LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH,
+};
 #[cfg(not(moz_xp_compat))]
 use winapi::um::libloaderapi::LoadLibraryW;
-#[cfg(moz_xp_compat)]
-use winapi::um::winbase::LOAD_WITH_ALTERED_SEARCH_PATH;
 
 #[macro_use]
 mod com_helpers;
