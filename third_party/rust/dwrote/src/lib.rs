@@ -66,7 +66,13 @@ pub use winapi::um::dwrite::{
 };
 pub use winapi::um::dwrite_1::DWRITE_FONT_METRICS1 as FontMetrics1;
 pub use winapi::um::dwrite_3::DWRITE_FONT_AXIS_VALUE;
-use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryW};
+use winapi::um::libloaderapi::GetProcAddress;
+#[cfg(moz_xp_compat)]
+use winapi::um::libloaderapi::{GetModuleFileNameW, LoadLibraryExW};
+#[cfg(not(moz_xp_compat))]
+use winapi::um::libloaderapi::LoadLibraryW;
+#[cfg(moz_xp_compat)]
+use winapi::um::winbase::LOAD_WITH_ALTERED_SEARCH_PATH;
 
 #[macro_use]
 mod com_helpers;
@@ -121,6 +127,30 @@ lazy_static! {
             type DWriteCreateFactoryType =
                 extern "system" fn(DWRITE_FACTORY_TYPE, REFIID, *mut *mut IUnknown) -> HRESULT;
 
+            #[cfg(moz_xp_compat)]
+            let dwrite_dll = (|| {
+                let mut path = [0u16; 261];
+                let length = GetModuleFileNameW(ptr::null_mut(), path.as_mut_ptr(), path.len() as u32);
+                if length == 0 || length as usize >= path.len() {
+                    return ptr::null_mut();
+                }
+
+                let slash = match path[..length as usize]
+                    .iter()
+                    .rposition(|&ch| ch == b'\\' as u16 || ch == b'/' as u16)
+                {
+                    Some(index) => index,
+                    None => return ptr::null_mut(),
+                };
+                let suffix = "\\xpcompat\\dwrite\\DWrite.dll".to_wide_null();
+                if slash + suffix.len() > path.len() {
+                    return ptr::null_mut();
+                }
+                path[slash..slash + suffix.len()].copy_from_slice(&suffix);
+
+                LoadLibraryExW(path.as_ptr(), ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH)
+            })();
+            #[cfg(not(moz_xp_compat))]
             let dwrite_dll = LoadLibraryW("dwrite.dll".to_wide_null().as_ptr());
             assert!(!dwrite_dll.is_null());
             let create_factory_name = CString::new("DWriteCreateFactory").unwrap();
