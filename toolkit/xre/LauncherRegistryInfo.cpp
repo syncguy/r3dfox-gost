@@ -175,7 +175,7 @@ LauncherResult<LauncherRegistryInfo::Disposition> LauncherRegistryInfo::Open() {
   switch (disposition) {
     case REG_CREATED_NEW_KEY:
       return Disposition::CreatedNew;
-    case REG_OPENED_EXISTING:
+    case REG_OPENED_EXISTING_KEY:
       return Disposition::OpenedExisting;
     default:
       break;
@@ -196,7 +196,7 @@ LauncherVoidResult LauncherRegistryInfo::ReflectPrefToRegistry(
       curEnabledState.inspect() != EnabledState::ForceDisabled;
   if (isCurrentlyEnabled == aEnable) {
     // Don't reflect to the registry unless the new enabled state is actually
-    // changing with respect to the current registry state.
+    // changing with respect to the current enabled state.
     return Ok();
   }
 
@@ -332,7 +332,8 @@ LauncherResult<LauncherRegistryInfo::ProcessType> LauncherRegistryInfo::Check(
         // Clear the force-disabled state and crash timestamp
         LauncherResult<bool> clearedBrowserTimestamp =
             ClearBrowserStartTimestamp();
-        LauncherResult<bool> clearedCrashTimestamp = ClearLauncherCrashTimestamp();
+        LauncherResult<bool> clearedCrashTimestamp =
+            ClearLauncherCrashTimestamp();
 
         if (clearedBrowserTimestamp.isOk() && clearedCrashTimestamp.isOk()) {
           // Re-enable launcher process
