@@ -8,6 +8,49 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-09 — private DirectWrite full Firefox integration builds/packages; aggregate full-build result remains RED
+
+Track: Windows XP SP3 x86 full-browser build/static integration. Independent of GOST TLS runtime. This run transfers the focused physically proven private DirectWrite component into the full Firefox/r3dfox XP build, but it is not physical-XP full-browser runtime evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `35c7482bc7e5f4a37427937ecbf4fdcb6daeffec` (`ci(xp): integrate proven private DirectWrite closure`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34353829276`, attempt `1`;
+- job `102473382783` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / failure / RED**.
+
+Exact artifacts uploaded by this run:
+
+- package `10112321926` (`r3dfox-gost-xp-x32-package`), 334,154,544 bytes, digest `sha256:42a718a7e7913d113d9946bce32fb7e77c17ef6c327b32e1723906770bb2ebf5`;
+- runtime `10112323489` (`r3dfox-gost-xp-x32-runtime`), 76,353,966 bytes, digest `sha256:866d3f08ce6dd7ccebcd19bfbfa0f8c8fefd84fbd08014a8b5b981a375f2c583`;
+- diagnostics `10112367455` (`r3dfox-gost-xp-x32-diagnostics`), 420,551,770 bytes, digest `sha256:cabf38f27b6ed7eb39bd654c2d875e30556321439cee272a845e5f1dc706fa91`.
+
+The Actions job record establishes that this was **not** a Firefox compile/link, staging, packaging or artifact-upload failure. In particular, all of the following completed `success`:
+
+- `Build release r3dfox XP x32`;
+- `Prepare pinned private DirectWrite integration`;
+- `Stage pinned private DirectWrite closure`;
+- `GATE - Verify private DirectWrite closure after PE retarget`;
+- `Package XP x32 experiment`;
+- `GATE - Verify private DirectWrite closure survived portable packaging`;
+- `Build XP x32 runtime test archive from dist/bin`;
+- `GATE - Audit XP x32 PE floor and direct imports`;
+- package/runtime/diagnostics uploads.
+
+The existing targeted browser-import gates also remained successful: the XP battery Vista-only USER32 pair, the source-remediation quartet, the ADVAPI32 compatibility family, the mozglue `SetProcessDPIAware` delay-load contract and the proven-core-browser direct-import rejection gate all completed `success`.
+
+The only failed Actions step is the final `GATE - Summarize XP x32 full build`. Its emitted aggregate verdict identifies `gate:broad-import-audit=failure`. This must not be confused with the execution status of the preceding `GATE - Audit XP x32 PE floor and direct imports` step itself, which Actions records as `success`: the audit/evidence collection completed, while its accumulated broad-import policy result made the final aggregate verdict RED.
+
+Conclusion: **FULL FIREFOX PRIVATE-DWRITE INTEGRATION BUILD/PACKAGE PASS; AGGREGATE STATIC ACCEPTANCE RED.** Exact source `35c7482b...` proves that the selected private DirectWrite layout can be integrated into the full Firefox XP build, survive PE retargeting and portable packaging, and produce a physical-test runtime archive. It does **not** supersede the preceding all-GREEN full-build baseline because the aggregate broad-import verdict remains failed.
+
+This result also does not establish physical Firefox startup on XP. The component-scale physical DWrite PASS from run `34317489430` remains valid independently, but the exact browser artifact from run `34353829276` has not acquired a physical-XP PASS merely because the same component was packaged into it.
+
+Status: **current latest private-DWrite-integrated full-build evidence; compile/link/staging/package integration proven, aggregate broad-import acceptance still RED.** Resolve/classify the broad-import findings and obtain an accepted exact integrated browser candidate before using it for the next physical-XP browser boundary test.
+
+---
+
 ## 2026-09-09 — Supermium DWrite private component physically passes on XP with load-time project msvcr14x UCRT
 
 Track: Windows XP SP3 x86 graphics/runtime dependency compatibility. Independent of GOST TLS runtime. This is a focused private-component runtime proof; it does not build or run Firefox and does not establish full-browser XP startup.
