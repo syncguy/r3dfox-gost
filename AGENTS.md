@@ -81,6 +81,12 @@ These rules supplement the global Firefox instructions above and are authoritati
 - In the same manual-launch instruction, MUST state the exact branch name/ref the user should select in `Run workflow`; never leave the branch implicit.
 - Do not substitute a repository tree/blob link to `.github/workflows/...` or the generic Actions page for the direct workflow Actions page when manual launch is required.
 
+### Vendored Rust checksum policy
+- Before modifying any Rust source inside a vendored crate, especially under `third_party/rust/<crate>`, check whether that crate contains `.cargo-checksum.json`.
+- If `.cargo-checksum.json` exists, after the final source edit recompute SHA-256 over the exact bytes of every modified file and update the corresponding `files[...]` entry before starting CI or a full build.
+- Do not disable Cargo checksum validation, delete a checksum entry, or change the `package` checksum merely to silence a source/checksum mismatch. Change `package` only when the vendored package provenance itself changes.
+- Verify that the committed source blob and checksum remain synchronized. A vendored Rust source patch with a stale `.cargo-checksum.json` entry is incomplete.
+
 ### Project invariants
 - Add GOST TLS support to r3dfox/Firefox through `deemru/msspi` and the Windows CryptoPro/SSPI stack.
 - Ordinary HTTPS must continue to use Firefox NSS. Only explicitly selected/allowlisted GOST TLS hosts use the MSSPI-backed transport.
