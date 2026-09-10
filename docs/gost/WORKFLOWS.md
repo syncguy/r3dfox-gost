@@ -2,6 +2,16 @@
 
 This file records the intended roles of the project GitHub Actions workflows so build results are not confused across independent experiment tracks.
 
+## Workflow implementation policy
+
+For the Windows XP x86 line, keep heavy workflow YAML as orchestration rather than as the implementation language. When adding a new non-trivial build, staging, audit, diagnostic, packaging, or final-summary stage, create or extend a script under `.github/scripts/xp/` from the start instead of first adding a large inline PowerShell `run: |` block and extracting it later.
+
+Large/coherent stages belong in scripts when they contain meaningful control flow, helper functions, loops, PE/import parsing, dependency preparation, archive work, hashing/provenance checks, multi-file staging, or substantial report generation. Tiny orchestration commands may remain inline. Do not fragment coherent behavior into many tiny scripts solely to reduce YAML size.
+
+GitHub Actions expressions such as `${{ steps.<id>.outcome }}` must remain in workflow YAML. If an extracted script needs them, pass them through a compact step-level `env:` bridge and read the environment variables from PowerShell.
+
+Before changing XP workflow implementation, read [`XP_WORKFLOW_SCRIPTS.md`](./XP_WORKFLOW_SCRIPTS.md). It is the maintained index of `.github/scripts/xp/`, their responsibilities, and the extraction/maintenance rules. Read the current script itself before changing its behavior; the index is navigation, not executable truth.
+
 ## Main GOST build
 
 Workflow file:
