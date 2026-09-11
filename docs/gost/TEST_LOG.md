@@ -8,6 +8,35 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-11 — XP x32 successor full build packages successfully; aggregate summary remains RED
+
+Track: Windows XP SP3 x86 full-browser build/static integration. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `71c7f135210030dde4ec9eeee04e6cb36a2cbffc` (`fix(xp): refresh dwrote checksum after import fix`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34485182943`, attempt `1`;
+- job `102897550999` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / failure / RED**.
+
+Exact artifacts uploaded by this run:
+
+- package `10162565742` (`r3dfox-gost-xp-x32-package`), 334,156,033 bytes, digest `sha256:2c416478c8d57ed08f863f1506f5969980ff8b0c1e53845fe4de695f1727592d`;
+- runtime `10162567956` (`r3dfox-gost-xp-x32-runtime`), 76,357,019 bytes, digest `sha256:99c67fac2074222371db284e57e0c78a75f617c7b5a3bc0b237bb95154d87fb8`;
+- diagnostics `10162609423` (`r3dfox-gost-xp-x32-diagnostics`), 420,570,776 bytes, digest `sha256:a890ac3fc0b972dee2c0a396559cf82ce04f27ee13daa41f0b0ed2c631fd3513`.
+
+The Actions step record establishes the bookkeeping boundary without requiring a log deep-dive. Full Firefox compile/link, all listed targeted xul/mozglue XP gates, private DirectWrite preparation/staging/retarget/package-survival gates, msvcr14x/bcrypt/D3DCompiler package checks, runtime archive creation, `GATE - Audit XP x32 PE floor and direct imports`, YY inventory, and all three artifact uploads completed `success`. The only failed Actions step is `GATE - Summarize XP x32 full build`.
+
+This documentation pass intentionally does **not** inspect or classify the final summary's emitted gate reason and does not inspect the diagnostics payload. Therefore the prior run's analyzed `gate:broad-import-audit=failure` / 22-row private-DWrite finding must not be copied forward as the cause of this run without separate evidence. The exact aggregate cause for run `34485182943` is left **UNCLASSIFIED IN THIS ENTRY**.
+
+Conclusion: **FULL FIREFOX BUILD/PACKAGE/ARTIFACT PRODUCTION PASS; AGGREGATE WORKFLOW RESULT RED AT FINAL SUMMARY.** This run is not GREEN, is not physical-XP browser runtime evidence, and is not GOST TLS handshake evidence. It supersedes run `34439013068` only as the latest integrated full-build identity; the earlier run retains its own exact, separately analyzed 22-row private-DWrite evidence.
+
+Status: **current latest integrated full-build evidence; final-summary failure recorded but deliberately not root-caused in this bookkeeping pass.**
+
+---
+
 ## 2026-09-10 — successor private-DWrite-integrated full build packages successfully; broad RED is confined to the same 22 DWrite policy hits
 
 Track: Windows XP SP3 x86 full-browser build/static integration. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
@@ -62,7 +91,7 @@ Keep the distinction precise: this run itself does not turn the final broad gate
 
 Conclusion: **SUCCESSOR FULL FIREFOX BUILD/PACKAGE PASS; AGGREGATE STATIC ACCEPTANCE RED; RESIDUAL BROAD SET = 22/22 PRIVATE DWRITE ROWS, UNCHANGED FROM THE PRECEDING INTEGRATED BUILD.** Source `c0b5561d...` is the latest completed integrated build evidence, but it is not an all-GREEN static baseline and has no physical-XP browser PASS. Do not re-open already closed xul/mozglue import families from this aggregate RED without contradictory per-PE evidence.
 
-Status: **current latest integrated full-build evidence; broad-import remainder localized to the unchanged private-DWrite-only 22-row policy set.**
+Status: **superseded as latest integrated full-build identity by run `34485182943`; retained as the latest run with the 22-row private-DWrite RED explicitly classified from diagnostics.**
 
 ---
 
