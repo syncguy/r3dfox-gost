@@ -100,27 +100,28 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md). The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Integrated private DWrite browser — build/package transfer complete; broad acceptance policy is the immediate blocker
+### Integrated private DWrite browser — latest successor recorded; aggregate summary still RED
 
-The standalone component work and the transfer into the full browser are complete at their respective proven boundaries:
+The standalone component work and the full-browser transfer remain proven at their respective boundaries:
 
 - focused physical component: workflow `.github/workflows/xp-supermium-dwrite-closure.yml`, run `34317489430`, job `102356664699`, artifact `10090864697`, **GREEN / PHYSICAL XP COMPONENT PASS**;
-- current full-browser source-under-test `c0b5561dc58d588ecb970a333d49ac78fae84eb0`;
+- current full-browser source-under-test `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `34439013068`, job `102749929410`, **aggregate RED**;
-- package `10141487002`, runtime `10141488631`, diagnostics `10141520421`.
+- run `34485182943`, job `102897550999`, **aggregate RED**;
+- package `10162565742`, runtime `10162567956`, diagnostics `10162609423`.
 
-The current full-browser run successfully compiles, links, stages and packages the private DWrite closure and preserves the existing xul/mozglue XP gates. Its only failed Actions step is the final summary with `gate:broad-import-audit=failure`.
+The current full-browser run successfully compiles, links, stages and packages the private DWrite closure, preserves the listed targeted xul/mozglue XP gates, creates the physical-test runtime archive, runs the broad PE/import audit step, completes YY inventory, and uploads all three artifacts. Its only failed Actions step is `GATE - Summarize XP x32 full build`.
 
-Diagnostics now localize that aggregate failure exactly: `xp-x32-forbidden-direct-imports.txt` has **22 rows total, all belonging to `xpcompat/dwrite/DWrite.dll`**. The set is unchanged from preceding integrated run `34353829276`; there are no broad forbidden rows for `xul.dll`, `mozglue.dll` or any other browser PE.
+This bookkeeping pass deliberately did not inspect the final summary log or diagnostics payload. Therefore the preceding run's exact `gate:broad-import-audit=failure` / 22-row private-DWrite diagnosis is **not** assumed to be the cause of run `34485182943`. That classification remains valid only for run `34439013068`, job `102749929410`, source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`.
 
 Immediate work:
 
-1. **Repair/classify the broad PE/import acceptance rule for the pinned private DWrite component.** Preserve the broad audit as a real hard-import gate for ordinary PEs, but make its DWrite treatment aware of the exact private provider closure already proven by the focused workflow. Do not simply delete the 22 API names from the global forbidden list and do not blanket-whitelist post-XP API names for unrelated binaries.
-2. **Require the successor full build to finish aggregate GREEN.** Preserve all targeted xul/mozglue import gates, DWrite hash/provider/package-survival gates, msvcr14x, bcrypt, legacy D3DCompiler, YY TLS-entry-point contract, Rust XP cfg and PE-floor checks.
-3. **Then physically test that exact accepted integrated browser artifact on XP.** Bind evidence to source SHA, run/job, artifact IDs and exact `r3dfox.exe`/`xul.dll` identities. Require advance through the previously reached SharedPrefMap and battery/DirectWrite boundaries; record the next exact runtime boundary if one appears.
+1. **Classify the exact final-summary failure of run `34485182943` before another expensive build.** Use the final summary output and the already-uploaded diagnostics artifact `10162609423`; keep source-under-test identity `71c7f135...` separate from later documentation commits.
+2. **Follow the exact remaining gate owner.** If the remaining failure is still broad-import acceptance, keep the fix provider/PE-aware and narrow; if a different aggregate gate is named, remediate that owner instead of reopening already closed compatibility families.
+3. **Require the next accepted full build to finish aggregate GREEN.** Preserve all targeted xul/mozglue import gates, DWrite hash/provider/package-survival gates, msvcr14x, bcrypt, legacy D3DCompiler, YY TLS-entry-point contract, Rust XP cfg and PE-floor checks.
+4. **Then physically test that exact accepted integrated browser artifact on XP.** Bind evidence to source SHA, run/job, artifact IDs and exact `r3dfox.exe`/`xul.dll` identities; record the next exact runtime boundary if one appears.
 
-Do not spend another cycle re-integrating the same DWrite subtree or treating the unchanged DWrite-only broad rows as a newly discovered xul/mozglue regression. The focused physical DWrite PASS remains component evidence; it does not substitute for full Firefox startup.
+Do not spend another cycle re-integrating the same DWrite subtree or mechanically carrying the previous 22-row diagnosis onto a different source SHA. The focused physical DWrite PASS remains component evidence; it does not substitute for full Firefox startup.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -131,7 +132,9 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated full-build evidence is source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`, run `34439013068`, job `102749929410`: compile/package integration PASS, aggregate static acceptance RED only through the DWrite-only 22-row broad policy result.
+Current latest integrated full-build evidence is source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`, run `34485182943`, job `102897550999`: compile/package/artifact production PASS, aggregate workflow RED at the final summary; exact summary reason is not classified in the current bookkeeping pass.
+
+The preceding analyzed integrated build remains source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`, run `34439013068`, job `102749929410`: its aggregate RED was explicitly localized to the private-DWrite-only 22-row broad policy result.
 
 The latest completed all-GREEN pre-DWrite full-browser build/static baseline remains source `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`, run `34213345771`, job `102019253738`, package `10056086223`, runtime `10056088395`, diagnostics `10056127829`. It remains useful control evidence for earlier compatibility fixes but does not contain the private DWrite integration.
 
