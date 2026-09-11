@@ -76,9 +76,28 @@ if (-not (Test-Path (Join-Path $depotTools '.git'))) {
     & git.exe clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git $depotTools
   }
 }
+
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:DEPOT_TOOLS_UPDATE = '0'
 $env:PATH = "$depotTools;$env:PATH"
+$env:GIT_CACHE_PATH = Join-Path $WorkRoot 'git-cache'
+New-Item -ItemType Directory -Force $env:GIT_CACHE_PATH | Out-Null
+
+Invoke-Checked -Label 'depot_tools CIPD bootstrap' -Command {
+  & (Join-Path $depotTools 'cipd_bin_setup.bat')
+}
+Invoke-Checked -Label 'depot_tools Windows bootstrap' -Command {
+  & (Join-Path $depotTools 'bootstrap\win_tools.bat')
+}
+
+$gitWrapper = Join-Path $depotTools 'git.bat'
+if (-not (Test-Path $gitWrapper)) {
+  throw "depot_tools bootstrap did not create git.bat: $gitWrapper"
+}
+Invoke-Checked -Label 'depot_tools git wrapper preflight' -Command {
+  & $gitWrapper --version
+}
+
+$env:DEPOT_TOOLS_UPDATE = '0'
 New-Item -ItemType File -Force (Join-Path $depotTools '.disable_auto_update') | Out-Null
 
 $angle = Join-Path $WorkRoot 'angle'
