@@ -55,6 +55,12 @@ $gostBaselineHash = (Get-FileHash -Algorithm SHA256 $baselineGost).Hash.ToLowerI
 $xpBaselineHash = (Get-FileHash -Algorithm SHA256 $baselineXp).Hash.ToLowerInvariant()
 
 $generatorText = [System.IO.File]::ReadAllText($generator).Replace("`r`n", "`n")
+$staleArg = "angle_enable_apple_translator_workarounds = true`n"
+if (-not $generatorText.Contains($staleArg)) {
+  throw 'Expected stale ANGLE GN arg was not found in update-angle.py'
+}
+$generatorText = $generatorText.Replace($staleArg, '')
+
 $needle = "angle_enable_gl = false`n"
 $replacement = "angle_enable_d3d11 = false`nangle_enable_d3d9 = true`nangle_enable_gl = false`n"
 if (-not $generatorText.Contains($needle)) {
@@ -65,34 +71,9 @@ if ($generatorText.Contains('angle_enable_d3d11 = false')) {
 }
 $generatorText = $generatorText.Replace($needle, $replacement)
 
-$oldExportInvocation = @'
-p = run_checked(
-    "python3",
-    "scripts/export_targets.py",
-    str(OUT_DIR),
-    *ROOTS,
-    stdout=subprocess.PIPE,
-    shell=True,
-    env=GN_ENV,
-)
-'@
-$newExportInvocation = @'
-p = run_checked(
-    sys.executable,
-    "scripts/export_targets.py",
-    str(OUT_DIR),
-    *ROOTS,
-    stdout=subprocess.PIPE,
-    shell=False,
-    env=GN_ENV,
-)
-'@
-$oldExportInvocation = $oldExportInvocation.Replace("`r`n", "`n")
-$newExportInvocation = $newExportInvocation.Replace("`r`n", "`n")
-if (-not $generatorText.Contains($oldExportInvocation)) {
-  throw 'Expected update-angle.py exporter subprocess block was not found'
+if ($generatorText.Contains('angle_enable_apple_translator_workarounds = true')) {
+  throw 'Stale ANGLE GN arg survived the test patch'
 }
-$generatorText = $generatorText.Replace($oldExportInvocation, $newExportInvocation)
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($generator, $generatorText, $utf8NoBom)
@@ -146,7 +127,7 @@ if ($LASTEXITCODE -ne 0 -or -not $angleSha) { throw 'Cannot resolve mozilla/angl
 $angleBranch = (& git.exe -C $angle branch --show-current).Trim()
 if ($angleBranch -ne 'firefox-153') { throw "Unexpected ANGLE branch: $angleBranch" }
 
-$gnSha256 = $null
+$exportTargetsHash = $null
 Push-Location $angle
 try {
   Invoke-Checked -Label 'ANGLE bootstrap' -Command {
@@ -156,57 +137,10 @@ try {
     & gclient.bat sync
   }
 
-  $gnExe = Join-Path $angle 'buildtools\win\gn.exe'
-  if (-not (Test-Path $gnExe)) {
-    throw "Pinned ANGLE GN executable missing after gclient sync: $gnExe"
-  }
-  $gnSha256 = (Get-FileHash -Algorithm SHA256 $gnExe).Hash.ToLowerInvariant()
-  Invoke-Checked -Label 'pinned ANGLE gn.exe preflight' -Command {
-    & $gnExe --version
-  }
-
   $exportTargets = Join-Path $angle 'scripts\export_targets.py'
   if (-not (Test-Path $exportTargets)) { throw "ANGLE export helper missing: $exportTargets" }
-  $exportTargetsText = [System.IO.File]::ReadAllText($exportTargets).Replace("`r`n", "`n")
-  $oldGnDesc = @'
-try:
-    p = run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,
-                env=GN_ENV, shell=(True if sys.platform == 'win32' else False))
-except subprocess.CalledProcessError:
-    sys.stderr.buffer.write(b'"gn desc" failed. Is depot_tools in your PATH?\n')
-    exit(1)
-
-# -
-
-print('\nProcessing graph', file=sys.stderr)
-descs = json.loads(p.stdout.decode())
-'@
-  $newGnDesc = @'
-try:
-    gn_exe = pathlib.Path.cwd() / 'buildtools' / 'win' / 'gn.exe'
-    if not gn_exe.is_file():
-        raise RuntimeError(f'Pinned ANGLE GN executable missing: {gn_exe}')
-    p = run_checked(str(gn_exe), 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,
-                    env=GN_ENV, shell=False)
-except subprocess.CalledProcessError:
-    sys.stderr.buffer.write(b'"gn desc" failed. Is pinned ANGLE GN available?\n')
-    exit(1)
-
-# -
-
-print('\nProcessing graph', file=sys.stderr)
-if not p.stdout:
-    raise RuntimeError('Pinned ANGLE gn.exe desc returned empty stdout')
-descs = json.loads(p.stdout.decode())
-'@
-  $oldGnDesc = $oldGnDesc.Replace("`r`n", "`n")
-  $newGnDesc = $newGnDesc.Replace("`r`n", "`n")
-  if (-not $exportTargetsText.Contains($oldGnDesc)) {
-    throw 'Expected firefox-153 export_targets.py GN desc block was not found'
-  }
-  $exportTargetsText = $exportTargetsText.Replace($oldGnDesc, $newGnDesc)
-  [System.IO.File]::WriteAllText($exportTargets, $exportTargetsText, $utf8NoBom)
-  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.direct-pinned-gn.py')
+  $exportTargetsHash = (Get-FileHash -Algorithm SHA256 $exportTargets).Hash.ToLowerInvariant()
+  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.upstream.py')
 
   $regenLog = Join-Path $Diagnostics 'update-angle-regenerate.log'
   $savedPreference = $ErrorActionPreference
@@ -254,7 +188,8 @@ $summary = @(
   "xp_source=$xpSha",
   "angle_branch=$angleBranch",
   "angle_source=$angleSha",
-  "gn_exe_sha256=$gnSha256",
+  "export_targets_sha256=$exportTargetsHash",
+  "removed_stale_angle_enable_apple_translator_workarounds=True",
   "gost_baseline_sha256=$gostBaselineHash",
   "xp_baseline_sha256=$xpBaselineHash",
   "baselines_identical=$($gostBaselineHash -eq $xpBaselineHash)",
