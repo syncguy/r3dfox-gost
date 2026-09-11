@@ -129,17 +129,19 @@ try {
   if (-not (Test-Path $exportTargets)) { throw "ANGLE export helper missing: $exportTargets" }
   $exportTargetsText = [System.IO.File]::ReadAllText($exportTargets)
   $oldGnDesc = "p = run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
+  $newGnDesc = "p = run_checked('gn', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
   $oldGnShell = "env=GN_ENV, shell=(True if sys.platform == 'win32' else False))"
-  $newGnShell = "env=GN_ENV, shell=False)"
+  $newGnShell = "env=GN_ENV, shell=True)"
   if (-not $exportTargetsText.Contains($oldGnDesc)) {
     throw 'Expected firefox-153 export_targets.py gn.py invocation was not found'
   }
   if (-not $exportTargetsText.Contains($oldGnShell)) {
     throw 'Expected firefox-153 export_targets.py Windows shell mode was not found'
   }
+  $exportTargetsText = $exportTargetsText.Replace($oldGnDesc, $newGnDesc)
   $exportTargetsText = $exportTargetsText.Replace($oldGnShell, $newGnShell)
   [System.IO.File]::WriteAllText($exportTargets, $exportTargetsText, $utf8NoBom)
-  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.shell-false.py')
+  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.direct-gn-command.py')
 
   $regenLog = Join-Path $Diagnostics 'update-angle-regenerate.log'
   $savedPreference = $ErrorActionPreference
