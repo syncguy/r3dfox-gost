@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -48,55 +48,32 @@ Current authoritative Session-default browser source is `afbdad307f63e594d371516
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
-## Latest integrated full build — build/package PASS; aggregate RED confined to unchanged private-DWrite audit rows
+## Latest integrated full build — build/package PASS; aggregate RED at final summary, cause not reclassified here
 
 Exact current full-build evidence:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test `c0b5561dc58d588ecb970a333d49ac78fae84eb0` (`fix(xp): declare safe DWM attribute helper before use`);
+- source-under-test `71c7f135210030dde4ec9eeee04e6cb36a2cbffc` (`fix(xp): refresh dwrote checksum after import fix`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `34439013068`, attempt `1`;
-- job `102749929410` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- run `34485182943`, attempt `1`;
+- job `102897550999` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate conclusion: **completed / failure / RED**.
 
 Exact artifacts:
 
-- package `10141487002`, digest `sha256:2de12c81d78288dff660c5b15aa1b5a5684bc6f942797abb95405dfbd28c387c`;
-- runtime `10141488631`, digest `sha256:852da904ab86334dae37f48c40eb64b69c9226db7fef8564279f50b1ea9e98d0`;
-- diagnostics `10141520421`, digest `sha256:1273198aae68a8a677b7441f5ea6422a55986587ff4e407d3f27b62be9456938`.
+- package `10162565742`, digest `sha256:2c416478c8d57ed08f863f1506f5969980ff8b0c1e53845fe4de695f1727592d`;
+- runtime `10162567956`, digest `sha256:99c67fac2074222371db284e57e0c78a75f617c7b5a3bc0b237bb95154d87fb8`;
+- diagnostics `10162609423`, digest `sha256:a890ac3fc0b972dee2c0a396559cf82ce04f27ee13daa41f0b0ed2c631fd3513`.
 
-This was not a Firefox build/package failure. Full compile/link, private DWrite preparation/staging, PE retarget verification, packaging, package-survival checks for DWrite/CRT/D3DCompiler/bcrypt, physical-test runtime archive creation, the broad audit execution itself, YY inventory and all three artifact uploads completed `success`. The targeted xul/mozglue XP gates also remained `success`. Only `GATE - Summarize XP x32 full build` failed, reporting `gate:broad-import-audit=failure`.
+This was not a Firefox build/package or artifact-upload failure. Full compile/link, the listed targeted xul/mozglue XP gates, private DWrite preparation/staging/retarget/package-survival gates, msvcr14x/bcrypt/D3DCompiler package checks, physical-test runtime archive creation, `GATE - Audit XP x32 PE floor and direct imports`, YY inventory and all three uploads completed `success`. The only failed Actions step is `GATE - Summarize XP x32 full build`.
 
-The diagnostics artifact localizes that aggregate failure much more narrowly than the old synthesis stated. `xp-x32-forbidden-direct-imports.txt` contains exactly **22 rows, and all 22 are attributed to the staged private `xpcompat/dwrite/DWrite.dll`**. There are no forbidden rows for `xul.dll`, `mozglue.dll`, another browser DLL or executable. The 22 API names are:
+This bookkeeping update deliberately does not inspect the job logs or diagnostics payload to classify the final summary's gate reason. Therefore do **not** automatically carry the preceding run's `gate:broad-import-audit=failure` / 22-row private-DWrite finding forward as the cause of run `34485182943`. The aggregate cause of this exact run remains unclassified until a separate focused analysis is performed.
 
-```text
-AcquireSRWLockExclusive
-AcquireSRWLockShared
-CreateMutexExW
-CreateSemaphoreExW
-CreateThreadpoolWork
-EventRegister
-EventUnregister
-EventWriteTransfer
-GetLocaleInfoEx
-GetUserDefaultLocaleName
-InitializeConditionVariable
-InitializeCriticalSectionEx
-InitializeSRWLock
-InitOnceBeginInitialize
-InitOnceComplete
-ReleaseSRWLockExclusive
-ReleaseSRWLockShared
-SleepConditionVariableSRW
-SubmitThreadpoolWork
-TryAcquireSRWLockExclusive
-WakeAllConditionVariable
-WakeConditionVariable
-```
+Do not call this run GREEN. It also is not, by itself, physical-XP browser evidence or GOST TLS runtime evidence.
 
-The same 22-name DWrite-only set is present in diagnostics artifact `10112367455` from preceding integrated run `34353829276` / source `35c7482bc7e5f4a37427937ecbf4fdcb6daeffec`. Therefore source `c0b5561d...` introduced no new broad forbidden-name hit. The remaining RED is the existing broad audit's treatment of the selected private DWrite component, which must be reconciled with the component-specific provider-closure evidence instead of being misread as a new browser-owned XP import regression.
+### Preceding analyzed integrated build — exact 22-row private-DWrite broad-audit evidence
 
-Do not call this run GREEN: the final aggregate gate is still RED. Also do not call it physical XP browser evidence: no physical-XP browser execution has been established for artifacts `10141487002`/`10141488631`. The next build/static task is to make the broad audit provider-aware/narrowly policy-aware for the exact pinned private DWrite closure, without weakening checks for ordinary system imports or other PEs. After an accepted exact integrated candidate is produced, test that exact browser artifact on physical XP.
+Run `34439013068`, job `102749929410`, source-under-test `c0b5561dc58d588ecb970a333d49ac78fae84eb0` remains the latest integrated run whose final RED was explicitly localized from its diagnostics. Its `xp-x32-forbidden-direct-imports.txt` contained exactly 22 rows, all attributed to staged private `xpcompat/dwrite/DWrite.dll`, with no forbidden rows for `xul.dll`, `mozglue.dll`, another browser DLL or executable. That evidence remains valid for that exact run and must not be silently reattributed to later source `71c7f135...`.
 
 ## Private Supermium DWrite component — focused PHYSICAL XP PASS
 
@@ -115,7 +92,7 @@ The selected layout uses project msvcr14x `ucrtbase.dll` at `dist/bin` and the p
 
 Therefore the private DWrite architecture is physically viable at focused-component scale: the project msvcr14x UCRT is usable at process startup including static TLS, private `pwrp_k32.dll` and `DWrite.dll` load from the isolated subtree, `DWriteCreateFactory` succeeds, and `IDWriteFactory::GetSystemFontCollection()` succeeds. This focused physical proof is independent of the full-browser aggregate audit policy and does not itself prove Firefox startup.
 
-The first full Firefox transfer was source `35c7482bc7e5f4a37427937ecbf4fdcb6daeffec`, run `34353829276`, job `102473382783`; it proved compile/link/staging/package integration but was aggregate RED on the same DWrite-only broad audit set. Current run `34439013068` supersedes it as latest integrated full-build evidence while preserving that integration.
+The first full Firefox transfer was source `35c7482bc7e5f4a37427937ecbf4fdcb6daeffec`, run `34353829276`, job `102473382783`; it proved compile/link/staging/package integration. Run `34439013068` later supplied the explicit 22-row DWrite-only broad-audit classification. Run `34485182943` is now the latest integrated full-build identity, but its final-summary failure is intentionally not root-caused in the current bookkeeping pass.
 
 ## Current all-GREEN pre-DirectWrite-integrated build/static candidate
 
@@ -145,7 +122,7 @@ Conclusion: the SharedPrefMap invalid-child-HANDLE blocker is physically closed 
 
 After the SharedPrefMap advance, exact source `897e1cdf...` reached physical exception `0xC06D007F`. Matching DrWatson/PDB evidence localized `__delayLoadHelper2` failure to `USER32!RegisterPowerSettingNotification`, owned by `hal/windows/WindowsBattery.cpp::EnableBatteryNotifications()`.
 
-The successor source remediation uses XP-compatible `WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE` under C/C++ `MOZ_XP_COMPAT` and compiles out both `RegisterPowerSettingNotification` and `UnregisterPowerSettingNotification`. The dedicated final-`xul.dll` direct+delay gate passed in all-GREEN run `34213345771`, first integrated run `34353829276`, and current integrated run `34439013068`.
+The successor source remediation uses XP-compatible `WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE` under C/C++ `MOZ_XP_COMPAT` and compiles out both `RegisterPowerSettingNotification` and `UnregisterPowerSettingNotification`. The dedicated final-`xul.dll` direct+delay gate passed in all-GREEN run `34213345771`, first integrated run `34353829276`, analyzed integrated run `34439013068`, and latest integrated run `34485182943`.
 
 Therefore the exact old delayed-import edge remains statically removed. Do not call the physical `0xC06D007F` boundary closed until an accepted exact successor browser artifact advances beyond it on real XP.
 
@@ -155,7 +132,7 @@ The earlier XP-only `GENERIC_READ | FILE_MAP_READ` -> `FILE_MAP_READ | SECTION_Q
 
 ## Latest YY DLL entry-point/TLS static coverage — 13/13 CLOSED
 
-Run `34138054280`, job `101793510758`, source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef` expanded scoped YY-Thunks DLL/TLS startup coverage from 3/13 to 13/13 strong candidates. The aggregate job was RED only because a separate supplemental warm-relink experiment used incorrect generated-objdir assumptions; the static 13/13 closure itself is valid. Current integrated run `34439013068` completes the YY inventory successfully and also passes `GATE - Verify committed xul.dll YY TLS entry-point contract`.
+Run `34138054280`, job `101793510758`, source-under-test `6885135565f7262bb88c80c4751f4a6c4b93e3ef` expanded scoped YY-Thunks DLL/TLS startup coverage from 3/13 to 13/13 strong candidates. The aggregate job was RED only because a separate supplemental warm-relink experiment used incorrect generated-objdir assumptions; the static 13/13 closure itself is valid. Latest integrated run `34485182943` completes the YY inventory successfully and also passes `GATE - Verify committed xul.dll YY TLS entry-point contract`.
 
 ## Build-configuration identity
 
@@ -186,9 +163,11 @@ The `USER32!RegisterPowerSettingNotification` / `0xC06D007F` edge is not in the 
 
 ## XP acceptance boundary
 
-Final XP acceptance still requires one exact integrated candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met**.
+Final XP acceptance still requires one exact integrated candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met** by build evidence alone.
 
-Current source `c0b5561dc58d588ecb970a333d49ac78fae84eb0` / run `34439013068` proves full compile/link/package and preserves all targeted browser gates, but its aggregate static acceptance remains RED solely through the 22-row private-DWrite broad audit result. The immediate build/static continuation is to reconcile that broad gate with the exact private provider closure without weakening protection for real hard post-XP system imports. The next accepted exact integrated artifact should then be tested on physical XP to establish the next actual browser boundary. XP runtime success would still not prove a GOST TLS handshake.
+Current source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc` / run `34485182943` proves full compile/link/package, runtime-archive creation, artifact publication and successful execution of the targeted browser/static gates listed above, but the aggregate workflow result remains RED at the final summary. Because this documentation pass intentionally did not inspect that summary's log reason or diagnostics payload, the remaining aggregate blocker for this run is not classified here. The previously established 22-row private-DWrite broad-audit result remains evidence for run `34439013068`, not automatically for this successor.
+
+Before treating `71c7f135...` as an accepted static candidate, classify the exact final-summary failure in a separate focused pass. Physical XP runtime success, if later established for an exact artifact, would still not by itself prove a GOST TLS handshake.
 
 # Bundled government-system extensions / localization
 
