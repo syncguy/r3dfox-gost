@@ -8,6 +8,8 @@ F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mT
 
 Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat closed tests on unchanged source merely for confirmation.
 
+Physical Windows XP GOST server-auth transport proof is also now established independently on exact source `88453be37a7f39f690c504078f6f9434e2547ab6`, run `34459906476`, job `102815008544`, under forced non-e10s: six completed TLS 1.2 MSSPI handshakes to `fzs.roskazna.ru`, `cipher=0xff85`, successful server verification, encrypted application I/O and HTTP/Treasury traffic. That run has no client certificate (`client_cert_loaded=0`) and does not close mTLS, fail-closed negative-path verification, or default-e10s acceptance.
+
 ### 1. Continue client-decision / provider semantics
 
 Immediate next:
@@ -98,30 +100,32 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 ## Windows compatibility — independent
 
-Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md). The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
+Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Integrated private DWrite browser — latest successor recorded; aggregate summary still RED
+### Integrated private DWrite browser — current successor built; physical test now targets font boundary
 
-The standalone component work and the full-browser transfer remain proven at their respective boundaries:
+The standalone component work, full-browser transfer, and predecessor physical-browser execution are proven at their respective boundaries:
 
 - focused physical component: workflow `.github/workflows/xp-supermium-dwrite-closure.yml`, run `34317489430`, job `102356664699`, artifact `10090864697`, **GREEN / PHYSICAL XP COMPONENT PASS**;
+- physical full-browser predecessor: source `88453be37a7f39f690c504078f6f9434e2547ab6`, run `34459906476`, job `102815008544`, runtime artifact `10150744314`, **PHYSICAL XP BROWSER WORKLOAD PASS under forced non-e10s, sustained stability OPEN**;
 - current full-browser source-under-test `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `34485182943`, job `102897550999`, **aggregate RED**;
+- run `34485182943`, job `102897550999`, **aggregate RED at final summary**;
 - package `10162565742`, runtime `10162567956`, diagnostics `10162609423`.
 
-The current full-browser run successfully compiles, links, stages and packages the private DWrite closure, preserves the listed targeted xul/mozglue XP gates, creates the physical-test runtime archive, runs the broad PE/import audit step, completes YY inventory, and uploads all three artifacts. Its only failed Actions step is `GATE - Summarize XP x32 full build`.
+The current full-browser run successfully compiles, links, stages and packages the corrected Rust XP private-DWrite loader, preserves the listed targeted xul/mozglue XP gates, creates the physical-test runtime archive, runs the broad PE/import audit step, completes YY inventory, and uploads all three artifacts. Its only failed Actions step is `GATE - Summarize XP x32 full build`; exact aggregate cause remains separately unclassified.
 
-This bookkeeping pass deliberately did not inspect the final summary log or diagnostics payload. Therefore the preceding run's exact `gate:broad-import-audit=failure` / 22-row private-DWrite diagnosis is **not** assumed to be the cause of run `34485182943`. That classification remains valid only for run `34439013068`, job `102749929410`, source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`.
+The predecessor physical build `88453be...` has a repeatable late intentional crash at `xul.dll + 0x0116fab3`, exactly symbolized with the matching PDB to `gfxFontGroup::GetDefaultFont()` / `gfx/thebes/gfxTextRun.cpp:2242`, where Firefox calls `MOZ_CRASH_UNSAFE` because no usable/default font can be obtained. This is distinct from the earlier Rust `dwrote` loader assertion, although a common DirectWrite/font root cause remains possible and unproven.
 
 Immediate work:
 
-1. **Classify the exact final-summary failure of run `34485182943` before another expensive build.** Use the final summary output and the already-uploaded diagnostics artifact `10162609423`; keep source-under-test identity `71c7f135...` separate from later documentation commits.
-2. **Follow the exact remaining gate owner.** If the remaining failure is still broad-import acceptance, keep the fix provider/PE-aware and narrow; if a different aggregate gate is named, remediate that owner instead of reopening already closed compatibility families.
-3. **Require the next accepted full build to finish aggregate GREEN.** Preserve all targeted xul/mozglue import gates, DWrite hash/provider/package-survival gates, msvcr14x, bcrypt, legacy D3DCompiler, YY TLS-entry-point contract, Rust XP cfg and PE-floor checks.
-4. **Then physically test that exact accepted integrated browser artifact on XP.** Bind evidence to source SHA, run/job, artifact IDs and exact `r3dfox.exe`/`xul.dll` identities; record the next exact runtime boundary if one appears.
+1. **Physically test current source `71c7f135...` / run `34485182943` on XP.** Bind the run to exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and matching PDB hashes before interpreting a crash.
+2. **Enable font initialization telemetry in that physical run.** Add at least `fontinit:5,fontlist:5` to the existing `MOZ_LOG` set. If the same `GetDefaultFont()` crash recurs, capture the DirectWrite system-font collection/family-count path and the exact `no fonts - init: ... backend: ...` diagnostic rather than weakening the fatal assertion.
+3. **Determine whether the Rust private-DWrite fix changes either boundary.** Specifically distinguish: early `dwrote` loader/assert behavior, DirectWrite system-font enumeration, and the later `gfxFontGroup::GetDefaultFont()` fallback. Do not assume they are one bug without matching evidence.
+4. **Classify the exact final-summary failure of run `34485182943` separately.** Use diagnostics artifact `10162609423`; do not let the aggregate static-policy issue obscure the physical runtime owner.
+5. **Record the next exact boundary.** If `71c7f135...` advances beyond the font crash, do not reopen the now physically passed battery/SharedPrefMap boundaries without contradictory evidence.
 
-Do not spend another cycle re-integrating the same DWrite subtree or mechanically carrying the previous 22-row diagnosis onto a different source SHA. The focused physical DWrite PASS remains component evidence; it does not substitute for full Firefox startup.
+Do not spend another cycle re-integrating the same DWrite subtree or mechanically carrying an old broad-audit diagnosis onto a different source SHA. The focused DWrite PASS and predecessor full-browser runtime are controls; the current experiment is whether the corrected Rust/DWrite path produces a complete usable system font list on XP.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -133,6 +137,8 @@ Keep the physically proven 132 component as the browser-integration control whil
 ### Current full-browser baselines
 
 Current latest integrated full-build evidence is source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`, run `34485182943`, job `102897550999`: compile/package/artifact production PASS, aggregate workflow RED at the final summary; exact summary reason is not classified in the current bookkeeping pass.
+
+Exact predecessor source `88453be...`, run `34459906476`, job `102815008544`, is the current physical full-browser control: under forced non-e10s it executes representative remote browsing and GOST application traffic, but later reaches the repeatable default-font fatal boundary.
 
 The preceding analyzed integrated build remains source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`, run `34439013068`, job `102749929410`: its aggregate RED was explicitly localized to the private-DWrite-only 22-row broad policy result.
 
@@ -155,6 +161,7 @@ Do not preemptively work on NCRYPT/CNG. If a later exact XP artifact reaches a r
 The current lineage has already closed or physically advanced past the following families:
 
 - `SharedPrefMap.cpp:25` / child preference-HANDLE inheritance / `0x80000003` on source `897e1cdf...`;
+- `USER32!RegisterPowerSettingNotification` / `0xC06D007F`, physically advanced beyond by exact successor `88453be...`;
 - pinned/restored msvcr14x Release x86 contract;
 - app-local `xp-bcrypt-v1/bcrypt.dll`;
 - legacy `D3DCompiler_47.dll` staging/packaging;
@@ -171,4 +178,4 @@ The current lineage has already closed or physically advanced past the following
 - YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
-The battery `RegisterPowerSettingNotification` edge is **statically removed but not yet physically closed on an exact integrated successor browser**, so keep it out of the physically closed browser list until exact XP execution confirms the advance.
+The active late runtime boundary is now the exact default-font fatal path on predecessor source `88453be...`; do not spend new cycles on the closed families above without contradictory evidence.
