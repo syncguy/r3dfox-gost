@@ -75,6 +75,51 @@ if ($generatorText.Contains('angle_enable_apple_translator_workarounds = true'))
   throw 'Stale ANGLE GN arg survived the test patch'
 }
 
+$oldGeneratorExport = @'
+p = run_checked(
+    "python3",
+    "scripts/export_targets.py",
+    str(OUT_DIR),
+    *ROOTS,
+    stdout=subprocess.PIPE,
+    shell=True,
+    env=GN_ENV,
+)
+
+# -
+
+print("\nProcessing graph")
+libraries = json.loads(p.stdout.decode())
+'@
+$newGeneratorExport = @'
+export_json_path = OUT_DIR / "export-targets.json"
+with export_json_path.open("wb") as export_json:
+    run_checked(
+        "python3",
+        "scripts/export_targets.py",
+        str(OUT_DIR),
+        *ROOTS,
+        stdout=export_json,
+        shell=True,
+        env=GN_ENV,
+    )
+
+# -
+
+print("\nProcessing graph")
+if not export_json_path.is_file() or export_json_path.stat().st_size == 0:
+    raise RuntimeError("export_targets.py produced an empty JSON file")
+print(f" export_targets JSON bytes: {export_json_path.stat().st_size}")
+with export_json_path.open("r", encoding="utf-8-sig") as export_json:
+    libraries = json.load(export_json)
+'@
+$oldGeneratorExport = $oldGeneratorExport.Replace("`r`n", "`n")
+$newGeneratorExport = $newGeneratorExport.Replace("`r`n", "`n")
+if (-not $generatorText.Contains($oldGeneratorExport)) {
+  throw 'Expected update-angle.py exporter capture block was not found'
+}
+$generatorText = $generatorText.Replace($oldGeneratorExport, $newGeneratorExport)
+
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($generator, $generatorText, $utf8NoBom)
 
@@ -128,6 +173,11 @@ $angleBranch = (& git.exe -C $angle branch --show-current).Trim()
 if ($angleBranch -ne 'firefox-153') { throw "Unexpected ANGLE branch: $angleBranch" }
 
 $exportTargetsHash = $null
+$patchedExportTargetsHash = $null
+$gnDescHash = $null
+$gnDescBytes = $null
+$exportJsonHash = $null
+$exportJsonBytes = $null
 Push-Location $angle
 try {
   Invoke-Checked -Label 'ANGLE bootstrap' -Command {
@@ -142,6 +192,49 @@ try {
   $exportTargetsHash = (Get-FileHash -Algorithm SHA256 $exportTargets).Hash.ToLowerInvariant()
   Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.upstream.py')
 
+  $exportTargetsText = [System.IO.File]::ReadAllText($exportTargets).Replace("`r`n", "`n")
+  $oldGnDesc = @'
+try:
+    p = run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,
+                env=GN_ENV, shell=(True if sys.platform == 'win32' else False))
+except subprocess.CalledProcessError:
+    sys.stderr.buffer.write(b'"gn desc" failed. Is depot_tools in your PATH?\n')
+    exit(1)
+
+# -
+
+print('\nProcessing graph', file=sys.stderr)
+descs = json.loads(p.stdout.decode())
+'@
+  $newGnDesc = @'
+gn_desc_path = pathlib.Path(OUT_DIR) / 'gn-desc.json'
+try:
+    with gn_desc_path.open('wb') as gn_desc_file:
+        run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=gn_desc_file,
+                    env=GN_ENV, shell=(True if sys.platform == 'win32' else False))
+except subprocess.CalledProcessError:
+    sys.stderr.buffer.write(b'"gn desc" failed. Is depot_tools in your PATH?\n')
+    exit(1)
+
+# -
+
+print('\nProcessing graph', file=sys.stderr)
+if not gn_desc_path.is_file() or gn_desc_path.stat().st_size == 0:
+    raise RuntimeError('gn desc produced an empty JSON file')
+print(f' gn desc JSON bytes: {gn_desc_path.stat().st_size}', file=sys.stderr)
+with gn_desc_path.open('r', encoding='utf-8-sig') as gn_desc_file:
+    descs = json.load(gn_desc_file)
+'@
+  $oldGnDesc = $oldGnDesc.Replace("`r`n", "`n")
+  $newGnDesc = $newGnDesc.Replace("`r`n", "`n")
+  if (-not $exportTargetsText.Contains($oldGnDesc)) {
+    throw 'Expected firefox-153 export_targets.py GN capture block was not found'
+  }
+  $exportTargetsText = $exportTargetsText.Replace($oldGnDesc, $newGnDesc)
+  [System.IO.File]::WriteAllText($exportTargets, $exportTargetsText, $utf8NoBom)
+  $patchedExportTargetsHash = (Get-FileHash -Algorithm SHA256 $exportTargets).Hash.ToLowerInvariant()
+  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.file-json.py')
+
   $regenLog = Join-Path $Diagnostics 'update-angle-regenerate.log'
   $savedPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -153,6 +246,17 @@ try {
     $ErrorActionPreference = $savedPreference
   }
   if ($regenExit -ne 0) { throw "update-angle.py failed with exit code $regenExit" }
+
+  $gnDescPath = Join-Path $angle 'out\gn-desc.json'
+  $exportJsonPath = Join-Path $angle 'out\export-targets.json'
+  foreach ($jsonPath in @($gnDescPath, $exportJsonPath)) {
+    if (-not (Test-Path $jsonPath)) { throw "Expected persisted ANGLE JSON missing: $jsonPath" }
+    if ((Get-Item $jsonPath).Length -le 0) { throw "Persisted ANGLE JSON is empty: $jsonPath" }
+  }
+  $gnDescHash = (Get-FileHash -Algorithm SHA256 $gnDescPath).Hash.ToLowerInvariant()
+  $gnDescBytes = (Get-Item $gnDescPath).Length
+  $exportJsonHash = (Get-FileHash -Algorithm SHA256 $exportJsonPath).Hash.ToLowerInvariant()
+  $exportJsonBytes = (Get-Item $exportJsonPath).Length
 }
 finally {
   Pop-Location
@@ -188,8 +292,14 @@ $summary = @(
   "xp_source=$xpSha",
   "angle_branch=$angleBranch",
   "angle_source=$angleSha",
-  "export_targets_sha256=$exportTargetsHash",
+  "export_targets_upstream_sha256=$exportTargetsHash",
+  "export_targets_file_json_sha256=$patchedExportTargetsHash",
   "removed_stale_angle_enable_apple_translator_workarounds=True",
+  "json_transport=file",
+  "gn_desc_json_bytes=$gnDescBytes",
+  "gn_desc_json_sha256=$gnDescHash",
+  "export_targets_json_bytes=$exportJsonBytes",
+  "export_targets_json_sha256=$exportJsonHash",
   "gost_baseline_sha256=$gostBaselineHash",
   "xp_baseline_sha256=$xpBaselineHash",
   "baselines_identical=$($gostBaselineHash -eq $xpBaselineHash)",
