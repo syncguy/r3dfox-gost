@@ -55,11 +55,16 @@ $gostBaselineHash = (Get-FileHash -Algorithm SHA256 $baselineGost).Hash.ToLowerI
 $xpBaselineHash = (Get-FileHash -Algorithm SHA256 $baselineXp).Hash.ToLowerInvariant()
 
 $generatorText = [System.IO.File]::ReadAllText($generator).Replace("`r`n", "`n")
-$staleArg = "angle_enable_apple_translator_workarounds = true`n"
-if (-not $generatorText.Contains($staleArg)) {
-  throw 'Expected stale ANGLE GN arg was not found in update-angle.py'
+$staleArgs = @(
+  "angle_enable_apple_translator_workarounds = true`n",
+  "angle_enable_gl_desktop_frontend = false`n"
+)
+foreach ($staleArg in $staleArgs) {
+  if (-not $generatorText.Contains($staleArg)) {
+    throw "Expected stale ANGLE GN arg was not found in update-angle.py: $($staleArg.Trim())"
+  }
+  $generatorText = $generatorText.Replace($staleArg, '')
 }
-$generatorText = $generatorText.Replace($staleArg, '')
 
 $needle = "angle_enable_gl = false`n"
 $replacement = "angle_enable_d3d11 = false`nangle_enable_d3d9 = true`nangle_enable_gl = false`n"
@@ -71,8 +76,10 @@ if ($generatorText.Contains('angle_enable_d3d11 = false')) {
 }
 $generatorText = $generatorText.Replace($needle, $replacement)
 
-if ($generatorText.Contains('angle_enable_apple_translator_workarounds = true')) {
-  throw 'Stale ANGLE GN arg survived the test patch'
+foreach ($staleArg in $staleArgs) {
+  if ($generatorText.Contains($staleArg.Trim())) {
+    throw "Stale ANGLE GN arg survived the test patch: $($staleArg.Trim())"
+  }
 }
 
 $oldGeneratorExport = @'
@@ -222,8 +229,13 @@ print('\nProcessing graph', file=sys.stderr)
 if not gn_desc_path.is_file() or gn_desc_path.stat().st_size == 0:
     raise RuntimeError('gn desc produced an empty JSON file')
 print(f' gn desc JSON bytes: {gn_desc_path.stat().st_size}', file=sys.stderr)
-with gn_desc_path.open('r', encoding='utf-8-sig') as gn_desc_file:
-    descs = json.load(gn_desc_file)
+gn_desc_text = gn_desc_path.read_text(encoding='utf-8-sig')
+json_start = gn_desc_text.find('{')
+if json_start < 0:
+    raise RuntimeError(f'gn desc output has no JSON object; prefix={gn_desc_text[:512]!r}')
+if json_start:
+    print(f' gn desc leading diagnostics: {gn_desc_text[:json_start]!r}', file=sys.stderr)
+descs = json.loads(gn_desc_text[json_start:])
 '@
   $oldGnDesc = $oldGnDesc.Replace("`r`n", "`n")
   $newGnDesc = $newGnDesc.Replace("`r`n", "`n")
@@ -295,6 +307,7 @@ $summary = @(
   "export_targets_upstream_sha256=$exportTargetsHash",
   "export_targets_file_json_sha256=$patchedExportTargetsHash",
   "removed_stale_angle_enable_apple_translator_workarounds=True",
+  "removed_stale_angle_enable_gl_desktop_frontend=True",
   "json_transport=file",
   "gn_desc_json_bytes=$gnDescBytes",
   "gn_desc_json_sha256=$gnDescHash",
