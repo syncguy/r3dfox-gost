@@ -67,7 +67,7 @@ foreach ($staleArg in $staleArgs) {
 }
 
 $needle = "angle_enable_gl = false`n"
-$replacement = "angle_enable_d3d11 = false`nangle_enable_d3d9 = true`nangle_enable_gl = false`n"
+$replacement = "angle_enable_d3d11 = false`nangle_enable_d3d9 = true`nangle_enable_wgpu = false`nangle_enable_gl = false`n"
 if (-not $generatorText.Contains($needle)) {
   throw 'Expected ANGLE GN_ARGS anchor was not found in update-angle.py'
 }
