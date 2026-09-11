@@ -125,6 +125,23 @@ try {
     & gclient.bat sync
   }
 
+  # firefox-153 export_targets.py invokes third_party/depot_tools/gn.py through
+  # depot_tools' bootstrap Python. On the current Windows depot_tools stack that
+  # trampoline returns success with empty stdout, so json.loads() fails. Use the
+  # same direct `gn` command that update-angle.py already used successfully for
+  # `gn gen`; newer ANGLE export_targets.py revisions also use direct `gn` here.
+  $exportTargets = Join-Path $angle 'scripts\export_targets.py'
+  if (-not (Test-Path $exportTargets)) { throw "ANGLE export helper missing: $exportTargets" }
+  $exportTargetsText = [System.IO.File]::ReadAllText($exportTargets)
+  $oldGnDesc = "p = run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
+  $newGnDesc = "p = run_checked('gn', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
+  if (-not $exportTargetsText.Contains($oldGnDesc)) {
+    throw 'Expected firefox-153 export_targets.py gn.py trampoline was not found'
+  }
+  $exportTargetsText = $exportTargetsText.Replace($oldGnDesc, $newGnDesc)
+  [System.IO.File]::WriteAllText($exportTargets, $exportTargetsText, $utf8NoBom)
+  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.direct-gn.py')
+
   $regenLog = Join-Path $Diagnostics 'update-angle-regenerate.log'
   $savedPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
