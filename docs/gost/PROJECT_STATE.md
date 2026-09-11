@@ -27,11 +27,29 @@ A successful build is not a successful GOST handshake. A hosted compatibility pr
 
 # GOST TLS runtime
 
-No GOST-runtime conclusion changes as a result of the XP work below.
-
 Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication.
 
 Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
+
+## Physical Windows XP GOST TLS server-auth PASS
+
+Direct physical-XP transport proof now exists for the exact Firefox/r3dfox 153 artifact from:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `88453be37a7f39f690c504078f6f9434e2547ab6`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build XP x32`;
+- run `34459906476`, job `102815008544`;
+- runtime artifact `10150744314`.
+
+The exact physical binaries are independently matched to the Actions runtime artifact:
+
+- `r3dfox.exe` SHA-1 `351ac2a4017c22c9c2a800efd98a3a6e06d6ed28`;
+- `xul.dll` SHA-1 `47efea21a563940ad14886063a564f27d22d73e4`;
+- `xpcompat\dwrite\DWrite.dll` SHA-1 `a72f49accb58a5dc894a9735ccd470fd7f89845d`.
+
+Under `MOZ_FORCE_DISABLE_E10S=1` and an explicit `R3DFOX_GOST_HOSTS` allowlist containing `fzs.roskazna.ru`, the `GostTLS:5` capture proves allowlist selection, custom MSSPI layer attachment, successful server verification, six completed TLS 1.2 MSSPI handshakes with `cipher=0xff85`, successful encrypted MSSPI read/write traffic, `HTTP/1.1 200 OK`, and Treasury application resource/API traffic. This is a **physical GOST TLS server-auth handshake PASS on Windows XP SP3 x86**, not merely a browser-start or generic-HTTPS observation.
+
+All observed completed handshakes report `client_cert_loaded=0`; therefore this experiment is not an mTLS/client-certificate PASS. Positive verification on the observed sessions also does not close the separate fail-closed negative-path server-verification work. The result is proven under forced non-e10s only and must not be generalized to default e10s/multiprocess operation.
 
 Current GOST runtime constraints/open work remain:
 
@@ -40,9 +58,10 @@ Current GOST runtime constraints/open work remain:
 - `Session` is the current default positive certificate choice and remains process-local;
 - true persistent `Permanent` semantics remain open;
 - final fail-closed server verification remains open;
-- synchronous provider/key access can still block the shared Firefox Socket Thread during long CryptoPro waits.
+- synchronous provider/key access can still block the shared Firefox Socket Thread during long CryptoPro waits;
+- default e10s/multiprocess GOST runtime acceptance remains separate from the proven forced-non-e10s XP run.
 
-Current authoritative Session-default browser source is `afbdad307f63e594d3715169d6e34235280dddaf`, full build run `33073577269`, job `98521835354`, release artifact `9652941006`.
+Current authoritative Session-default browser source remains `afbdad307f63e594d3715169d6e34235280dddaf`, full build run `33073577269`, job `98521835354`, release artifact `9652941006`. The physical-XP GOST proof above is separate exact runtime evidence on source `88453be...`.
 
 # Windows XP SP3 x86 compatibility
 
@@ -74,6 +93,28 @@ Do not call this run GREEN. It also is not, by itself, physical-XP browser evide
 ### Preceding analyzed integrated build — exact 22-row private-DWrite broad-audit evidence
 
 Run `34439013068`, job `102749929410`, source-under-test `c0b5561dc58d588ecb970a333d49ac78fae84eb0` remains the latest integrated run whose final RED was explicitly localized from its diagnostics. Its `xp-x32-forbidden-direct-imports.txt` contained exactly 22 rows, all attributed to staged private `xpcompat/dwrite/DWrite.dll`, with no forbidden rows for `xul.dll`, `mozglue.dll`, another browser DLL or executable. That evidence remains valid for that exact run and must not be silently reattributed to later source `71c7f135...`.
+
+## Physical Firefox 153 milestone and current late crash boundary
+
+Exact predecessor source `88453be37a7f39f690c504078f6f9434e2547ab6`, run `34459906476`, job `102815008544`, runtime artifact `10150744314` has now been physically exercised on Windows XP SP3 x86. The physical `r3dfox.exe`, `xul.dll`, and private `DWrite.dll` SHA-1 values have been independently matched to the Actions artifact.
+
+Under `MOZ_FORCE_DISABLE_E10S=1`, this exact browser starts, renders and executes real remote browser workloads, including the Treasury web application and GOST TLS application traffic. Therefore the project has physically demonstrated a working Firefox/r3dfox 153 browser workload on XP; the remaining problem is sustained stability, not basic impossibility of Firefox 153 execution on XP.
+
+The same exact build has a repeatable late parent crash reported as `xul.dll + 0x0116fab3`. Matching `xul.pdb` from diagnostics artifact `10150778254` resolves that RVA to:
+
+```text
+MOZ_Crash
+  mozilla/Assertions.h:402
+
+gfxFontGroup::GetDefaultFont(void)
+  gfx/thebes/gfxTextRun.cpp:2242
+```
+
+The exact instruction at the fault RVA is `0xCC` (`int 3`). Source inspection proves this is the deliberate `MOZ_CRASH_UNSAFE` path reached when Firefox cannot obtain a usable/default font even after its final `GetDefaultFontEntry()` / `FindOrMakeFont()` fallback. Thus the current repeatable late physical-XP boundary on source `88453be...` is a **font/default-font failure**, not a random access violation.
+
+This late crash is not the same crash site as the earlier Rust `dwrote` assertion `!dwrite_create_factory_ptr.is_null()`. Both may involve the DirectWrite/font subsystem, but common ownership is not yet proven. The current source `71c7f135...` contains the Rust XP private-DWrite loader fix and its corrected vendored checksum; its next physical run must determine independently whether the early Rust failure and/or this later font/default-font failure remain.
+
+For the next physical run, preserve exact binary identity and add at least `fontinit:5,fontlist:5` to `MOZ_LOG` so DirectWrite system-font collection/family enumeration is captured before any repeat of `gfxFontGroup::GetDefaultFont()`.
 
 ## Private Supermium DWrite component — focused PHYSICAL XP PASS
 
@@ -116,15 +157,15 @@ The old physical XP blocker at `modules/libpref/SharedPrefMap.cpp:25` / `MOZ_REL
 
 The remediation in `ipc/chromium/src/base/process_util_win.cc` preserves the Vista+ selective attribute-list path and, under `MOZ_XP_COMPAT`, enables classic Windows handle inheritance when that API family is unavailable. Physical XP testing of exact source `897e1cdf98bcc091e13283fa8004177971d30f27` / run `34194737456` repeatedly advanced beyond the old boundary. User-reported identities were `r3dfox.exe` SHA-1 `dbfaed8d2d06d50195a572f8364186e4032f8a97` and `xul.dll` SHA-1 `fcc09439c4e36be056b5796303f7e433a7afe585`.
 
-Conclusion: the SharedPrefMap invalid-child-HANDLE blocker is physically closed for that exact source/run. Do not reopen it without contradictory evidence. Newer build lineages retain the launcher remediation, but physical validation of an accepted newer integrated artifact remains separate.
+Conclusion: the SharedPrefMap invalid-child-HANDLE blocker is physically closed for that exact source/run. Do not reopen it without contradictory evidence.
 
-## Physical `0xC06D007F` battery boundary — root cause localized; successor static fix remains GREEN
+## Physical `0xC06D007F` battery boundary — PHYSICALLY ADVANCED BEYOND on exact successor
 
 After the SharedPrefMap advance, exact source `897e1cdf...` reached physical exception `0xC06D007F`. Matching DrWatson/PDB evidence localized `__delayLoadHelper2` failure to `USER32!RegisterPowerSettingNotification`, owned by `hal/windows/WindowsBattery.cpp::EnableBatteryNotifications()`.
 
-The successor source remediation uses XP-compatible `WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE` under C/C++ `MOZ_XP_COMPAT` and compiles out both `RegisterPowerSettingNotification` and `UnregisterPowerSettingNotification`. The dedicated final-`xul.dll` direct+delay gate passed in all-GREEN run `34213345771`, first integrated run `34353829276`, analyzed integrated run `34439013068`, and latest integrated run `34485182943`.
+The successor source remediation uses XP-compatible `WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE` under C/C++ `MOZ_XP_COMPAT` and compiles out both `RegisterPowerSettingNotification` and `UnregisterPowerSettingNotification`. The dedicated final-`xul.dll` direct+delay gate passed in all-GREEN run `34213345771` and later integrated builds.
 
-Therefore the exact old delayed-import edge remains statically removed. Do not call the physical `0xC06D007F` boundary closed until an accepted exact successor browser artifact advances beyond it on real XP.
+Physical execution of exact successor source `88453be...` / run `34459906476` now advances far beyond this old boundary into rendered remote browser use and successful GOST application traffic. Therefore the old `RegisterPowerSettingNotification` startup boundary is **physically closed/advanced beyond for this successor lineage**. Do not reopen it without contradictory evidence from a later exact artifact.
 
 ## Rejected `Platform::Freeze()` access-mask override — removed
 
@@ -147,6 +188,7 @@ Keep the XP compatibility mechanisms distinct:
 Do not reopen these without contradictory evidence on a later exact artifact:
 
 - `SharedPrefMap.cpp:25` / invalid inherited preference HANDLE / `0x80000003` on `897e1cdf...`;
+- `USER32!RegisterPowerSettingNotification` / `0xC06D007F`, physically advanced beyond on exact successor `88453be...`;
 - `xul.dll` `ntdll!RtlpWaitForCriticalSection` startup failure;
 - preceding IP Helper runtime boundary;
 - `USER32!SetProcessDPIAware` delay-load boundary;
@@ -159,15 +201,15 @@ Do not reopen these without contradictory evidence on a later exact artifact:
 - 13/13 strong-candidate YY DLL entry-point/TLS static coverage;
 - focused private DWrite component runtime contract on physical XP (`34317489430` / `10090864697`).
 
-The `USER32!RegisterPowerSettingNotification` / `0xC06D007F` edge is not in the physically closed browser list yet: root cause and successor static removal are proven, but successor physical browser execution is pending. Full YY `kernel32.lib` interposition remains prohibited; keep compatibility ownership narrow by source/provider/PE.
+Full YY `kernel32.lib` interposition remains prohibited; keep compatibility ownership narrow by source/provider/PE.
 
 ## XP acceptance boundary
 
-Final XP acceptance still requires one exact integrated candidate to start and sustain representative browser use on physical Windows XP. That boundary is **not yet met** by build evidence alone.
+Basic full-browser execution on physical XP is now established for exact source `88453be...` under forced non-e10s: the browser renders and processes representative remote application traffic, including the Treasury application. The remaining acceptance blocker is **sustained stability**, with a repeatable late intentional crash currently localized to `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242` because no usable/default font can be obtained.
 
-Current source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc` / run `34485182943` proves full compile/link/package, runtime-archive creation, artifact publication and successful execution of the targeted browser/static gates listed above, but the aggregate workflow result remains RED at the final summary. Because this documentation pass intentionally did not inspect that summary's log reason or diagnostics payload, the remaining aggregate blocker for this run is not classified here. The previously established 22-row private-DWrite broad-audit result remains evidence for run `34439013068`, not automatically for this successor.
+Current implementation source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc` / run `34485182943` contains the corrected Rust XP private-DWrite loader and builds/packages successfully, although the workflow remains aggregate RED at its final summary. Its physical-XP behavior has not yet been established. The next physical experiment should use that exact successor artifact, preserve binary hashes, enable `fontinit:5,fontlist:5`, and determine whether the early Rust DirectWrite assertion and the late default-font crash are both advanced beyond or whether a new exact boundary appears.
 
-Before treating `71c7f135...` as an accepted static candidate, classify the exact final-summary failure in a separate focused pass. Physical XP runtime success, if later established for an exact artifact, would still not by itself prove a GOST TLS handshake.
+Physical XP browser success remains independent of GOST TLS acceptance; in this case a deliberately combined experiment has independently established both the browser-runtime milestone and the GOST server-auth handshake on exact source `88453be...`.
 
 # Bundled government-system extensions / localization
 
