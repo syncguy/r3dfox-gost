@@ -125,22 +125,29 @@ try {
     & gclient.bat sync
   }
 
-  # firefox-153 export_targets.py invokes third_party/depot_tools/gn.py through
-  # depot_tools' bootstrap Python. On the current Windows depot_tools stack that
-  # trampoline returns success with empty stdout, so json.loads() fails. Use the
-  # same direct `gn` command that update-angle.py already used successfully for
-  # `gn gen`; newer ANGLE export_targets.py revisions also use direct `gn` here.
+  $gnExe = Join-Path $angle 'third_party\gn\gn.exe'
+  if (-not (Test-Path $gnExe)) { throw "ANGLE GN binary missing after gclient sync: $gnExe" }
+  Invoke-Checked -Label 'ANGLE direct GN preflight' -Command {
+    & $gnExe --version
+  }
+
   $exportTargets = Join-Path $angle 'scripts\export_targets.py'
   if (-not (Test-Path $exportTargets)) { throw "ANGLE export helper missing: $exportTargets" }
   $exportTargetsText = [System.IO.File]::ReadAllText($exportTargets)
   $oldGnDesc = "p = run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
-  $newGnDesc = "p = run_checked('gn', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
+  $newGnDesc = "p = run_checked(os.path.join(SCRIPT_DIR, '..', 'third_party', 'gn', 'gn.exe'), 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,"
+  $oldGnShell = "env=GN_ENV, shell=(True if sys.platform == 'win32' else False))"
+  $newGnShell = "env=GN_ENV, shell=False)"
   if (-not $exportTargetsText.Contains($oldGnDesc)) {
     throw 'Expected firefox-153 export_targets.py gn.py trampoline was not found'
   }
+  if (-not $exportTargetsText.Contains($oldGnShell)) {
+    throw 'Expected firefox-153 export_targets.py Windows shell mode was not found'
+  }
   $exportTargetsText = $exportTargetsText.Replace($oldGnDesc, $newGnDesc)
+  $exportTargetsText = $exportTargetsText.Replace($oldGnShell, $newGnShell)
   [System.IO.File]::WriteAllText($exportTargets, $exportTargetsText, $utf8NoBom)
-  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.direct-gn.py')
+  Copy-Item $exportTargets (Join-Path $Diagnostics 'export_targets.direct-gn-exe.py')
 
   $regenLog = Join-Path $Diagnostics 'update-angle-regenerate.log'
   $savedPreference = $ErrorActionPreference
