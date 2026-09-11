@@ -4,8 +4,6 @@ include("../../moz.build.common")
 
 DEFINES["ANGLE_CAPTURE_ENABLED"] = "0"
 DEFINES["ANGLE_DISABLE_POOL_ALLOC"] = True
-DEFINES["ANGLE_ENABLE_D3D11"] = True
-DEFINES["ANGLE_ENABLE_D3D11_COMPOSITOR_NATIVE_WINDOW"] = True
 DEFINES["ANGLE_ENABLE_D3D9"] = True
 DEFINES["ANGLE_ENABLE_SHARE_CONTEXT_LOCK"] = "1"
 # DEFINES["ANGLE_IS_WIN"] = True
@@ -214,40 +212,6 @@ SOURCES += [
     "../../checkout/src/libANGLE/renderer/ContextImpl.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/BufferD3D.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/CompilerD3D.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Blit11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Buffer11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Clear11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Context11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/converged/CompositorNativeWindow11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/DebugAnnotator11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/ExternalImageSiblingImpl11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Fence11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/formatutils11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Framebuffer11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Image11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/IndexBuffer11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/InputLayoutCache.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/MappedSubresourceVerifier11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/PixelTransfer11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Program11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/ProgramPipeline11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Query11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/renderer11_utils.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/RenderStateCache.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/RenderTarget11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/ResourceManager11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/ShaderExecutable11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/StateManager11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/StreamProducerD3DTexture.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/SwapChain11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/texture_format_table.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/texture_format_table_autogen.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/TextureStorage11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/TransformFeedback11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/Trim11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/VertexArray11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/VertexBuffer11.cpp",
-    "../../checkout/src/libANGLE/renderer/d3d/d3d11/win32/NativeWindow11Win32.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d9/Blit9.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d9/Buffer9.cpp",
     "../../checkout/src/libANGLE/renderer/d3d/d3d9/Context9.cpp",
