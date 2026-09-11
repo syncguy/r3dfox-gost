@@ -39,35 +39,36 @@ if ($LASTEXITCODE -ne 0 -or -not $gostSha) { throw 'Cannot resolve agent/gost-tl
 $xpSha = (& git.exe -C $XpSource rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $xpSha) { throw 'Cannot resolve agent/winrt-source-poc SHA' }
 
-$generator = Join-Path $GostSource 'gfx\angle\update-angle.py'
+$generator = Join-Path $XpSource 'gfx\angle\update-angle.py'
 $gostMozBuild = Join-Path $GostSource 'gfx\angle\targets\libGLESv2\moz.build'
 $xpMozBuild = Join-Path $XpSource 'gfx\angle\targets\libGLESv2\moz.build'
-foreach ($path in @($generator, $gostMozBuild, $xpMozBuild)) {
+$cherryPicks = Join-Path $XpSource 'gfx\angle\cherry_picks.txt'
+$angleCommitHeader = Join-Path $XpSource 'gfx\angle\checkout\out\gen\angle\angle_commit.h'
+foreach ($path in @($generator, $gostMozBuild, $xpMozBuild, $cherryPicks, $angleCommitHeader)) {
   if (-not (Test-Path $path)) { throw "Required file missing: $path" }
+}
+
+$cherryText = [System.IO.File]::ReadAllText($cherryPicks)
+$vendorMatch = [regex]::Match($cherryText, '(?m)^commit ([0-9a-f]{40})\r?$')
+if (-not $vendorMatch.Success) { throw 'Cannot resolve exact vendored ANGLE commit from cherry_picks.txt' }
+$vendorAngleSha = $vendorMatch.Groups[1].Value
+$headerText = [System.IO.File]::ReadAllText($angleCommitHeader)
+$headerMatch = [regex]::Match($headerText, 'ANGLE_COMMIT_HASH "([0-9a-f]{12})"')
+if (-not $headerMatch.Success) { throw 'Cannot resolve ANGLE_COMMIT_HASH from angle_commit.h' }
+if (-not $vendorAngleSha.StartsWith($headerMatch.Groups[1].Value)) {
+  throw "Vendored ANGLE identity mismatch: cherry_picks=$vendorAngleSha header=$($headerMatch.Groups[1].Value)"
 }
 
 $baselineGost = Join-Path $Diagnostics 'libGLESv2.moz.build.gost-before'
 $baselineXp = Join-Path $Diagnostics 'libGLESv2.moz.build.xp-before'
 Copy-Item $gostMozBuild $baselineGost
 Copy-Item $xpMozBuild $baselineXp
-
 $gostBaselineHash = (Get-FileHash -Algorithm SHA256 $baselineGost).Hash.ToLowerInvariant()
 $xpBaselineHash = (Get-FileHash -Algorithm SHA256 $baselineXp).Hash.ToLowerInvariant()
 
 $generatorText = [System.IO.File]::ReadAllText($generator).Replace("`r`n", "`n")
-$staleArgs = @(
-  "angle_enable_apple_translator_workarounds = true`n",
-  "angle_enable_gl_desktop_frontend = false`n"
-)
-foreach ($staleArg in $staleArgs) {
-  if (-not $generatorText.Contains($staleArg)) {
-    throw "Expected stale ANGLE GN arg was not found in update-angle.py: $($staleArg.Trim())"
-  }
-  $generatorText = $generatorText.Replace($staleArg, '')
-}
-
 $needle = "angle_enable_gl = false`n"
-$replacement = "angle_enable_d3d11 = false`nangle_enable_d3d9 = true`nangle_enable_wgpu = false`nangle_enable_gl = false`n"
+$replacement = "angle_enable_d3d11 = false`nangle_enable_d3d9 = true`nangle_enable_gl = false`n"
 if (-not $generatorText.Contains($needle)) {
   throw 'Expected ANGLE GN_ARGS anchor was not found in update-angle.py'
 }
@@ -75,12 +76,6 @@ if ($generatorText.Contains('angle_enable_d3d11 = false')) {
   throw 'update-angle.py already disables D3D11; refusing to make an ambiguous test patch'
 }
 $generatorText = $generatorText.Replace($needle, $replacement)
-
-foreach ($staleArg in $staleArgs) {
-  if ($generatorText.Contains($staleArg.Trim())) {
-    throw "Stale ANGLE GN arg survived the test patch: $($staleArg.Trim())"
-  }
-}
 
 $oldGeneratorExport = @'
 p = run_checked(
@@ -129,9 +124,7 @@ $generatorText = $generatorText.Replace($oldGeneratorExport, $newGeneratorExport
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($generator, $generatorText, $utf8NoBom)
-
-$patchedGenerator = Join-Path $Diagnostics 'update-angle.d3d9-only.py'
-Copy-Item $generator $patchedGenerator
+Copy-Item $generator (Join-Path $Diagnostics 'update-angle.d3d9-only.py')
 
 $depotTools = Join-Path $WorkRoot 'depot_tools'
 if (-not (Test-Path (Join-Path $depotTools '.git'))) {
@@ -153,31 +146,36 @@ Invoke-Checked -Label 'depot_tools Windows bootstrap' -Command {
 }
 
 $gitWrapper = Join-Path $depotTools 'git.bat'
-if (-not (Test-Path $gitWrapper)) {
-  throw "depot_tools bootstrap did not create git.bat: $gitWrapper"
-}
+if (-not (Test-Path $gitWrapper)) { throw "depot_tools bootstrap did not create git.bat: $gitWrapper" }
 Invoke-Checked -Label 'depot_tools git wrapper preflight' -Command {
   & $gitWrapper --version
 }
-
 $env:DEPOT_TOOLS_UPDATE = '0'
 New-Item -ItemType File -Force (Join-Path $depotTools '.disable_auto_update') | Out-Null
 
 $angle = Join-Path $WorkRoot 'angle'
 if (-not (Test-Path (Join-Path $angle '.git'))) {
-  Invoke-Checked -Label 'mozilla/angle firefox-153 clone' -Command {
-    & git.exe clone --branch firefox-153 --single-branch https://github.com/mozilla/angle.git $angle
+  New-Item -ItemType Directory -Force $angle | Out-Null
+  Invoke-Checked -Label 'mozilla/angle repository init' -Command {
+    & git.exe -C $angle init
+  }
+  Invoke-Checked -Label 'mozilla/angle origin registration' -Command {
+    & git.exe -C $angle remote add origin https://github.com/mozilla/angle.git
   }
 }
-
+Invoke-Checked -Label 'fetch exact vendored ANGLE commit' -Command {
+  & git.exe -C $angle fetch --depth 1 origin $vendorAngleSha
+}
+Invoke-Checked -Label 'checkout exact vendored ANGLE commit' -Command {
+  & git.exe -C $angle checkout --detach FETCH_HEAD
+}
 Invoke-Checked -Label 'fetch chromium/5359 reference' -Command {
   & git.exe -C $angle fetch origin refs/heads/chromium/5359:refs/remotes/origin/chromium/5359
 }
 
 $angleSha = (& git.exe -C $angle rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $angleSha) { throw 'Cannot resolve mozilla/angle SHA' }
-$angleBranch = (& git.exe -C $angle branch --show-current).Trim()
-if ($angleBranch -ne 'firefox-153') { throw "Unexpected ANGLE branch: $angleBranch" }
+if ($angleSha -ne $vendorAngleSha) { throw "ANGLE checkout mismatch: expected=$vendorAngleSha actual=$angleSha" }
 
 $exportTargetsHash = $null
 $patchedExportTargetsHash = $null
@@ -202,7 +200,7 @@ try {
   $exportTargetsText = [System.IO.File]::ReadAllText($exportTargets).Replace("`r`n", "`n")
   $oldGnDesc = @'
 try:
-    p = run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,
+    p = run_checked('gn', 'desc', '--format=json', str(OUT_DIR), '*', stdout=subprocess.PIPE,
                 env=GN_ENV, shell=(True if sys.platform == 'win32' else False))
 except subprocess.CalledProcessError:
     sys.stderr.buffer.write(b'"gn desc" failed. Is depot_tools in your PATH?\n')
@@ -217,7 +215,7 @@ descs = json.loads(p.stdout.decode())
 gn_desc_path = pathlib.Path(OUT_DIR) / 'gn-desc.json'
 try:
     with gn_desc_path.open('wb') as gn_desc_file:
-        run_checked(sys.executable, 'third_party/depot_tools/gn.py', 'desc', '--format=json', str(OUT_DIR), '*', stdout=gn_desc_file,
+        run_checked('gn', 'desc', '--format=json', str(OUT_DIR), '*', stdout=gn_desc_file,
                     env=GN_ENV, shell=(True if sys.platform == 'win32' else False))
 except subprocess.CalledProcessError:
     sys.stderr.buffer.write(b'"gn desc" failed. Is depot_tools in your PATH?\n')
@@ -240,7 +238,7 @@ descs = json.loads(gn_desc_text[json_start:])
   $oldGnDesc = $oldGnDesc.Replace("`r`n", "`n")
   $newGnDesc = $newGnDesc.Replace("`r`n", "`n")
   if (-not $exportTargetsText.Contains($oldGnDesc)) {
-    throw 'Expected firefox-153 export_targets.py GN capture block was not found'
+    throw 'Expected exact-vendor export_targets.py GN capture block was not found'
   }
   $exportTargetsText = $exportTargetsText.Replace($oldGnDesc, $newGnDesc)
   [System.IO.File]::WriteAllText($exportTargets, $exportTargetsText, $utf8NoBom)
@@ -274,15 +272,19 @@ finally {
   Pop-Location
 }
 
-if (-not (Test-Path $gostMozBuild)) { throw 'Regenerated libGLESv2/moz.build is missing' }
+$trim11 = 'gfx/angle/checkout/src/libANGLE/renderer/d3d/d3d11/Trim11.cpp'
+& git.exe -C $XpSource checkout -- $trim11
+if ($LASTEXITCODE -ne 0) { throw 'Cannot restore project-local ANGLE Trim11.cpp compatibility patch after regeneration' }
+
+if (-not (Test-Path $xpMozBuild)) { throw 'Regenerated libGLESv2/moz.build is missing' }
 $generated = Join-Path $Diagnostics 'libGLESv2.moz.build.generated'
-Copy-Item $gostMozBuild $generated
+Copy-Item $xpMozBuild $generated
 
 $diffPath = Join-Path $Diagnostics 'libGLESv2.moz.build.diff'
 $savedPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-  & git.exe diff --no-index -- $baselineGost $generated 2>&1 | Set-Content -Encoding utf8 $diffPath
+  & git.exe diff --no-index -- $baselineXp $generated 2>&1 | Set-Content -Encoding utf8 $diffPath
   $diffExit = $LASTEXITCODE
 }
 finally {
@@ -290,24 +292,36 @@ finally {
 }
 if ($diffExit -notin @(0, 1)) { throw "git diff --no-index failed with exit code $diffExit" }
 
+$changedPaths = @(& git.exe -C $XpSource diff --name-only -- gfx/angle | Where-Object { $_ })
+if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory regenerated gfx/angle changes' }
+$changedPaths | Set-Content -Encoding utf8 (Join-Path $Diagnostics 'regenerated-angle-changed-files.txt')
+$checkoutChanges = @($changedPaths | Where-Object { $_ -like 'gfx/angle/checkout/*' })
+if ($checkoutChanges.Count -ne 0) {
+  throw "Exact-vendor regeneration unexpectedly changed checkout sources: $($checkoutChanges -join ', ')"
+}
+
+$generatedFilesRoot = Join-Path $Diagnostics 'regenerated-files'
+foreach ($relativePath in $changedPaths) {
+  $sourcePath = Join-Path $XpSource $relativePath
+  if (-not (Test-Path $sourcePath -PathType Leaf)) { continue }
+  $destPath = Join-Path $generatedFilesRoot $relativePath
+  New-Item -ItemType Directory -Force (Split-Path -Parent $destPath) | Out-Null
+  Copy-Item $sourcePath $destPath
+}
+
 $generatedText = [System.IO.File]::ReadAllText($generated)
 $d3d11Sources = @([regex]::Matches($generatedText, 'renderer/d3d/d3d11/')).Count
 $d3d9Sources = @([regex]::Matches($generatedText, 'renderer/d3d/d3d9/')).Count
 $sourceCount = @([regex]::Matches($generatedText, '(?m)^\s*"\.\./\.\./checkout/src/.+\.(?:cpp|cc|c)",\s*$')).Count
 
-$changedAngleFiles = Join-Path $Diagnostics 'regenerated-angle-changed-files.txt'
-& git.exe -C $GostSource status --short -- gfx/angle | Set-Content -Encoding utf8 $changedAngleFiles
-if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory regenerated gfx/angle changes' }
-
 $summary = @(
   "gost_source=$gostSha",
   "xp_source=$xpSha",
-  "angle_branch=$angleBranch",
   "angle_source=$angleSha",
+  "vendored_angle_source=$vendorAngleSha",
+  "generator_source=xp_branch",
   "export_targets_upstream_sha256=$exportTargetsHash",
   "export_targets_file_json_sha256=$patchedExportTargetsHash",
-  "removed_stale_angle_enable_apple_translator_workarounds=True",
-  "removed_stale_angle_enable_gl_desktop_frontend=True",
   "json_transport=file",
   "gn_desc_json_bytes=$gnDescBytes",
   "gn_desc_json_sha256=$gnDescHash",
@@ -317,6 +331,7 @@ $summary = @(
   "xp_baseline_sha256=$xpBaselineHash",
   "baselines_identical=$($gostBaselineHash -eq $xpBaselineHash)",
   "generated_sha256=$((Get-FileHash -Algorithm SHA256 $generated).Hash.ToLowerInvariant())",
+  "regenerated_angle_changed_count=$($changedPaths.Count)",
   "ANGLE_ENABLE_D3D11_TRUE=$($generatedText.Contains('DEFINES["ANGLE_ENABLE_D3D11"] = True'))",
   "ANGLE_ENABLE_D3D9_TRUE=$($generatedText.Contains('DEFINES["ANGLE_ENABLE_D3D9"] = True'))",
   "Renderer11=$($generatedText.Contains('renderer/d3d/d3d11/Renderer11.cpp'))",
@@ -333,6 +348,7 @@ $summaryPath = Join-Path $Diagnostics 'summary.txt'
 $summary | Set-Content -Encoding utf8 $summaryPath
 $summary | ForEach-Object { Write-Host $_ }
 
+if ($angleSha -ne $vendorAngleSha) { throw 'Regeneration did not use the exact vendored ANGLE identity' }
 if ($generatedText.Contains('DEFINES["ANGLE_ENABLE_D3D11"] = True')) {
   throw 'Regeneration still defines ANGLE_ENABLE_D3D11=True'
 }
@@ -344,4 +360,7 @@ if (-not $generatedText.Contains('DEFINES["ANGLE_ENABLE_D3D9"] = True')) {
 }
 if (-not $generatedText.Contains('renderer/d3d/d3d9/Renderer9.cpp')) {
   throw 'Regeneration lost Renderer9.cpp'
+}
+if ($generatedText.Contains('renderer/d3d/d3d11/converged/CompositorNativeWindow11.cpp')) {
+  throw 'Regeneration still includes CompositorNativeWindow11.cpp'
 }
