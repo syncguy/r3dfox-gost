@@ -43,24 +43,14 @@ jobs:
 
           # Windows PowerShell 5.1 can promote ordinary native stderr (for example
           # git clone progress: "Cloning into ...") to NativeCommandError when
-          # $ErrorActionPreference='Stop'.  The focused harness must judge native
-          # commands by exit code, not by whether they wrote progress to stderr.
+          # $ErrorActionPreference='Stop'. Patch the helper structurally and keep
+          # the verdict tied to the native process exit code.
           $scriptText = [System.IO.File]::ReadAllText($scriptPath).Replace("`r`n", "`n")
-          $oldInvokeChecked = @'
-          function Invoke-Checked {
-            param(
-              [Parameter(Mandatory = $true)]
-              [scriptblock]$Command,
-              [Parameter(Mandatory = $true)]
-              [string]$Label
-            )
-
-            & $Command
-            if ($LASTEXITCODE -ne 0) {
-              throw "$Label failed with exit code $LASTEXITCODE"
-            }
+          $invokePattern = '(?ms)^function Invoke-Checked \{.*?^\}\n\n\$Source ='
+          $invokeMatches = [regex]::Matches($scriptText, $invokePattern)
+          if ($invokeMatches.Count -ne 1) {
+            throw "Cannot locate Invoke-Checked structurally; matches=$($invokeMatches.Count)"
           }
-          '@.Replace("          ", "")
           $newInvokeChecked = @'
           function Invoke-Checked {
             param(
@@ -83,13 +73,12 @@ jobs:
               throw "$Label failed with exit code $nativeExitCode"
             }
           }
+
+          $Source =
           '@.Replace("          ", "")
-          if (-not $scriptText.Contains($oldInvokeChecked)) {
-            throw 'Cannot apply exact Invoke-Checked native-stderr harness patch'
-          }
-          $scriptText = $scriptText.Replace($oldInvokeChecked, $newInvokeChecked)
+          $scriptText = [regex]::Replace($scriptText, $invokePattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $newInvokeChecked }, 1)
           [System.IO.File]::WriteAllText($scriptPath, $scriptText, (New-Object System.Text.UTF8Encoding($false)))
-          "$(Get-Date -Format o) patched Invoke-Checked: native stderr is diagnostic; exit code controls failure" |
+          "$(Get-Date -Format o) patched Invoke-Checked structurally: native stderr is diagnostic; exit code controls failure" |
             Tee-Object -FilePath $driverLog -Append
 
           try {
