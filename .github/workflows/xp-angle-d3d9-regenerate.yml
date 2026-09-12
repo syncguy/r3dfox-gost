@@ -39,11 +39,64 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force .\diagnostics | Out-Null
           $driverLog = '.\diagnostics\driver.log'
+          $scriptPath = '.\source\.github\scripts\xp\angle-d3d9-regenerate-test.ps1'
+
+          # Windows PowerShell 5.1 can promote ordinary native stderr (for example
+          # git clone progress: "Cloning into ...") to NativeCommandError when
+          # $ErrorActionPreference='Stop'.  The focused harness must judge native
+          # commands by exit code, not by whether they wrote progress to stderr.
+          $scriptText = [System.IO.File]::ReadAllText($scriptPath).Replace("`r`n", "`n")
+          $oldInvokeChecked = @'
+          function Invoke-Checked {
+            param(
+              [Parameter(Mandatory = $true)]
+              [scriptblock]$Command,
+              [Parameter(Mandatory = $true)]
+              [string]$Label
+            )
+
+            & $Command
+            if ($LASTEXITCODE -ne 0) {
+              throw "$Label failed with exit code $LASTEXITCODE"
+            }
+          }
+          '@.Replace("          ", "")
+          $newInvokeChecked = @'
+          function Invoke-Checked {
+            param(
+              [Parameter(Mandatory = $true)]
+              [scriptblock]$Command,
+              [Parameter(Mandatory = $true)]
+              [string]$Label
+            )
+
+            $savedPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+              & $Command
+              $nativeExitCode = $LASTEXITCODE
+            }
+            finally {
+              $ErrorActionPreference = $savedPreference
+            }
+            if ($nativeExitCode -ne 0) {
+              throw "$Label failed with exit code $nativeExitCode"
+            }
+          }
+          '@.Replace("          ", "")
+          if (-not $scriptText.Contains($oldInvokeChecked)) {
+            throw 'Cannot apply exact Invoke-Checked native-stderr harness patch'
+          }
+          $scriptText = $scriptText.Replace($oldInvokeChecked, $newInvokeChecked)
+          [System.IO.File]::WriteAllText($scriptPath, $scriptText, (New-Object System.Text.UTF8Encoding($false)))
+          "$(Get-Date -Format o) patched Invoke-Checked: native stderr is diagnostic; exit code controls failure" |
+            Tee-Object -FilePath $driverLog -Append
+
           try {
-            & .\source\.github\scripts\xp\angle-d3d9-regenerate-test.ps1 `
+            & $scriptPath `
               -Source .\source `
               -WorkRoot .\angle-regeneration-work `
-              -Diagnostics .\diagnostics *>&1 | Tee-Object -FilePath $driverLog
+              -Diagnostics .\diagnostics *>&1 | Tee-Object -FilePath $driverLog -Append
           }
           catch {
             $_ | Out-String | Tee-Object -FilePath '.\diagnostics\driver-error.txt' -Append | Tee-Object -FilePath $driverLog -Append
