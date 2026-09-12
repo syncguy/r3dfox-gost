@@ -8,6 +8,37 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-12 — ANGLE D3D9 focused workflow is source-aligned; first source-branch run stops at vendored Chromium SDK bootstrap
+
+Track: Windows XP SP3 x86 ANGLE build-graph generation/test infrastructure. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
+
+The two preceding dual-checkout focused runs must preserve separate controller and Firefox source identities:
+
+- control GREEN run `34593948357`, job `103245294808`: Actions controller branch `agent/gost-tls-poc`, controller/head SHA `0bc9b918e9b195774a7f0df733bb1a1bc4d74fbf`, Firefox source-under-test `bf633baad1e3e4958092134a527fe71431522fa2`, aggregate **completed / success / GREEN**;
+- subsequent RED run `34603305241`, job `103275617747`: Actions controller branch `agent/gost-tls-poc`, controller/head SHA `2462f9a38804b0643c454ebacd0f6d13f9457384`, Firefox source-under-test `6b55ec37af6a324668de27833cd552709183dd05`, aggregate **completed / failure / RED**.
+
+The established source-graph finding from those experiments remains current: in the exact vendored ANGLE graph, `angle_d3d9_backend` reaches the shared `angle_d3d_format_tables` dependency, and that target admitted `dxgi_format_map*` / `dxgi_support_table*` generated sources even with `angle_enable_d3d11=false`. The remediation belongs in the exact upstream GN source graph before `update-angle.py`; manually deleting generated entries from the final `moz.build` remains rejected.
+
+The focused workflow and its PowerShell test have now been moved to the actual XP implementation branch, eliminating the controller/source split for successor runs:
+
+- branch `agent/winrt-source-poc`;
+- workflow `.github/workflows/xp-angle-d3d9-regenerate.yml` / `XP ANGLE D3D9-only regeneration smoke`;
+- source-under-test and Actions head/controller SHA `76dc164990c789ecba06f4010169e96a7514d46d`;
+- run `34679673977`, attempt `1`;
+- job `103515830455`;
+- event `push`;
+- aggregate result: **completed / failure / RED**.
+
+This RED does **not** reach the regenerated-source graph gates. After `gclient sync`, the exact vendored Chromium Windows toolchain setup fails while `update-angle.py` is invoking GN. `build/toolchain/win/setup_toolchain.py` calls the Visual Studio environment setup with Windows SDK `10.0.20348.0`; the hosted runner then rejects the resulting `INCLUDE` path because `C:\Program Files (x86)\Windows Kits\10\include\10.0.20348.0\um` does not exist. GN returns nonzero and `update-angle.py` exits before a new generated `moz.build` can be accepted or rejected.
+
+Exact upstream identity behind this bootstrap behavior is the Firefox/r3dfox vendored ANGLE base `7b0bc3d196d480cce121a7aef375eda817e7e7ce`; its DEPS pins Chromium `build` revision `a07961eeea86f6f1928512f17a7312a06abcb77d`, whose `build/toolchain/win/setup_toolchain.py` explicitly supplies `10.0.20348.0` to `vcvarsall.bat` in the external-toolchain path used by this focused test. Therefore the failure is an exact-vendored toolchain-bootstrap incompatibility with the current hosted image, not evidence that the GN D3D9 graph correction failed.
+
+Next experiment: after `gclient sync` and before `update-angle.py`, fail closed on the exact upstream `setup_toolchain.py` anchor, select an actually installed complete Windows 10 SDK x86 layout from the runner, and replace only the exact hardcoded SDK-version argument. Preserve the already-installed fail-closed ANGLE `BUILD.gn` graph patch and require the existing semantic gates: DXGI autogen sources absent; `Renderer9.cpp` and the D3D9 define present; D3D11 sources and define absent.
+
+Status: **current focused ANGLE test boundary is Chromium/ANGLE Windows-SDK bootstrap. The prior GN source-graph diagnosis remains current but has not yet been re-tested past regeneration on source-aligned branch identity.**
+
+---
+
 ## 2026-09-12 — exact-vendored ANGLE D3D9 regeneration exposes a real source-graph leak
 
 Track: Windows XP SP3 x86 ANGLE build-graph generation. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
