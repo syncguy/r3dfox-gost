@@ -73,7 +73,7 @@ class DWriteFontFileStream final : public IDWriteFontFileStream {
   explicit DWriteFontFileStream(uint64_t aFontFileKey);
 
   /**
-   * Used by the FontFileLoader to create a font stream,
+   * Used by the FontFileLoader to create a new font stream,
    * this font stream is created from data in memory. The memory
    * passed may be released after object creation, it will be
    * copied internally.
