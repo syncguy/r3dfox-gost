@@ -73,7 +73,7 @@ class DWriteFontFileStream final : public IDWriteFontFileStream {
   explicit DWriteFontFileStream(uint64_t aFontFileKey);
 
   /**
-   * Used by the FontFileLoader to create a new font stream,
+   * Used by the FontFileLoader to create a font stream,
    * this font stream is created from data in memory. The memory
    * passed may be released after object creation, it will be
    * copied internally.
@@ -200,7 +200,11 @@ DWriteFontFileStream::ReleaseFileFragment(void* fragmentContext) {}
 /* static */
 already_AddRefed<NativeFontResourceDWrite> NativeFontResourceDWrite::Create(
     const uint8_t* aFontData, uint32_t aDataLength) {
+#ifdef MOZ_XP_COMPAT
+  RefPtr<IDWriteFactory> factory = Factory::EnsureDWriteFactory();
+#else
   RefPtr<IDWriteFactory> factory = Factory::GetDWriteFactory();
+#endif
   if (!factory) {
     gfxWarning() << "Failed to get DWrite Factory.";
     return nullptr;
