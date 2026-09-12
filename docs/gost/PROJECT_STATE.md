@@ -73,19 +73,39 @@ Authoritative focused Gecko target integration closure:
 
 Earlier hosted-SDK pinning, shallow ANGLE history, PowerShell native stderr and regeneration-harness patch mechanics remain test-infrastructure history and do not reopen either focused closure.
 
-**Boundary:** source-graph generation and focused `libGLESv2` compile/link integration are both closed. Neither proves a canonical full Firefox/r3dfox XP x86 build/package, browser-wide final PE/import cleanliness, or physical XP runtime. The next ANGLE-specific experiment is the full XP x86 browser integration build from exact source `e7424ea9b68eafae79513e5d794b799e0ec454b7`, followed by independent final PE/import evaluation and then physical XP execution of the exact accepted artifact.
+**Boundary:** source-graph generation and focused `libGLESv2` compile/link integration are both closed. Their integration into the canonical full Firefox/r3dfox XP x86 build is also now proven by the all-GREEN full-build baseline below. Physical XP runtime remains a separate acceptance boundary.
 
-## Latest integrated full-build evidence before ANGLE closure
+## Current integrated full-build/static baseline — GREEN
 
-Latest documented integrated full-build identity remains source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `34485182943`, job `102897550999`. Firefox compile/link, package/runtime creation and artifact uploads succeeded, but the aggregate workflow remained RED at its final summary. That run is not an all-GREEN build baseline and has not acquired physical-XP proof merely because it packaged successfully.
+The current authoritative integrated full-build/static baseline is:
 
-The preceding analyzed integrated build `34439013068` / job `102749929410` / source `c0b5561dc58d588ecb970a333d49ac78fae84eb0` had exactly 22 broad-audit rows, all attributed to the staged private DWrite component; do not silently carry that exact cause onto later runs without diagnostics from those runs.
+- branch `agent/winrt-source-poc`;
+- source-under-test/head `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`;
+- parent ANGLE graph-transfer commit `e7424ea9b68eafae79513e5d794b799e0ec454b7`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34688317433`;
+- job `103539109910` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result **completed / success / GREEN**.
+
+The canonical build completed the Firefox/r3dfox release compile/link, targeted xul/mozglue compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, the broad `GATE - Audit XP x32 PE floor and direct imports`, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
+
+Artifacts:
+
+- package `10298184343` (`r3dfox-gost-xp-x32-package`), digest `sha256:2458506d6285702bf3d86e5d0345a3a7a974a21353cdbe713875fc03b5a779bd`;
+- runtime `10297859657` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:734a9b5189e11d3a38d0916c04e8efa98043a66e83ebce933cd39bf1abc981fc`;
+- diagnostics `10298342641` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:c12b0599aef570df9a90b725acb52eaa130f71e1af6e848c633287864d8d0347`.
+
+This supersedes source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`, run `34485182943`, job `102897550999` as the latest integrated build/static baseline. That earlier run compiled and packaged but remained aggregate RED at the final summary. The corrected broad-audit ownership for the pinned private DWrite component is now proven compatible with an all-GREEN aggregate result on exact source `5845ff2d...`.
+
+This is a full-build/package/static PE-import PASS only. It does **not** by itself prove browser startup or stability on physical Windows XP, does not close the default-font/runtime boundary, and does not prove GOST TLS behavior.
 
 ## Physical XP browser/runtime state
 
 Basic Firefox/r3dfox 153 execution on physical Windows XP SP3 x86 is established for exact source `88453be...`: the browser starts, renders and performs real remote application workloads under forced non-e10s. The current repeatable late boundary on that exact artifact is an intentional `MOZ_CRASH` in `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242` because no usable/default font is obtained. Matching binary/PDB evidence is recorded in the archived synthesis and test log.
 
 The focused private Supermium DWrite path is independently physically proven on XP by run `34317489430`, job `102356664699`, artifact `10090864697`: project msvcr14x UCRT loads at process startup with static TLS, private `pwrp_k32.dll` and `DWrite.dll` load, `DWriteCreateFactory()` succeeds and `GetSystemFontCollection()` succeeds. Focused component success does not by itself prove full-browser startup.
+
+The next physical runtime candidate is the exact all-GREEN source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11` from run `34688317433`, preferably using runtime artifact `10297859657` and matching package/PDB/diagnostic identities. Runtime evidence must remain tied to exact binary hashes and matching PDBs.
 
 ## Closed compatibility boundaries retained
 
@@ -117,9 +137,9 @@ Keep the XP mechanisms distinct:
 
 ## XP acceptance boundary
 
-The next ANGLE-specific evidence boundary is now **canonical full XP x86 browser integration/build of source `e7424ea9b68eafae79513e5d794b799e0ec454b7`**, followed by final browser/package static PE/import evidence. Physical XP execution remains a separate acceptance step after an exact build artifact is selected.
+The canonical full XP x86 browser build/package/static PE-import boundary is now **GREEN** on exact source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`.
 
-For browser runtime, sustained stability remains open; do not conflate either focused ANGLE PASS with resolution of the existing physical font/default-font boundary.
+The next acceptance step is **physical Windows XP SP3 x86 execution of that exact artifact lineage**, with exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll`, supporting runtime DLLs and matching PDB hashes recorded before interpreting the next boundary. Sustained runtime stability and the existing font/default-font boundary remain open until that physical test advances them.
 
 # Bundled government-system extensions / localization
 
