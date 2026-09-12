@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -66,6 +66,20 @@ Current authoritative Session-default browser source remains `afbdad307f63e594d3
 # Windows XP SP3 x86 compatibility
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
+
+## Current ANGLE D3D9 source-graph blocker — exact-vendored regeneration RED
+
+The current build-graph boundary is earlier than a new full-browser candidate: the exact vendored ANGLE snapshot used by Firefox/r3dfox 153 does not yet regenerate to a semantically D3D9-only source graph.
+
+Evidence chain:
+
+- old focused regeneration run `34593948357`, job `103245294808`, source `bf633baad1e3e4958092134a527fe71431522fa2`, workflow `.github/workflows/win-xp-angle-d3d9.yml`, completed GREEN but is now insufficient proof: its path-oriented gates did not reject D3D11-semantic generated sources outside a `d3d11` path;
+- exact-vendored regeneration run `34603305241`, job `103275617747`, source `6b55ec37af6a324668de27833cd552709183dd05`, completed RED: regeneration itself succeeded and `Enforce D3D9-only ANGLE source graph` failed;
+- independent full buildability run `34605440500`, job `103282611033`, source `ade66a2d58bfeb5440aba01a996b1cde63335296`, workflow `.github/workflows/win-xp-32.yml`, completed RED and reaches `dxgi_format_map_autogen.cpp` plus `dxgi_support_table_autogen.cpp` in the supposedly D3D9-only compile graph.
+
+Therefore this is a real generator/source-graph defect for the exact vendored snapshot, not merely an over-strict validation rule. Do **not** remediate it by deleting the two generated `.cpp` entries from the final `moz.build`. The next experiment must trace the GN/source-set ownership and updater dependency traversal that admit those DXGI generated files, then fix the generator inputs/selection so the D3D9-only graph is correct by construction. Only after exact-vendored regeneration passes should the full XP build be retried as evidence for this line.
+
+This ANGLE build-graph blocker is separate from the already observed physical Firefox/runtime and GOST TLS results below; it does not invalidate those exact older artifacts.
 
 ## Latest integrated full build — build/package PASS; aggregate RED at final summary, cause not reclassified here
 
