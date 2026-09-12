@@ -97,15 +97,22 @@ Artifacts:
 
 This supersedes source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`, run `34485182943`, job `102897550999` as the latest integrated build/static baseline. That earlier run compiled and packaged but remained aggregate RED at the final summary. The corrected broad-audit ownership for the pinned private DWrite component is now proven compatible with an all-GREEN aggregate result on exact source `5845ff2d...`.
 
-This is a full-build/package/static PE-import PASS only. It does **not** by itself prove browser startup or stability on physical Windows XP, does not close the default-font/runtime boundary, and does not prove GOST TLS behavior.
+This is a full-build/package/static PE-import PASS only. It does **not** by itself prove browser startup or stability on physical Windows XP and does not prove GOST TLS behavior.
 
 ## Physical XP browser/runtime state
 
-Basic Firefox/r3dfox 153 execution on physical Windows XP SP3 x86 is established for exact source `88453be...`: the browser starts, renders and performs real remote application workloads under forced non-e10s. The current repeatable late boundary on that exact artifact is an intentional `MOZ_CRASH` in `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242` because no usable/default font is obtained. Matching binary/PDB evidence is recorded in the archived synthesis and test log.
+The current exact all-GREEN build has now been exercised on physical Windows XP SP3 x86. The tested lineage is source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, with package artifact `10298184343`, runtime artifact `10297859657`, and matching diagnostics/PDB artifact `10298342641`.
 
-The focused private Supermium DWrite path is independently physically proven on XP by run `34317489430`, job `102356664699`, artifact `10090864697`: project msvcr14x UCRT loads at process startup with static TLS, private `pwrp_k32.dll` and `DWrite.dll` load, `DWriteCreateFactory()` succeeds and `GetSystemFontCollection()` succeeds. Focused component success does not by itself prove full-browser startup.
+Two distinct intentional-breakpoint failure paths are currently confirmed from user-supplied DrWatson captures. They must not be conflated:
 
-The next physical runtime candidate is the exact all-GREEN source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11` from run `34688317433`, preferably using runtime artifact `10297859657` and matching package/PDB/diagnostic identities. Runtime evidence must remain tied to exact binary hashes and matching PDBs.
+1. **Early Rust/dwrote DirectWrite factory boundary.** A process faults with `0x80000003` on an `int 3`, and the faulting stack contains `assertion failed: !dwrite_create_factory_ptr.is_null()`. In that process module list the packaged private `DWrite.dll` is not loaded. The immediate failure condition is a null DirectWrite factory function pointer in the dwrote initialization path. The next debugger task is to determine why that launch/process path did not load or resolve the packaged private `DWrite.dll!DWriteCreateFactory`; do not weaken the assertion.
+2. **Later WebRender/Moz2D replay boundary.** A separate process from the same artifact lineage progresses further and faults at `xul.dll + 0x011f8583`. Matching `xul.pdb` resolves this to `mozilla::wr::Moz2DRenderCallback` in `gfx/webrender_bindings/Moz2DImageRenderer.cpp`, after `translator.TranslateRecording(...)` returns false and the code executes `MOZ_RELEASE_ASSERT(false)`. Raw-stack text contains `FillGlyphs PLAY`, so glyph/font replay is a plausible investigation area, but ownership remains unproven until `translator.GetError()` or the exact failing replay event is captured. Do not weaken the release assertion.
+
+The loaded-module evidence for these current runs no longer contains `combase.dll`; the previous COMBASE dependency is therefore not the current runtime boundary.
+
+The focused private Supermium DWrite path remains independently physically proven on XP by run `34317489430`, job `102356664699`, artifact `10090864697`: project msvcr14x UCRT loads at process startup with static TLS, private `pwrp_k32.dll` and `DWrite.dll` load, `DWriteCreateFactory()` succeeds and `GetSystemFontCollection()` succeeds. That focused component PASS is a control and does not by itself explain why one current full-browser process leaves the dwrote factory pointer null.
+
+The older source `88453be...` remains historical physical-browser evidence: it started, rendered and performed real remote workloads under forced non-e10s, later reaching `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242`. That older default-font crash is no longer the sole current runtime boundary and must not be projected onto source `5845ff2d...` without matching evidence.
 
 ## Closed compatibility boundaries retained
 
@@ -137,9 +144,9 @@ Keep the XP mechanisms distinct:
 
 ## XP acceptance boundary
 
-The canonical full XP x86 browser build/package/static PE-import boundary is now **GREEN** on exact source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`.
+The canonical full XP x86 browser build/package/static PE-import boundary is **GREEN** on exact source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`.
 
-The next acceptance step is **physical Windows XP SP3 x86 execution of that exact artifact lineage**, with exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll`, supporting runtime DLLs and matching PDB hashes recorded before interpreting the next boundary. Sustained runtime stability and the existing font/default-font boundary remain open until that physical test advances them.
+Physical XP execution of that exact artifact lineage is now also proven far enough to expose browser-runtime code, but runtime acceptance remains **OPEN** because the current artifact has two distinct repeatable failure paths: the early dwrote null-`DWriteCreateFactory` assertion and the later Moz2D/WebRender recording-replay assertion. The next acceptance work is debugger-level attribution of those exact boundaries, preserving matching binary/PDB identity and recording the next physically reached boundary after each narrow fix.
 
 # Bundled government-system extensions / localization
 
