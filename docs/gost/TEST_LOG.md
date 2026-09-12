@@ -41,7 +41,7 @@ The persisted generated `libGLESv2.moz.build` passes the authoritative post-rege
 
 The artifact also preserves the raw graph evidence: `gn-desc.json` is 582,587 bytes (`sha256:e1750ac65e388cbf56cff1fa69b5860494d97e8b5db5ce102a3700b513165570`) and `export-targets.json` is 126,888 bytes (`sha256:fc8e788b164c572d28515a9d404f2163d789671b18074fc8290e12455faac821`).
 
-One harness distinction is intentional and must remain explicit: the older internal regeneration script still reports `regeneration_step_outcome=failure` after regeneration because its legacy blanket checkout-change verdict is overbroad. The workflow deliberately treats that step as diagnostic and makes the subsequent semantic validator authoritative. In this run the semantic validator reports `semantic validation PASS`, and the aggregate job/workflow result is GREEN. The earlier REDs caused by SDK pinning, shallow merge-base history, native-stderr handling and fragile harness patching are therefore test-infrastructure history, not evidence against the generated D3D9 graph.
+One harness distinction is intentional and must remain explicit: the older internal regeneration script still reports `regeneration_step_outcome=failure` after regeneration because its legacy blanket checkout-change verdict is overbroad. The workflow deliberately treats that step as diagnostic and makes the subsequent semantic validator authoritative. In this run the semantic validator reports `semantic validation PASS`, and the aggregate job/workflow result is GREEN. The earlier REDs caused by SDK pinning, shallow ANGLE history, native-stderr handling and fragile harness patching are therefore test-infrastructure history, not evidence against the generated D3D9 graph.
 
 Conclusion: **FOCUSED ANGLE SOURCE-GRAPH PASS.** For the exact Firefox/r3dfox 153 vendored ANGLE snapshot, the narrow `angle_d3d_format_tables` split removes the four D3D11-owned DXGI format/support-table files while retaining the D3D9 backend and shared D3D format implementation. The functional correction remains a small conditional in upstream `BUILD.gn`; manually deleting final generated `moz.build` entries is not required.
 
@@ -143,3 +143,25 @@ The exact source path logs `Replay failure: <translator.GetError()>` and then ex
 Conclusion: the all-GREEN static build is physically executable far enough to reach browser runtime code, and the current exact artifact exposes at least two distinct runtime failure paths. Neither is a recurrence of the removed `combase.dll` dependency. The early `dwrote` null-factory assertion and the later Moz2D/WebRender replay assertion must remain separate blockers until debugger evidence identifies their concrete owners.
 
 Status: **current physical-XP runtime blockers for source `5845ff2d...`; debugger follow-up pending.**
+
+---
+
+## 2026-09-12 — additional XP symbolization localizes a font-path GFX_CRASH to NativeFontResourceNotFound
+
+Track: Windows XP SP3 x86 physical browser runtime diagnosis. Independent of GOST TLS handshake evidence.
+
+Evidence remains bound to the same accepted all-GREEN browser lineage: branch/source `agent/winrt-source-poc` / `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, workflow run `34688317433`, job `103539109910`, package artifact `10298184343`, and matching diagnostics/PDB artifact `10298342641`.
+
+An additional user-supplied DrWatson capture reports another `0x80000003` / `int 3` in `xul.dll` at runtime address `0x02c99bf7` with `xul.dll` base `0x01bb0000`, giving RVA `0x010e9bf7`. Symbolization with the matching `xul.pdb` resolves the breakpoint to `CrashStatsLogForwarder::CrashAction(LogReason)` in `gfx/thebes/gfxPlatform.cpp:395`, where the non-telemetry path executes `MOZ_CRASH("GFX_CRASH")`.
+
+The symbolized caller chain passes through `mozilla::gfx::CriticalLogger::CrashAction`, the gfx logging destructor path, `mozilla::wr::GetUnscaledFont`, `mozilla::wr::GetScaledFont`, `mozilla::wr::Moz2DRenderCallback`, `wr_moz2d_render_cb`, and WebRender blob rasterization. The captured `CrashAction` reason is `0x22` / decimal `34`, which maps to `LogReason::NativeFontResourceNotFound` in the exact source.
+
+The immediate source condition is therefore more specific than the earlier generic replay assertion: `GetUnscaledFont()` requested `Factory::CreateNativeFontResource(..., FontType::DWRITE, ...)`, and native DWrite resource creation returned `nullptr`, causing `gfxDevCrash(LogReason::NativeFontResourceNotFound)` and the intentional GFX crash. In the exact pre-fix source, `NativeFontResourceDWrite::Create()` only called `Factory::GetDWriteFactory()` and returned `nullptr` if the process-local factory had not already been initialized. The capture's module list does not contain the packaged private `DWrite.dll`.
+
+This does **not** yet prove which internal DWrite creation branch failed. In particular, absence of the private DWrite module plus a null factory makes missing/failed per-process DWrite initialization a strong candidate, but the capture alone does not prove whether `LoadLibraryXPPrivateDWrite()` was never reached, its `LoadLibraryExW` failed, `DWriteCreateFactory` resolution failed, or a later native-font operation failed.
+
+A narrow source remediation has been committed on `agent/winrt-source-poc`: functional commit `5ed150c81c0ba10eff2f1b3eed614371898dfcd4`, followed by cleanup-only commit `55a5415bc34a1e6db89f3643f9be881185127896` restoring an accidentally touched pre-existing comment. Effective product change relative to `5845ff2d...`: under `MOZ_XP_COMPAT`, `NativeFontResourceDWrite::Create()` now obtains the required factory via `Factory::EnsureDWriteFactory()`; non-XP Windows keeps `Factory::GetDWriteFactory()`. This patch is **UNBUILT / UNTESTED** at the time of this log entry and is not runtime evidence.
+
+Working hypothesis only: the user's historical observation that short-lived successful browser sessions often emitted font-search activity shortly before the browser disappeared may belong to this same DirectWrite/font/WebRender family. That correlation is not yet tied to a captured termination owner or exit code and must not be recorded as the proven cause of the sustained-runtime shutdown. The next decisive experiment is to build exact source `55a5415b...`, run that artifact on physical XP, and determine whether the `NativeFontResourceNotFound` / late font-path `0x80000003` boundary disappears or advances while independently tracking any clean-looking spontaneous process termination.
+
+Status: **diagnostic attribution proven; remediation and sustained-runtime causal link remain hypotheses pending exact-build physical XP validation.**
