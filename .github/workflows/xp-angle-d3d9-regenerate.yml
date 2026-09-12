@@ -33,22 +33,157 @@ jobs:
           python-version: "3.11"
 
       - name: Regenerate ANGLE D3D9-only graph
+        id: regenerate
+        continue-on-error: true
         shell: powershell
         run: |
-          & .\source\.github\scripts\xp\angle-d3d9-regenerate-test.ps1 `
-            -Source .\source `
-            -WorkRoot .\angle-regeneration-work `
-            -Diagnostics .\diagnostics
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force .\diagnostics | Out-Null
+          $driverLog = '.\diagnostics\driver.log'
+          try {
+            & .\source\.github\scripts\xp\angle-d3d9-regenerate-test.ps1 `
+              -Source .\source `
+              -WorkRoot .\angle-regeneration-work `
+              -Diagnostics .\diagnostics *>&1 | Tee-Object -FilePath $driverLog
+          }
+          catch {
+            $_ | Out-String | Tee-Object -FilePath '.\diagnostics\driver-error.txt' -Append | Tee-Object -FilePath $driverLog -Append
+            throw
+          }
+
+      - name: Capture regeneration state and validate generated graph
+        if: always()
+        shell: powershell
+        env:
+          REGEN_OUTCOME: ${{ steps.regenerate.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $diagnostics = (Resolve-Path .\diagnostics).Path
+          $operations = Join-Path $diagnostics 'operations.log'
+
+          function Write-Operation([string]$Message) {
+            $line = "$(Get-Date -Format o) $Message"
+            $line | Tee-Object -FilePath $operations -Append
+          }
+
+          Write-Operation "post-regeneration diagnostics start; regeneration_step_outcome=$env:REGEN_OUTCOME"
+
+          $sourceSha = (& git.exe -C .\source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $sourceSha) { throw 'Cannot resolve source-under-test SHA during post-regeneration diagnostics' }
+          Write-Operation "source_under_test=$sourceSha"
+
+          Write-Operation 'capture project gfx/angle git status'
+          & git.exe -C .\source status --short --untracked-files=all -- gfx/angle 2>&1 |
+            Set-Content -Encoding utf8 (Join-Path $diagnostics 'source-angle-status-short.txt')
+
+          Write-Operation 'capture project gfx/angle name-status diff'
+          & git.exe -C .\source diff --name-status -- gfx/angle 2>&1 |
+            Set-Content -Encoding utf8 (Join-Path $diagnostics 'source-angle-diff-name-status.txt')
+
+          Write-Operation 'capture project gfx/angle diff stat'
+          & git.exe -C .\source diff --stat -- gfx/angle 2>&1 |
+            Set-Content -Encoding utf8 (Join-Path $diagnostics 'source-angle-diff-stat.txt')
+
+          Write-Operation 'capture focused generated-source diff'
+          & git.exe -C .\source diff -- `
+            gfx/angle/checkout/BUILD.gn `
+            gfx/angle/targets/libGLESv2/moz.build 2>&1 |
+            Set-Content -Encoding utf8 (Join-Path $diagnostics 'source-angle-focused.diff')
+
+          foreach ($jsonEvidence in @(
+            @{ Source = '.\angle-regeneration-work\angle\out\gn-desc.json'; Name = 'gn-desc.json' },
+            @{ Source = '.\angle-regeneration-work\angle\out\export-targets.json'; Name = 'export-targets.json' }
+          )) {
+            if (Test-Path -LiteralPath $jsonEvidence.Source -PathType Leaf) {
+              Copy-Item -LiteralPath $jsonEvidence.Source -Destination (Join-Path $diagnostics $jsonEvidence.Name) -Force
+              $bytes = (Get-Item -LiteralPath $jsonEvidence.Source).Length
+              $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $jsonEvidence.Source).Hash.ToLowerInvariant()
+              Write-Operation "$($jsonEvidence.Name): bytes=$bytes sha256=$hash"
+            }
+            else {
+              Write-Operation "$($jsonEvidence.Name): missing"
+            }
+          }
+
+          $generatedPath = Join-Path $diagnostics 'libGLESv2.moz.build.generated'
+          $baselinePath = Join-Path $diagnostics 'libGLESv2.moz.build.before'
+          if (-not (Test-Path -LiteralPath $generatedPath -PathType Leaf)) {
+            Write-Operation 'generated libGLESv2.moz.build missing; regeneration did not reach semantic evidence boundary'
+            throw 'Generated libGLESv2.moz.build evidence is missing'
+          }
+
+          $generatedText = [System.IO.File]::ReadAllText($generatedPath)
+          $baselineText = if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
+            [System.IO.File]::ReadAllText($baselinePath)
+          } else { '' }
+
+          $d3d11SourceRefs = @([regex]::Matches($generatedText, 'renderer/d3d/d3d11/')).Count
+          $d3d9SourceRefs = @([regex]::Matches($generatedText, 'renderer/d3d/d3d9/')).Count
+          $checks = [ordered]@{
+            ANGLE_ENABLE_D3D11_TRUE = $generatedText.Contains('DEFINES["ANGLE_ENABLE_D3D11"] = True')
+            ANGLE_ENABLE_D3D9_TRUE = $generatedText.Contains('DEFINES["ANGLE_ENABLE_D3D9"] = True')
+            Renderer11 = $generatedText.Contains('renderer/d3d/d3d11/Renderer11.cpp')
+            Renderer9 = $generatedText.Contains('renderer/d3d/d3d9/Renderer9.cpp')
+            CompositorNativeWindow11 = $generatedText.Contains('renderer/d3d/d3d11/converged/CompositorNativeWindow11.cpp')
+            dxgi_format_map_autogen = $generatedText.Contains('renderer/dxgi_format_map_autogen.cpp')
+            dxgi_support_table_autogen = $generatedText.Contains('renderer/dxgi_support_table_autogen.cpp')
+            dxgi_format_map_header = $generatedText.Contains('renderer/dxgi_format_map.h')
+            dxgi_support_table_header = $generatedText.Contains('renderer/dxgi_support_table.h')
+            d3d_format_cpp = $generatedText.Contains('renderer/d3d_format.cpp')
+            d3d_format_header_in_moz_build = $generatedText.Contains('renderer/d3d_format.h')
+            OS_LIBS_d3d11 = $generatedText -match '(?m)^\s*"d3d11",\s*$'
+            OS_LIBS_dxgi = $generatedText -match '(?m)^\s*"dxgi",\s*$'
+            OS_LIBS_d3d9 = $generatedText -match '(?m)^\s*"d3d9",\s*$'
+            baseline_OS_LIBS_dxgi = $baselineText -match '(?m)^\s*"dxgi",\s*$'
+          }
+
+          $summary = @(
+            "source_under_test=$sourceSha",
+            "regeneration_step_outcome=$env:REGEN_OUTCOME",
+            "d3d11_source_refs=$d3d11SourceRefs",
+            "d3d9_source_refs=$d3d9SourceRefs"
+          )
+          foreach ($entry in $checks.GetEnumerator()) {
+            $summary += "$($entry.Key)=$($entry.Value)"
+          }
+          $summary | Set-Content -Encoding utf8 (Join-Path $diagnostics 'post-regeneration-summary.txt')
+          $summary | ForEach-Object { Write-Operation $_ }
+
+          $failures = @()
+          if ($checks.ANGLE_ENABLE_D3D11_TRUE) { $failures += 'ANGLE_ENABLE_D3D11=True remains' }
+          if ($d3d11SourceRefs -ne 0) { $failures += "D3D11 source refs remain: $d3d11SourceRefs" }
+          if ($checks.Renderer11) { $failures += 'Renderer11.cpp remains' }
+          if ($checks.CompositorNativeWindow11) { $failures += 'CompositorNativeWindow11.cpp remains' }
+          if ($checks.dxgi_format_map_autogen -or $checks.dxgi_support_table_autogen -or $checks.dxgi_format_map_header -or $checks.dxgi_support_table_header) {
+            $failures += 'DXGI format/support-table files remain in generated libGLESv2 graph'
+          }
+          if (-not $checks.ANGLE_ENABLE_D3D9_TRUE) { $failures += 'ANGLE_ENABLE_D3D9=True is missing' }
+          if (-not $checks.Renderer9) { $failures += 'Renderer9.cpp is missing' }
+          if (-not $checks.d3d_format_cpp) { $failures += 'shared d3d_format.cpp is missing' }
+          if (-not $checks.OS_LIBS_d3d9) { $failures += 'd3d9 OS_LIBS dependency is missing' }
+          if ($checks.OS_LIBS_d3d11) { $failures += 'd3d11 OS_LIBS dependency remains' }
+
+          # d3d_format.h is a GN/header dependency and is not emitted into this compile-source moz.build.
+          # dxgi OS_LIBS is retained as diagnostic evidence because it is present in both baseline and regenerated moz.build;
+          # it is not evidence that the four D3D11-owned DXGI format/support-table sources remain in the generated target.
+          if ($failures.Count -ne 0) {
+            $failures | Set-Content -Encoding utf8 (Join-Path $diagnostics 'semantic-failures.txt')
+            Write-Operation "semantic validation FAIL: $($failures -join '; ')"
+            throw "ANGLE D3D9-only semantic validation failed: $($failures -join '; ')"
+          }
+
+          Write-Operation 'semantic validation PASS'
 
       - name: Publish regeneration summary
         if: always()
         shell: powershell
         run: |
-          if (Test-Path .\diagnostics\summary.txt) {
-            Get-Content .\diagnostics\summary.txt | ForEach-Object { "$_  " } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($summary in @('.\diagnostics\post-regeneration-summary.txt', '.\diagnostics\summary.txt', '.\diagnostics\operations.log')) {
+            if (Test-Path $summary) {
+              "`n### $([System.IO.Path]::GetFileName($summary))`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              Get-Content $summary | Select-Object -First 300 | ForEach-Object { "$_  " } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
           }
-          foreach ($diff in @('.\diagnostics\BUILD.gn.d3d9-format-split.diff', '.\diagnostics\libGLESv2.moz.build.diff')) {
+          foreach ($diff in @('.\diagnostics\BUILD.gn.d3d9-format-split.diff', '.\diagnostics\libGLESv2.moz.build.diff', '.\diagnostics\source-angle-focused.diff')) {
             if (Test-Path $diff) {
               "`n### $([System.IO.Path]::GetFileName($diff))`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
               "``````diff" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
