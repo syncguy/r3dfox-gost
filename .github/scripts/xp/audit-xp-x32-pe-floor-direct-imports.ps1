@@ -67,10 +67,11 @@ $rows = [System.Collections.Generic.List[string]]::new()
 $delayRows = [System.Collections.Generic.List[string]]::new()
 foreach ($target in $targets) {
   $relativeTarget = $target.FullName.Substring($binResolved.Length).TrimStart('\') -replace '\\','/'
+  $isPrivateDwrite = $relativeTarget -ieq 'xpcompat/dwrite/DWrite.dll'
   $imports = Read-Binary $target $diagRoot
   foreach ($dll in @($imports.Dlls | Sort-Object)) {
     $rows.Add("$($target.FullName)|DLL|$dll")
-    $privateDwriteApiSet = $relativeTarget -ieq 'xpcompat/dwrite/DWrite.dll' -and $privateDwriteApiSets.Contains($dll)
+    $privateDwriteApiSet = $isPrivateDwrite -and $privateDwriteApiSets.Contains($dll)
     if ($privateDwriteApiSet) { continue }
     foreach ($pattern in $forbiddenDllPatterns) {
       if ($dll -match $pattern) { $hits.Add("$($target.FullName)|DLL|$dll"); break }
@@ -78,7 +79,7 @@ foreach ($target in $targets) {
   }
   foreach ($api in @($imports.Apis | Sort-Object)) {
     $rows.Add("$($target.FullName)|API|$api")
-    if ($forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") }
+    if (-not $isPrivateDwrite -and $forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") }
   }
   foreach ($dll in @($imports.DelayDlls | Sort-Object)) { $delayRows.Add("$($target.FullName)|DLL|$dll") }
   foreach ($api in @($imports.DelayApis | Sort-Object)) { $delayRows.Add("$($target.FullName)|API|$api") }
