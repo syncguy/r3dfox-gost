@@ -35,11 +35,11 @@ Physical Windows XP GOST TLS server-auth proof exists for source `88453be37a7f39
 
 Active implementation is `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
-## ANGLE D3D9 source graph — focused closure GREEN
+## ANGLE D3D9 graph and focused Gecko target — GREEN
 
-The exact vendored ANGLE graph diagnosis is now closed at focused generation scope. `angle_d3d9_backend` reaches shared `angle_d3d_format_tables`; the correct narrow remediation is to retain shared D3D format sources for D3D9 while admitting the four D3D11-owned DXGI format/support-table files only when `(is_win && angle_enable_gl) || angle_enable_d3d11`.
+The exact vendored ANGLE graph diagnosis and its transfer into the real focused Gecko `libGLESv2` XP x86 target are now closed at their respective focused scopes. `angle_d3d9_backend` reaches shared `angle_d3d_format_tables`; the narrow graph remediation retains shared D3D format sources for D3D9 while admitting the four D3D11-owned DXGI format/support-table files only when `(is_win && angle_enable_gl) || angle_enable_d3d11`.
 
-Authoritative closure identity:
+Authoritative graph-generation closure:
 
 - workflow `.github/workflows/xp-angle-d3d9-regenerate.yml` / `XP ANGLE D3D9-only regeneration smoke`;
 - branch `agent/winrt-source-poc`;
@@ -58,9 +58,22 @@ Generated-target semantic evidence:
 
 `dxgi` remains in generated `OS_LIBS` both before and after this focused change, so that line alone is not evidence that the four unwanted source files remain and is not equivalent to final PE/import evidence. `d3d_format.h` is a GN/header dependency and need not appear as a compile-source line in `moz.build`.
 
-The focused harness retains one intentional diagnostic asymmetry: its older internal script still reaches an overbroad checkout-change failure after successful generation, so `regeneration_step_outcome=failure` is recorded. The subsequent semantic validator is the authoritative verdict and reports PASS; the aggregate run/job is GREEN. Earlier runs that stopped on hosted-SDK pinning, shallow ANGLE history, PowerShell native stderr or harness patch mechanics are infrastructure history and do not reopen the now-passed semantic graph.
+The narrow generated build-path transfer is commit/source `e7424ea9b68eafae79513e5d794b799e0ec454b7` (`build(xp): apply generated ANGLE D3D9 graph fix`). It changes only `gfx/angle/targets/libGLESv2/moz.build`, removing the two D3D11-owned DXGI format/support `.cpp` sources and `dxguid` while retaining D3D9, shared `d3d_format.cpp`, and baseline `dxgi`. Regeneration-only harness changes were deliberately not promoted into the product path.
 
-**Boundary:** this closes only exact-vendored ANGLE source-graph generation. It does not prove full Firefox/r3dfox XP buildability, final PE/import cleanliness or physical XP runtime. Next experiment is the full XP x86 integration/build with the narrow source fix, followed by independent final PE/import inspection and then physical XP execution of the exact accepted artifact.
+Authoritative focused Gecko target integration closure:
+
+- trigger `.github/workflows/xp-angle-smoke-trigger.yml` calling `.github/workflows/xp-angle-libglesv2-smoke.yml`;
+- branch `agent/winrt-source-poc`;
+- source-under-test/head `e7424ea9b68eafae79513e5d794b799e0ec454b7`;
+- run `34686743277`;
+- job `103534931543` (`ANGLE libGLESv2 / XP x86 focused build`);
+- aggregate result **completed / success / GREEN**;
+- artifact `10296028734` (`xp-angle-libglesv2-smoke`), 1,573,962 bytes, digest `sha256:6790fa5618456237e5a2290e21dcae88a3805eed1c0ac6c39a8399f9b99dcf61`;
+- configure/export, dependency dry-run, real link prerequisites, `Build libGLESv2 only`, focused `mozglue.dll` inspection and `GATE - Inspect focused libGLESv2 binary` all completed successfully.
+
+Earlier hosted-SDK pinning, shallow ANGLE history, PowerShell native stderr and regeneration-harness patch mechanics remain test-infrastructure history and do not reopen either focused closure.
+
+**Boundary:** source-graph generation and focused `libGLESv2` compile/link integration are both closed. Neither proves a canonical full Firefox/r3dfox XP x86 build/package, browser-wide final PE/import cleanliness, or physical XP runtime. The next ANGLE-specific experiment is the full XP x86 browser integration build from exact source `e7424ea9b68eafae79513e5d794b799e0ec454b7`, followed by independent final PE/import evaluation and then physical XP execution of the exact accepted artifact.
 
 ## Latest integrated full-build evidence before ANGLE closure
 
@@ -104,9 +117,9 @@ Keep the XP mechanisms distinct:
 
 ## XP acceptance boundary
 
-The next ANGLE-specific evidence boundary is no longer regeneration. It is **full XP x86 integration/build of the narrow D3D9 graph correction**, followed by final static PE/import evidence. Physical XP execution remains a separate acceptance step after an exact build artifact is selected.
+The next ANGLE-specific evidence boundary is now **canonical full XP x86 browser integration/build of source `e7424ea9b68eafae79513e5d794b799e0ec454b7`**, followed by final browser/package static PE/import evidence. Physical XP execution remains a separate acceptance step after an exact build artifact is selected.
 
-For browser runtime, sustained stability remains open; do not conflate the focused ANGLE graph PASS with resolution of the existing physical font/default-font boundary.
+For browser runtime, sustained stability remains open; do not conflate either focused ANGLE PASS with resolution of the existing physical font/default-font boundary.
 
 # Bundled government-system extensions / localization
 
