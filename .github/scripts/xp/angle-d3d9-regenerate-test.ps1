@@ -153,15 +153,29 @@ if (-not (Test-Path (Join-Path $angle '.git'))) {
     & git.exe -C $angle remote add origin https://github.com/mozilla/angle.git
   }
 }
-Invoke-Checked -Label 'fetch exact vendored ANGLE commit' -Command {
-  & git.exe -C $angle fetch --depth 1 origin $vendorAngleSha
+Invoke-Checked -Label 'fetch exact vendored ANGLE commit with ancestry' -Command {
+  & git.exe -C $angle fetch origin $vendorAngleSha
 }
 Invoke-Checked -Label 'checkout exact vendored ANGLE commit' -Command {
   & git.exe -C $angle checkout --detach FETCH_HEAD
 }
-Invoke-Checked -Label 'fetch chromium/5359 reference' -Command {
+Invoke-Checked -Label 'fetch chromium/5359 reference with ancestry' -Command {
   & git.exe -C $angle fetch origin refs/heads/chromium/5359:refs/remotes/origin/chromium/5359
 }
+
+$angleRepositoryShallow = (& git.exe -C $angle rev-parse --is-shallow-repository).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $angleRepositoryShallow) { throw 'Cannot determine ANGLE shallow-repository state' }
+if ($angleRepositoryShallow -ne 'false') {
+  throw "ANGLE repository is unexpectedly shallow after ancestry fetch: $angleRepositoryShallow"
+}
+$angleChromiumMergeBase = (& git.exe -C $angle merge-base HEAD origin/chromium/5359).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $angleChromiumMergeBase) {
+  throw 'Cannot resolve required ANGLE merge-base HEAD origin/chromium/5359 before regeneration'
+}
+@(
+  "angle_repository_shallow=$angleRepositoryShallow",
+  "angle_chromium_5359_merge_base=$angleChromiumMergeBase"
+) | Set-Content -Encoding utf8 (Join-Path $Diagnostics 'angle-git-history.txt')
 
 $angleSha = (& git.exe -C $angle rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $angleSha) { throw 'Cannot resolve mozilla/angle SHA' }
@@ -463,6 +477,8 @@ $summary = @(
   "angle_source=$angleSha",
   "vendored_angle_source=$vendorAngleSha",
   "generator_source=agent/winrt-source-poc",
+  "angle_repository_shallow=$angleRepositoryShallow",
+  "angle_chromium_5359_merge_base=$angleChromiumMergeBase",
   "selected_windows_sdk_version=$selectedWindowsSdkVersion",
   "setup_toolchain_upstream_sha256=$toolchainSetupUpstreamHash",
   "setup_toolchain_selected_sdk_sha256=$toolchainSetupPatchedHash",
