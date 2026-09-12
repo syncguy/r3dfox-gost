@@ -67,19 +67,25 @@ Current authoritative Session-default browser source remains `afbdad307f63e594d3
 
 This track is independent of GOST TLS runtime. Active implementation work is on `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
-## Current ANGLE D3D9 source-graph blocker — exact-vendored regeneration RED
+## Current ANGLE D3D9 boundary — graph diagnosis retained; source-aligned regeneration rerun in progress after exact SDK-bootstrap adaptation
 
-The current build-graph boundary is earlier than a new full-browser candidate: the exact vendored ANGLE snapshot used by Firefox/r3dfox 153 does not yet regenerate to a semantically D3D9-only source graph.
+The exact vendored ANGLE source-graph diagnosis remains valid: `angle_d3d9_backend` reaches shared `angle_d3d_format_tables`, and the unmodified exact-vendor target admits `dxgi_format_map*` / `dxgi_support_table*` sources even when D3D11 is disabled. This must be corrected in the GN source graph before `update-angle.py`; manually deleting generated entries from final `moz.build` remains prohibited.
 
-Evidence chain:
+Evidence identity must distinguish the old dual-checkout controller from Firefox source-under-test:
 
-- old focused regeneration run `34593948357`, job `103245294808`, source `bf633baad1e3e4958092134a527fe71431522fa2`, workflow `.github/workflows/win-xp-angle-d3d9.yml`, completed GREEN but is now insufficient proof: its path-oriented gates did not reject D3D11-semantic generated sources outside a `d3d11` path;
-- exact-vendored regeneration run `34603305241`, job `103275617747`, source `6b55ec37af6a324668de27833cd552709183dd05`, completed RED: regeneration itself succeeded and `Enforce D3D9-only ANGLE source graph` failed;
-- independent full buildability run `34605440500`, job `103282611033`, source `ade66a2d58bfeb5440aba01a996b1cde63335296`, workflow `.github/workflows/win-xp-32.yml`, completed RED and reaches `dxgi_format_map_autogen.cpp` plus `dxgi_support_table_autogen.cpp` in the supposedly D3D9-only compile graph.
+- control GREEN run `34593948357`, job `103245294808`: controller/head `0bc9b918e9b195774a7f0df733bb1a1bc4d74fbf` on `agent/gost-tls-poc`, Firefox source-under-test `bf633baad1e3e4958092134a527fe71431522fa2`; this GREEN is only historical control because its gates did not reject all D3D11-semantic generated sources;
+- exact-vendored RED run `34603305241`, job `103275617747`: controller/head `2462f9a38804b0643c454ebacd0f6d13f9457384`, Firefox source-under-test `6b55ec37af6a324668de27833cd552709183dd05`; regeneration completed and the semantic source-graph gate exposed the DXGI leak;
+- independent full buildability RED run `34605440500`, job `103282611033`, source `ade66a2d58bfeb5440aba01a996b1cde63335296`, reached `dxgi_format_map_autogen.cpp` and `dxgi_support_table_autogen.cpp` during compilation, confirming that the leak was not merely a validator artifact.
 
-Therefore this is a real generator/source-graph defect for the exact vendored snapshot, not merely an over-strict validation rule. Do **not** remediate it by deleting the two generated `.cpp` entries from the final `moz.build`. The next experiment must trace the GN/source-set ownership and updater dependency traversal that admit those DXGI generated files, then fix the generator inputs/selection so the D3D9-only graph is correct by construction. Only after exact-vendored regeneration passes should the full XP build be retried as evidence for this line.
+The focused workflow and PowerShell test now live on `agent/winrt-source-poc`, so current runs no longer split controller and source identity. First source-aligned run `34679673977`, job `103515830455`, source/head `76dc164990c789ecba06f4010169e96a7514d46d`, completed RED **before regenerated-source acceptance**: exact vendored Chromium `build/toolchain/win/setup_toolchain.py` explicitly requested Windows SDK `10.0.20348.0`, but that SDK include tree was absent on the hosted image. This SDK-bootstrap RED does not refute the GN graph diagnosis.
 
-This ANGLE build-graph blocker is separate from the already observed physical Firefox/runtime and GOST TLS results below; it does not invalidate those exact older artifacts.
+Source commit `2b39bfa7e1b8cda442886827bb1131726a0ff4da` changes only `.github/scripts/xp/angle-d3d9-regenerate-test.ps1`. After `gclient sync`, the test now fail-closes on the exact hardcoded Chromium SDK anchor, selects the highest actually installed complete Windows 10 SDK x86 layout (`Include/{um,shared,ucrt}` plus `Lib/{um,ucrt}/x86`), replaces only that exact SDK argument, and records the selected version plus upstream/patched `setup_toolchain.py` SHA-256 values. The existing exact `BUILD.gn` D3D9 format-table split and semantic gates remain unchanged: DXGI autogen/header sources must be absent; shared `d3d_format.cpp/.h`, `Renderer9.cpp`, `ANGLE_ENABLE_D3D9=True` and `d3d9` OS_LIBS must remain; D3D11 sources/define plus `d3d11`/`dxgi` OS_LIBS must stay absent.
+
+Push of `2b39bfa7...` automatically started workflow `.github/workflows/xp-angle-d3d9-regenerate.yml` / `XP ANGLE D3D9-only regeneration smoke`, run `34681392206`, source/head `2b39bfa7e1b8cda442886827bb1131726a0ff4da`. At this documentation point the run is **in progress / provisional**, not GREEN. Do not infer regeneration or graph success until the run completes and the generated-source gates pass.
+
+Next evidence boundary: allow run `34681392206` to finish. If the exact-vendored regeneration and all semantic D3D9-only gates pass, the next independent experiment is the full XP x86 build using that generated graph. If it fails, record the next exact regeneration/toolchain boundary rather than reopening already established graph ownership without contradictory evidence.
+
+This ANGLE line is separate from the already observed physical Firefox/runtime and GOST TLS results below; it does not invalidate those exact older artifacts.
 
 ## Latest integrated full build — build/package PASS; aggregate RED at final summary, cause not reclassified here
 
@@ -218,28 +224,3 @@ Do not reopen these without contradictory evidence on a later exact artifact:
 Full YY `kernel32.lib` interposition remains prohibited; keep compatibility ownership narrow by source/provider/PE.
 
 ## XP acceptance boundary
-
-Basic full-browser execution on physical XP is now established for exact source `88453be...` under forced non-e10s: the browser renders and processes representative remote application traffic, including the Treasury application. The remaining acceptance blocker is **sustained stability**, with a repeatable late intentional crash currently localized to `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242` because no usable/default font can be obtained.
-
-Current implementation source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc` / run `34485182943` contains the corrected Rust XP private-DWrite loader and builds/packages successfully, although the workflow remains aggregate RED at its final summary. Its physical-XP behavior has not yet been established. The next physical experiment should use that exact successor artifact, preserve binary hashes, enable `fontinit:5,fontlist:5`, and determine whether the early Rust DirectWrite assertion and the late default-font crash are both advanced beyond or whether a new exact boundary appears.
-
-Physical XP browser success remains independent of GOST TLS acceptance; in this case a deliberately combined experiment has independently established both the browser-runtime milestone and the GOST server-auth handshake on exact source `88453be...`.
-
-# Bundled government-system extensions / localization
-
-Current proven three-extension packaging checkpoint remains source `b3d097de20b7a5711f161199a727bcfe9468bcc8`, run `32976571122`, job `98202641607`.
-
-Current corrected Russian localization package gate is source `3e2c32386f373d4693db52b32c05aa2000878def`, workflow `CryptoPro Mozilla packaging smoke`, run `33520207057`, job `99897230730`, success.
-
-Manual runtime evidence belongs to the exact artifact on which it was observed; do not reattribute it to later packaging-only correction builds.
-
-# Global evidence rules
-
-- Build success != GOST handshake success.
-- GOST runtime success != final server-trust closure.
-- Focused dependency/runtime success != full Firefox startup.
-- Win7 x86 startup != XP startup.
-- Source/build removal of a hard or delay-import runtime edge != physical-XP runtime closure until the exact accepted artifact advances past it.
-- Documentation HEADs never replace the exact source-under-test SHA for previously built or runtime-tested artifacts.
-- A PDB may symbolize only the exact matching binary from the same build.
-- Runtime claims must stay bound to exact source SHA + Actions run/job + exact artifact/binary identity.
