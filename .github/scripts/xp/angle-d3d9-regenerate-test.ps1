@@ -175,6 +175,9 @@ $gnDescHash = $null
 $gnDescBytes = $null
 $exportJsonHash = $null
 $exportJsonBytes = $null
+$selectedWindowsSdkVersion = $null
+$toolchainSetupUpstreamHash = $null
+$toolchainSetupPatchedHash = $null
 
 Push-Location $angle
 try {
@@ -184,6 +187,67 @@ try {
   Invoke-Checked -Label 'ANGLE gclient sync' -Command {
     & gclient.bat sync
   }
+
+  $windowsKitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
+  $sdkIncludeRoot = Join-Path $windowsKitsRoot 'Include'
+  $sdkLibRoot = Join-Path $windowsKitsRoot 'Lib'
+  foreach ($sdkRootPath in @($sdkIncludeRoot, $sdkLibRoot)) {
+    if (-not (Test-Path -LiteralPath $sdkRootPath -PathType Container)) {
+      throw "Windows 10 SDK root missing: $sdkRootPath"
+    }
+  }
+
+  $sdkCandidates = @(
+    Get-ChildItem -LiteralPath $sdkIncludeRoot -Directory |
+      Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+      Sort-Object { [version]$_.Name } -Descending
+  )
+  foreach ($candidate in $sdkCandidates) {
+    $versionName = $candidate.Name
+    $requiredSdkPaths = @(
+      (Join-Path $sdkIncludeRoot "$versionName\um"),
+      (Join-Path $sdkIncludeRoot "$versionName\shared"),
+      (Join-Path $sdkIncludeRoot "$versionName\ucrt"),
+      (Join-Path $sdkLibRoot "$versionName\um\x86"),
+      (Join-Path $sdkLibRoot "$versionName\ucrt\x86")
+    )
+    $missingSdkPaths = @($requiredSdkPaths | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Container) })
+    if ($missingSdkPaths.Count -eq 0) {
+      $selectedWindowsSdkVersion = $versionName
+      break
+    }
+  }
+  if (-not $selectedWindowsSdkVersion) {
+    throw "No complete Windows 10 SDK x86 layout found under $windowsKitsRoot"
+  }
+
+  $setupToolchain = Join-Path $angle 'build\toolchain\win\setup_toolchain.py'
+  if (-not (Test-Path -LiteralPath $setupToolchain -PathType Leaf)) {
+    throw "Vendored Chromium setup_toolchain.py missing after gclient sync: $setupToolchain"
+  }
+  $setupToolchainBefore = Join-Path $Diagnostics 'setup_toolchain.py.upstream'
+  Copy-Item $setupToolchain $setupToolchainBefore
+  $toolchainSetupUpstreamHash = (Get-FileHash -Algorithm SHA256 $setupToolchain).Hash.ToLowerInvariant()
+  $setupToolchainText = [System.IO.File]::ReadAllText($setupToolchain).Replace("`r`n", "`n")
+  $sdkAnchor = "    args.append('10.0.20348.0')"
+  $sdkAnchorCount = ([regex]::Matches($setupToolchainText, [regex]::Escape($sdkAnchor))).Count
+  if ($sdkAnchorCount -ne 1) {
+    throw "Expected exact Chromium SDK anchor once, found $sdkAnchorCount; refusing a fuzzy toolchain patch"
+  }
+  $sdkReplacement = "    args.append('$selectedWindowsSdkVersion')"
+  $setupToolchainText = $setupToolchainText.Replace($sdkAnchor, $sdkReplacement)
+  [System.IO.File]::WriteAllText($setupToolchain, $setupToolchainText, $utf8NoBom)
+  $toolchainSetupPatchedHash = (Get-FileHash -Algorithm SHA256 $setupToolchain).Hash.ToLowerInvariant()
+  Copy-Item $setupToolchain (Join-Path $Diagnostics 'setup_toolchain.py.selected-sdk')
+
+  @(
+    "windows_kits_root=$windowsKitsRoot",
+    "selected_windows_sdk_version=$selectedWindowsSdkVersion",
+    "setup_toolchain_upstream_sha256=$toolchainSetupUpstreamHash",
+    "setup_toolchain_patched_sha256=$toolchainSetupPatchedHash",
+    "sdk_anchor=$sdkAnchor",
+    "sdk_replacement=$sdkReplacement"
+  ) | Set-Content -Encoding utf8 (Join-Path $Diagnostics 'windows-sdk-selection.txt')
 
   $buildGn = Join-Path $angle 'BUILD.gn'
   if (-not (Test-Path $buildGn)) { throw "ANGLE BUILD.gn missing: $buildGn" }
@@ -399,6 +463,9 @@ $summary = @(
   "angle_source=$angleSha",
   "vendored_angle_source=$vendorAngleSha",
   "generator_source=agent/winrt-source-poc",
+  "selected_windows_sdk_version=$selectedWindowsSdkVersion",
+  "setup_toolchain_upstream_sha256=$toolchainSetupUpstreamHash",
+  "setup_toolchain_selected_sdk_sha256=$toolchainSetupPatchedHash",
   "build_gn_upstream_sha256=$buildGnUpstreamHash",
   "build_gn_d3d9_split_sha256=$buildGnPatchedHash",
   "export_targets_upstream_sha256=$exportTargetsHash",
