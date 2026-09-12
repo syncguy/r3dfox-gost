@@ -8,6 +8,47 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-12 — exact-vendored ANGLE D3D9 regeneration exposes a real source-graph leak
+
+Track: Windows XP SP3 x86 ANGLE build-graph generation. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
+
+The earlier D3D9-only regeneration GREEN is retained only as historical control, not as proof that the generated graph was semantically D3D9-only:
+
+- workflow `.github/workflows/win-xp-angle-d3d9.yml` / `Windows XP ANGLE D3D9 Regeneration`;
+- run `34593948357`;
+- job `103245294808`;
+- source-under-test `bf633baad1e3e4958092134a527fe71431522fa2`;
+- aggregate result: **completed / success / GREEN**.
+
+That validator was insufficient: its gates were able to reject path-local `d3d11` material but did not reject D3D11-semantic generated sources whose paths do not contain a `d3d11` directory. Therefore the run must not be cited as proof that the exact generated source graph was D3D9-only.
+
+After correcting source identity so regeneration is performed against the exact vendored ANGLE snapshot, the focused experiment remained RED:
+
+- workflow `.github/workflows/win-xp-angle-d3d9.yml` / `Windows XP ANGLE D3D9 Regeneration`;
+- run `34603305241`;
+- job `103275617747`;
+- source-under-test `6b55ec37af6a324668de27833cd552709183dd05`;
+- aggregate result: **completed / failure / RED**;
+- `Regenerate ANGLE moz.build D3D9-only` completed `success`;
+- the following `Enforce D3D9-only ANGLE source graph` step failed.
+
+The independent buildability check then converted the validator finding into compiler evidence:
+
+- workflow `.github/workflows/win-xp-32.yml` / `Windows XP x86 Build`;
+- run `34605440500`;
+- job `103282611033`;
+- source-under-test `ade66a2d58bfeb5440aba01a996b1cde63335296`;
+- aggregate result: **completed / failure / RED**;
+- the supposedly D3D9-only generated graph still includes `dxgi_format_map_autogen.cpp` and `dxgi_support_table_autogen.cpp`, and the full XP build reaches them during compilation.
+
+Conclusion: **the current blocker is the source graph produced for the exact vendored ANGLE snapshot, not merely a weak validator.** The two DXGI generated sources must not be “fixed” by manually deleting their entries from the final generated `moz.build`; doing so would hide the graph-generation defect and make the generated file diverge from its source-of-truth inputs.
+
+Next experiment: trace exactly which GN/source-set ownership and updater dependency traversal cause `dxgi_format_map_autogen.cpp` and `dxgi_support_table_autogen.cpp` to enter the D3D9-only graph for the Firefox/r3dfox 153 vendored ANGLE snapshot, then correct the generator inputs/selection so the graph is D3D9-only by construction. Re-run exact-vendored regeneration before returning to the full XP build.
+
+Status: **current ANGLE/XP build-graph boundary.**
+
+---
+
 ## 2026-09-11 — XP x32 successor full build packages successfully; aggregate summary remains RED
 
 Track: Windows XP SP3 x86 full-browser build/static integration. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
@@ -189,10 +230,10 @@ Physical Windows XP SP3 x86 execution of the exact candidate artifact produced:
 
 ```text
 UCRT_STARTUP_LOAD_PASS
-UCRT_PATH=D:\2026\09\09\xp-supermium-dwrite-dist-bin-34317489430\dist\bin\ucrtbase.dll
+UCRT_PATH=D:\\2026\\09\\09\\xp-supermium-dwrite-dist-bin-34317489430\\dist\\bin\\ucrtbase.dll
 UCRT_STATIC_TLS_PASS
 PWRP_LOAD_PASS
-PWRP_PATH=D:\2026\09\09\xp-supermium-dwrite-dist-bin-34317489430\dist\bin\xpcompat\dwrite\pwrp_k32.dll
+PWRP_PATH=D:\\2026\\09\\09\\xp-supermium-dwrite-dist-bin-34317489430\\dist\\bin\\xpcompat\\dwrite\\pwrp_k32.dll
 DWRITE_LOAD_PASS
 DWRITE_FACTORY_PASS
 DWRITE_FONT_COLLECTION_PASS
