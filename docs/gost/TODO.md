@@ -102,30 +102,30 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Integrated private DWrite browser — current successor built; physical test now targets font boundary
+### Integrated private DWrite browser — factory-ensure successor built; physical validation next
 
-The standalone component work, full-browser transfer, and predecessor physical-browser execution are proven at their respective boundaries:
+The standalone component work, predecessor physical browser evidence, and current successor build are proven at their respective boundaries:
 
 - focused physical component: workflow `.github/workflows/xp-supermium-dwrite-closure.yml`, run `34317489430`, job `102356664699`, artifact `10090864697`, **GREEN / PHYSICAL XP COMPONENT PASS**;
-- physical full-browser predecessor: source `88453be37a7f39f690c504078f6f9434e2547ab6`, run `34459906476`, job `102815008544`, runtime artifact `10150744314`, **PHYSICAL XP BROWSER WORKLOAD PASS under forced non-e10s, sustained stability OPEN**;
-- current full-browser source-under-test `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`;
+- predecessor physical full-browser lineage: source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, package `10298184343`, runtime `10297859657`, diagnostics `10298342641`;
+- current factory-ensure full-browser source `55a5415bc34a1e6db89f3643f9be881185127896`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `34485182943`, job `102897550999`, **aggregate RED at final summary**;
-- package `10162565742`, runtime `10162567956`, diagnostics `10162609423`.
+- run `34705592283`, job `103584935147`, **completed / success / GREEN**;
+- package `10303966628`, runtime `10303801915`, diagnostics `10303639849`.
 
-The current full-browser run successfully compiles, links, stages and packages the corrected Rust XP private-DWrite loader, preserves the listed targeted xul/mozglue XP gates, creates the physical-test runtime archive, runs the broad PE/import audit step, completes YY inventory, and uploads all three artifacts. Its only failed Actions step is `GATE - Summarize XP x32 full build`; exact aggregate cause remains separately unclassified.
+The current successor integrates the narrow XP-only `NativeFontResourceDWrite::Create() -> Factory::EnsureDWriteFactory()` remediation and passes the canonical compile/link, targeted XP gates, staging, packaging, broad PE/direct-import audit, artifact uploads and final summary. This is build/static evidence only; the exact successor has not yet been exercised on physical XP.
 
-The predecessor physical build `88453be...` has a repeatable late intentional crash at `xul.dll + 0x0116fab3`, exactly symbolized with the matching PDB to `gfxFontGroup::GetDefaultFont()` / `gfx/thebes/gfxTextRun.cpp:2242`, where Firefox calls `MOZ_CRASH_UNSAFE` because no usable/default font can be obtained. This is distinct from the earlier Rust `dwrote` loader assertion, although a common DirectWrite/font root cause remains possible and unproven.
+The predecessor physical lineage exposed two distinct intentional-breakpoint paths, including the symbolized `NativeFontResourceNotFound` path through `GetUnscaledFont()` / `GetScaledFont()` / `Moz2DRenderCallback`, and an independent early Rust/dwrote null-`DWriteCreateFactory` assertion. Do not conflate the C++ factory-ensure path with the Rust loader path.
 
 Immediate work:
 
-1. **Physically test current source `71c7f135...` / run `34485182943` on XP.** Bind the run to exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and matching PDB hashes before interpreting a crash.
-2. **Enable font initialization telemetry in that physical run.** Add at least `fontinit:5,fontlist:5` to the existing `MOZ_LOG` set. If the same `GetDefaultFont()` crash recurs, capture the DirectWrite system-font collection/family-count path and the exact `no fonts - init: ... backend: ...` diagnostic rather than weakening the fatal assertion.
-3. **Determine whether the Rust private-DWrite fix changes either boundary.** Specifically distinguish: early `dwrote` loader/assert behavior, DirectWrite system-font enumeration, and the later `gfxFontGroup::GetDefaultFont()` fallback. Do not assume they are one bug without matching evidence.
-4. **Classify the exact final-summary failure of run `34485182943` separately.** Use diagnostics artifact `10162609423`; do not let the aggregate static-policy issue obscure the physical runtime owner.
-5. **Record the next exact boundary.** If `71c7f135...` advances beyond the font crash, do not reopen the now physically passed battery/SharedPrefMap boundaries without contradictory evidence.
+1. **Physically test exact source `55a5415b...` / run `34705592283` on XP.** Bind the run to exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and matching PDB hashes before interpreting any runtime result.
+2. **First check the exact `NativeFontResourceNotFound` boundary.** Determine whether `Factory::EnsureDWriteFactory()` is reached and whether private `xpcompat\dwrite\DWrite.dll` loads in the PID executing the WebRender/Moz2D font path. If it still fails, distinguish `LoadLibraryXPPrivateDWrite()` not called, `LoadLibraryExW` failure, `GetProcAddress("DWriteCreateFactory")` failure, `DWriteCreateFactory` HRESULT failure, and later native-font-resource failure.
+3. **Keep Rust/dwrote separate.** If the early Rust assertion still occurs, diagnose its own loader/function-resolution path independently rather than projecting the C++ result onto it.
+4. **Capture clean-looking termination ownership.** If the browser again disappears without a debugger exception, capture the terminating PID/TID, target process, stack and exit code through `ExitProcess` / `TerminateProcess` / `NtTerminateProcess` breakpoints.
+5. **Record the next exact boundary.** If `55a5415b...` advances beyond `NativeFontResourceNotFound`, do not declare XP runtime closed; record the next physical blocker and sustained-lifetime result.
 
-Do not spend another cycle re-integrating the same DWrite subtree or mechanically carrying an old broad-audit diagnosis onto a different source SHA. The focused DWrite PASS and predecessor full-browser runtime are controls; the current experiment is whether the corrected Rust/DWrite path produces a complete usable system font list on XP.
+The focused DWrite PASS and predecessor full-browser runtime remain controls. Do not re-integrate the same private DWrite subtree or weaken assertions merely to continue startup.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -136,13 +136,11 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated full-build evidence is source `71c7f135210030dde4ec9eeee04e6cb36a2cbffc`, run `34485182943`, job `102897550999`: compile/package/artifact production PASS, aggregate workflow RED at the final summary; exact summary reason is not classified in the current bookkeeping pass.
+Current latest integrated full-build/static evidence is source `55a5415bc34a1e6db89f3643f9be881185127896`, run `34705592283`, job `103584935147`: aggregate **completed / success / GREEN**, with package `10303966628`, runtime `10303801915`, diagnostics `10303639849`.
 
-Exact predecessor source `88453be...`, run `34459906476`, job `102815008544`, is the current physical full-browser control: under forced non-e10s it executes representative remote browsing and GOST application traffic, but later reaches the repeatable default-font fatal boundary.
+Current latest physical full-browser evidence is predecessor source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`. It reaches browser runtime but exposes the separate early Rust/dwrote factory assertion and later font/WebRender failure family, including the symbolized `NativeFontResourceNotFound` boundary.
 
-The preceding analyzed integrated build remains source `c0b5561dc58d588ecb970a333d49ac78fae84eb0`, run `34439013068`, job `102749929410`: its aggregate RED was explicitly localized to the private-DWrite-only 22-row broad policy result.
-
-The latest completed all-GREEN pre-DWrite full-browser build/static baseline remains source `db334d39cf929de7a12ea2f74bea32ddc4f3e4e4`, run `34213345771`, job `102019253738`, package `10056086223`, runtime `10056088395`, diagnostics `10056127829`. It remains useful control evidence for earlier compatibility fixes but does not contain the private DWrite integration.
+Older source `88453be...`, run `34459906476`, job `102815008544`, remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s, but it is not the current runtime target.
 
 ### Deferred XP cleanup — battery observer simplification
 
@@ -178,4 +176,4 @@ The current lineage has already closed or physically advanced past the following
 - YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
-The active late runtime boundary is now the exact default-font fatal path on predecessor source `88453be...`; do not spend new cycles on the closed families above without contradictory evidence.
+The active runtime acceptance target is now exact successor source `55a5415b...` / run `34705592283`; do not spend new cycles on the closed families above without contradictory evidence.
