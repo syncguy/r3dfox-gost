@@ -165,3 +165,36 @@ A narrow source remediation has been committed on `agent/winrt-source-poc`: func
 Working hypothesis only: the user's historical observation that short-lived successful browser sessions often emitted font-search activity shortly before the browser disappeared may belong to this same DirectWrite/font/WebRender family. That correlation is not yet tied to a captured termination owner or exit code and must not be recorded as the proven cause of the sustained-runtime shutdown. The next decisive experiment is to build exact source `55a5415b...`, run that artifact on physical XP, and determine whether the `NativeFontResourceNotFound` / late font-path `0x80000003` boundary disappears or advances while independently tracking any clean-looking spontaneous process termination.
 
 Status: **diagnostic attribution proven; remediation and sustained-runtime causal link remain hypotheses pending exact-build physical XP validation.**
+
+---
+
+## 2026-09-13 — factory-ensure successor passes canonical XP x86 full build/static gates
+
+Track: Windows XP SP3 x86 full-browser build/static compatibility. Independent of GOST TLS handshake/runtime proof and not physical-XP execution evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test and Actions head SHA `55a5415bc34a1e6db89f3643f9be881185127896`;
+- functional remediation commit `5ed150c81c0ba10eff2f1b3eed614371898dfcd4` (`NativeFontResourceDWrite::Create()` uses `Factory::EnsureDWriteFactory()` under `MOZ_XP_COMPAT`);
+- cleanup-only head commit `55a5415bc34a1e6db89f3643f9be881185127896`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34705592283`;
+- job `103584935147` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / success / GREEN**.
+
+All decisive full-build/static stages completed successfully, including release compile/link, targeted xul/mozglue XP compatibility gates, private DirectWrite staging and packaging checks, broad XP PE/direct-import audit, YY inventory, all three artifact uploads, and the final summary gate.
+
+Artifacts bound to the exact source-under-test:
+
+- package artifact `10303966628` (`r3dfox-gost-xp-x32-package`), 333,354,441 bytes, digest `sha256:c8e435e1bc93ab7a7ff7f802154ed02d6090f3765acdc03551677b142a7bb4f7`;
+- physical-test runtime artifact `10303801915` (`r3dfox-gost-xp-x32-runtime`), 76,174,967 bytes, digest `sha256:dcca9fcb3e1e666c85542bb1b653c73b1fe387d716f1d960805b8f8e49da36a3`;
+- diagnostics artifact `10303639849` (`r3dfox-gost-xp-x32-diagnostics`), 420,544,198 bytes, digest `sha256:bb72735d72b7932ac9b7f9cc2b57f3b180df97d7e875768abf42124c2a1025c9`.
+
+Conclusion: **FULL XP x86 BUILD / PACKAGE / STATIC PE-IMPORT BASELINE GREEN** for the exact factory-ensure successor. This supersedes `5845ff2d...` / run `34688317433` as the latest integrated build/static baseline only.
+
+The result does **not** prove that the `NativeFontResourceNotFound` runtime boundary is fixed, does not prove that private `xpcompat\dwrite\DWrite.dll` is loaded in the relevant browser/WebRender process on XP, does not prove sustained browser lifetime, and does not prove any GOST TLS behavior. The predecessor `5845ff2d...` remains the latest physical-XP evidence lineage until this exact successor artifact is exercised on Windows XP with matching binary/PDB identity.
+
+Next evidence boundary: physically run exact source `55a5415b...`, verify whether `NativeFontResourceNotFound -> GFX_CRASH -> 0x80000003` disappears or advances, and if the browser terminates without an exception capture the actual termination owner, target PID and exit code.
+
+Status: **current authoritative all-GREEN XP full-build/static baseline; physical XP validation pending.**
