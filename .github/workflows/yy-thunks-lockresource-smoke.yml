@@ -1,0 +1,286 @@
+name: YY-Thunks LockResource linker smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/yy-thunks-lockresource-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  VC_LTL_VERSION: "5.2.2"
+  THUNK_RS_VERSION: "0.3.5"
+  RUST_TOOLCHAIN: "nightly-2026-08-20"
+  RUST_TARGET: "x86_64-pc-windows-msvc"
+
+jobs:
+  lockresource-smoke:
+    name: Reproduce broad kernel32 collision and test narrow ordering
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Provision VC-LTL 5.2.2 via thunk-rs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'lockresource-vcltl-provision'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+
+          @"
+          [package]
+          name = "lockresource-vcltl-provision"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = { version = "=$env:THUNK_RS_VERSION", default-features = false, features = ["win7", "lib"] }
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+
+          'fn main() { thunk::thunk(); }' | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+          'fn main() {}' | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          & cargo build --manifest-path (Join-Path $proj 'Cargo.toml') --target $env:RUST_TARGET --jobs 4 -vv
+          if ($LASTEXITCODE -ne 0) { throw "thunk-rs provisioning failed: $LASTEXITCODE" }
+
+          $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter "VC-LTL-$env:VC_LTL_VERSION" | Select-Object -First 1
+          if (-not $vc) { throw "VC-LTL-$env:VC_LTL_VERSION was not provisioned" }
+          $vcLib = Join-Path $vc.FullName 'TargetPlatform\6.0.6000.0\lib\x64'
+          if (-not (Test-Path $vcLib)) { throw "VC-LTL lib directory missing: $vcLib" }
+          "THUNK_VC_LTL_LIB=$vcLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Download YY-Thunks 1.2.2 Win7 x64 libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-lockresource'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match '(?i)[\\/]Lib[\\/]6\.1\.7600\.0[\\/]x64$' } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw 'YY-Thunks Lib/6.1.7600.0/x64 not found' }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32)) { throw "YY kernel32.lib missing: $kernel32" }
+          if (-not (Test-Path $synch)) { throw "YY synchronization.lib missing: $synch" }
+
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          $symbols = (& dumpbin /nologo /linkermember:1 $kernel32 2>&1 | Out-String)
+          $symbols | Set-Content -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'yy-kernel32-symbols.txt')
+          $symbols -split "`r?`n" | Where-Object { $_ -match 'LockResource|ProcessPrng|YY_Thunks_ProcessPrng' } | ForEach-Object { Write-Host $_ }
+
+      - name: Locate lld-link
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
+          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw "lld-link.exe not found: $lld" }
+          "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          & $lld --version
+
+      - name: Generate Rust raw-dylib LockResource reproducer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'lockresource-smoke'
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          New-Item -ItemType Directory -Force $dir | Out-Null
+
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::ffi::c_void;
+          use std::hint::black_box;
+          use std::sync::{Arc, Condvar, Mutex};
+          use std::thread;
+          use std::time::Duration;
+
+          #[link(name = "kernel32", kind = "raw-dylib")]
+          unsafe extern "system" {
+              fn LockResource(hmem: *mut c_void) -> *mut c_void;
+          }
+
+          fn main() {
+              // Preserve an explicit Rust raw-dylib import for an ordinary Win7
+              // kernel32 API. The full Firefox failure had exactly this class of
+              // symbol in gkrust.lib while YY kernel32.lib was placed first.
+              if black_box(false) {
+                  unsafe { black_box(LockResource(std::ptr::null_mut())); }
+              }
+
+              // Keep current libstd probes for ProcessPrng and synchronization.
+              black_box(RandomState::new());
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let waiter_pair = Arc::clone(&pair);
+              let waiter = thread::spawn(move || {
+                  let (lock, cv) = &*waiter_pair;
+                  let guard = lock.lock().unwrap();
+                  let (_guard, _timeout) = cv
+                      .wait_timeout_while(guard, Duration::from_millis(1), |ready| !*ready)
+                      .unwrap();
+              });
+              {
+                  let (lock, cv) = &*pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_all();
+              }
+              waiter.join().unwrap();
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'main.rs')
+          "SMOKE_DIR=$dir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Reproduce broad interposition and test narrow candidates
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:SMOKE_DIR 'main.rs'
+          $broad = Join-Path $env:SMOKE_DIR 'broad-first.exe'
+          $late = Join-Path $env:SMOKE_DIR 'kernel32-late.exe'
+          $alias = Join-Path $env:SMOKE_DIR 'kernel32-late-alias.exe'
+
+          function Write-Wrapper([string]$path, [string]$args) {
+            @"
+          @echo off
+          "$env:REAL_LLD_LINK" $args %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $path
+          }
+
+          $broadWrapper = Join-Path $env:SMOKE_DIR 'lld-broad-first.cmd'
+          Write-Wrapper $broadWrapper "\"-LIBPATH:$env:THUNK_VC_LTL_LIB\" \"-LIBPATH:$env:THUNK_YY_LIB\" \"$env:THUNK_YY_SYNCH_LIB\" \"$env:THUNK_YY_KERNEL32_LIB\""
+
+          $broadLog = Join-Path $env:SMOKE_DIR 'broad-first.log'
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$broadWrapper" -o $broad 2>&1 | Tee-Object -FilePath $broadLog
+          $broadRc = $LASTEXITCODE
+          "BROAD_RC=$broadRc" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          if ($broadRc -eq 0) {
+            throw 'Broad YY kernel32-before-Rust variant unexpectedly linked; LockResource collision class was not reproduced.'
+          }
+          $broadText = Get-Content $broadLog -Raw
+          if ($broadText -notmatch '(?i)duplicate symbol:\s*LockResource') {
+            throw 'Broad variant failed, but not with duplicate LockResource; reproducer is not yet representative.'
+          }
+          Write-Host 'Confirmed: broad YY kernel32 interposition reproduces duplicate LockResource.'
+
+          # Candidate A: keep specialized synchronization.lib early, but defer the
+          # broad YY kernel32.lib until after rustc supplied objects/libraries.
+          $lateWrapper = Join-Path $env:SMOKE_DIR 'lld-kernel32-late.cmd'
+          @"
+          @echo off
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_VC_LTL_LIB" "-LIBPATH:$env:THUNK_YY_LIB" "$env:THUNK_YY_SYNCH_LIB" %* "$env:THUNK_YY_KERNEL32_LIB"
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $lateWrapper
+
+          $lateLog = Join-Path $env:SMOKE_DIR 'kernel32-late.log'
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$lateWrapper" -o $late 2>&1 | Tee-Object -FilePath $lateLog
+          $lateRc = $LASTEXITCODE
+
+          # Candidate B: same narrow ordering plus an explicit fallback alias for
+          # ProcessPrng. This is diagnostic; it is not assumed to override a strong
+          # Rust raw-dylib definition.
+          $aliasWrapper = Join-Path $env:SMOKE_DIR 'lld-kernel32-late-alias.cmd'
+          @"
+          @echo off
+          "$env:REAL_LLD_LINK" "-LIBPATH:$env:THUNK_VC_LTL_LIB" "-LIBPATH:$env:THUNK_YY_LIB" "$env:THUNK_YY_SYNCH_LIB" "/alternatename:__imp_ProcessPrng=__imp_YY_Thunks_ProcessPrng" %* "$env:THUNK_YY_KERNEL32_LIB"
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $aliasWrapper
+
+          $aliasLog = Join-Path $env:SMOKE_DIR 'kernel32-late-alias.log'
+          & rustc $src --target $env:RUST_TARGET -O "-Clinker=$aliasWrapper" -o $alias 2>&1 | Tee-Object -FilePath $aliasLog
+          $aliasRc = $LASTEXITCODE
+
+          "LATE_RC=$lateRc" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ALIAS_RC=$aliasRc" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Audit narrow candidates
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbidden = @(
+            'ProcessPrng',
+            'bcryptprimitives.dll',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle'
+          )
+
+          function Audit([string]$name, [int]$rc) {
+            $exe = Join-Path $env:SMOKE_DIR "$name.exe"
+            if ($rc -ne 0 -or -not (Test-Path $exe)) {
+              return [pscustomobject]@{ Name=$name; Linked=$false; Hits=@('link-failed') }
+            }
+            $text = (& dumpbin /nologo /imports $exe 2>&1 | Out-String)
+            $text | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR "$name.imports.txt")
+            $hits = @($forbidden | Where-Object { $text.IndexOf($_, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            return [pscustomobject]@{ Name=$name; Linked=$true; Hits=$hits }
+          }
+
+          $late = Audit 'kernel32-late' ([int]$env:LATE_RC)
+          $alias = Audit 'kernel32-late-alias' ([int]$env:ALIAS_RC)
+
+          "## LockResource narrow-link smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Full-build reference: run 32623108290 / job 97162633898 / a73f18e823c083c970eea649ce305da648640e2f" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Broad kernel32-first reproducer: duplicate LockResource confirmed" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Candidate | Linked | Forbidden imports |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "|---|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($r in @($late,$alias)) {
+            $hits = if ($r.Hits.Count) { $r.Hits -join ', ' } else { 'none' }
+            "| $($r.Name) | $($r.Linked) | $hits |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host "$($r.Name): linked=$($r.Linked), forbidden=$hits"
+          }
+
+          $clean = @($late,$alias | Where-Object { $_.Linked -and $_.Hits.Count -eq 0 })
+          if ($clean.Count -eq 0) {
+            throw 'No narrow candidate both linked and removed the forbidden Win8+ imports. Keep investigation in smoke; do not start a full Firefox build.'
+          }
+
+      - name: Upload linker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-thunks-lockresource-smoke-diagnostics
+          path: |
+            ${{ runner.temp }}/lockresource-smoke/*.log
+            ${{ runner.temp }}/lockresource-smoke/*.imports.txt
+            ${{ runner.temp }}/yy-kernel32-symbols.txt
+          if-no-files-found: warn

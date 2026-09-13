@@ -1,0 +1,57 @@
+name: One-Core bcrypt source XP x86 smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - '.github/workflows/onecore-bcrypt-source-xp-x86-smoke.yml'
+      - '.github/scripts/onecore-bcrypt-source-xp-x86-smoke.ps1'
+      - 'tools/gost/xp/bcrypt-smoke/**'
+
+permissions:
+  contents: read
+
+env:
+  WORK_ROOT: ${{ github.workspace }}\artifacts\onecore-bcrypt-source-xp-x86
+
+jobs:
+  build:
+    name: Build source bcrypt for XP x86
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout project smoke harness
+        uses: actions/checkout@v4
+
+      - name: Enable x86 MSVC tools for probe and PE audit
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Build pinned One-Core bcrypt source and stage XP probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\.github\scripts\onecore-bcrypt-source-xp-x86-smoke.ps1 `
+            -RepoRoot '${{ github.workspace }}' `
+            -WorkRoot $env:WORK_ROOT
+
+      - name: Upload XP runtime bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onecore-bcrypt-source-xp-x86-runtime
+          path: ${{ env.WORK_ROOT }}\runtime
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onecore-bcrypt-source-xp-x86-diagnostics
+          path: ${{ env.WORK_ROOT }}\diagnostics
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,204 @@
+name: Rust Win7 x64 thunk smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/rust-win7-thunk-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust-win7-thunk-smoke:
+    name: Rust x64 + thunk-rs / Windows 7 smoke
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    env:
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "x86_64-pc-windows-msvc"
+      THUNK_RS_VERSION: "0.3.5"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Record Rust toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustc --version --verbose 2>&1 | Tee-Object -FilePath rust-win7-thunk-rustc-version.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo --version --verbose 2>&1 | Tee-Object -FilePath rust-win7-thunk-cargo-version.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --print cfg --target $env:RUST_TARGET 2>&1 | Tee-Object -FilePath rust-win7-thunk-target-cfg.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create standalone Win7 thunk smoke project
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'rust-win7-thunk-smoke'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+
+          @"
+          [package]
+          name = "rust-win7-thunk-smoke"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = { version = "=$env:THUNK_RS_VERSION", default-features = false, features = ["win7"] }
+
+          [profile.release]
+          panic = "abort"
+          lto = false
+          codegen-units = 1
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+
+          @'
+          fn main() {
+              thunk::thunk();
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::hash::{BuildHasher, Hasher};
+          use std::sync::{Arc, Condvar, Mutex};
+          use std::thread;
+
+          fn main() {
+              let random = RandomState::new();
+              let mut hasher = random.build_hasher();
+              hasher.write_u64(0x0123_4567_89ab_cdef);
+              let hash = hasher.finish();
+
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let worker_pair = Arc::clone(&pair);
+              let worker = thread::spawn(move || {
+                  let (lock, cv) = &*worker_pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_one();
+              });
+
+              let (lock, cv) = &*pair;
+              let mut ready = lock.lock().unwrap();
+              while !*ready {
+                  ready = cv.wait(ready).unwrap();
+              }
+              drop(ready);
+              worker.join().unwrap();
+
+              println!("win7-thunk-smoke-ok hash={hash:016x}");
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          Copy-Item (Join-Path $proj 'Cargo.toml') .\rust-win7-thunk-Cargo.toml
+          Copy-Item (Join-Path $proj 'build.rs') .\rust-win7-thunk-build.rs
+          Copy-Item (Join-Path $proj 'src\main.rs') .\rust-win7-thunk-main.rs
+
+          Write-Host "Smoke project: $proj"
+          Get-Content (Join-Path $proj 'Cargo.toml')
+          Get-Content (Join-Path $proj 'build.rs')
+
+      - name: Build Win7 x64 smoke EXE with thunk-rs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'rust-win7-thunk-smoke'
+          Push-Location $proj
+          try {
+            cargo build --release --target $env:RUST_TARGET
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $exe = Join-Path $proj "target\$env:RUST_TARGET\release\rust-win7-thunk-smoke.exe"
+          if (-not (Test-Path $exe)) { throw "Win7 thunk smoke EXE was not produced: $exe" }
+          Copy-Item -Force $exe .\rust-win7-thunk-smoke.exe
+
+      - name: Run Win7 thunk smoke EXE on Windows Server 2022
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\rust-win7-thunk-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-thunk-smoke-output.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Inspect Win7 thunk smoke PE
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          dumpbin /imports .\rust-win7-thunk-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-thunk-smoke-imports.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dumpbin /headers .\rust-win7-thunk-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-thunk-smoke-headers.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $headers = [System.IO.File]::ReadAllText((Resolve-Path 'rust-win7-thunk-smoke-headers.txt'))
+          if ($headers -notmatch '(?im)\b8664 machine \(x64\)') {
+            throw 'PE gate failed: executable is not x64 (machine 8664).'
+          }
+
+          $imports = [System.IO.File]::ReadAllText((Resolve-Path 'rust-win7-thunk-smoke-imports.txt'))
+          $interesting = @(
+            'bcryptprimitives.dll',
+            'ProcessPrng',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle',
+            'GetSystemTimePreciseAsFileTime',
+            'GetOverlappedResultEx'
+          )
+          Write-Host '=== Interesting modern imports (diagnostic only) ==='
+          foreach ($symbol in $interesting) {
+            if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              Write-Warning "Found in final PE imports: $symbol"
+            } else {
+              Write-Host "Not present: $symbol"
+            }
+          }
+
+      - name: Upload Win7 x64 thunk smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-win7-x64-thunk-smoke-${{ env.RUST_TOOLCHAIN }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            rust-win7-thunk-smoke.exe
+            rust-win7-thunk-smoke-output.txt
+            rust-win7-thunk-smoke-imports.txt
+            rust-win7-thunk-smoke-headers.txt
+            rust-win7-thunk-rustc-version.txt
+            rust-win7-thunk-cargo-version.txt
+            rust-win7-thunk-target-cfg.txt
+            rust-win7-thunk-Cargo.toml
+            rust-win7-thunk-build.rs
+            rust-win7-thunk-main.rs

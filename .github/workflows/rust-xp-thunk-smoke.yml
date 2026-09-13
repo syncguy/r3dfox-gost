@@ -1,0 +1,207 @@
+name: Rust XP thunk smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/rust-xp-thunk-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust-xp-thunk-smoke:
+    name: Rust i686 + thunk-rs / Windows XP smoke
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    env:
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "i686-pc-windows-msvc"
+      THUNK_RS_VERSION: "0.3.5"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Record Rust toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustc --version --verbose 2>&1 | Tee-Object -FilePath rust-xp-rustc-version.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo --version --verbose 2>&1 | Tee-Object -FilePath rust-xp-cargo-version.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --print cfg --target $env:RUST_TARGET 2>&1 | Tee-Object -FilePath rust-xp-target-cfg.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create standalone XP smoke project outside Firefox workspace
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'rust-xp-smoke'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+
+          @"
+          [package]
+          name = "rust-xp-smoke"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = "=$env:THUNK_RS_VERSION"
+
+          [profile.release]
+          panic = "abort"
+          lto = false
+          codegen-units = 1
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+
+          @'
+          fn main() {
+              thunk::thunk();
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::hash::{BuildHasher, Hasher};
+          use std::sync::{Arc, Condvar, Mutex};
+          use std::thread;
+
+          fn main() {
+              let random = RandomState::new();
+              let mut hasher = random.build_hasher();
+              hasher.write_u64(0x0123_4567_89ab_cdef);
+              let hash = hasher.finish();
+
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let worker_pair = Arc::clone(&pair);
+              let worker = thread::spawn(move || {
+                  let (lock, cv) = &*worker_pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_one();
+              });
+
+              let (lock, cv) = &*pair;
+              let mut ready = lock.lock().unwrap();
+              while !*ready {
+                  ready = cv.wait(ready).unwrap();
+              }
+              drop(ready);
+              worker.join().unwrap();
+
+              println!("xp-thunk-smoke-ok hash={hash:016x}");
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          Copy-Item (Join-Path $proj 'Cargo.toml') .\rust-xp-Cargo.toml
+          Copy-Item (Join-Path $proj 'build.rs') .\rust-xp-build.rs
+          Copy-Item (Join-Path $proj 'src\main.rs') .\rust-xp-main.rs
+
+          Write-Host "Smoke project: $proj"
+          Get-Content (Join-Path $proj 'Cargo.toml')
+          Get-Content (Join-Path $proj 'build.rs')
+
+      - name: Build XP smoke EXE with thunk-rs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'rust-xp-smoke'
+          Push-Location $proj
+          try {
+            cargo build --release --target $env:RUST_TARGET
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $exe = Join-Path $proj "target\$env:RUST_TARGET\release\rust-xp-smoke.exe"
+          if (-not (Test-Path $exe)) { throw "XP smoke EXE was not produced: $exe" }
+          Copy-Item -Force $exe .\rust-xp-smoke.exe
+
+      - name: Run XP smoke EXE on Windows Server 2022
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\rust-xp-smoke.exe 2>&1 | Tee-Object -FilePath rust-xp-smoke-output.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Inspect XP smoke PE
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          dumpbin /imports .\rust-xp-smoke.exe 2>&1 | Tee-Object -FilePath rust-xp-smoke-imports.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dumpbin /headers .\rust-xp-smoke.exe 2>&1 | Tee-Object -FilePath rust-xp-smoke-headers.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $headers = [System.IO.File]::ReadAllText((Resolve-Path 'rust-xp-smoke-headers.txt'))
+          if ($headers -notmatch '(?im)\b14C machine \(x86\)') {
+            throw 'PE gate failed: executable is not x86 (machine 14C).'
+          }
+          if ($headers -notmatch '(?im)\b5\.01 subsystem version') {
+            throw 'PE gate failed: subsystem version is not 5.01 (Windows XP x86 baseline).'
+          }
+
+          $imports = [System.IO.File]::ReadAllText((Resolve-Path 'rust-xp-smoke-imports.txt'))
+          $interesting = @(
+            'bcryptprimitives.dll',
+            'ProcessPrng',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle',
+            'GetSystemTimePreciseAsFileTime',
+            'GetOverlappedResultEx'
+          )
+          Write-Host '=== Interesting modern imports (diagnostic only) ==='
+          foreach ($symbol in $interesting) {
+            if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              Write-Warning "Found in final PE imports: $symbol"
+            } else {
+              Write-Host "Not present: $symbol"
+            }
+          }
+
+      - name: Upload XP smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-xp-thunk-smoke-${{ env.RUST_TOOLCHAIN }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            rust-xp-smoke.exe
+            rust-xp-smoke-output.txt
+            rust-xp-smoke-imports.txt
+            rust-xp-smoke-headers.txt
+            rust-xp-rustc-version.txt
+            rust-xp-cargo-version.txt
+            rust-xp-target-cfg.txt
+            rust-xp-Cargo.toml
+            rust-xp-build.rs
+            rust-xp-main.rs

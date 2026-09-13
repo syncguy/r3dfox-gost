@@ -63,6 +63,11 @@ client-auth-send-no-certificate =
 # Variables:
 # $hostname (String) - The domain name of the site requesting the client authentication certificate
 client-auth-site-identification = “{ $hostname }” has requested that you identify yourself with a certificate:
+# Variables:
+# $name (String) - Human-readable owner name of a client certificate
+# $date (String) - Localized expiration date of a client certificate
+# $issuer (String) - Human-readable issuer common name of a client certificate
+client-auth-cert-list-entry = { $name }, valid until { $date } [ { $issuer } ]
 client-auth-cert-details = Details of selected certificate:
 # Variables:
 # $issuedTo (String) - The subject common name of the currently-selected client authentication certificate
@@ -99,12 +104,12 @@ client-auth-cert-remember-temporarily =
 
 set-password-window =
   .title = Choose a Certificate Backup Password
-set-password-message = The certificate backup password you set here protects the backup file that you are about to create. You must set this password to proceed with the backup.
+set-password-message = The certificate backup password you set here protects the backup file that you are about to create. You must set this password to proceed.
 set-password-backup-pw =
   .value = Certificate backup password:
 set-password-repeat-backup-pw =
   .value = Certificate backup password (again):
-set-password-reminder = Important: If you forget your certificate backup password, you will not be able to restore this backup later. Please record it in a safe location.
+set-password-reminder = Important: If you forget your certificate backup password, you will not be able to restore the backup. Please record it in a safe location.
 
 ## Protected authentication dialog
 

@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/BasePrincipal.h"
+#include "GostTLSService.h"
+#include "nsGostSSLIOLayer.h"
 #include "nsSSLSocketProvider.h"
 #include "nsNSSIOLayer.h"
 #include "nsError.h"
@@ -23,6 +25,13 @@ nsSSLSocketProvider::NewSocket(int32_t family, const char* host, int32_t port,
                                uint32_t flags, uint32_t tlsFlags,
                                PRFileDesc** _result,
                                nsITLSSocketControl** tlsSocketControl) {
+  if (GostTLSService::ShouldUseForHost(host)) {
+    nsresult rv = nsGostSSLIOLayerNewSocket(
+        family, host, port, proxy, originAttributes, _result, tlsSocketControl,
+        flags, tlsFlags);
+    return NS_FAILED(rv) ? NS_ERROR_SOCKET_CREATE_FAILED : NS_OK;
+  }
+
   nsresult rv =
       nsSSLIOLayerNewSocket(family, host, port, proxy, originAttributes,
                             _result, tlsSocketControl, false, flags, tlsFlags);
@@ -37,6 +46,13 @@ nsSSLSocketProvider::AddToSocket(int32_t family, const char* host, int32_t port,
                                  uint32_t flags, uint32_t tlsFlags,
                                  PRFileDesc* aSocket,
                                  nsITLSSocketControl** tlsSocketControl) {
+  if (GostTLSService::ShouldUseForHost(host)) {
+    nsresult rv = nsGostSSLIOLayerAddToSocket(
+        family, host, port, proxy, originAttributes, aSocket, tlsSocketControl,
+        flags, tlsFlags);
+    return NS_FAILED(rv) ? NS_ERROR_SOCKET_CREATE_FAILED : NS_OK;
+  }
+
   nsresult rv = nsSSLIOLayerAddToSocket(
       family, host, port, proxy, originAttributes, aSocket, tlsSocketControl,
       false, flags, tlsFlags);
