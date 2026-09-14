@@ -198,3 +198,35 @@ The result does **not** prove that the `NativeFontResourceNotFound` runtime boun
 Next evidence boundary: physically run exact source `55a5415b...`, verify whether `NativeFontResourceNotFound -> GFX_CRASH -> 0x80000003` disappears or advances, and if the browser terminates without an exception capture the actual termination owner, target PID and exit code.
 
 Status: **current authoritative all-GREEN XP full-build/static baseline; physical XP validation pending.**
+
+---
+
+## 2026-09-14 — private `pwrp_k32.dll` preload successor passes canonical XP x86 full build/static gates
+
+Track: Windows XP SP3 x86 full-browser build/static compatibility. Independent of GOST TLS handshake/runtime proof and not physical-XP execution evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test and Actions head SHA `630804c5d2b244777e559ec16402fd71bf2607bf`;
+- head commit `630804c5d2b244777e559ec16402fd71bf2607bf` (`xp: preload private pwrp_k32 before xul bootstrap`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `34824217341`;
+- job `103912791195` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / success / GREEN**.
+
+The canonical job completed every decisive build/static stage successfully: release compile/link, targeted XP compatibility gates, private DirectWrite closure staging, package creation and survival gates, runtime-test archive generation, broad XP PE/direct-import audit, YY-Thunks inventory, all artifact uploads, and the final summary gate.
+
+Artifacts bound to the exact source-under-test:
+
+- package artifact `10344063698` (`r3dfox-gost-xp-x32-package`), 333,354,429 bytes, digest `sha256:8dd89efca38b26a312581b0cf5fe615f089f0938a77550be9b51c5a1f3bf3c64`;
+- physical-test runtime artifact `10344972309` (`r3dfox-gost-xp-x32-runtime`), 76,173,645 bytes, digest `sha256:2f73ae5b18770fb3b00cb7c8dd73ebe1ba20bd9ed735561bd540eff7d0f910d2`;
+- diagnostics artifact `10344674484` (`r3dfox-gost-xp-x32-diagnostics`), 420,566,084 bytes, digest `sha256:2cb6dac77f8c6486e87a1252a6a79eb5e233f01b68edadd3e863811ad2cff6cb`.
+
+Conclusion: **FULL XP x86 BUILD / PACKAGE / STATIC PE-IMPORT PASS** for the preload experiment. The source change that preloads the private `pwrp_k32.dll` before xul bootstrap is accepted by the canonical full Firefox/r3dfox 153 XP x86 build and its static/package gates. This supersedes `55a5415b...` / run `34705592283` as the latest integrated full-build/static baseline only.
+
+This result does **not** prove that the access violation motivating the preload experiment is fixed on physical Windows XP, does not prove successful runtime loading/initialization order in the crashing process, and does not prove GOST TLS behavior. Physical runtime acceptance remains open until the exact `630804c5...` artifacts are exercised on XP with matching binary/PDB identity.
+
+Next evidence boundary: run the exact package/runtime from source `630804c5d2b244777e559ec16402fd71bf2607bf` on physical XP, verify the private preload/load order in the relevant PID, and record whether the prior AV boundary advances or reproduces.
+
+Status: **current authoritative all-GREEN XP full-build/static baseline for the preload experiment; physical XP validation pending.**
