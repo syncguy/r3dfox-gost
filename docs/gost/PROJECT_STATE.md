@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 This file is the authoritative current technical synthesis and handoff for new chats. The immediately preceding full synthesis is preserved unchanged in [`PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md`](./PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md). Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -80,28 +80,28 @@ Earlier hosted-SDK pinning, shallow ANGLE history, PowerShell native stderr and 
 The current authoritative integrated full-build/static baseline is:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test/head `55a5415bc34a1e6db89f3643f9be881185127896`;
-- functional DWrite factory-ensure commit `5ed150c81c0ba10eff2f1b3eed614371898dfcd4`;
+- source-under-test/head `630804c5d2b244777e559ec16402fd71bf2607bf`;
+- head commit `630804c5d2b244777e559ec16402fd71bf2607bf` (`xp: preload private pwrp_k32 before xul bootstrap`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `34705592283`;
-- job `103584935147` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- run `34824217341`;
+- job `103912791195` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate result **completed / success / GREEN**.
 
 The canonical build completed the Firefox/r3dfox release compile/link, targeted xul/mozglue compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, the broad `GATE - Audit XP x32 PE floor and direct imports`, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
 
 Artifacts:
 
-- package `10303966628` (`r3dfox-gost-xp-x32-package`), 333,354,441 bytes, digest `sha256:c8e435e1bc93ab7a7ff7f802154ed02d6090f3765acdc03551677b142a7bb4f7`;
-- runtime `10303801915` (`r3dfox-gost-xp-x32-runtime`), 76,174,967 bytes, digest `sha256:dcca9fcb3e1e666c85542bb1b653c73b1fe387d716f1d960805b8f8e49da36a3`;
-- diagnostics `10303639849` (`r3dfox-gost-xp-x32-diagnostics`), 420,544,198 bytes, digest `sha256:bb72735d72b7932ac9b7f9cc2b57f3b180df97d7e875768abf42124c2a1025c9`.
+- package `10344063698` (`r3dfox-gost-xp-x32-package`), 333,354,429 bytes, digest `sha256:8dd89efca38b26a312581b0cf5fe615f089f0938a77550be9b51c5a1f3bf3c64`;
+- runtime `10344972309` (`r3dfox-gost-xp-x32-runtime`), 76,173,645 bytes, digest `sha256:2f73ae5b18770fb3b00cb7c8dd73ebe1ba20bd9ed735561bd540eff7d0f910d2`;
+- diagnostics `10344674484` (`r3dfox-gost-xp-x32-diagnostics`), 420,566,084 bytes, digest `sha256:2cb6dac77f8c6486e87a1252a6a79eb5e233f01b68edadd3e863811ad2cff6cb`.
 
-This supersedes source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910` as the latest integrated build/static baseline. The predecessor remains the current physical-XP runtime evidence lineage until the new exact artifacts are tested on Windows XP.
+This supersedes source `55a5415bc34a1e6db89f3643f9be881185127896`, run `34705592283`, job `103584935147` as the latest integrated build/static baseline. The preload experiment is therefore build/package/static accepted, but this exact successor has not yet supplied physical-XP runtime evidence.
 
-This is a full-build/package/static PE-import PASS only. It does **not** by itself prove browser startup or stability on physical Windows XP, does not prove that `NativeFontResourceNotFound` is fixed at runtime, and does not prove GOST TLS behavior.
+This is a full-build/package/static PE-import PASS only. It does **not** by itself prove browser startup or stability on physical Windows XP, does not prove that the motivating access violation is fixed, does not prove the intended private-library load order in the crashing process, and does not prove GOST TLS behavior.
 
 ## Physical XP browser/runtime state
 
-The latest physically exercised all-GREEN build remains source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, with package artifact `10298184343`, runtime artifact `10297859657`, and matching diagnostics/PDB artifact `10298342641`. The newer build/static baseline `55a5415b...` / run `34705592283` has not yet been physically validated on XP.
+The latest physically exercised all-GREEN build remains source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, with package artifact `10298184343`, runtime artifact `10297859657`, and matching diagnostics/PDB artifact `10298342641`. The later build/static baselines `55a5415b...` / run `34705592283` and current preload successor `630804c5...` / run `34824217341` have not yet been physically validated on XP.
 
 Two distinct intentional-breakpoint failure paths are confirmed on the predecessor physical lineage and must not be conflated:
 
@@ -112,7 +112,7 @@ The loaded-module evidence for these current runs no longer contains `combase.dl
 
 The focused private Supermium DWrite path remains independently physically proven on XP by run `34317489430`, job `102356664699`, artifact `10090864697`: project msvcr14x UCRT loads at process startup with static TLS, private `pwrp_k32.dll` and `DWrite.dll` load, `DWriteCreateFactory()` succeeds and `GetSystemFontCollection()` succeeds. That focused component PASS is a control and does not by itself explain why one current full-browser process leaves the dwrote factory pointer null.
 
-The older source `88453be...` remains historical physical-browser evidence: it started, rendered and performed real remote workloads under forced non-e10s, later reaching `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242`. That older default-font crash is no longer the sole current runtime boundary and must not be projected onto source `5845ff2d...` or `55a5415b...` without matching evidence.
+The older source `88453be...` remains historical physical-browser evidence: it started, rendered and performed real remote workloads under forced non-e10s, later reaching `gfxFontGroup::GetDefaultFont()` / `gfxTextRun.cpp:2242`. That older default-font crash is no longer the sole current runtime boundary and must not be projected onto source `5845ff2d...`, `55a5415b...`, or `630804c5...` without matching evidence.
 
 ## Closed compatibility boundaries retained
 
@@ -144,9 +144,9 @@ Keep the XP mechanisms distinct:
 
 ## XP acceptance boundary
 
-The canonical full XP x86 browser build/package/static PE-import boundary is **GREEN** on exact source `55a5415bc34a1e6db89f3643f9be881185127896`, run `34705592283`, job `103584935147`.
+The canonical full XP x86 browser build/package/static PE-import boundary is **GREEN** on exact source `630804c5d2b244777e559ec16402fd71bf2607bf`, run `34824217341`, job `103912791195`.
 
-Physical XP runtime acceptance remains **OPEN**. The newest exact build has not yet been physically exercised, while the predecessor `5845ff2d...` lineage proved browser execution far enough to expose the early Rust/dwrote null-`DWriteCreateFactory` assertion and the later font/WebRender failure family. The next acceptance experiment is physical XP execution of the exact `55a5415b...` artifacts with matching binary/PDB identity, first checking whether the `NativeFontResourceNotFound` boundary advances and then recording the next actual runtime boundary.
+Physical XP runtime acceptance remains **OPEN**. The current preload build has not yet been physically exercised. Its intended purpose is to preload the private `pwrp_k32.dll` before xul bootstrap for the runtime failure family under investigation, but build success does not establish that the prior AV is fixed. The next acceptance experiment is physical XP execution of the exact `630804c5...` artifacts with matching binary/PDB identity, verifying the relevant PID's private-library load order and recording whether the prior AV boundary advances or reproduces.
 
 # Bundled government-system extensions / localization
 
@@ -164,10 +164,10 @@ Current corrected Russian localization package gate is source `3e2c32386f373d469
 - A PDB may symbolize only the matching binary from the same build.
 - Runtime claims stay bound to exact source SHA + Actions run/job + exact artifact/binary identity.
 
-# Current XP runtime refinement — NativeFontResourceNotFound and factory-ensure validation build
+# Current XP runtime refinement — private preload validation build
 
-Additional symbolization of the predecessor physical-XP lineage (`5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, diagnostics/PDB artifact `10298342641`) localizes another observed `0x80000003` to `CrashStatsLogForwarder::CrashAction(LogReason)` with `LogReason::NativeFontResourceNotFound`. The symbolized caller chain reaches that crash from `GetUnscaledFont()` / `GetScaledFont()` inside `Moz2DRenderCallback`. In the exact pre-fix source, `NativeFontResourceDWrite::Create()` only queried `Factory::GetDWriteFactory()` and returned `nullptr` when the process-local factory was absent; the captured process module list also did not contain the packaged private `DWrite.dll`. This refines the later font/WebRender failure family but does not prove which internal DWrite load/create operation failed.
+Additional symbolization of the predecessor physical-XP lineage (`5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, diagnostics/PDB artifact `10298342641`) localizes one observed font-path `0x80000003` to `CrashStatsLogForwarder::CrashAction(LogReason)` with `LogReason::NativeFontResourceNotFound`. The symbolized caller chain reaches that crash from `GetUnscaledFont()` / `GetScaledFont()` inside `Moz2DRenderCallback`. In the exact pre-fix source, `NativeFontResourceDWrite::Create()` only queried `Factory::GetDWriteFactory()` and returned `nullptr` when the process-local factory was absent; the captured process module list also did not contain the packaged private `DWrite.dll`. This refines the later font/WebRender failure family but does not prove which internal DWrite load/create operation failed.
 
-The narrow XP-only source experiment on `agent/winrt-source-poc` is now built and statically accepted. Functional commit `5ed150c81c0ba10eff2f1b3eed614371898dfcd4`, with cleanup-only successor/head `55a5415bc34a1e6db89f3643f9be881185127896`, changes `NativeFontResourceDWrite::Create()` to call `Factory::EnsureDWriteFactory()` under `MOZ_XP_COMPAT`; non-XP behavior remains the existing `GetDWriteFactory()` path. Exact full build run `34705592283`, job `103584935147`, completed **success / GREEN** with package, runtime and diagnostics artifacts recorded above. This proves build/package/static integration only; it is **not yet physical runtime evidence** that the font boundary is fixed.
+The subsequent XP-only factory-ensure source change (`5ed150c81c0ba10eff2f1b3eed614371898dfcd4`, cleanup/head `55a5415bc34a1e6db89f3643f9be881185127896`) passed the canonical full-build/static gates in run `34705592283`, job `103584935147`. It was then followed by current source `630804c5d2b244777e559ec16402fd71bf2607bf`, which preloads private `pwrp_k32.dll` before xul bootstrap. That successor passed the canonical full build in run `34824217341`, job `103912791195`, with package/runtime/diagnostics artifacts recorded above.
 
-Working hypothesis only: the user's observation that otherwise successful XP sessions often showed font-search activity shortly before the browser disappeared may indicate that the short-lived sustained-runtime problem shares this DirectWrite/font/WebRender owner family. There is not yet a captured termination owner or exit code linking the clean-looking browser shutdown to this failure, so the correlation remains a diagnostic lead rather than a conclusion. Next acceptance experiment: physically exercise exact source `55a5415b...`, check whether `NativeFontResourceNotFound` / the late font-path `0x80000003` disappears or advances, verify private `xpcompat\dwrite\DWrite.dll` loading in the relevant PID, and independently capture any clean-looking process termination owner and exit code.
+The current evidence therefore proves only that the preload change integrates cleanly into the full Firefox/r3dfox 153 XP x86 build/package/static compatibility path. It is **not yet physical runtime evidence** that the prior AV or the DirectWrite/font failure family is fixed. Next acceptance experiment: physically exercise exact source `630804c5...`, verify private `pwrp_k32.dll`/DWrite load order in the relevant PID, and capture the next actual runtime boundary with matching binaries/PDBs.
