@@ -126,9 +126,9 @@ Status remains `NOT ESTABLISHED` for physical runtime of exact source `52e05a...
 
 ## Physical evidence inbox
 
-Awaiting first exact `52e05a...` physical-run preflight:
+User-reported preflight data received; remaining inputs for the first exact `52e05a...` physical run are pending:
 
-- WinDbg version;
+- WinDbg version: `6.12.2.633`, reported by the user. This records debugger version only; no browser execution or new runtime boundary is established.
 - extraction paths;
 - binary hashes;
 - PDB identity/path;
