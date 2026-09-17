@@ -130,7 +130,7 @@ One capture faults in `xul.dll` at `0x08460c61` on an `int 3`. The faulting raw 
 
 `assertion failed: !dwrite_create_factory_ptr.is_null()`
 
-In that process module list the packaged private `DWrite.dll` is not loaded. The confirmed immediate failure condition is therefore a null DirectWrite factory function pointer in the Rust/dwrote initialization path, followed by its intentional assertion breakpoint. Do not weaken this assertion. The unresolved owner question is why this launch/process path did not load or resolve the packaged private `DWrite.dll!DWriteCreateFactory` even though the separately focused private-DWrite component contract is physically proven on XP.
+In that process module list the packaged private `DWrite.dll` is not loaded. The confirmed immediate failure condition is therefore a null DirectWrite factory function pointer in the dwrote initialization path, followed by its intentional assertion breakpoint. Do not weaken this assertion. The unresolved owner question is why this launch/process path did not load or resolve the packaged private `DWrite.dll!DWriteCreateFactory` even though the separately focused private-DWrite component contract is physically proven on XP.
 
 ### Boundary B — later WebRender/Moz2D recording replay assertion
 
@@ -230,3 +230,38 @@ This result does **not** prove that the access violation motivating the preload 
 Next evidence boundary: run the exact package/runtime from source `630804c5d2b244777e559ec16402fd71bf2607bf` on physical XP, verify the private preload/load order in the relevant PID, and record whether the prior AV boundary advances or reproduces.
 
 Status: **current authoritative all-GREEN XP full-build/static baseline for the preload experiment; physical XP validation pending.**
+
+---
+
+## 2026-09-16 — post-COMBASE timezone exclusion passes canonical XP x86 full build/static gates
+
+Track: Windows XP SP3 x86 full-browser build/static compatibility. Independent of GOST TLS handshake/runtime proof and not physical-XP execution evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test and Actions head SHA `52e05a161da601e656e6ba3031084bcc60fdb098`;
+- functional remediation commit `9d96597b74d726f3a51229937d48e1d0128c6ae1` (`fix(xp): omit WinRT timezone combase probe`);
+- cleanup-only head commit `52e05a161da601e656e6ba3031084bcc60fdb098` (`chore(xp): preserve abseil file newline`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35059756036`;
+- job `104677385743` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / success / GREEN**.
+
+The functional source correction is narrow and source-owned. In `third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_lookup.cc`, definition of `USE_WIN32_LOCAL_TIME_ZONE` now additionally requires `!defined(MOZ_XP_COMPAT)`. Therefore the WinRT timezone helper and its `LoadLibraryEx(_T("combase.dll"), ..., LOAD_LIBRARY_SEARCH_SYSTEM32)` probe are excluded from the XP C/C++ build path rather than being reached dynamically on XP. The head commit changes only the final newline and does not alter that functional behavior.
+
+The canonical job completed every decisive build/static stage successfully: release compile/link, targeted XP compatibility gates, staging of the pinned XP runtime closures, package creation and package-survival checks, runtime-test archive generation, the broad XP PE/direct-import audit, YY-Thunks inventory, all three artifact uploads, and the final summary gate.
+
+Artifacts bound to the exact source-under-test:
+
+- package artifact `10436053344` (`r3dfox-gost-xp-x32-package`), 333,355,578 bytes, digest `sha256:aed5c8ee68f7eadb703136f9974b6b40d81e50de90f45dd6ae5d9a7cc3950e7e`;
+- physical-test runtime artifact `10436611625` (`r3dfox-gost-xp-x32-runtime`), 76,173,243 bytes, digest `sha256:0aca22830230068ab475fa986ca6b5d618a22b005b4c4c491a784054e435ba15`;
+- diagnostics artifact `10436392402` (`r3dfox-gost-xp-x32-diagnostics`), 420,566,978 bytes, digest `sha256:b6d9c7fab1fe28c21e7906da42f6fc9aee8c49d16b41d2f2de4d307cb9024f0e`.
+
+Conclusion: **FULL XP x86 BUILD / PACKAGE / STATIC COMPATIBILITY PASS AFTER THE COMBASE SOURCE REMEDIATION.** Exact source `52e05a...`, which contains the `9d96597b...` XP-only exclusion of the Abseil WinRT/COMBASE timezone path, builds and packages successfully through the canonical Firefox/r3dfox 153 XP x86 workflow. This supersedes `630804c5...` / run `34824217341` as the latest integrated full-build/static baseline.
+
+This evidence proves successful build integration of the source-level COMBASE exclusion. It does **not** by itself prove that the exact produced browser starts or remains stable on physical Windows XP, and because the removed dependency was a dynamic `LoadLibraryEx` path rather than an ordinary PE import, the broad PE-import PASS alone must not be reinterpreted as physical proof that `combase.dll` is never loaded. Physical runtime acceptance requires execution of the exact `52e05a...` artifacts with matching binary/PDB identity. It also does not prove GOST TLS behavior.
+
+Next evidence boundary: physically run the exact package/runtime from source `52e05a161da601e656e6ba3031084bcc60fdb098` on Windows XP SP3 x86, bind the run to the matching binaries/PDBs, confirm the process/module behavior after the COMBASE source exclusion, and record the next actual runtime boundary.
+
+Status: **current authoritative all-GREEN XP full-build/static baseline after the COMBASE source remediation; physical XP validation pending.**
