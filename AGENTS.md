@@ -174,6 +174,15 @@ A workflow may reuse infrastructure from another track without changing the mean
 - Full Git commit SHAs, GitHub Actions run/job IDs, artifact hashes, and hashes of non-sensitive build/log artifacts may still be recorded when useful for reproducibility. This exception does NOT apply to certificate fingerprints/thumbprints or other credential-derived identifiers.
 - If existing logs contain sensitive certificate/user data, summarize sanitized evidence rather than uploading or quoting the raw data.
 
+### Mandatory public XP runtime bridge sanitization
+- Before publishing to `docs/gost/XP_RUNTIME_ASTRA_BRIDGE.md`, MUST read and follow [`docs/gost/XP_RUNTIME_BRIDGE_SANITIZATION.md`](docs/gost/XP_RUNTIME_BRIDGE_SANITIZATION.md) in full. This applies to both models and to XP evidence promoted from the bridge into other public surfaces.
+- Default deny: publish only minimal, explicitly allowlisted technical facts. User-chat material, attachments, remembered context, logs and tool output are not permission to publish their contents. A bridge recipient heading does not make the exchange private.
+- Never publish raw captures/dumps, actual local paths, full environment/command lines, private identities/network details, application/profile data, credentials/certificate identifiers, or fingerprints of private/unknown material. Use the policy's aliases and safe status fields; keep originals and alias mappings local.
+- Inspect the complete outbound file payload, links and commit metadata before the first write. If sensitivity or provenance is uncertain, omit the value or withhold the unsafe entry. Neither model may silently expand the allowlist; do not use a different public attachment/artifact/comment channel as a workaround.
+- Add the policy's publication-check marker to newly reviewed bridge entries. A marker, regex scan or post-push CI is not a confidentiality guarantee. Publication checks do not prove the runtime conclusion.
+- Earlier requests for paths, PID/TID, environment or complete captures mean local collection or necessary review in the user conversation, never raw publication in the bridge. This stricter contract overrides broader log-hash allowances for this exchange.
+- If a suspected disclosure is found, stop propagating it and tell the user its location and category without repeating the value. A later deletion commit does not erase Git history; do not rewrite history or change repository visibility without explicit user direction.
+
 ### Upstream/version policy
 - This project is based on the maintained fork `Eclipse-Community/r3dfox`, not directly on Mozilla Firefox upstream.
 - The project remains on the r3dfox/Firefox 153 baseline represented by `win-153` until the user explicitly decides to evaluate a newer r3dfox baseline.
@@ -188,6 +197,8 @@ A workflow may reuse infrastructure from another track without changing the mean
 - `docs/gost/TEST_LOG.md` — active append-oriented experiment/evidence log.
 - `docs/gost/TEST_LOG_*.md` — immutable dated historical evidence volumes.
 - `docs/gost/XP_BUILD_CONTRACT.md` — mandatory Windows XP x86 build/dependency contract and its physically proven reference.
+- `docs/gost/XP_RUNTIME_ASTRA_BRIDGE.md` — public, sanitized model coordination only; not an authoritative evidence log.
+- `docs/gost/XP_RUNTIME_BRIDGE_SANITIZATION.md` — mandatory default-deny allowlist and pre-publication procedure for the public XP bridge and its derived evidence.
 - Track-specific design documents such as `docs/gost/STAGE2_PLAN.md` and `docs/gost/EXTENSIONS.md` may contain detailed active plans/contracts for their subsystem; they do not replace `PROJECT_STATE.md`, `TODO.md`, `DONE.md`, or the test logs.
 
 ### Documentation maintenance
