@@ -102,30 +102,31 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Integrated private DWrite browser — factory-ensure successor built; physical validation next
+### Current XP browser successor — post-COMBASE build green; physical validation next
 
 The standalone component work, predecessor physical browser evidence, and current successor build are proven at their respective boundaries:
 
 - focused physical component: workflow `.github/workflows/xp-supermium-dwrite-closure.yml`, run `34317489430`, job `102356664699`, artifact `10090864697`, **GREEN / PHYSICAL XP COMPONENT PASS**;
 - predecessor physical full-browser lineage: source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, package `10298184343`, runtime `10297859657`, diagnostics `10298342641`;
-- current factory-ensure full-browser source `55a5415bc34a1e6db89f3643f9be881185127896`;
+- current full-browser source `52e05a161da601e656e6ba3031084bcc60fdb098`;
+- latest functional compatibility fix `9d96597b74d726f3a51229937d48e1d0128c6ae1` (`fix(xp): omit WinRT timezone combase probe`), with cleanup-only head `52e05a...`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `34705592283`, job `103584935147`, **completed / success / GREEN**;
-- package `10303966628`, runtime `10303801915`, diagnostics `10303639849`.
+- run `35059756036`, job `104677385743`, **completed / success / GREEN**;
+- package `10436053344`, runtime `10436611625`, diagnostics `10436392402`.
 
-The current successor integrates the narrow XP-only `NativeFontResourceDWrite::Create() -> Factory::EnsureDWriteFactory()` remediation and passes the canonical compile/link, targeted XP gates, staging, packaging, broad PE/direct-import audit, artifact uploads and final summary. This is build/static evidence only; the exact successor has not yet been exercised on physical XP.
+The current successor retains the previously integrated XP-only DirectWrite factory-ensure and private `pwrp_k32.dll` preload work, and additionally compiles Abseil's WinRT local-time-zone path out under `MOZ_XP_COMPAT`. That source path contains the dynamic `LoadLibraryEx("combase.dll")` probe; excluding `USE_WIN32_LOCAL_TIME_ZONE` therefore removes this COMBASE probe from the XP build path. The exact successor passes the canonical compile/link, targeted XP gates, staging, packaging, broad PE/direct-import audit, artifact uploads and final summary. This is build/static evidence only; the exact successor has not yet been exercised on physical XP.
 
-The predecessor physical lineage exposed two distinct intentional-breakpoint paths, including the symbolized `NativeFontResourceNotFound` path through `GetUnscaledFont()` / `GetScaledFont()` / `Moz2DRenderCallback`, and an independent early Rust/dwrote null-`DWriteCreateFactory` assertion. Do not conflate the C++ factory-ensure path with the Rust loader path.
+The predecessor physical lineage exposed two distinct intentional-breakpoint paths, including the symbolized `NativeFontResourceNotFound` path through `GetUnscaledFont()` / `GetScaledFont()` / `Moz2DRenderCallback`, and an independent early Rust/dwrote null-`DWriteCreateFactory` assertion. Do not conflate those runtime boundaries with the later source-level COMBASE cleanup.
 
 Immediate work:
 
-1. **Physically test exact source `55a5415b...` / run `34705592283` on XP.** Bind the run to exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and matching PDB hashes before interpreting any runtime result.
-2. **First check the exact `NativeFontResourceNotFound` boundary.** Determine whether `Factory::EnsureDWriteFactory()` is reached and whether private `xpcompat\dwrite\DWrite.dll` loads in the PID executing the WebRender/Moz2D font path. If it still fails, distinguish `LoadLibraryXPPrivateDWrite()` not called, `LoadLibraryExW` failure, `GetProcAddress("DWriteCreateFactory")` failure, `DWriteCreateFactory` HRESULT failure, and later native-font-resource failure.
-3. **Keep Rust/dwrote separate.** If the early Rust assertion still occurs, diagnose its own loader/function-resolution path independently rather than projecting the C++ result onto it.
+1. **Physically test exact source `52e05a...` / run `35059756036` on XP.** Bind the run to exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and matching PDB hashes before interpreting any runtime result.
+2. **Confirm module/load behavior after the COMBASE source exclusion.** The exact source compiles the Abseil WinRT/COMBASE branch out under `MOZ_XP_COMPAT`, but build/static success is not a substitute for observing the exact browser process on XP. Record whether `combase.dll` appears in the relevant process module list and continue to the next actual runtime boundary.
+3. **Keep DirectWrite runtime diagnosis separate.** If the prior Rust/dwrote or `NativeFontResourceNotFound` paths still occur, diagnose their own loader/factory/resource paths rather than attributing them to COMBASE.
 4. **Capture clean-looking termination ownership.** If the browser again disappears without a debugger exception, capture the terminating PID/TID, target process, stack and exit code through `ExitProcess` / `TerminateProcess` / `NtTerminateProcess` breakpoints.
-5. **Record the next exact boundary.** If `55a5415b...` advances beyond `NativeFontResourceNotFound`, do not declare XP runtime closed; record the next physical blocker and sustained-lifetime result.
+5. **Record the next exact boundary.** If `52e05a...` advances beyond the predecessor failures, do not declare XP runtime closed; record the next physical blocker and sustained-lifetime result.
 
-The focused DWrite PASS and predecessor full-browser runtime remain controls. Do not re-integrate the same private DWrite subtree or weaken assertions merely to continue startup.
+The focused DWrite PASS and predecessor full-browser runtime remain controls. Do not re-integrate the same private DWrite subtree, restore the removed COMBASE probe, or weaken assertions merely to continue startup.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -136,7 +137,7 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated full-build/static evidence is source `55a5415bc34a1e6db89f3643f9be881185127896`, run `34705592283`, job `103584935147`: aggregate **completed / success / GREEN**, with package `10303966628`, runtime `10303801915`, diagnostics `10303639849`.
+Current latest integrated full-build/static evidence is source `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`: aggregate **completed / success / GREEN**, with package `10436053344`, runtime `10436611625`, diagnostics `10436392402`. This exact source contains functional commit `9d96597b...`, which removes the Abseil WinRT timezone / dynamic COMBASE probe from the XP build path.
 
 Current latest physical full-browser evidence is predecessor source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`. It reaches browser runtime but exposes the separate early Rust/dwrote factory assertion and later font/WebRender failure family, including the symbolized `NativeFontResourceNotFound` boundary.
 
@@ -176,4 +177,4 @@ The current lineage has already closed or physically advanced past the following
 - YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
-The active runtime acceptance target is now exact successor source `55a5415b...` / run `34705592283`; do not spend new cycles on the closed families above without contradictory evidence.
+The active runtime acceptance target is now exact successor source `52e05a...` / run `35059756036`; do not spend new cycles on the closed families above without contradictory evidence.
