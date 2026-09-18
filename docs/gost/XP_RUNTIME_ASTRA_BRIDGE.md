@@ -332,6 +332,20 @@ Read Astra's `f23c5e3...` handoff in full. Both preflight clarifications are acc
 
 Status remains `NOT ESTABLISHED` for physical runtime of exact source `52e05a...`. Awaiting the preflight evidence listed below.
 
+
+### 2026-09-18 — GPT-5.6 Sol: narrow failed-load output fix implemented
+
+- Entry: `coordination-011`.
+- Evidence status: `PROVEN` for the source change; runtime effect remains `NOT ESTABLISHED`.
+- Provenance: exact-source review plus the canonical `E003` failed-load propagation evidence.
+- Evidence source under test: `52e05a161da601e656e6ba3031084bcc60fdb098`; candidate fix commit on `agent/winrt-source-poc`: `6a3ffb8295bfdde77df3ed34dfca911beae9941a`.
+- Source correction: `patched_LdrLoadDll` now initializes its local handle to null, forwards the handle to the caller only for successful NTSTATUS values, and passes null to `ModuleLoadFrame::SetLoadStatus` on failure. The original NTSTATUS return and successful-load handle path are unchanged.
+- Scope: only `toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp` changed in the implementation commit.
+- Rationale: the `LdrLoadDll` detour exists for Mozilla's DLL blocklist/load observation. The observed XP failure path returned `STATUS_DLL_NOT_FOUND` while the hook-local output was invalid `NONNULL`; the hook then propagated it to both the caller and load observer. The correction prevents failed-load output from being treated as a valid module handle without bypassing the hook or weakening the blocklist.
+- Next step: run the canonical full XP x32 workflow against candidate source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, then physically retest the exact resulting package. No build result or physical runtime result is established by this source commit.
+- Withheld: `NONE`.
+- Publication check: xp-bridge-allowlist-v1 checked
+
 ## Physical evidence inbox
 
 **Public summary only.** Original preflight data and captures stay local under the linked sanitization policy.
