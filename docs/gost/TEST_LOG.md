@@ -298,3 +298,19 @@ Publication correction in this update: absolute runtime addresses/load base were
 Publication check: xp-bridge-allowlist-v1 checked
 
 Status: **exact-target physical exception and failed-loader-return evidence established; complete AV propagation and physical runtime acceptance remain open.**
+
+### E003 continuation — invalid output store and Win32 return proven
+
+The next user-supplied WinDbg transcript continues the same stopped `E003` call in `P1/T1`; source/build/package identity above is unchanged.
+
+- **PROVEN:** stepping executes the store at `mozglue+0x70810`. The caller's output changes from `NULL` to the same invalid `NONNULL` value held in the hook-local handle. The preceding original-loader return was `STATUS_DLL_NOT_FOUND`.
+- **PROVEN:** a breakpoint restricted to this thread then stops at `pwrp_k32+0x298fd`, immediately after the system `LoadLibraryExW` call. The Win32 return is that same invalid `NONNULL` value; the request is still `api-ms-win-core-fibers-l1-1-1`.
+- **Conclusion:** propagation from the browser hook's failed-load output through the XP Win32 loader return into the private wrapper is directly observed in one call. This supersedes the previous entry's pending post-store and Win32-return observations. The responsible source path is `patched_LdrLoadDll` in `toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp`; this attribution does not rest solely on the faulting DLL name.
+- **NOT ESTABLISHED:** immediate Win32 last-error/last-status fields in this continuation. `!gle` reported missing `ntdll!_TEB` type information, so its displayed zeros are not accepted as successful-load evidence. This does not invalidate the already captured actual NTSTATUS or return value.
+- Symbol-independent reads were checked against the captured XP `ntdll` implementations of `RtlGetLastWin32Error` and `RtlGetLastNtStatus`. Both read fixed fields from the current TEB. The locally supplied offsets are verified for this XP x86 target; no claim is made for other platforms.
+- Next: read those two fields at the current stop, then continue the unmodified call to its next exception/breakpoint. If it reaches the previous private-helper AV, preserve the exception and helper-input evidence in this same capture. Final `E003` AV recurrence and exception disposition are not yet observed.
+- Narrow remediation direction: define the local handle's initial state and normalize failed-call output before forwarding it to the caller and `ModuleLoadFrame::SetLoadStatus`, while preserving the returned NTSTATUS and successful-load behavior. This is a proposed source correction, not an implemented or tested fix. No extra API-set provider, target-memory correction, source edit or build has been performed.
+
+Raw registers, memory, paths, identities and transcript remain private.
+
+Publication check: xp-bridge-allowlist-v1 checked
