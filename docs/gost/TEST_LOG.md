@@ -314,3 +314,38 @@ The next user-supplied WinDbg transcript continues the same stopped `E003` call 
 Raw registers, memory, paths, identities and transcript remain private.
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+---
+
+## 2026-09-18 — failed-`LdrLoadDll` output remediation passes canonical XP x86 full build/static gates
+
+Track: Windows XP SP3 x86 full-browser build/static compatibility. Independent of GOST TLS handshake/runtime proof and not physical-XP execution evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test and Actions head SHA `6a3ffb8295bfdde77df3ed34dfca911beae9941a`;
+- functional commit `6a3ffb8295bfdde77df3ed34dfca911beae9941a` (`fix(xp): sanitize failed LdrLoadDll output`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35346927393`;
+- job `105605594476` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / success / GREEN**.
+
+The source correction is narrow and owner-local in `toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp`. `patched_LdrLoadDll` now initializes its local handle to null, forwards the handle to the caller only for successful NTSTATUS values, and passes null to `ModuleLoadFrame::SetLoadStatus` on failure. The original NTSTATUS return and successful-load handle path are preserved.
+
+This correction directly targets the physical `E003` evidence from predecessor source `52e05a161da601e656e6ba3031084bcc60fdb098`: the original loader returned `STATUS_DLL_NOT_FOUND` for the fibers API-set request, while the hook propagated an invalid `NONNULL` local handle through the caller output and system `LoadLibraryExW` return. The new source prevents that failed-load output from being treated as a valid module handle. The build result itself does not establish the physical runtime effect.
+
+The canonical job completed all decisive build/static stages successfully: release compile/link, XP compatibility gates, private DirectWrite closure preparation/staging, package creation and survival gates, runtime-test archive generation, broad XP PE/direct-import audit, YY-Thunks inventory, all three artifact uploads, and final summary.
+
+Artifacts bound to exact source-under-test `6a3ffb8...`:
+
+- package artifact `10555076979` (`r3dfox-gost-xp-x32-package`), 333,353,834 bytes, digest `sha256:5621adb535c7493f9c38390c9935b8cd2096cef1d4ae38450256fd15814b2b58`;
+- physical-test runtime artifact `10554622022` (`r3dfox-gost-xp-x32-runtime`), 76,174,201 bytes, digest `sha256:1fef7a5316c3a102978bcfc7fb996ad06a3be7fe3514d4f3fa3883d5986e3126`;
+- diagnostics artifact `10555616046` (`r3dfox-gost-xp-x32-diagnostics`), 420,580,984 bytes, digest `sha256:b0c8d736edc22a1efdd41b775ea1721981abbd7e0929b7f82529f69f303c9838`.
+
+Conclusion: **FULL XP x86 BUILD / PACKAGE / STATIC COMPATIBILITY PASS for the failed-`LdrLoadDll` output remediation.** This supersedes source `52e05a...`, run `35059756036`, job `104677385743` as the latest integrated build/static baseline only.
+
+Physical XP runtime acceptance remains **OPEN**. Next evidence boundary: use the complete portable archive from package `10555076979` with matching diagnostics `10555616046`, establish exact local binary/PDB identity, and verify whether the prior private-loader AV disappears and startup advances. A successful build is not a physical runtime PASS. If the loader remediation is physically accepted, the planned follow-up is to remove the temporary early `PreloadXPPrivatePwrp()` path and rebuild/retest without that ordering workaround.
+
+Status: **current authoritative all-GREEN XP full-build/static baseline; physical XP validation pending.**
+
