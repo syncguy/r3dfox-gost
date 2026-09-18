@@ -102,32 +102,28 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current XP browser successor — post-COMBASE build green; physical validation next
+### Current XP browser successor — loader fix build green; physical validation next
 
-The standalone component work, predecessor physical browser evidence, and current successor build are proven at their respective boundaries:
+The active successor is now:
 
-- focused physical component: workflow `.github/workflows/xp-supermium-dwrite-closure.yml`, run `34317489430`, job `102356664699`, artifact `10090864697`, **GREEN / PHYSICAL XP COMPONENT PASS**;
-- predecessor physical full-browser lineage: source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, package `10298184343`, runtime `10297859657`, diagnostics `10298342641`;
-- current full-browser source `52e05a161da601e656e6ba3031084bcc60fdb098`;
-- latest functional compatibility fix `9d96597b74d726f3a51229937d48e1d0128c6ae1` (`fix(xp): omit WinRT timezone combase probe`), with cleanup-only head `52e05a...`;
+- source `6a3ffb8295bfdde77df3ed34dfca911beae9941a` (`fix(xp): sanitize failed LdrLoadDll output`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `35059756036`, job `104677385743`, **completed / success / GREEN**;
-- package `10436053344`, runtime `10436611625`, diagnostics `10436392402`.
+- run `35346927393`, job `105605594476`, **completed / success / GREEN**;
+- package `10555076979`;
+- runtime `10554622022`;
+- diagnostics `10555616046`.
 
-The current successor retains the previously integrated XP-only DirectWrite factory-ensure and private `pwrp_k32.dll` preload work, and additionally compiles Abseil's WinRT local-time-zone path out under `MOZ_XP_COMPAT`. That source path contains the dynamic `LoadLibraryEx("combase.dll")` probe; excluding `USE_WIN32_LOCAL_TIME_ZONE` therefore removes this COMBASE probe from the XP build path. The exact successor passes the canonical compile/link, targeted XP gates, staging, packaging, broad PE/direct-import audit, artifact uploads and final summary. This is build/static evidence only; the exact successor has not yet been exercised on physical XP.
-
-The predecessor physical lineage exposed two distinct intentional-breakpoint paths, including the symbolized `NativeFontResourceNotFound` path through `GetUnscaledFont()` / `GetScaledFont()` / `Moz2DRenderCallback`, and an independent early Rust/dwrote null-`DWriteCreateFactory` assertion. Do not conflate those runtime boundaries with the later source-level COMBASE cleanup.
+This source keeps the prior XP compatibility work and fixes the physically established `patched_LdrLoadDll` failed-output defect: failed NTSTATUS no longer forwards an invalid local handle to the caller or `ModuleLoadFrame::SetLoadStatus`. The canonical full build/package/static gates pass. Physical XP runtime remains open.
 
 Immediate work:
 
-1. **Physically test exact source `52e05a...` / run `35059756036` on XP.** Bind the run to exact `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and matching PDB hashes before interpreting any runtime result.
-2. **Confirm module/load behavior after the COMBASE source exclusion.** The exact source compiles the Abseil WinRT/COMBASE branch out under `MOZ_XP_COMPAT`, but build/static success is not a substitute for observing the exact browser process on XP. Record whether `combase.dll` appears in the relevant process module list and continue to the next actual runtime boundary.
-3. **Keep DirectWrite runtime diagnosis separate.** If the prior Rust/dwrote or `NativeFontResourceNotFound` paths still occur, diagnose their own loader/factory/resource paths rather than attributing them to COMBASE.
-4. **Capture clean-looking termination ownership.** If the browser again disappears without a debugger exception, capture the terminating PID/TID, target process, stack and exit code through `ExitProcess` / `TerminateProcess` / `NtTerminateProcess` breakpoints.
-5. **Record the next exact boundary.** If `52e05a...` advances beyond the predecessor failures, do not declare XP runtime closed; record the next physical blocker and sustained-lifetime result.
-6. **Remove the temporary early private `pwrp_k32.dll` preload after the loader fix is physically accepted.** Once the `patched_LdrLoadDll` remediation has passed the canonical full build and the exact resulting portable package has demonstrated stable physical XP startup beyond the current private-loader boundary, remove `PreloadXPPrivatePwrp()` and its pre-`InitXPCOMGlue()` call from `browser/app/nsBrowserApp.cpp`. Rebuild and physically retest the exact successor package to prove that the private DirectWrite closure reaches its intended load/fallback path without this early ordering workaround. Do not remove the preload before the current fix is runtime-proven.
+1. **Physically test the exact `6a3ffb8...` successor on XP.** Use the complete portable archive from package `10555076979` and matching diagnostics `10555616046`; establish exact binary/PDB identity before interpreting runtime behavior.
+2. **Check the prior private-loader boundary first.** Verify whether the predecessor `pwrp_k32+0x2c50d` AV disappears and whether the missing fibers API-set now produces an ordinary failed load that allows the compatibility fallback to continue.
+3. **Record the next actual boundary.** Advancement past the old AV is not by itself sustained runtime PASS; capture the next real exception, termination owner, or stable startup boundary.
+4. **Keep the temporary early preload until the fix is physically accepted.** Do not remove `PreloadXPPrivatePwrp()` during the first validation of `6a3ffb8...`.
+5. **Then remove the temporary early private `pwrp_k32.dll` preload.** After the loader fix is physically accepted, remove `PreloadXPPrivatePwrp()` and its pre-`InitXPCOMGlue()` call from `browser/app/nsBrowserApp.cpp`, rebuild, and physically retest the exact successor package to prove that the private DirectWrite closure reaches its intended load/fallback path without the ordering workaround.
 
-The focused DWrite PASS and predecessor full-browser runtime remain controls. Do not re-integrate the same private DWrite subtree, restore the removed COMBASE probe, or weaken assertions merely to continue startup.
+The focused private DWrite component PASS and predecessor exact physical captures remain controls. Do not weaken assertions, add an API-set provider merely because the probe fails on XP, or reopen already closed compatibility families without contradictory evidence.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -138,9 +134,9 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated full-build/static evidence is source `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`: aggregate **completed / success / GREEN**, with package `10436053344`, runtime `10436611625`, diagnostics `10436392402`. This exact source contains functional commit `9d96597b...`, which removes the Abseil WinRT timezone / dynamic COMBASE probe from the XP build path.
+Current latest integrated full-build/static evidence is source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`: aggregate **completed / success / GREEN**, with package `10555076979`, runtime `10554622022`, diagnostics `10555616046`. This exact source contains the narrow `patched_LdrLoadDll` failed-output remediation and retains the prior COMBASE exclusion and XP compatibility fixes.
 
-Current latest physical full-browser evidence is predecessor source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`. It reaches browser runtime but exposes the separate early Rust/dwrote factory assertion and later font/WebRender failure family, including the symbolized `NativeFontResourceNotFound` boundary.
+Current latest physically exercised exact full-browser target is source `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`, package `10436053344`, diagnostics `10436392402`. Its `E001`/`E002`/`E003` captures prove the private-loader AV and failed-output propagation that `6a3ffb8...` is intended to correct.
 
 Older source `88453be...`, run `34459906476`, job `102815008544`, remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s, but it is not the current runtime target.
 
