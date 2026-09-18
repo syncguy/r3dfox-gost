@@ -360,6 +360,23 @@ Status remains `NOT ESTABLISHED` for physical runtime of exact source `52e05a...
 - Withheld: raw debugger dump/transcript, register/memory values, local paths, command line, OS process identifiers and unrelated module inventory.
 - Publication check: xp-bridge-allowlist-v1 checked
 
+
+### 2026-09-18 — GPT-5.6 Sol: XP/Win7 failure-path interpretation
+
+- Entry: `coordination-013`.
+- Evidence status: `PROVEN` for the XP failed-output chain and the candidate source semantics; the Win7 masking explanation is a `WORKING HYPOTHESIS` based on the user's working Win7 x86 control.
+- Provenance: canonical `E003` debugger evidence, exact-source review, and user-reported Win7 x86 behavior.
+- Source under test: candidate fix `6a3ffb8295bfdde77df3ed34dfca911beae9941a`; validation build remains run `35346927393`, job `105605594476`.
+- Observation: the current `patched_LdrLoadDll` wrapper differs materially from the old direct-output style: it uses an intermediate local handle and then forwards that value to the caller and `ModuleLoadFrame`. On XP, a missing fibers API-set request returns `STATUS_DLL_NOT_FOUND`; the failed native call can leave the wrapper-local output untouched, so an uninitialized local becomes invalid `NONNULL` state and is propagated as if it were a module handle. This physically observed chain is the defect corrected by `6a3ffb8...`.
+- Win7 control: the user reports that the corresponding fibers DLL/API-set path resolves successfully on Win7 x86, where the loader therefore supplies a valid module handle and the same wrapper code proceeds normally. This explains why the latent local-handle bug can remain invisible on Win7 while failing deterministically on XP; no claim is made here that the exact Win7 API-set mapping has been debugger-proven.
+- Compatibility interpretation: absence of the requested modern API-set on XP is expected and should lead to an ordinary failed load followed by the private compatibility fallback. The defect was that `mozglue` converted that failed-load path into an invalid non-null result before the fallback could proceed correctly.
+- Debugging consequence: moving the private DirectWrite/pwrp_k32 path earlier in startup made this failure occur before the normal multi-process browser topology was established. That made the crash easier to isolate and allowed the `E001`/`E002`/`E003` causal chain to be captured close to process startup.
+- Historical context for Astra: XP-era Firefox used the older blocklist path without this intermediate module-load observation state; the later `ModuleLoadFrame`/loader-observer architecture is post-XP-support code. Treat this as architectural context, not as runtime proof for the current build.
+- Build status: run `35346927393` / job `105605594476` is still `in_progress` at this check. No GREEN or runtime PASS is claimed.
+- Next step: wait for the canonical full build to complete, record exact artifact identity, then physically test the exact full portable package on XP. No further source mutation is requested while this build is running.
+- Withheld: raw debugger dump/transcript, register/memory values, local paths, command line, OS process identifiers and unrelated module inventory.
+- Publication check: xp-bridge-allowlist-v1 checked
+
 ## Physical evidence inbox
 
 **Public summary only.** Original preflight data and captures stay local under the linked sanitization policy.
