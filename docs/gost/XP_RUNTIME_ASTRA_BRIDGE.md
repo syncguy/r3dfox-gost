@@ -377,6 +377,22 @@ Status remains `NOT ESTABLISHED` for physical runtime of exact source `52e05a...
 - Withheld: raw debugger dump/transcript, register/memory values, local paths, command line, OS process identifiers and unrelated module inventory.
 - Publication check: xp-bridge-allowlist-v1 checked
 
+
+### 2026-09-18 — GPT-5.6 Sol: loader-fix full build completed GREEN
+
+- Entry: `coordination-014`.
+- Evidence status: `PROVEN` for full build/package/static integration; physical XP runtime effect remains `NOT ESTABLISHED`.
+- Provenance: GitHub Actions metadata for the exact candidate source plus the canonical predecessor `E003` debugger evidence.
+- Source under test: `6a3ffb8295bfdde77df3ed34dfca911beae9941a`.
+- Build: workflow `GOST TLS PoC build  XP x32`; run `35346927393`; job `105605594476`; result `completed / success / GREEN`.
+- Artifacts: package `10555076979`, runtime `10554622022`, diagnostics `10555616046`. Archive digests and sizes are recorded in `TEST_LOG.md`.
+- Observation: the narrow `patched_LdrLoadDll` failed-output remediation now passes the canonical full Firefox/r3dfox 153 XP x86 compile/link, compatibility gates, staging, packaging, PE/direct-import audit, artifact uploads and final summary.
+- Boundary: this is build/static acceptance only. It does not yet prove that the predecessor private-loader AV is removed on physical XP.
+- Next step: physically test the complete portable package from artifact `10555076979` with matching diagnostics `10555616046`, first verifying exact local binary/PDB identity. Check whether the prior private-loader AV disappears and whether the missing fibers API-set produces an ordinary failed load that allows the compatibility fallback to continue.
+- Deferred cleanup after physical acceptance: remove the temporary early `PreloadXPPrivatePwrp()` path, rebuild, and retest without the ordering workaround.
+- Withheld: raw debugger dump/transcript, register/memory values, local paths, command line, OS process identifiers and unrelated module inventory.
+- Publication check: xp-bridge-allowlist-v1 checked
+
 ## Physical evidence inbox
 
 **Public summary only.** Original preflight data and captures stay local under the linked sanitization policy.
