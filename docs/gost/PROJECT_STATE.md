@@ -80,31 +80,34 @@ Earlier hosted-SDK pinning, shallow ANGLE history, PowerShell native stderr and 
 The current authoritative integrated full-build/static baseline is:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test/head `52e05a161da601e656e6ba3031084bcc60fdb098`;
-- functional source fix `9d96597b74d726f3a51229937d48e1d0128c6ae1` (`fix(xp): omit WinRT timezone combase probe`);
-- cleanup-only head commit `52e05a161da601e656e6ba3031084bcc60fdb098` (`chore(xp): preserve abseil file newline`);
+- source-under-test/head `6a3ffb8295bfdde77df3ed34dfca911beae9941a`;
+- functional source fix `6a3ffb8295bfdde77df3ed34dfca911beae9941a` (`fix(xp): sanitize failed LdrLoadDll output`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `35059756036`;
-- job `104677385743` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- run `35346927393`;
+- job `105605594476` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate result **completed / success / GREEN**.
 
-The relevant source correction is narrow: `third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_lookup.cc` now defines `USE_WIN32_LOCAL_TIME_ZONE` only when `MOZ_XP_COMPAT` is not defined. The WinRT timezone helper and its dynamic `LoadLibraryEx(_T("combase.dll"), ..., LOAD_LIBRARY_SEARCH_SYSTEM32)` probe are therefore excluded from the XP C/C++ source path. The `52e05a...` head only restores the final newline and preserves the functional `9d96597b...` change.
+The source correction is narrow and owner-local in `toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp`. `patched_LdrLoadDll` initializes its local handle to null, forwards that handle to the caller only when the returned NTSTATUS is successful, and passes null to `ModuleLoadFrame::SetLoadStatus` on failure. The returned NTSTATUS and successful-load path are unchanged.
 
-The canonical build completed the Firefox/r3dfox release compile/link, targeted xul/mozglue compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, the broad `GATE - Audit XP x32 PE floor and direct imports`, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
+This correction is derived from the exact physical evidence on predecessor source `52e05a161da601e656e6ba3031084bcc60fdb098`, where the original loader returned `STATUS_DLL_NOT_FOUND` for the fibers API-set request but the hook propagated an invalid `NONNULL` local handle through the caller output and system `LoadLibraryExW` return. The build result validates integration of the remediation; it does not yet prove its physical XP runtime effect.
+
+The canonical build completed the Firefox/r3dfox release compile/link, targeted xul/mozglue compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, broad XP PE/direct-import audit, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
 
 Artifacts:
 
-- package `10436053344` (`r3dfox-gost-xp-x32-package`), 333,355,578 bytes, digest `sha256:aed5c8ee68f7eadb703136f9974b6b40d81e50de90f45dd6ae5d9a7cc3950e7e`;
-- runtime `10436611625` (`r3dfox-gost-xp-x32-runtime`), 76,173,243 bytes, digest `sha256:0aca22830230068ab475fa986ca6b5d618a22b005b4c4c491a784054e435ba15`;
-- diagnostics `10436392402` (`r3dfox-gost-xp-x32-diagnostics`), 420,566,978 bytes, digest `sha256:b6d9c7fab1fe28c21e7906da42f6fc9aee8c49d16b41d2f2de4d307cb9024f0e`.
+- package `10555076979` (`r3dfox-gost-xp-x32-package`), 333,353,834 bytes, digest `sha256:5621adb535c7493f9c38390c9935b8cd2096cef1d4ae38450256fd15814b2b58`;
+- runtime `10554622022` (`r3dfox-gost-xp-x32-runtime`), 76,174,201 bytes, digest `sha256:1fef7a5316c3a102978bcfc7fb996ad06a3be7fe3514d4f3fa3883d5986e3126`;
+- diagnostics `10555616046` (`r3dfox-gost-xp-x32-diagnostics`), 420,580,984 bytes, digest `sha256:b0c8d736edc22a1efdd41b775ea1721981abbd7e0929b7f82529f69f303c9838`.
 
-This supersedes source `630804c5d2b244777e559ec16402fd71bf2607bf`, run `34824217341`, job `103912791195` as the latest integrated build/static baseline. The Abseil WinRT/COMBASE source exclusion is therefore build/package/static accepted on the exact successor source.
+This supersedes source `52e05a...`, run `35059756036`, job `104677385743` as the latest integrated build/static baseline. The predecessor remains the latest physically exercised exact browser target until the new package is run on XP.
 
-This is a full-build/package/static compatibility PASS only. It proves that the source-level COMBASE exclusion integrates successfully into the canonical XP build, but it does **not** by itself prove browser startup or stability on physical Windows XP. Because the removed COMBASE edge was a dynamic `LoadLibraryEx` branch rather than an ordinary PE import, the broad import audit must not be treated as physical proof that the exact new browser never loads `combase.dll`. It also does not prove GOST TLS behavior.
+This is a full-build/package/static compatibility PASS only. It does not by itself prove browser startup or stability on physical Windows XP and does not prove GOST TLS behavior.
 
 ## Physical XP browser/runtime state
 
-The latest physically exercised exact target is now `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`. The test uses the complete `r3dfox-v153.0.3.win32.portable.7z` from package `10436053344`, with diagnostics `10436392402`. Runtime file identity and offline PE/PDB correspondence were verified; the physical test has reached a first-chance AV, not runtime PASS. See the 2026-09-18 entry in `TEST_LOG.md` for identity, configuration and provenance.
+The latest build/static candidate is `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`, but it has not yet been physically exercised on XP.
+
+The latest physically exercised exact target remains `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`. The test uses the complete `r3dfox-v153.0.3.win32.portable.7z` from package `10436053344`, with diagnostics `10436392402`. Runtime file identity and offline PE/PDB correspondence were verified; the physical test has reached a first-chance AV, not runtime PASS. See the 2026-09-18 entry in `TEST_LOG.md` for identity, configuration and provenance.
 
 Current observed boundary: captures `E001`/`E002` reach `0xc0000005` read access at `pwrp_k32+0x2c50d` during private DWrite loading. A value inside `ntdll.dll` is being treated as an image base by the private helper. In targeted capture `E003`, the same DWrite request, `api-ms-win-core-fibers-l1-1-1`, has just returned `STATUS_DLL_NOT_FOUND` from the original `LdrLoadDll`. At `mozglue+0x70806`, the hook-local handle is invalid and `NONNULL`, while the caller output is initially `NULL`. The continuation now observes the `+0x70810` store replacing that output with the invalid value and the same value returning from system `LoadLibraryExW` at `pwrp_k32+0x298fd`, for the same request and thread.
 
@@ -153,9 +156,11 @@ Keep the XP mechanisms distinct:
 
 ## XP acceptance boundary
 
-The canonical full XP x86 browser build/package/static compatibility boundary is **GREEN** on exact source `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`. This exact source includes functional commit `9d96597b...`, which compiles the Abseil WinRT timezone / dynamic `combase.dll` probe out under `MOZ_XP_COMPAT`.
+The canonical full XP x86 browser build/package/static compatibility boundary is **GREEN** on exact source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`. This source contains the narrow `patched_LdrLoadDll` failed-output remediation and retains the previously accepted XP compatibility work, including the Abseil WinRT/COMBASE exclusion.
 
-Physical XP runtime acceptance remains **OPEN**. The exact post-COMBASE package has now been physically exercised and its private-loader AV and targeted failed-`LdrLoadDll` return are documented above. The `E003` continuation confirms the invalid output store and Win32 return; next read the immediate error fields without `_TEB` symbols and capture the next stop of the unmodified call. A narrow failure-output source correction would still require its own build/static and physical validation; no correction or new build has been performed.
+Physical XP runtime acceptance remains **OPEN**. The predecessor exact package from source `52e05a...` physically established the failed-load propagation defect; the successor fix now has its own all-GREEN full build/static evidence but no physical runtime result yet. The next acceptance step is to use the complete portable archive from package `10555076979` with matching diagnostics `10555616046`, bind local binaries/PDB to that exact artifact, and verify whether the private-loader AV disappears and startup advances.
+
+If the remediation is physically accepted, the deferred cleanup remains to remove the temporary early `PreloadXPPrivatePwrp()` call, rebuild, and physically retest the exact successor without that ordering workaround.
 
 # Bundled government-system extensions / localization
 
@@ -179,8 +184,10 @@ Additional symbolization of the predecessor physical-XP lineage (`5845ff2da277f2
 
 The subsequent XP-only factory-ensure source change (`5ed150c81c0ba10eff2f1b3eed614371898dfcd4`, cleanup/head `55a5415bc34a1e6db89f3643f9be881185127896`) passed the canonical full-build/static gates in run `34705592283`, job `103584935147`. It was followed by source `630804c5d2b244777e559ec16402fd71bf2607bf`, which preloads private `pwrp_k32.dll` before xul bootstrap and passed run `34824217341`, job `103912791195`.
 
-Current source `52e05a161da601e656e6ba3031084bcc60fdb098` additionally contains functional commit `9d96597b74d726f3a51229937d48e1d0128c6ae1`, which excludes Abseil's WinRT local-time-zone path and its dynamic `combase.dll` probe when `MOZ_XP_COMPAT` is defined. The exact successor passed the canonical full build/static gates in run `35059756036`, job `104677385743`, with package/runtime/diagnostics artifacts recorded above.
+Source `52e05a161da601e656e6ba3031084bcc60fdb098` contains functional commit `9d96597b74d726f3a51229937d48e1d0128c6ae1`, which excludes Abseil's WinRT local-time-zone path and its dynamic `combase.dll` probe when `MOZ_XP_COMPAT` is defined. Physical captures on that exact predecessor then localized the active blocker to the browser hook's handling of a failed DWrite API-set load.
 
-The accumulated changes remain full-build/package/static accepted on `52e05a...`. New physical captures now localize the active investigation to the browser hook's handling of a failed DWrite API-set load; see the current physical-runtime section and the 2026-09-18 `TEST_LOG.md` entry. They do not validate the historical preload hypothesis, close the font/resource failures, or establish sustained runtime. The hook's invalid-output propagation is now directly proven. The remediation direction is a defined local-handle state and correct failed-call output handling before the caller copy and `SetLoadStatus`, preserving status and successful-load semantics. No fix is implemented; absence of the probed API-set alone does not establish a need for an additional provider DLL.
+Current source `6a3ffb8295bfdde77df3ed34dfca911beae9941a` implements the narrow owner fix in `patched_LdrLoadDll`: defined null initialization for the local handle, no failed-handle forwarding to the caller, and null passed to `ModuleLoadFrame::SetLoadStatus` on failed NTSTATUS while preserving successful-load semantics and the returned status. The exact successor passed the canonical full build/static gates in run `35346927393`, job `105605594476`, with package/runtime/diagnostics artifacts recorded above.
+
+The hook's predecessor invalid-output propagation is directly proven; the successor remediation is now full-build/package/static accepted but not yet physically accepted. The next evidence boundary is the exact package from run `35346927393` on physical XP. Absence of the probed API-set alone does not establish a need for an additional provider DLL.
 
 Publication check: xp-bridge-allowlist-v1 checked
