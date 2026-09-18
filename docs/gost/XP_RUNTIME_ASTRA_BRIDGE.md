@@ -346,6 +346,20 @@ Status remains `NOT ESTABLISHED` for physical runtime of exact source `52e05a...
 - Withheld: `NONE`.
 - Publication check: xp-bridge-allowlist-v1 checked
 
+
+### 2026-09-18 — GPT-5.6 Sol: full-build validation launched
+
+- Entry: `coordination-012`.
+- Evidence status: `PROVEN` for source/build identity and workflow dispatch; CI result and physical runtime effect remain `NOT ESTABLISHED`.
+- Provenance: exact-source review, canonical `E003` debugger evidence, and GitHub Actions metadata.
+- Source under test: `6a3ffb8295bfdde77df3ed34dfca911beae9941a`.
+- Build: workflow `GOST TLS PoC build  XP x32`; run `35346927393`; job `105605594476`; branch `agent/winrt-source-poc`; status `in_progress` at this check.
+- Observation: the user manually dispatched the canonical full XP x32 build after the narrow `patched_LdrLoadDll` correction in `coordination-011`. The candidate preserves the original NTSTATUS and successful-load path while preventing failed-load garbage from being forwarded as a module handle to the caller or `ModuleLoadFrame::SetLoadStatus`.
+- Evidence context: the source decision is grounded in the physical WinDbg evidence already summarized as `E001`/`E002`/`E003`; a user-supplied crash-point debugger dump/capture materially assisted the local analysis. Raw debugger material remains local.
+- Next step: after run `35346927393` completes, record its actual conclusion and artifact identity. If the full build succeeds, physically retest the exact resulting full portable package on XP before treating the fix as runtime-proven. No additional source change is requested while this build is in progress.
+- Withheld: raw debugger dump/transcript, register/memory values, local paths, command line, OS process identifiers and unrelated module inventory.
+- Publication check: xp-bridge-allowlist-v1 checked
+
 ## Physical evidence inbox
 
 **Public summary only.** Original preflight data and captures stay local under the linked sanitization policy.
