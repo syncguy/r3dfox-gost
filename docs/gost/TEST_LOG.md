@@ -126,7 +126,7 @@ The user supplied two DrWatson captures from the extracted package lineage. Both
 
 ### Boundary A — early Rust/dwrote DirectWrite factory assertion
 
-One capture faults in `xul.dll` at `0x08460c61` on an `int 3`. The faulting raw stack contains the exact assertion text:
+One capture faults in `xul.dll` on an `int 3`; its absolute runtime address is withheld under the current publication policy. The faulting raw stack contains the exact assertion text:
 
 `assertion failed: !dwrite_create_factory_ptr.is_null()`
 
@@ -152,7 +152,7 @@ Track: Windows XP SP3 x86 physical browser runtime diagnosis. Independent of GOS
 
 Evidence remains bound to the same accepted all-GREEN browser lineage: branch/source `agent/winrt-source-poc` / `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, workflow run `34688317433`, job `103539109910`, package artifact `10298184343`, and matching diagnostics/PDB artifact `10298342641`.
 
-An additional user-supplied DrWatson capture reports another `0x80000003` / `int 3` in `xul.dll` at runtime address `0x02c99bf7` with `xul.dll` base `0x01bb0000`, giving RVA `0x010e9bf7`. Symbolization with the matching `xul.pdb` resolves the breakpoint to `CrashStatsLogForwarder::CrashAction(LogReason)` in `gfx/thebes/gfxPlatform.cpp:395`, where the non-telemetry path executes `MOZ_CRASH("GFX_CRASH")`.
+An additional user-supplied DrWatson capture reports another `0x80000003` / `int 3` at `xul.dll+0x010e9bf7` (absolute runtime address and load base withheld under the current publication policy). Symbolization with the matching `xul.pdb` resolves the breakpoint to `CrashStatsLogForwarder::CrashAction(LogReason)` in `gfx/thebes/gfxPlatform.cpp:395`, where the non-telemetry path executes `MOZ_CRASH("GFX_CRASH")`.
 
 The symbolized caller chain passes through `mozilla::gfx::CriticalLogger::CrashAction`, the gfx logging destructor path, `mozilla::wr::GetUnscaledFont`, `mozilla::wr::GetScaledFont`, `mozilla::wr::Moz2DRenderCallback`, `wr_moz2d_render_cb`, and WebRender blob rasterization. The captured `CrashAction` reason is `0x22` / decimal `34`, which maps to `LogReason::NativeFontResourceNotFound` in the exact source.
 
@@ -265,3 +265,36 @@ This evidence proves successful build integration of the source-level COMBASE ex
 Next evidence boundary: physically run the exact package/runtime from source `52e05a161da601e656e6ba3031084bcc60fdb098` on Windows XP SP3 x86, bind the run to the matching binaries/PDBs, confirm the process/module behavior after the COMBASE source exclusion, and record the next actual runtime boundary.
 
 Status: **current authoritative all-GREEN XP full-build/static baseline after the COMBASE source remediation; physical XP validation pending.**
+
+---
+
+## 2026-09-18 — exact XP target reaches a private-loader AV; targeted capture establishes failed LdrLoadDll return
+
+Track: physical Windows XP SP3 x86 browser startup, independent of GOST TLS.
+
+- Source under test: `agent/winrt-source-poc` / `52e05a161da601e656e6ba3031084bcc60fdb098`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `35059756036`, job `104677385743`.
+- Test input: complete `r3dfox-v153.0.3.win32.portable.7z` from package `10436053344`; diagnostics `10436392402`. This is the selected portable payload, not an assumed-equivalent separate runtime bundle.
+- Identity: independently downloaded package/diagnostics ZIP digests matched GitHub metadata; all four reported runtime file SHA-1 values and the `xul.pdb` SHA-1 matched the selected artifact files. Offline `xul.dll` RSDS and PDB GUID+Age matched: `8515B3C7-4F66-F5DE-4C4C-44205044422E`, Age `1`. Live PDB loading is not established and is not required for these checked instruction offsets.
+- Configuration: user-reported unchanged portable extraction and empty profile at each launch; WinDbg x86 `6.12.0002.633`. Checked `MOZ_FORCE_DISABLE_E10S`, `MOZ_GFX_CRASH_MOZ_CRASH`, `MOZ_DISABLE_CONTENT_SANDBOX`, `MOZ_LOG`: `UNSET`; GOST-specific overrides: `CLEARED`; other external overrides: `UNKNOWN`.
+- Private capture aliases: `E001`, `E002`, `E003`, distinct launched process captures. In each relevant supplied capture, `P1` is the initial debuggee and event thread `T1` differs from the initial main thread. These aliases are capture-scoped; no forced single-process mode is inferred.
+
+**PROVEN — observed AV and mechanism.** `E001` and `E002` reach first-chance `0xc0000005`, read access, at `pwrp_k32+0x2c50d`. Local analysis of the `E002` dump confirms the DWrite request `api-ms-win-core-fibers-l1-1-1`, the import/call route through private and system `LoadLibraryExW`, and a `NONNULL` value inside `ntdll.dll` being treated as an image base. The private wrapper's saved loader-result slot contains that value. Its helper reads a presumed PE header offset and faults while locating the PE32 TLS directory. Mapping private DWrite and its closure does not prove successful DLL initialization.
+
+**PROVEN — targeted return boundary.** The `E003` user-supplied WinDbg transcript stops at `mozglue+0x70806`, immediately after the original `LdrLoadDll` call returns for that exact API-set request. The actual returned NTSTATUS is `STATUS_DLL_NOT_FOUND` (`0xc0000135`). At this stop, the hook-local handle is `NONNULL` and equals the invalid pointer value seen in `E002`; the caller's output handle remains `NULL`. The supplied instructions next copy the local handle to that output at `mozglue+0x70810`, without testing the failure status. The transcript stops before this store executes.
+
+**PROVEN — exact-source defect site and code correspondence.** In [`toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp`](https://github.com/syncguy/r3dfox-gost/blob/52e05a161da601e656e6ba3031084bcc60fdb098/toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp#L557-L570), `patched_LdrLoadDll` declares `HANDLE myHandle;` without initialization, passes its address to the original loader, and copies it to the caller and `SetLoadStatus` without a success-status guard. The inspected `E002` hook and private wrapper/helper instruction ranges match the public portable artifact after relocation adjustment. The captured XP `kernel32!LoadLibraryExW` initializes its output local to null but returns that local even through its loader-failure branch.
+
+**WORKING HYPOTHESIS — complete AV causality.** The browser hook propagates an invalid output from a failed DLL load into XP's initially null handle slot; the private wrapper then treats it as a successful module handle and reaches the observed PE/TLS read AV. The upstream source owner is now narrowed to the hook's failed-load output handling. Still required: observe the output store and the immediate system `LoadLibraryExW` return in the same `E003` call. The current stop does not prove whether the original loader left the local untouched or wrote it on failure; either way, its failed-call output is not a proven valid module handle.
+
+**NOT ESTABLISHED:** post-store output, immediate Win32 return/error in `E003`, exception fatality, browser startup/stability PASS, or any GOST TLS result. Earlier stored thread error fields in `E002` are not a substitute for the new directly observed NTSTATUS.
+
+Next step: continue the existing `E003` stop through the five displayed instructions, verify the caller output, then capture the same thread's return at `pwrp_k32+0x298fd`. Prefer a narrow source correction to failed-load output handling after this chain is established. No source change, replacement DLL, full build or runtime patch was performed.
+
+Historical evidence qualification: the earlier dwrote assertion text and module list do not alone prove that the exact second Rust assertion executed, nor whether loading or export resolution failed. Do not infer either outcome or reopen a closed component boundary from that text.
+
+Publication correction in this update: absolute runtime addresses/load base were removed from two older entries in this active log; their retained module/RVA and diagnostic conclusions are unchanged. This does not remove earlier Git history. Original captures, paths, OS identifiers, register/memory output and private capture hashes are withheld.
+
+Publication check: xp-bridge-allowlist-v1 checked
+
+Status: **exact-target physical exception and failed-loader-return evidence established; complete AV propagation and physical runtime acceptance remain open.**
