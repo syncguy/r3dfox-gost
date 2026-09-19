@@ -349,3 +349,46 @@ Physical XP runtime acceptance remains **OPEN**. Next evidence boundary: use the
 
 Status: **current authoritative all-GREEN XP full-build/static baseline; physical XP validation pending.**
 
+
+
+---
+
+## 2026-09-19 — exact loader-fix successor advances through private DWrite and exits with parent-process AV
+
+Track: Windows XP SP3 x86 physical browser runtime. Independent of GOST TLS handshake evidence.
+
+Exact experiment identity:
+
+- branch/source-under-test `agent/winrt-source-poc` / `6a3ffb8295bfdde77df3ed34dfca911beae9941a`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35346927393`;
+- job `105605594476`;
+- package artifact `10555076979` (`r3dfox-gost-xp-x32-package`);
+- diagnostics artifact `10555616046` (`r3dfox-gost-xp-x32-diagnostics`);
+- physical OS: Windows XP SP3 x86;
+- runtime observation source: user-supplied Procmon CSV capture; raw local paths and unrelated machine inventory remain private.
+
+Runtime-file identity is now bound directly to the packaged artifact. The user supplied SHA-1 values for the physically launched files, and independent extraction of `r3dfox-v153.0.3.win32.zip` from package artifact `10555076979` produced exact matches:
+
+- `r3dfox.exe`: `b8d433694f2e913d1d9e749a4a41a199d2b72a5b`;
+- `xul.dll`: `4cc50f561dc273673b44e6ff02b2f74079d36b23`;
+- `xpcompat/dwrite/DWrite.dll`: `a72f49accb58a5dc894a9735ccd470fd7f89845d`;
+- `xpcompat/dwrite/pwrp_k32.dll`: `22406c8122a25a61fb3fe4ff9e20b0a72472328a`.
+
+The matching diagnostics artifact contains `xul.pdb`; its artifact-side SHA-1 is `5adb2a93d6640d1cfd0964fdf45e5b535f95ac7c`. Local PDB identity must still be checked before symbolizing a future dump.
+
+**PROVEN — startup advances beyond the predecessor private-loader failure boundary.** In the parent browser process, private `pwrp_k32.dll` loads successfully, followed by private `DWrite.dll` and the rest of the private DirectWrite closure. The same parent later opens and successfully reads the existing `DWriteCore/FontSet-v3.dat` cache (267,292 bytes). Before termination it successfully creates GPU, socket, tab/content, RDD, additional tab/content, and utility child processes. This is materially later than predecessor source `52e05a...`, whose physical captures faulted inside the private loader while handling the missing fibers API-set. The successor therefore physically advances beyond that startup boundary. Procmon does not provide the new faulting EIP, so this entry does not claim a debugger-confirmed non-recurrence of the exact predecessor instruction.
+
+**PROVEN — current termination is an access violation in the parent process, not a clean shutdown.** The parent starts at 15:31:30.672 and exits at 15:31:36.223 with signed exit status `-1073741819`, i.e. `0xC0000005`. It survives roughly 5.55 seconds and continues for several seconds after private DWrite loads and the font cache is read. The observed child processes predominantly exit with status 0 after the parent begins teardown. DrWatson did not capture this failure, but Procmon records the parent process exit code.
+
+**COMBASE qualification.** The capture contains failed filesystem searches for `combase.dll`, but no successful `Load Image` of `combase.dll`. The parent continues through private DWrite initialization, font-cache access and child-process startup after those probes. Therefore the presence of a dynamic COMBASE lookup is not evidence that COMBASE owns the current AV. The previously implemented Abseil WinRT timezone COMBASE exclusion remains a separate source-level fact; ownership of the remaining probe is unresolved.
+
+**NOT ESTABLISHED:** the new AV's faulting module, EIP, thread, stack, first-chance/second-chance disposition, or source owner. The last visible Procmon I/O is not sufficient to assign crash ownership.
+
+Next diagnostic: run this exact binary set under matching WinDbg/PDB without changing e10s, sandbox or graphics behavior; break on access violations, capture `.exr -1`, registers, stack, faulting module/symbol and a full dump. Keep the temporary early private-`pwrp_k32.dll` preload in place during this diagnostic so cleanup does not change the boundary under investigation.
+
+Conclusion: **PHYSICAL XP ADVANCEMENT PAST THE PREDECESSOR PRIVATE-DWRITE LOADER BOUNDARY; SUSTAINED RUNTIME STILL FAILS WITH A NEW PARENT-PROCESS `0xC0000005`.**
+
+Publication check: xp-bridge-allowlist-v1 checked
+
+Status: **current exact physical-XP runtime boundary for source `6a3ffb8...`; debugger localization pending.**
