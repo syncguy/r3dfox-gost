@@ -316,6 +316,24 @@ Historical full-scale result `32695496647`, job `97336702701`, SHA `ae3d52f42b8b
 
 This result does not prove the produced browser starts on real Windows 7, does not close the delay-load parser/runtime-path work, and does not prove GOST TLS runtime behavior. Those remain separate gates.
 
+## XP YY TLS detach re-entry smoke
+
+Workflow file:
+
+`.github/workflows/xp-yy-tls-detach-reentry-smoke.yml`
+
+Workflow name:
+
+`XP YY TLS detach re-entry smoke`
+
+Role:
+
+This is a focused Windows XP x86 TLS-lifecycle reproducer for the current GPU-child static-TLS investigation. It builds a small owner DLL with compiler thread-safe function-local-static state, an explicit PE static-TLS directory and the YY-Thunks DLL entry-point contract, plus a second DLL that can re-enter the owner from `DLL_THREAD_DETACH`.
+
+The authoritative hosted control is source `14a081882ae657115ae799f7adeca6605677d9d0`, run `35448707456`, job `105912013098`, artifact `10586477797`, result **completed / success / GREEN**. The `late-first` control observes owner detach before the later DLL callback and successfully re-enters the owner on hosted Windows; `owner-first` is the inverse-order control.
+
+This workflow proves the focused PE/YY contract and deterministic detach/re-entry topology. It does **not** prove the behavior on physical Windows XP, does not prove Firefox startup, and does not close the full-browser GPU or parent-process AVs. Physical XP execution of the exact artifact is a separate runtime gate.
+
 ## Terminology rule
 
 Keep these concepts separate:
@@ -328,6 +346,7 @@ Keep these concepts separate:
 - `msvcr14x-win7-smoke.yml` = isolated msvcr14x CRT/UCRT smoke;
 - `msvcr14x-rust-yy-coexistence-smoke.yml` = representative msvcr14x + Rust/libstd + narrow YY coexistence closing proof;
 - `rust-xp-thunk-smoke.yml` = exploratory Windows XP Rust/thunk compatibility smoke;
+ - `xp-yy-tls-detach-reentry-smoke.yml` = focused YY static-TLS DLL detach/re-entry reproducer; hosted control is not physical XP proof;
 - `winrt-source-poc-x86.yml` = targeted source-level WinRT removal/fallback x86 proof gate, not a full Firefox build;
 - `cryptopro-extension-smoke.yml` = historical standalone CryptoPro updater/fallback/staging/package proof;
 - `cryptopro-mozilla-packaging-smoke.yml` = dedicated real-Firefox CryptoPro packaging integration/regression proof;
