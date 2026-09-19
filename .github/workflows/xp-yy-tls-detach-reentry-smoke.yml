@@ -126,11 +126,15 @@ jobs:
           if ($symbols.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw 'YY entry provider does not expose DllMainCRTStartupForYY_Thunks' }
           $entryMatches = @([regex]::Matches($symbols, '(?m)(?:^|\s)(_?DllMainCRTStartupForYY_Thunks(?:@\d+)?)(?:\s|$)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
           if ($entryMatches.Count -ne 1) { throw "Cannot resolve unique YY DLL entry symbol; found $($entryMatches.Count)" }
+          $entryLinkName = $entryMatches[0]
+          if ($entryLinkName.StartsWith('_',[System.StringComparison]::Ordinal)) { $entryLinkName = $entryLinkName.Substring(1) }
           "YY_ENTRY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_ENTRY_SYMBOL=$($entryMatches[0])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_ENTRY_LINK_NAME=$entryLinkName" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_SYNCH_LIB=$synchronization" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "yy_common_member=$($impl[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
           "yy_entry_symbol=$($entryMatches[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          "yy_entry_link_name=$entryLinkName" | Add-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Generate detach re-entry sources
         shell: powershell
@@ -246,7 +250,7 @@ jobs:
           & cl.exe @common src\probe.cpp '/Fo:probe.obj'
           if ($LASTEXITCODE -ne 0) { throw 'probe compile failed' }
 
-          $yyEntry = "/ENTRY:$env:YY_ENTRY_SYMBOL"
+          $yyEntry = "/ENTRY:$env:YY_ENTRY_LINK_NAME"
           $yyAlternate = '/alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
           & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\tls-owner.map" '/out:runtime\tls-owner.dll' tls-owner.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw 'tls-owner link failed' }
