@@ -97,7 +97,8 @@ jobs:
           if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
 
           $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
-          if (-not (Test-Path $kernel32)) { throw 'YY kernel32.lib missing' }
+          $synchronization = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synchronization)) { throw 'Required YY libraries missing' }
           $members = @(& lib.exe /nologo /list $kernel32 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or -not $members.Count) { throw 'Cannot enumerate YY kernel32.lib' }
 
@@ -123,8 +124,13 @@ jobs:
           $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 diagnostics\yy-entry-provider-symbols.txt
           if ($symbols.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw 'YY entry provider does not expose DllMainCRTStartupForYY_Thunks' }
+          $entryMatches = @([regex]::Matches($symbols, '(?m)(?:^|\s)(_?DllMainCRTStartupForYY_Thunks(?:@\d+)?)(?:\s|$)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          if ($entryMatches.Count -ne 1) { throw "Cannot resolve unique YY DLL entry symbol; found $($entryMatches.Count)" }
           "YY_ENTRY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_ENTRY_SYMBOL=$($entryMatches[0])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_SYNCH_LIB=$synchronization" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "yy_common_member=$($impl[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          "yy_entry_symbol=$($entryMatches[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Generate detach re-entry sources
         shell: powershell
@@ -240,13 +246,13 @@ jobs:
           & cl.exe @common src\probe.cpp '/Fo:probe.obj'
           if ($LASTEXITCODE -ne 0) { throw 'probe compile failed' }
 
-          $yyEntry = '/ENTRY:DllMainCRTStartupForYY_Thunks'
+          $yyEntry = "/ENTRY:$env:YY_ENTRY_SYMBOL"
           $yyAlternate = '/alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
-          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\tls-owner.map" '/out:runtime\tls-owner.dll' tls-owner.obj $env:YY_ENTRY_LIB
+          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\tls-owner.map" '/out:runtime\tls-owner.dll' tls-owner.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw 'tls-owner link failed' }
-          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\late-callback.map" '/out:runtime\late-callback.dll' late-callback.obj $env:YY_ENTRY_LIB
+          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\late-callback.map" '/out:runtime\late-callback.dll' late-callback.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw 'late-callback link failed' }
-          & link.exe /nologo /machine:x86 "/subsystem:console,$env:WINDOWS_XP_SUBSYSTEM" "/map:diagnostics\probe.map" '/out:runtime\probe.exe' probe.obj
+          & link.exe /nologo /machine:x86 "/subsystem:console,$env:WINDOWS_XP_SUBSYSTEM" "/map:diagnostics\probe.map" '/out:runtime\probe.exe' probe.obj kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw 'probe link failed' }
 
           @'
