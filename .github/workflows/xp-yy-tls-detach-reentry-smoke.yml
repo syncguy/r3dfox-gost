@@ -327,7 +327,60 @@ jobs:
             if ($headers -notmatch "(?im)^\s*$([regex]::Escape($env:WINDOWS_XP_SUBSYSTEM)) subsystem version") { throw "$name subsystem is not $env:WINDOWS_XP_SUBSYSTEM" }
           }
           $ownerHeaders = Get-Content diagnostics\tls-owner.dll-headers.txt -Raw
-          if ($ownerHeaders -notmatch '(?i)TLS Directory') { throw 'tls-owner.dll has no PE TLS directory; local-static TLS reproduction is invalid' }
+          if ($ownerHeaders -notmatch '(?im)^\s*[0-9A-F]+\s+\[\s*[0-9A-F]+\]\s+RVA \[size\] of Thread Storage Directory\s*
+          $ownerMap = Get-Content diagnostics\tls-owner.map -Raw
+          $lateMap = Get-Content diagnostics\late-callback.map -Raw
+          foreach ($pair in @(@{Name='tls-owner.dll';Text=$ownerMap},@{Name='late-callback.dll';Text=$lateMap})) {
+            if ($pair.Text.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw "$($pair.Name) map does not contain DllMainCRTStartupForYY_Thunks" }
+          }
+          $exports = (& dumpbin.exe /nologo /exports runtime\tls-owner.dll 2>&1 | Out-String)
+          $exports | Set-Content -Encoding utf8 diagnostics\tls-owner-exports.txt
+          if ($exports.IndexOf('TouchLocalStatic',[System.StringComparison]::Ordinal) -lt 0) { throw 'tls-owner.dll export missing TouchLocalStatic' }
+
+      - name: Run hosted Windows control
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = (Resolve-Path runtime).Path
+          $env:PATH = "$runtime;$env:PATH"
+          $results = @()
+          foreach ($mode in @('late-first','owner-first')) {
+            Push-Location runtime
+            try { $output = @(& .\probe.exe $mode 2>&1 | ForEach-Object { "$_" }); $code = $LASTEXITCODE }
+            finally { Pop-Location }
+            $output | Set-Content -Encoding utf8 ("diagnostics\hosted-" + $mode + ".txt")
+            $output | ForEach-Object { Write-Host $_ }
+            if ($code -ne 0) { throw "Hosted control failed for $mode with exit $code" }
+            $results += ($output -join [Environment]::NewLine)
+          }
+          $combined = $results -join [Environment]::NewLine
+          if ($combined.IndexOf('reentry_after_owner_detach=YES',[System.StringComparison]::Ordinal) -lt 0) { throw 'Neither load order produced callback re-entry after owner DLL_THREAD_DETACH' }
+          @('hosted_control=PASS','expected_host_behavior=no crash','required_order_observed=reentry_after_owner_detach=YES','physical_xp_behavior=NOT_ESTABLISHED') | Set-Content -Encoding utf8 diagnostics\hosted-summary.txt
+
+      - name: Upload XP physical-test bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-yy-tls-detach-reentry-smoke
+          path: |
+            runtime
+            diagnostics
+          if-no-files-found: error
+
+      - name: Summarize evidence
+        if: always()
+        shell: powershell
+        run: |
+          "## XP YY TLS detach re-entry smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Test commit: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Target: Windows XP SP3 x86; hosted Windows run is a control only." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- tls-owner.dll uses compiler thread-safe function-local static initialization and YY-Thunks v$env:YY_THUNKS_VERSION DLL TLS entry point." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- late-callback.dll re-enters tls-owner.dll from DLL_THREAD_DETACH." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- A hosted PASS proves build/contract/control behavior, not reproduction on physical XP." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+) {
+            throw 'tls-owner.dll has no nonzero PE Thread Storage Directory; local-static TLS reproduction is invalid'
+          }
           $ownerMap = Get-Content diagnostics\tls-owner.map -Raw
           $lateMap = Get-Content diagnostics\late-callback.map -Raw
           foreach ($pair in @(@{Name='tls-owner.dll';Text=$ownerMap},@{Name='late-callback.dll';Text=$lateMap})) {
