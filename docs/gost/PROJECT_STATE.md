@@ -80,26 +80,25 @@ Earlier hosted-SDK pinning, shallow ANGLE history, PowerShell native stderr and 
 The current authoritative integrated full-build/static baseline is:
 
 - branch `agent/winrt-source-poc`;
-- source-under-test/head `6a3ffb8295bfdde77df3ed34dfca911beae9941a`;
-- functional source fix `6a3ffb8295bfdde77df3ed34dfca911beae9941a` (`fix(xp): sanitize failed LdrLoadDll output`);
+- source-under-test/head `62835966a1c680382b8ab8a7100b810abccbf2c5`;
+- functional source fix `62835966a1c680382b8ab8a7100b810abccbf2c5` (`fix(xp): avoid thread manager singleton re-entry on detach`);
+- changed product files: `xpcom/threads/nsThread.cpp`, `xpcom/threads/nsThread.h`, `xpcom/threads/nsThreadManager.cpp`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `35346927393`;
-- job `105605594476` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- run `35443499166`;
+- job `105898364295` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate result **completed / success / GREEN**.
 
-The source correction is narrow and owner-local in `toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp`. `patched_LdrLoadDll` initializes its local handle to null, forwards that handle to the caller only when the returned NTSTATUS is successful, and passes null to `ModuleLoadFrame::SetLoadStatus` on failure. The returned NTSTATUS and successful-load path are unchanged.
+The source change is the narrow browser consumer remediation for the already-localized GPU-child detach failure. The canonical build/static result establishes that the change integrates cleanly into Firefox/r3dfox 153 and preserves the existing XP build/package/static compatibility gates. It does not establish the physical runtime effect.
 
-This correction is derived from the exact physical evidence on predecessor source `52e05a161da601e656e6ba3031084bcc60fdb098`, where the original loader returned `STATUS_DLL_NOT_FOUND` for the fibers API-set request but the hook propagated an invalid `NONNULL` local handle through the caller output and system `LoadLibraryExW` return. The build result validates integration of the remediation; it does not yet prove its physical XP runtime effect.
-
-The canonical build completed the Firefox/r3dfox release compile/link, targeted xul/mozglue compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, broad XP PE/direct-import audit, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
+The canonical build completed the Firefox/r3dfox release compile/link, targeted XP compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, broad XP PE/direct-import audit, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
 
 Artifacts:
 
-- package `10555076979` (`r3dfox-gost-xp-x32-package`), 333,353,834 bytes, digest `sha256:5621adb535c7493f9c38390c9935b8cd2096cef1d4ae38450256fd15814b2b58`;
-- runtime `10554622022` (`r3dfox-gost-xp-x32-runtime`), 76,174,201 bytes, digest `sha256:1fef7a5316c3a102978bcfc7fb996ad06a3be7fe3514d4f3fa3883d5986e3126`;
-- diagnostics `10555616046` (`r3dfox-gost-xp-x32-diagnostics`), 420,580,984 bytes, digest `sha256:b0c8d736edc22a1efdd41b775ea1721981abbd7e0929b7f82529f69f303c9838`.
+- package `10587340718` (`r3dfox-gost-xp-x32-package`), 333,347,227 bytes, digest `sha256:325d908cf19bfa20eba01307d4c4559518cad26d83bb2126e1ed530f5e2178a7`;
+- runtime `10587396294` (`r3dfox-gost-xp-x32-runtime`), 76,173,133 bytes, digest `sha256:d86bc02ee189ac2105ebb8ef9327091b56beaf190fa01cf750aff22c9de56cd3`;
+- diagnostics `10586618851` (`r3dfox-gost-xp-x32-diagnostics`), 420,573,279 bytes, digest `sha256:3d80cabc544c333d652e037e3fa88296ab7106b5704fc1752aad00197bf73d04`.
 
-This supersedes source `52e05a...`, run `35059756036`, job `104677385743` as the latest integrated build/static baseline. The predecessor remains the latest physically exercised exact browser target until the new package is run on XP.
+This supersedes source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476` as the latest integrated build/static baseline. Source `6a3ffb8...` remains the latest physically exercised exact browser target until the new package is run on XP.
 
 This is a full-build/package/static compatibility PASS only. It does not by itself prove browser startup or stability on physical Windows XP and does not prove GOST TLS behavior.
 
@@ -115,7 +114,7 @@ The raw stack reaches the exact packaged `nss3.dll` entry-point path with DllMai
 
 A focused lifecycle control now validates the intended reproducer independently of Firefox. Workflow `.github/workflows/xp-yy-tls-detach-reentry-smoke.yml`, source `14a081882ae657115ae799f7adeca6605677d9d0`, run `35448707456`, job `105912013098`, completed **success / GREEN**. Artifact `10586477797` contains an x86 / PE 5.01 owner DLL with a nonzero PE Thread Storage Directory, compiler thread-safe local-static state and the YY-Thunks v1.2.2 DLL entry-point contract, plus a second DLL that re-enters the owner from `DLL_THREAD_DETACH`. On hosted Windows, the `late-first` case proves owner detach occurs first and the later callback then re-enters the owner successfully; the inverse `owner-first` case does not re-enter after owner detach. This proves the harness and event ordering, not physical-XP behavior.
 
-The next focused discriminator is therefore physical Windows XP SP3 x86 execution of artifact `10586477797` unchanged in both modes. A failure specifically in the `late-first` re-entry case would materially strengthen the YY-emulated static-TLS teardown explanation; survival would push the browser investigation back toward Firefox/NSPR-specific lifetime behavior. In parallel, browser candidate `62835966a1c680382b8ab8a7100b810abccbf2c5` is under canonical full-build validation in run `35443499166`; that run is still **in progress** and has no accepted build/static or physical-runtime conclusion yet.
+The next focused discriminator is therefore physical Windows XP SP3 x86 execution of artifact `10586477797` unchanged in both modes. A failure specifically in the `late-first` re-entry case would materially strengthen the YY-emulated static-TLS teardown explanation; survival would push the browser investigation back toward Firefox/NSPR-specific lifetime behavior. Browser candidate `62835966a1c680382b8ab8a7100b810abccbf2c5` has now completed canonical full-build validation in run `35443499166` / job `105898364295` with **completed / success / GREEN** and exact package/runtime/diagnostics identities recorded above. This is accepted build/static evidence only; physical XP validation of the new browser candidate remains open.
 
 The predecessor source defect in `patched_LdrLoadDll` remains directly proven on source `52e05a...`, and the new source contains the narrow failed-output remediation. The successor's advancement through private DWrite and font-cache activity establishes physical progress beyond the old startup boundary.
 
