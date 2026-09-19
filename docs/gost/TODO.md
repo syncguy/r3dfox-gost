@@ -123,12 +123,12 @@ The xul PE already has the committed YY-Thunks `DllMainCRTStartupForYY_Thunks` e
 Immediate work:
 
 1. **Run the focused YY detach reproducer on physical XP first.** Use exact artifact `10586477797` from run `35448707456` / job `105912013098` without rebuilding it. Execute both modes; `late-first` is decisive because the hosted control proves owner detach order 1, later callback order 2 and callback re-entry after owner detach. Record whether XP completes the callback or faults in the owner TLS/local-static path. `owner-first` is the inverse-order control.
-2. **Keep the browser candidate validation separate.** Source `62835966a1c680382b8ab8a7100b810abccbf2c5` is being validated by canonical full-build run `35443499166`, which remains **in progress**. Do not call it GREEN until the run completes and exact package/diagnostics identities exist.
+2. **Physically validate the new browser candidate separately.** Source `62835966a1c680382b8ab8a7100b810abccbf2c5` passed canonical full-build run `35443499166` / job `105898364295` with **completed / success / GREEN**. Use exact package `10587340718`, runtime `10587396294` and diagnostics `10586618851`; do not call the prior GPU-child blocker fixed until this exact browser is exercised on physical XP.
 3. **If the focused XP reproducer fails only in `late-first`, treat that as direct support for the YY-emulated static-TLS teardown mechanism.** Then use the browser candidate only as a narrow consumer remediation test; it must not be described as a global TLS lifecycle fix.
 4. **If the focused XP reproducer survives, return to the exact Firefox/NSPR lifecycle.** The same-thread xul TLS observation on baseline `6a3ffb8...` remains available to distinguish browser-specific population/cleanup ordering without reopening already closed compatibility boundaries.
 5. **Keep the parent-process AV and temporary preload separate.** Do not substitute the GPU-child result for the parent `0xC0000005`, and keep `PreloadXPPrivatePwrp()` unchanged during this comparison.
 
-The focused hosted control is **GREEN** only for build/PE/ordering behavior. Physical XP runtime remains open, and the canonical browser acceptance test still requires an exact successful full build plus physical XP execution proving advancement beyond the prior GPU-child blocker.
+The focused hosted control is **GREEN** only for build/PE/ordering behavior. The canonical browser candidate now also has an exact successful full build; physical XP runtime remains open, and acceptance requires execution of source `62835966...` proving advancement beyond the prior GPU-child blocker.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -139,7 +139,7 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated full-build/static evidence is source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`: aggregate **completed / success / GREEN**, with package `10555076979`, runtime `10554622022`, diagnostics `10555616046`. This exact source contains the narrow `patched_LdrLoadDll` failed-output remediation and retains the prior COMBASE exclusion and XP compatibility fixes.
+Current latest integrated full-build/static evidence is source `62835966a1c680382b8ab8a7100b810abccbf2c5`, run `35443499166`, job `105898364295`: aggregate **completed / success / GREEN**, with package `10587340718`, runtime `10587396294`, diagnostics `10586618851`. This exact source contains the narrow detach re-entry consumer remediation and retains the prior loader, COMBASE and XP compatibility fixes.
 
 Current latest physically exercised exact full-browser target is source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`, package `10555076979`, diagnostics `10555616046`. Its hash-bound Procmon run advances through private DWrite and font-cache initialization, then records a parent-process `0xC0000005`; debugger localization is pending. Predecessor source `52e05a...` remains the proof of the failed-output/private-helper defect that this successor advances beyond.
 
