@@ -122,13 +122,13 @@ The xul PE already has the committed YY-Thunks `DllMainCRTStartupForYY_Thunks` e
 
 Immediate work:
 
-1. **No source change yet: establish exact detach ordering.** With the same binaries and the large PDB kept out of the live symbol path, break on xul's known PE entry point during `DLL_THREAD_DETACH`; inspect xul slot 5 immediately before and after the YY wrapper returns, then observe the subsequent `nss3.dll` thread-detach path on the same thread.
-2. **Distinguish the two remaining mechanisms.** If the slot is already null at xul detach entry, investigate why YY failed to populate/retain it for this thread. If it is non-null at xul detach entry and null after return, the teardown-order conflict is directly proven and remediation should target that lifecycle boundary.
-3. **Do not apply global `/Zc:threadSafeInit-` as the first fix.** It would suppress this observed compiler TLS consumer but would not establish or repair the underlying per-thread TLS lifetime issue.
-4. **Keep the parent-process AV separate.** If parent PID/index 0 later produces a second-chance `0xC0000005`, capture it independently; do not substitute the GPU-child stack for the Procmon parent exit.
-5. **Keep `PreloadXPPrivatePwrp()` unchanged.** Removing it would alter an independent runtime boundary; do not reopen COMBASE from failed lookup traffic alone.
+1. **Run the focused YY detach reproducer on physical XP first.** Use exact artifact `10586477797` from run `35448707456` / job `105912013098` without rebuilding it. Execute both modes; `late-first` is decisive because the hosted control proves owner detach order 1, later callback order 2 and callback re-entry after owner detach. Record whether XP completes the callback or faults in the owner TLS/local-static path. `owner-first` is the inverse-order control.
+2. **Keep the browser candidate validation separate.** Source `62835966a1c680382b8ab8a7100b810abccbf2c5` is being validated by canonical full-build run `35443499166`, which remains **in progress**. Do not call it GREEN until the run completes and exact package/diagnostics identities exist.
+3. **If the focused XP reproducer fails only in `late-first`, treat that as direct support for the YY-emulated static-TLS teardown mechanism.** Then use the browser candidate only as a narrow consumer remediation test; it must not be described as a global TLS lifecycle fix.
+4. **If the focused XP reproducer survives, return to the exact Firefox/NSPR lifecycle.** The same-thread xul TLS observation on baseline `6a3ffb8...` remains available to distinguish browser-specific population/cleanup ordering without reopening already closed compatibility boundaries.
+5. **Keep the parent-process AV and temporary preload separate.** Do not substitute the GPU-child result for the parent `0xC0000005`, and keep `PreloadXPPrivatePwrp()` unchanged during this comparison.
 
-Only after the detach-order observation chooses an owner should a narrow source/provider change be built. The acceptance test remains a canonical full XP x86 rebuild followed by physical XP execution with unchanged e10s/graphics/sandbox behavior and proof that the GPU advances beyond `xul+0x0090DED4`.
+The focused hosted control is **GREEN** only for build/PE/ordering behavior. Physical XP runtime remains open, and the canonical browser acceptance test still requires an exact successful full build plus physical XP execution proving advancement beyond the prior GPU-child blocker.
 
 #### Supermium DWrite component refresh — separate follow-up
 
