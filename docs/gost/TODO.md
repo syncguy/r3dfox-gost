@@ -102,26 +102,27 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current XP browser successor — loader fix build green; physical validation next
+### Current XP browser successor — physical loader advancement proven; localize the new parent AV
 
-The active successor is now:
+Current exact target:
 
 - source `6a3ffb8295bfdde77df3ed34dfca911beae9941a` (`fix(xp): sanitize failed LdrLoadDll output`);
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
 - run `35346927393`, job `105605594476`, **completed / success / GREEN**;
 - package `10555076979`;
 - runtime `10554622022`;
-- diagnostics `10555616046`.
+- diagnostics `10555616046`;
+- physical XP execution is now bound to the exact packaged `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and private `pwrp_k32.dll` by matching file hashes.
 
-This source keeps the prior XP compatibility work and fixes the physically established `patched_LdrLoadDll` failed-output defect: failed NTSTATUS no longer forwards an invalid local handle to the caller or `ModuleLoadFrame::SetLoadStatus`. The canonical full build/package/static gates pass. Physical XP runtime remains open.
+The exact successor physically advances through successful private DirectWrite loading, reads `DWriteCore/FontSet-v3.dat`, starts GPU/socket/tab/RDD/utility children, and then the parent exits with `0xC0000005`. The predecessor failed-`LdrLoadDll` / private-helper startup boundary is therefore no longer the active observed boundary. Sustained runtime remains open.
 
 Immediate work:
 
-1. **Physically test the exact `6a3ffb8...` successor on XP.** Use the complete portable archive from package `10555076979` and matching diagnostics `10555616046`; establish exact binary/PDB identity before interpreting runtime behavior.
-2. **Check the prior private-loader boundary first.** Verify whether the predecessor `pwrp_k32+0x2c50d` AV disappears and whether the missing fibers API-set now produces an ordinary failed load that allows the compatibility fallback to continue.
-3. **Record the next actual boundary.** Advancement past the old AV is not by itself sustained runtime PASS; capture the next real exception, termination owner, or stable startup boundary.
-4. **Keep the temporary early preload until the fix is physically accepted.** Do not remove `PreloadXPPrivatePwrp()` during the first validation of `6a3ffb8...`.
-5. **Then remove the temporary early private `pwrp_k32.dll` preload.** After the loader fix is physically accepted, remove `PreloadXPPrivatePwrp()` and its pre-`InitXPCOMGlue()` call from `browser/app/nsBrowserApp.cpp`, rebuild, and physically retest the exact successor package to prove that the private DirectWrite closure reaches its intended load/fallback path without the ordering workaround.
+1. **Reproduce the exact new parent-process AV under WinDbg.** Keep the same binaries and normal multiprocess/graphics configuration; break on access violations and capture the first relevant exception record, registers, stack, faulting module/symbol and full dump.
+2. **Bind symbolization to diagnostics `10555616046`.** The artifact-side `xul.pdb` SHA-1 is `5adb2a93d6640d1cfd0964fdf45e5b535f95ac7c`; verify the local PDB before accepting symbolized source ownership.
+3. **Do not infer the crash owner from the last Procmon I/O.** Procmon proves the parent exit status but not the faulting thread or EIP.
+4. **Do not reopen COMBASE from lookup traffic alone.** The current capture has failed `combase.dll` searches but no successful load and continues well beyond those probes; localize any remaining probe only if debugger evidence makes it relevant.
+5. **Keep `PreloadXPPrivatePwrp()` unchanged during localization.** Removing the temporary preload now would change the boundary under investigation. Perform that cleanup only as a separate rebuild/retest after the new AV is localized/stabilized.
 
 The focused private DWrite component PASS and predecessor exact physical captures remain controls. Do not weaken assertions, add an API-set provider merely because the probe fails on XP, or reopen already closed compatibility families without contradictory evidence.
 
@@ -136,7 +137,7 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 Current latest integrated full-build/static evidence is source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`: aggregate **completed / success / GREEN**, with package `10555076979`, runtime `10554622022`, diagnostics `10555616046`. This exact source contains the narrow `patched_LdrLoadDll` failed-output remediation and retains the prior COMBASE exclusion and XP compatibility fixes.
 
-Current latest physically exercised exact full-browser target is source `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`, package `10436053344`, diagnostics `10436392402`. Its `E001`/`E002`/`E003` captures prove the private-loader AV and failed-output propagation that `6a3ffb8...` is intended to correct.
+Current latest physically exercised exact full-browser target is source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`, package `10555076979`, diagnostics `10555616046`. Its hash-bound Procmon run advances through private DWrite and font-cache initialization, then records a parent-process `0xC0000005`; debugger localization is pending. Predecessor source `52e05a...` remains the proof of the failed-output/private-helper defect that this successor advances beyond.
 
 Older source `88453be...`, run `34459906476`, job `102815008544`, remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s, but it is not the current runtime target.
 
@@ -174,4 +175,4 @@ The current lineage has already closed or physically advanced past the following
 - YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
-The active runtime acceptance target is now exact successor source `52e05a...` / run `35059756036`; do not spend new cycles on the closed families above without contradictory evidence.
+The active runtime acceptance target is exact successor source `6a3ffb8...` / run `35346927393`; its current blocker is the later parent-process `0xC0000005`. Do not spend new cycles on the closed families above without contradictory evidence.
