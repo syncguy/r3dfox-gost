@@ -102,7 +102,7 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current XP browser successor — GPU TLS teardown blocker localized; parent AV remains separate
+### Current XP browser successor — fatal GPU xul TLS-slot blocker; establish detach ordering
 
 Current exact target:
 
@@ -112,21 +112,23 @@ Current exact target:
 - package `10555076979`;
 - runtime `10554622022`;
 - diagnostics `10555616046`;
-- physical XP execution is now bound to the exact packaged `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and private `pwrp_k32.dll` by matching file hashes.
+- physical XP execution is bound to the exact packaged `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and private `pwrp_k32.dll` by matching file hashes; matching `xul.pdb` SHA-1 is `5adb2a93d6640d1cfd0964fdf45e5b535f95ac7c`.
 
-The exact successor physically advances through successful private DirectWrite loading, reads `DWriteCore/FontSet-v3.dat`, and starts GPU/socket/tab/RDD/utility children. Procmon still records a later parent-process `0xC0000005`; that parent fault remains unsymbolized.
+The exact successor advances through private DirectWrite loading, reads `DWriteCore/FontSet-v3.dat`, and starts multiprocess children. Procmon separately records a later parent-process `0xC0000005`; that parent fault remains unsymbolized.
 
-A separate WinDbg capture on the same exact package has now localized a GPU-child AV. On an exiting Rust-created/NSPR-attached foreign thread, xul TLS index 5 is null only for the faulting thread. The stack is in nss3 `DLL_THREAD_DETACH` cleanup and re-enters xul through the registered `nsThreadManager::ReleaseThread` NSPR TPD destructor after the XP YY-Thunks DLL teardown path has cleared xul's emulated TLS slot. This is a distinct, concrete GPU-child blocker and must not be substituted for the parent AV.
+The current WinDbg capture proves a distinct fatal GPU-child failure: first and second chance both stop at `xul.dll+0x0090DED4` on the same exiting thread. xul `_tls_index` is 5, that thread's TLS slot 5 is null, and 24 other current threads have non-null slot 5. Matching-PDB symbolization places the xul path in the compiler thread-safe-static access used by `nsThreadManager::get()`, reached from `nsThread` destruction / NSPR TPD release. The raw stack reaches `nss3.dll` DllMain reason 3 / `DLL_THREAD_DETACH`. The faulting thread starts in xul's Rust thread entry path, so the simple “thread existed before xul load” explanation is rejected.
+
+The xul PE already has the committed YY-Thunks `DllMainCRTStartupForYY_Thunks` entry/TLS contract. Do not add a second broad TLS workaround on the assumption that this contract is missing.
 
 Immediate work:
 
-1. **Design the narrow source-level GPU-child remediation first.** Preserve the exact mechanism above. Prefer either making the late `ReleaseThread`/destructor path independent of xul's compiler TLS-backed function-local-static state, or arranging for the attached foreign-thread `nsThread` TPD reference to be released before xul YY `FreeTlsData()`. Inspect lifecycle ownership before editing.
-2. **Do not apply global `/Zc:threadSafeInit-` as the first fix.** It would suppress the currently faulting compiler TLS consumer but does not repair the demonstrated DLL/thread teardown ordering and may affect unrelated local statics.
-3. **After a focused source fix, rebuild the canonical full XP x86 package and retest the exact artifact on physical XP.** Verify that the GPU child advances beyond `xul+0x0090DED4` without changing e10s/graphics/sandbox configuration.
-4. **Keep the parent-process AV separate.** If the parent still exits with `0xC0000005` after the GPU-child fix, capture and symbolize that parent fault independently; do not infer that the current GPU-child stack owns the Procmon parent exit.
-5. **Keep `PreloadXPPrivatePwrp()` unchanged during this localization/fix cycle.** Removing the temporary preload would change an independent boundary. Do not reopen COMBASE from failed lookup traffic alone.
+1. **No source change yet: establish exact detach ordering.** With the same binaries and the large PDB kept out of the live symbol path, break on xul's known PE entry point during `DLL_THREAD_DETACH`; inspect xul slot 5 immediately before and after the YY wrapper returns, then observe the subsequent `nss3.dll` thread-detach path on the same thread.
+2. **Distinguish the two remaining mechanisms.** If the slot is already null at xul detach entry, investigate why YY failed to populate/retain it for this thread. If it is non-null at xul detach entry and null after return, the teardown-order conflict is directly proven and remediation should target that lifecycle boundary.
+3. **Do not apply global `/Zc:threadSafeInit-` as the first fix.** It would suppress this observed compiler TLS consumer but would not establish or repair the underlying per-thread TLS lifetime issue.
+4. **Keep the parent-process AV separate.** If parent PID/index 0 later produces a second-chance `0xC0000005`, capture it independently; do not substitute the GPU-child stack for the Procmon parent exit.
+5. **Keep `PreloadXPPrivatePwrp()` unchanged.** Removing it would alter an independent runtime boundary; do not reopen COMBASE from failed lookup traffic alone.
 
-The focused private DWrite component PASS and predecessor exact physical captures remain controls. Do not weaken assertions, add an API-set provider merely because the probe fails on XP, or reopen already closed compatibility families without contradictory evidence.
+Only after the detach-order observation chooses an owner should a narrow source/provider change be built. The acceptance test remains a canonical full XP x86 rebuild followed by physical XP execution with unchanged e10s/graphics/sandbox behavior and proof that the GPU advances beyond `xul+0x0090DED4`.
 
 #### Supermium DWrite component refresh — separate follow-up
 
