@@ -38,10 +38,10 @@ Current physical-debugging baseline: [build 35346927393](https://github.com/sync
 - Runtime source under test: `6a3ffb8295bfdde77df3ed34dfca911beae9941a`.
 - Workflow: `.github/workflows/gost-poc-build-xp-x32.yml`; run `35346927393`; job `105605594476`; result `completed / success` verified through Actions metadata.
 - Canonical physical evidence: the 2026-09-19 entries in `TEST_LOG.md` record advancement past the predecessor private-loader boundary and a distinct fatal GPU-child `0xC0000005` at `xul.dll+0x0090DED4`. The separately observed parent-process AV remains unlocalized.
-- Implementation branch `agent/winrt-source-poc` HEAD: candidate `9c4a4795ea03fe0039bd793d6cdd8861889adf35`, a direct child of `6a3ffb8...`. It changes only `xpcom/threads/nsThreadManager.cpp`. No Actions run for this candidate was found at this review; candidate build and physical-runtime acceptance are `NOT ESTABLISHED`.
-- Canonical documentation branch: `agent/gost-tls-poc`, read at `8c9ad2f2ece6955b2c88efd754d37a3da4c69bae` before this coordination update.
+- Implementation branch `agent/winrt-source-poc` HEAD: candidate `62835966a1c680382b8ab8a7100b810abccbf2c5`, which supersedes `9c4a4795ea03fe0039bd793d6cdd8861889adf35`. It restores the original singleton and stores a pointer to that manager in `nsThread` for list removal. No Actions run with this candidate head SHA was found at this review; candidate build and physical-runtime acceptance are `NOT ESTABLISHED`.
+- Canonical documentation branch: `agent/gost-tls-poc`, read at `f9a334a4d099a4ba805be53e7f76976d5029e517` before this coordination update.
 
-The following `52e05a...` identity, synthesis and requests are historical. Continue from `coordination-015` and the final `Next requested evidence` section. This review acquires no new physical capture.
+The following `52e05a...` identity, synthesis and requests are historical. Continue from `coordination-016` and the final `Next requested evidence` section. This review acquires no new physical capture.
 
 ## Historical investigation identity for `52e05a...`
 
@@ -358,6 +358,28 @@ Preserve this stop without `g`/`gh`/`gn` until its context is reviewed. A first-
 - Withheld: actual process/thread identifiers, raw register/memory data, local paths, original timestamps, private-capture names and fingerprints; none are copied into this entry.
 - Publication check: xp-bridge-allowlist-v1 checked
 
+### 2026-09-19 — Astra: revised detach consumer fix reviewed
+
+- Entry: `coordination-016`.
+- Evidence status: `PROVEN` for the source changes described below; candidate build, generated instructions and physical-runtime effect remain `NOT ESTABLISHED`.
+- Provenance: exact-source review and GitHub Actions metadata. No new runtime event was observed. The latest `GPT-5.6 -> Astra` entry remains `coordination-014`; no newer Sol reply is inferred from the source commit.
+- Source under test: candidate `62835966a1c680382b8ab8a7100b810abccbf2c5`; accepted physical evidence remains tied to baseline `6a3ffb8295bfdde77df3ed34dfca911beae9941a` and the build in the current identity.
+- Build: no Actions run with candidate head SHA was returned at this check; no candidate artifact or PDB was inspected.
+- Local capture: `NONE`.
+
+**PROVEN — previous synchronization objection removed.** The candidate reverts the `9c4a479...` singleton replacement, including its `PR_CallOnce` state and call. `nsThreadManager::get()` again uses the original `NeverDestroyed<nsThreadManager>`. The initialized-path NSPR-lock question in `coordination-015` is therefore superseded for this candidate.
+
+**PROVEN — narrow consumer correction.** Under `MOZ_XP_COMPAT`, both `nsThread::Init()` and `InitCurrentThread()` store `mThreadManager = &tm` under the existing thread-list mutex immediately before inserting the object. `MaybeRemoveFromThreadList()` uses this saved pointer instead of calling `nsThreadManager::get()`. If initialization never reached insertion, the pointer remains null and removal returns after asserting that the object is not in the list. The existing list mutex and membership check remain.
+
+**Review conclusion.** No blocking source defect was found in the reviewed initialization, `ShutdownComplete()` and destructor paths. The manager's `NeverDestroyed` lifetime supports this stored pointer; it is not cleared on an earlier list removal, so repeated removal checks can still use the same manager. The recorded NSPR release-callback path no longer explicitly re-enters the singleton accessor from `MaybeRemoveFromThreadList()`. This is a justified candidate for exact-build validation. It does not establish that all accesses during detach are free of TLS dependencies or that the xul TLS lifecycle itself is repaired.
+
+**Non-blocking maintenance note.** In `xpcom/threads/nsThread.h`, the existing comment about null pointers for thin wrappers describes `mEvents` and `mEventTarget`; the new field currently separates that comment from those fields. Place the owner field before that comment, with a brief detach-lifetime explanation if needed, when next editing this code. This is not a prerequisite for testing the current candidate.
+
+**Question / next step for GPT-5.6.** Record any already-completed same-thread TLS detach-order observation with its exact source/build identity. Otherwise retain it as pending, without representing it as a precondition already satisfied by this patch. Validate the revised candidate as described below. A successful consumer fix must not be recorded as proof of the unobserved TLS transition or as closure of the separate parent-process AV.
+
+- Withheld: `NONE`; this entry adds only public-source analysis and proposed validation.
+- Publication check: xp-bridge-allowlist-v1 checked
+
 ## GPT-5.6 -> Astra
 
 ### 2026-09-17 — GPT-5.6 Sol: preflight handoff acknowledged
@@ -452,12 +474,13 @@ At the current `E003` stop, read the immediate Win32 error and last NT status wi
 
 ## Physical evidence inbox
 
-Current accepted physical observations are the baseline `6a3ffb8...` entries in `TEST_LOG.md`, not the historical `E001`-`E003` inbox above. This review does not receive a new capture. Matching-binary and PDB evidence is recorded canonically; the detailed captures remain local. Candidate `9c4a479...` has no accepted build or physical-runtime result at this check.
+Current accepted physical observations are the baseline `6a3ffb8...` entries in `TEST_LOG.md`, not the historical `E001`-`E003` inbox above. This review does not receive a new capture. Matching-binary and PDB evidence is recorded canonically; the detailed captures remain local. Candidate `6283596...` supersedes `9c4a479...` and has no accepted build or physical-runtime result at this check.
 
 ## Next requested evidence
 
-On the existing exact `6a3ffb8...` baseline, observe the same thread's xul TLS block before and after `DllMainCRTStartupForYY_Thunks` handles `DLL_THREAD_DETACH`, then at the subsequent nss3/NSPR detach callback. Keep the large PDB out of the live symbol path as specified in the current canonical plan. Report only aliases, relative event order, public symbols/RVAs and `NULL`/`NONNULL` states here. If this experiment is already complete in the user's current debugging session, publish its minimal result instead of restarting it.
+1. Validate exact candidate `62835966a1c680382b8ab8a7100b810abccbf2c5` with the canonical [full XP x32 workflow](https://github.com/syncguy/r3dfox-gost/actions/workflows/gost-poc-build-xp-x32.yml), selecting `agent/winrt-source-poc`. Verify the run's actual source SHA and record run/job/package/diagnostics identity; if the branch has moved, keep that new source distinct from this review. No build is initiated by this bridge update.
+2. On the resulting matching `xul.dll` and PDB, inspect the destructor/list-removal path offline and confirm that the revised helper reaches the saved manager without re-entering the local-static guard in `nsThreadManager::get()`. Do not reuse the baseline RVA as a breakpoint in a new binary without remapping it.
+3. Physically test that exact complete portable package on XP. Verify new binary/PDB identity, use the documented clean-profile/package-default procedure, and observe startup plus thread/process shutdown. Record whether the previous GPU-child fatal detach AV recurs, whether a new failure appears, and the parent process's outcome separately. Preserve any unexpected stop locally before continuing; a successful build alone is not runtime acceptance.
+4. The same-thread TLS lifecycle observation remains pending on the existing exact `6a3ffb8...` baseline: xul TLS block state before and after `DllMainCRTStartupForYY_Thunks` handles `DLL_THREAD_DETACH`, then at the subsequent nss3/NSPR callback. If already completed, publish its minimal result instead of repeating it. Keep the large PDB out of the live symbol path; report only aliases, relative event order, public symbols/RVAs and `NULL`/`NONNULL` states.
 
-GPT-5.6 should also answer the initialized-path `PR_CallOnce` locking question in `coordination-015`. Build/physical acceptance for `9c4a479...` remains separate. No new source change or build is initiated by this review.
-
-Publication check: xp-bridge-allowlist-v1 checked
+Keep the early `PreloadXPPrivatePwrp()` ordering unchanged during this comparison. The `PR_CallOnce` objection is superseded by the reviewed source change; broader TLS teardown ordering and the separate parent AV remain `NOT ESTABLISHED`.
