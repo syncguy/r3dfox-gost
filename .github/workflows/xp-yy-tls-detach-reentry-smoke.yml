@@ -99,42 +99,83 @@ jobs:
           $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
           $synchronization = Join-Path $yyLib.FullName 'synchronization.lib'
           if (-not (Test-Path $kernel32) -or -not (Test-Path $synchronization)) { throw 'Required YY libraries missing' }
+
           $members = @(& lib.exe /nologo /list $kernel32 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
           if ($LASTEXITCODE -ne 0 -or -not $members.Count) { throw 'Cannot enumerate YY kernel32.lib' }
 
-          $target = [regex]::Escape($env:YY_THUNKS_TARGET)
-          $impl = @($members | Where-Object { $_ -match "(?i)[\\/]YY_Thunks_for_$target\.obj$" })
-          if ($impl.Count -ne 1) { throw "Expected one YY common implementation object; found $($impl.Count)" }
+          $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $wanted = @(
+            @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
+            @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
+            @{ Key='precise-direct'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obj$' },
+            @{ Key='precise-import'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obi$' },
+            @{ Key='flsalloc-direct'; Pattern='(?i)[\\/]_FlsAlloc@4\.obj$' },
+            @{ Key='flsalloc-import'; Pattern='(?i)[\\/]_FlsAlloc@4\.obi$' },
+            @{ Key='flsfree-direct'; Pattern='(?i)[\\/]_FlsFree@4\.obj$' },
+            @{ Key='flsfree-import'; Pattern='(?i)[\\/]_FlsFree@4\.obi$' },
+            @{ Key='flsset-direct'; Pattern='(?i)[\\/]_FlsSetValue@8\.obj$' },
+            @{ Key='flsset-import'; Pattern='(?i)[\\/]_FlsSetValue@8\.obi$' },
+            @{ Key='isfiber-direct'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obj$' },
+            @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
+            @{ Key='stackguarantee-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
+            @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='implementation'; Pattern=$implementationPattern }
+          )
 
           $work = Join-Path $env:RUNNER_TEMP 'yy-entry-provider'
+          $selected = Join-Path $work 'selected'
           if (Test-Path $work) { Remove-Item -Recurse -Force $work }
-          New-Item -ItemType Directory -Force $work | Out-Null
-          Push-Location $work
-          try {
-            & lib.exe /nologo "/extract:$($impl[0])" $kernel32
-            if ($LASTEXITCODE -ne 0) { throw 'YY implementation extraction failed' }
-          } finally { Pop-Location }
-          $obj = Get-ChildItem $work -File -Filter '*.obj' | Select-Object -First 1
-          if (-not $obj) { throw 'YY implementation extraction produced no object' }
+          New-Item -ItemType Directory -Force $selected | Out-Null
+
+          $objects = @()
+          $memberMap = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $wanted) {
+            $matches = @($members | Where-Object { $_ -match $spec.Pattern })
+            if ($matches.Count -ne 1) { throw "Expected one $($spec.Key) member; found $($matches.Count)" }
+            $dir = Join-Path $selected $spec.Key
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$($matches[0])" $kernel32 *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw "No object extracted for $($spec.Key)" }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            $objects += $dst
+            $memberMap.Add("$($spec.Key)|$($matches[0])")
+          }
+          $memberMap | Set-Content -Encoding utf8 diagnostics\yy-entry-provider-members.txt
 
           $provider = Join-Path $work 'yy-dll-tls-entry.lib'
-          & lib.exe /nologo "/out:$provider" $obj.FullName
+          & lib.exe /nologo "/out:$provider" @objects
           if ($LASTEXITCODE -ne 0) { throw 'YY entry provider build failed' }
 
           $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
           $symbols | Set-Content -Encoding utf8 diagnostics\yy-entry-provider-symbols.txt
-          if ($symbols.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw 'YY entry provider does not expose DllMainCRTStartupForYY_Thunks' }
+          foreach ($required in @(
+            'DllMainCRTStartupForYY_Thunks',
+            'YY_Thunks_ProcessPrng',
+            'YY_Thunks_GetSystemTimePreciseAsFileTime',
+            'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
+          )) {
+            if ($symbols.IndexOf($required,[System.StringComparison]::Ordinal) -lt 0) { throw "YY entry provider missing $required" }
+          }
+
           $entryMatches = @([regex]::Matches($symbols, '(?m)(?:^|\s)(_?DllMainCRTStartupForYY_Thunks(?:@\d+)?)(?:\s|$)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
           if ($entryMatches.Count -ne 1) { throw "Cannot resolve unique YY DLL entry symbol; found $($entryMatches.Count)" }
           $entryLinkName = $entryMatches[0]
           if ($entryLinkName.StartsWith('_',[System.StringComparison]::Ordinal)) { $entryLinkName = $entryLinkName.Substring(1) }
+
           "YY_ENTRY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_ENTRY_SYMBOL=$($entryMatches[0])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_ENTRY_LINK_NAME=$entryLinkName" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "YY_SYNCH_LIB=$synchronization" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "yy_common_member=$($impl[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
           "yy_entry_symbol=$($entryMatches[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
           "yy_entry_link_name=$entryLinkName" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          'yy_entry_provider=production-narrow-dependency-closure' | Add-Content -Encoding utf8 diagnostics\identity.txt
 
       - name: Generate detach re-entry sources
         shell: powershell
