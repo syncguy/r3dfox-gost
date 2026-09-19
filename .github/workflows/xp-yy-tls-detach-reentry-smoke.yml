@@ -294,7 +294,8 @@ jobs:
 
           $yyEntry = "/ENTRY:$env:YY_ENTRY_LINK_NAME"
           $yyAlternate = '/alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
-          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\tls-owner.map" '/out:runtime\tls-owner.dll' tls-owner.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
+          $forceTlsDirectory = '/include:__tls_used'
+          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate $forceTlsDirectory "/map:diagnostics\tls-owner.map" '/out:runtime\tls-owner.dll' tls-owner.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw 'tls-owner link failed' }
           & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\late-callback.map" '/out:runtime\late-callback.dll' late-callback.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw 'late-callback link failed' }
