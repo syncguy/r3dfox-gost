@@ -463,4 +463,35 @@ Conclusion: **the focused reproducer is valid and can deterministically exercise
 This result does not close the separate full-browser GPU-child AV, does not close the separate parent-process AV, and does not change the GOST TLS runtime state.
 
 Publication check: xp-bridge-allowlist-v1 checked
+---
 
+## 2026-09-19 — nsThread detach re-entry consumer fix passes canonical XP x86 full build/static gates
+
+Track: Windows XP SP3 x86 full-browser build/static compatibility. Independent of GOST TLS handshake/runtime proof and not physical-XP execution evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test and Actions head SHA `62835966a1c680382b8ab8a7100b810abccbf2c5`;
+- functional commit `62835966a1c680382b8ab8a7100b810abccbf2c5` (`fix(xp): avoid thread manager singleton re-entry on detach`);
+- changed product files: `xpcom/threads/nsThread.cpp`, `xpcom/threads/nsThread.h`, `xpcom/threads/nsThreadManager.cpp`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35443499166`;
+- job `105898364295` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / success / GREEN**.
+
+The canonical job completed the release Firefox/r3dfox XP x86 compile/link, targeted compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation and survival checks, runtime-test archive generation, broad XP PE/direct-import audit, YY-Thunks inventory, all three artifact uploads, and the final summary gate successfully.
+
+Artifacts bound to exact source-under-test `62835966...`:
+
+- package artifact `10587340718` (`r3dfox-gost-xp-x32-package`), 333,347,227 bytes, digest `sha256:325d908cf19bfa20eba01307d4c4559518cad26d83bb2126e1ed530f5e2178a7`;
+- physical-test runtime artifact `10587396294` (`r3dfox-gost-xp-x32-runtime`), 76,173,133 bytes, digest `sha256:d86bc02ee189ac2105ebb8ef9327091b56beaf190fa01cf750aff22c9de56cd3`;
+- diagnostics artifact `10586618851` (`r3dfox-gost-xp-x32-diagnostics`), 420,573,279 bytes, digest `sha256:3d80cabc544c333d652e037e3fa88296ab7106b5704fc1752aad00197bf73d04`.
+
+Conclusion: **FULL XP x86 BUILD / PACKAGE / STATIC COMPATIBILITY PASS for the narrow detach re-entry consumer remediation.** This source supersedes `6a3ffb8295bfdde77df3ed34dfca911beae9941a` / run `35346927393` as the latest integrated full-build/static baseline only.
+
+This result does **not** prove that the prior physical GPU-child `0xC0000005` is fixed, does not establish any physical-XP runtime behavior for source `62835966...`, and does not prove GOST TLS behavior. The physically exercised baseline remains `6a3ffb8...` until the exact new package/runtime is run on Windows XP with matching binary/PDB identity. The focused YY detach reproducer remains an independent evidence line.
+
+Next browser evidence boundary: execute the exact `62835966...` package/runtime on physical Windows XP SP3 x86 and determine whether execution advances beyond the prior GPU-child `nsThreadManager::get()` / null-xul-TLS-slot detach boundary while keeping the separate parent-process AV and focused YY lifecycle control distinct.
+
+Status: **current authoritative all-GREEN XP full-build/static baseline; physical XP validation pending.**
