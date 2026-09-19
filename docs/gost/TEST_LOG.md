@@ -396,7 +396,7 @@ Status: **current exact physical-XP runtime boundary for source `6a3ffb8...`; de
 
 ---
 
-## 2026-09-19 — exact XP GPU-child AV localizes to xul TLS teardown re-entry after YY cleanup
+## 2026-09-19 — exact XP GPU-child AV is fatal with a missing xul TLS block on the detaching thread
 
 Track: Windows XP SP3 x86 physical browser runtime diagnosis. Independent of GOST TLS handshake evidence and separate from the still-unlocalized parent-process AV seen in Procmon.
 
@@ -410,11 +410,11 @@ Exact browser/build identity remains:
 
 The dump is from the current 2026-09-18 portable payload and carries BuildID `20260918132121`. WinDbg process index 0 is parent PID `0x950` / 2384; the fault occurs in child PID `0xAAC` / 2732. The child command line identifies it as the GPU process (`-parentPid 2384 ... - 1 gpu`). Therefore this capture must not be substituted for the separate parent-process `0xC0000005` previously observed by Procmon.
 
-WinDbg catches first-chance `0xC0000005` on thread `0x11C0` / 4544 at `xul.dll + 0x0090DED4`. The instruction is `cmp eax,dword ptr [ecx+14B4h]`; `ecx == 0`, and the exception record reports a read from `0x000014B4`.
+WinDbg catches first-chance `0xC0000005` on thread `0x11C0` / 4544 at `xul.dll + 0x0090DED4`. After changing AV handling to second-chance-only and continuing, the same thread stops again at the same RVA as `0xC0000005 (second chance)`. The exception is therefore unhandled/fatal for this GPU child, not benign first-chance noise. The instruction is `cmp eax,dword ptr [ecx+14B4h]`; `ecx == 0`, and the exception record reports a read from `0x000014B4`.
 
-Matching-PDB symbolization resolves the xul path to `nsThreadManager::get()` (`xpcom/threads/nsThreadManager.cpp:285`), inlined through `nsThread::MaybeRemoveFromThreadList()` and `nsThread::~nsThread()`, with callers `nsThread::Release` and `nsThreadManager::ReleaseThread(void*)`.
+Matching-PDB symbolization resolves the xul path to `nsThreadManager::get()` (`xpcom/threads/nsThreadManager.cpp:285`), inlined through `nsThread::MaybeRemoveFromThreadList()` and `nsThread::~nsThread()`, with the registered NSPR TPD release callback `nsThreadManager::ReleaseThread(void*)` in the ownership chain.
 
-The fault is specifically a missing static-TLS block for xul on the exiting thread, not a null `nsThreadManager*`. The exact machine sequence reads xul's PE TLS index, reads the current TEB TLS vector through `fs:[0x2C]`, loads the xul slot, and then accesses the compiler thread-safe-static epoch. Live values are:
+The fault is specifically a missing static-TLS block for xul on this thread, not a null `nsThreadManager*`. The exact machine sequence reads xul's PE TLS index, reads the current TEB TLS vector through `fs:[0x2C]`, loads the xul slot, and then accesses the compiler thread-safe-static epoch. Live values are:
 
 - xul `_tls_index = 5`;
 - current `fs:[0x2C] = 0x0C1E98F8`;
@@ -422,14 +422,16 @@ The fault is specifically a missing static-TLS block for xul on the exiting thre
 
 A whole-process thread check found the xul TLS slot non-null on 24 other threads and null only on the faulting thread. The condition is therefore not process-wide loss of xul TLS.
 
-The correct dump further shows that the faulting thread itself starts inside `xul.dll` at `xul+0x052CCB40`, symbolized to Rust `std::sys::thread::windows::...::thread_start`. This disproves the provisional hypothesis that the thread merely predated xul loading.
+The correct dump also shows that the faulting thread starts in xul's Rust `std::thread` Windows entry path. This rules out the simple provisional explanation that the thread merely existed before xul was loaded.
 
-The raw stack reaches the exact packaged `nss3.dll` entry-point path with DllMain reason `3` / `DLL_THREAD_DETACH`. Current NSPR source explains the callback ownership: on Windows, NSPR's DLL thread-detach path detaches automatically attached foreign threads; `_PRI_DetachThread()` performs thread cleanup, and NSPR thread-private-data destruction invokes registered destructors. `nsThreadManager::Init()` registered `nsThreadManager::ReleaseThread` as the destructor for its NSPR TPD index. Thus the late NSPR cleanup re-enters xul and destroys the attached `nsThread`.
+The raw stack reaches the exact packaged `nss3.dll` entry-point path with DllMain reason `3` / `DLL_THREAD_DETACH`, and the xul callback path is consistent with NSPR thread-private-data destruction invoking the registered `nsThreadManager::ReleaseThread` destructor while that thread is exiting.
 
-The exact `xul.dll` also contains the committed YY-Thunks DLL/TLS contract: its PE entry point resolves to `DllMainCRTStartupForYY_Thunks`, and the TLS callback array contains the YY first callback plus the expected CRT/YY callbacks. Therefore this is not evidence that the YY entry-point contract is missing.
+The exact `xul.dll` already contains the committed YY-Thunks DLL/TLS contract: its PE entry point is `DllMainCRTStartupForYY_Thunks`, and the current project uses YY-Thunks v1.2.2 for the XP target. Therefore this is **not** evidence that the YY xul entry-point contract is absent.
 
-For XP dynamic-TLS emulation, YY-Thunks v1.2.2 handles `DLL_THREAD_DETACH` by invoking TLS callbacks and the original CRT entry point, then calling `FreeTlsData()`. That routine atomically clears the current module TLS slot and frees the emulated raw TLS block. The observed state is consistent with the resulting teardown-order incompatibility: xul's YY wrapper has already cleared xul slot 5 for the exiting thread, then later NSPR/nss3 `DLL_THREAD_DETACH` cleanup invokes the xul-owned `ReleaseThread` callback; `nsThread::~nsThread()` re-enters `nsThreadManager::get()`, whose compiler-generated thread-safe-local-static path requires the already-cleared xul TLS block and faults.
+What is **not yet proven** is the ordering that produced the null slot. Two materially different mechanisms remain open: the YY XP TLS path may have failed to populate this particular thread's xul slot, or the slot may have been valid earlier and then cleared during thread-detach processing before NSPR re-entered xul. Do not record either mechanism as established until the xul DLL entry-point/TLS slot is observed directly across `DLL_THREAD_DETACH`.
 
-Conclusion: **GPU-child XP THREAD-DETACH/TLS RE-ENTRY BLOCKER LOCALIZED.** This is distinct from the predecessor private-DWrite loader defect and distinct from the still-unlocalized parent-process AV. Do not treat global `/Zc:threadSafeInit-` as the chosen fix yet: it would remove the currently faulting TLS consumer but would not by itself repair teardown ownership/order. Prefer a narrow source-level experiment that either makes this late `ReleaseThread` path independent of xul thread-local-static state or ensures the attached foreign-thread `nsThread` TPD is released before xul's YY `FreeTlsData()`.
+Next diagnostic: on the same exact binaries, keep the large PDB out of the live symbol path, break on xul's known PE entry-point RVA during `DLL_THREAD_DETACH`, record slot 5 immediately before and immediately after `DllMainCRTStartupForYY_Thunks`, then observe the subsequent `nss3.dll` `DLL_THREAD_DETACH` entry on that thread. This distinguishes “never allocated” from “cleared before NSPR callback” without changing source or build configuration.
 
-Status: **current exact GPU-child blocker; source remediation experiment pending.**
+Conclusion: **FATAL GPU-CHILD XUL STATIC-TLS BLOCKER LOCALIZED TO A NULL PER-THREAD XUL TLS SLOT DURING THREAD DETACH.** The exact teardown ordering/owner inside the existing YY/NSPR lifecycle remains the next evidence boundary. The separate Procmon parent-process AV remains unresolved.
+
+Status: **current exact GPU-child blocker; teardown-order breakpoint experiment pending.**
