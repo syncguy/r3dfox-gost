@@ -102,7 +102,7 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current XP browser successor — physical loader advancement proven; localize the new parent AV
+### Current XP browser successor — GPU TLS teardown blocker localized; parent AV remains separate
 
 Current exact target:
 
@@ -114,15 +114,17 @@ Current exact target:
 - diagnostics `10555616046`;
 - physical XP execution is now bound to the exact packaged `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and private `pwrp_k32.dll` by matching file hashes.
 
-The exact successor physically advances through successful private DirectWrite loading, reads `DWriteCore/FontSet-v3.dat`, starts GPU/socket/tab/RDD/utility children, and then the parent exits with `0xC0000005`. The predecessor failed-`LdrLoadDll` / private-helper startup boundary is therefore no longer the active observed boundary. Sustained runtime remains open.
+The exact successor physically advances through successful private DirectWrite loading, reads `DWriteCore/FontSet-v3.dat`, and starts GPU/socket/tab/RDD/utility children. Procmon still records a later parent-process `0xC0000005`; that parent fault remains unsymbolized.
+
+A separate WinDbg capture on the same exact package has now localized a GPU-child AV. On an exiting Rust-created/NSPR-attached foreign thread, xul TLS index 5 is null only for the faulting thread. The stack is in nss3 `DLL_THREAD_DETACH` cleanup and re-enters xul through the registered `nsThreadManager::ReleaseThread` NSPR TPD destructor after the XP YY-Thunks DLL teardown path has cleared xul's emulated TLS slot. This is a distinct, concrete GPU-child blocker and must not be substituted for the parent AV.
 
 Immediate work:
 
-1. **Reproduce the exact new parent-process AV under WinDbg.** Keep the same binaries and normal multiprocess/graphics configuration; break on access violations and capture the first relevant exception record, registers, stack, faulting module/symbol and full dump.
-2. **Bind symbolization to diagnostics `10555616046`.** The artifact-side `xul.pdb` SHA-1 is `5adb2a93d6640d1cfd0964fdf45e5b535f95ac7c`; verify the local PDB before accepting symbolized source ownership.
-3. **Do not infer the crash owner from the last Procmon I/O.** Procmon proves the parent exit status but not the faulting thread or EIP.
-4. **Do not reopen COMBASE from lookup traffic alone.** The current capture has failed `combase.dll` searches but no successful load and continues well beyond those probes; localize any remaining probe only if debugger evidence makes it relevant.
-5. **Keep `PreloadXPPrivatePwrp()` unchanged during localization.** Removing the temporary preload now would change the boundary under investigation. Perform that cleanup only as a separate rebuild/retest after the new AV is localized/stabilized.
+1. **Design the narrow source-level GPU-child remediation first.** Preserve the exact mechanism above. Prefer either making the late `ReleaseThread`/destructor path independent of xul's compiler TLS-backed function-local-static state, or arranging for the attached foreign-thread `nsThread` TPD reference to be released before xul YY `FreeTlsData()`. Inspect lifecycle ownership before editing.
+2. **Do not apply global `/Zc:threadSafeInit-` as the first fix.** It would suppress the currently faulting compiler TLS consumer but does not repair the demonstrated DLL/thread teardown ordering and may affect unrelated local statics.
+3. **After a focused source fix, rebuild the canonical full XP x86 package and retest the exact artifact on physical XP.** Verify that the GPU child advances beyond `xul+0x0090DED4` without changing e10s/graphics/sandbox configuration.
+4. **Keep the parent-process AV separate.** If the parent still exits with `0xC0000005` after the GPU-child fix, capture and symbolize that parent fault independently; do not infer that the current GPU-child stack owns the Procmon parent exit.
+5. **Keep `PreloadXPPrivatePwrp()` unchanged during this localization/fix cycle.** Removing the temporary preload would change an independent boundary. Do not reopen COMBASE from failed lookup traffic alone.
 
 The focused private DWrite component PASS and predecessor exact physical captures remain controls. Do not weaken assertions, add an API-set provider merely because the probe fails on XP, or reopen already closed compatibility families without contradictory evidence.
 
