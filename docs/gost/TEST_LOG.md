@@ -435,3 +435,32 @@ Next diagnostic: on the same exact binaries, keep the large PDB out of the live 
 Conclusion: **FATAL GPU-CHILD XUL STATIC-TLS BLOCKER LOCALIZED TO A NULL PER-THREAD XUL TLS SLOT DURING THREAD DETACH.** The exact teardown ordering/owner inside the existing YY/NSPR lifecycle remains the next evidence boundary. The separate Procmon parent-process AV remains unresolved.
 
 Status: **current exact GPU-child blocker; teardown-order breakpoint experiment pending.**
+
+---
+
+## 2026-09-19 — focused YY static-TLS detach re-entry control passes on hosted Windows
+
+Track: Windows XP SP3 x86 compatibility / focused TLS-lifecycle control. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
+
+Exact experiment identity:
+
+- workflow `.github/workflows/xp-yy-tls-detach-reentry-smoke.yml` / `XP YY TLS detach re-entry smoke`;
+- source-under-test `14a081882ae657115ae799f7adeca6605677d9d0`;
+- run `35448707456`;
+- job `105912013098` (`YY DLL static-TLS detach re-entry / XP x86`);
+- aggregate result: **completed / success / GREEN**;
+- artifact `10586477797` (`xp-yy-tls-detach-reentry-smoke`), 3,458,607 bytes, digest `sha256:83e02cd021e40ab7e5e6e75e3ac5d781ee30f83edacbbf6b0facfa7f41bb2fe3`.
+
+The focused harness builds an x86 / PE 5.01 owner DLL with a real nonzero PE Thread Storage Directory, compiler-generated thread-safe function-local-static state, and the YY-Thunks v1.2.2 DLL entry-point contract. A second DLL invokes the owner's exported local-static consumer from its own `DLL_THREAD_DETACH` callback. The PE/TLS contract gate and hosted control both passed.
+
+Hosted Windows control results:
+
+- `late-first`: worker exit 0, owner detach order 1, late-callback detach order 2, callback count 1, and `reentry_after_owner_detach=YES`; the re-entry completed without a crash.
+- `owner-first`: worker exit 0, late-callback detach order 1, owner detach order 2, callback count 1, and `reentry_after_owner_detach=NO`; this is the inverse-order control.
+
+Conclusion: **the focused reproducer is valid and can deterministically exercise callback re-entry after the owner DLL has already received `DLL_THREAD_DETACH`.** Hosted Windows surviving that order is a control only; it does not establish the XP YY-emulated TLS lifetime. The next focused discriminator is to execute artifact `10586477797` unchanged on physical Windows XP SP3 x86 in both modes, with `late-first` as the decisive re-entry case.
+
+This result does not close the separate full-browser GPU-child AV, does not close the separate parent-process AV, and does not change the GOST TLS runtime state.
+
+Publication check: xp-bridge-allowlist-v1 checked
+
