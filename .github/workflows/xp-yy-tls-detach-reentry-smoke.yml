@@ -340,22 +340,20 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $forbiddenTargetApis = @(
-            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
-            'ProcessPrng','GetSystemTimePreciseAsFileTime',
-            'IsThreadAFiber','SetThreadStackGuarantee'
-          )
           foreach ($name in @('tls-owner.dll','late-callback.dll','probe.exe')) {
             $path = Join-Path 'runtime' $name
             $headers = (& dumpbin.exe /nologo /headers $path 2>&1 | Out-String)
             $imports = (& dumpbin.exe /nologo /imports $path 2>&1 | Out-String)
             $headers | Set-Content -Encoding utf8 ("diagnostics\" + $name + "-headers.txt")
             $imports | Set-Content -Encoding utf8 ("diagnostics\" + $name + "-imports.txt")
+            foreach ($api in @(
+              'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+              'ProcessPrng','GetSystemTimePreciseAsFileTime','IsThreadAFiber','SetThreadStackGuarantee'
+            )) {
+              if ($imports.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "$name retains forbidden XP direct import $api" }
+            }
             if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw "$name is not x86" }
             if ($headers -notmatch "(?im)^\s*$([regex]::Escape($env:WINDOWS_XP_SUBSYSTEM)) subsystem version") { throw "$name subsystem is not $env:WINDOWS_XP_SUBSYSTEM" }
-            foreach ($api in $forbiddenTargetApis) {
-              if ($imports -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "$name retains forbidden XP direct import $api" }
-            }
           }
           $ownerHeaders = Get-Content diagnostics\tls-owner.dll-headers.txt -Raw
           if ($ownerHeaders -notmatch '(?im)^\s*[0-9A-F]+\s+\[\s*[0-9A-F]+\]\s+RVA \[size\] of Thread Storage Directory\s*$') {
@@ -408,7 +406,7 @@ jobs:
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Test commit: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: Windows XP SP3 x86; hosted Windows run is a control only." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- msvcr14x uses the physically proven restore-enabled XP x86 build path, and the staged ucrtbase.dll/msvcp140.dll closure is gated before execution." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- msvcr14x uses the physically proven restore-enabled XP x86 build path; staged ucrtbase.dll/msvcp140.dll pass the canonical XP runtime contract gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- tls-owner.dll uses compiler thread-safe function-local static initialization and YY-Thunks v$env:YY_THUNKS_VERSION DLL TLS entry point." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- late-callback.dll re-enters tls-owner.dll from DLL_THREAD_DETACH." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- A hosted PASS proves build/contract/control behavior, not reproduction on physical XP." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
