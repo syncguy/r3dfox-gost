@@ -1,0 +1,1513 @@
+name: "GOST TLS PoC build  XP YY x32"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xp-x32:
+    name: Windows x86 / r3dfox GOST / XP YY DLL entry-point experiment
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost-xp-x32
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "i686-pc-windows-msvc"
+      RUSTFLAGS: "--cfg moz_xp_compat"
+      MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+      MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+      YY_THUNKS_VERSION: "1.2.2"
+      YY_THUNKS_TARGET: "5.1.2600.0"
+      WINDOWS_XP_SUBSYSTEM: "5.01"
+      OBJDIR: "obj-gost-xp-x32"
+      BCRYPT_TAG: "xp-bcrypt-v1"
+      BCRYPT_RELEASE_ID: "380563342"
+      BCRYPT_ASSET_ID: "539647946"
+      BCRYPT_SOURCE_SHA: "a30a701fcf50eb08b6ea7574cb7cc927f6eae014"
+      BCRYPT_SIZE: "520704"
+      BCRYPT_SHA1: "ae021f44edc48b03bb4d67cb5773b62bdf60cb67"
+      BCRYPT_SHA256: "f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193"
+
+    steps:
+      - name: Checkout r3dfox-gost XP implementation source
+        uses: actions/checkout@v4
+        with:
+          ref: agent/winrt-source-poc
+          fetch-depth: 1
+
+      - name: Record YY DLL experiment identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $source = (& git.exe rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $source) { throw 'Cannot resolve checked-out XP source SHA' }
+          @(
+            "workflow_definition_sha=$env:GITHUB_SHA",
+            "workflow_ref=$env:GITHUB_REF",
+            'checkout_ref=agent/winrt-source-poc',
+            "source_under_test=$source",
+            'baseline_run=34107793132',
+            'baseline_job=101696721232',
+            'baseline_source=cd5e7155b0f227a22b7c35a0a44e2e24f69456d4',
+            'baseline_yy_inventory=strong:13,contracts:3,missing:10'
+          ) | Set-Content -Encoding utf8 diagnostics\yy-dll-experiment-identity.txt
+
+      - name: Normalize upstream JSContext include order
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'js\src\vm\JSContext.cpp'
+          $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $path)
+          $dump = '#include "js/friend/DumpFunctions.h"  // for stack trace utilities'
+          $errors = '#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*'
+          $printer = '#include "js/Printer.h"               // for FixedBufferPrinter'
+          $printf = '#include "js/Printf.h"'
+          foreach ($line in @($dump, $printer)) { while ($lines.Remove($line)) { } }
+          $errorsIndex = $lines.IndexOf($errors)
+          $printfIndex = $lines.IndexOf($printf)
+          if ($errorsIndex -lt 0 -or $printfIndex -lt 0) { throw 'Expected JSContext include anchors were not found.' }
+          $lines.Insert($errorsIndex, $dump)
+          $printfIndex = $lines.IndexOf($printf)
+          $lines.Insert($printfIndex, $printer)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllLines($path, $lines, $utf8NoBom)
+
+      - name: GATE - SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify XP DPI pre-Vista source guard
+        id: dpi-source-guard
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $path = 'mozglue\misc\WindowsDpiInitialization.cpp'
+          if (-not (Test-Path $path)) { throw "DPI initialization source missing: $path" }
+          $source = [System.IO.File]::ReadAllText($path)
+          $guardPattern = 'if\s*\(\s*!IsVistaOrLater\(\)\s*\)\s*\{\s*return\s+WindowsDpiInitializationResult::Success;\s*\}'
+          $guard = [regex]::Match(
+            $source,
+            $guardPattern,
+            [System.Text.RegularExpressions.RegexOptions]::Singleline
+          )
+          if (-not $guard.Success) {
+            throw 'XP DPI contract missing pre-Vista success/no-op guard.'
+          }
+          $directCall = $source.IndexOf(
+            'if (!SetProcessDPIAware())',
+            [System.StringComparison]::Ordinal
+          )
+          if ($directCall -lt 0) { throw 'Expected SetProcessDPIAware fallback call was not found.' }
+          if ($guard.Index -gt $directCall) {
+            throw 'XP DPI pre-Vista guard occurs after SetProcessDPIAware fallback.'
+          }
+          @(
+            "source=$path",
+            "guard_index=$($guard.Index)",
+            "setprocessdpiaware_call_index=$directCall",
+            'result=PASS'
+          ) | Set-Content -Encoding utf8 diagnostics\xp-dpi-source-guard.txt
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          if ($activeMB -ge 20480) {
+            'need=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $activeRoots = @($active | ForEach-Object {
+            if ($_.Name -match '^([A-Za-z]:)\\') { $matches[1].ToUpperInvariant() }
+          })
+          $candidate = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Where-Object { ($activeRoots -notcontains $_.DeviceID.ToUpperInvariant()) -and $_.FreeSpace -ge 30GB } |
+            Sort-Object FreeSpace -Descending |
+            Select-Object -First 1
+          if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
+          'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile and show runner CPU
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cpu = @(Get-CimInstance Win32_Processor)
+          $system = Get-CimInstance Win32_ComputerSystem
+          $os = Get-CimInstance Win32_OperatingSystem
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+
+          [pscustomobject]@{
+            CpuName           = ($cpu.Name -join '; ')
+            CpuSockets        = $cpu.Count
+            CpuCores          = ($cpu | Measure-Object NumberOfCores -Sum).Sum
+            LogicalProcessors = ($cpu | Measure-Object NumberOfLogicalProcessors -Sum).Sum
+            SystemLogicalCPUs = $system.NumberOfLogicalProcessors
+            TotalPhysicalGB   = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+            FreePhysicalGB    = [math]::Round($os.FreePhysicalMemorySize / 1MB, 2)
+            TotalVirtualGB    = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
+            FreeVirtualGB     = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+          } | Format-List
+
+          $active | Select-Object Name,AllocatedBaseSize,CurrentUsage,PeakUsage | Format-Table -AutoSize
+          if ($activeMB -lt 20480) { throw "Build blocked: active pagefile is only $activeMB MB." }
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) { throw 'Expected stale mime_guess checksum was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Prepare pinned legacy Firefox XP D3DCompiler_47
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e'
+          $uri = 'https://archive.mozilla.org/pub/firefox/releases/52.2.1esr/win32/en-US/Firefox%20Setup%2052.2.1esr.exe'
+          $installer = Join-Path $env:RUNNER_TEMP 'firefox-legacy-d3dcompiler.exe'
+          $extract = Join-Path $env:RUNNER_TEMP 'firefox-legacy-d3dcompiler'
+          Invoke-WebRequest -Uri $uri -OutFile $installer
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          New-Item -ItemType Directory -Force $extract | Out-Null
+          & 7z.exe x $installer "-o$extract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Cannot extract pinned legacy Firefox installer: $LASTEXITCODE" }
+          $match = $null
+          foreach ($candidate in @(Get-ChildItem -Path $extract -Recurse -File -Filter 'd3dcompiler_47.dll')) {
+            $hash = (Get-FileHash -Algorithm SHA256 $candidate.FullName).Hash.ToLowerInvariant()
+            if ($hash -eq $expected) { $match = $candidate; break }
+          }
+          if (-not $match) { throw "Pinned Firefox source does not contain expected D3DCompiler_47 SHA256 $expected" }
+          "LEGACY_D3DCOMPILER47=$($match.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) { throw 'Expected MSSPI Windows.h include was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>').Replace('SECPKG_ATTR_REMOTE_CERT_CHAIN', 'SECPKG_ATTR_REMOTE_CERT_CONTEXT'), $utf8NoBom)
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += ["msspi/src/msspi.cpp"]
+              LOCAL_INCLUDES += ["msspi/src", "msspi/third_party/cprocsp/include"]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare pinned XP bcrypt release asset
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-pinned-xp-bcrypt.ps1
+
+      - name: Install pinned ordinary Rust x86 target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $root = Join-Path $env:RUNNER_TEMP 'msvcr14x'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git init $root
+          git -C $root remote add origin $env:MSVCR14X_REPO
+          git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
+          git -C $root checkout --detach FETCH_HEAD
+          git -C $root submodule update --init --recursive --depth 1
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $env:MSVCR14X_SHA) { throw "Unexpected msvcr14x commit: $actual" }
+
+          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86' -r "/bl:$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-release-x86.binlog"
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x build failed: $LASTEXITCODE" }
+
+          $required = @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')
+          $release = $null
+          $candidateDirs = @(Get-ChildItem -Path $root -Recurse -File -Filter 'ucrtbase.dll' |
+            ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)
+          foreach ($candidate in $candidateDirs) {
+            $missing = @($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) })
+            if ($missing.Count -gt 0) { continue }
+            $headers = (& dumpbin.exe /nologo /headers (Join-Path $candidate 'ucrtbase.dll') 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0 -and $headers -match '(?im)^\s*14C machine \(x86\)') {
+              $release = $candidate
+              break
+            }
+          }
+          if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
+
+          "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LIB=$release;$env:LIB" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LDFLAGS=-LIBPATH:$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem -LiteralPath $release -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
+            Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
+
+      - name: GATE - Require proven XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: .\.github\scripts\xp\verify-msvcr14x-xp-contract.ps1
+
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-xp-x86'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          $ws2 = Join-Path $yyLib.FullName 'ws2_32.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch) -or -not (Test-Path $ws2)) { throw 'Required YY XP x86 libraries are missing' }
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_WS2_32_LIB=$ws2" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build narrow YY XP x86 provider
+        shell: powershell
+        run: .\.github\scripts\xp\build-narrow-yy.ps1
+
+      - name: Activate narrow YY XP x86 provider for all target links
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ntdll = Join-Path $env:THUNK_YY_LIB 'ntdll.lib'
+          $advapi = Join-Path $env:THUNK_YY_LIB 'advapi32.lib'
+          $ws2 = $env:THUNK_YY_WS2_32_LIB
+          foreach ($required in @($env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$env:THUNK_YY_KERNEL32_LIB,$ntdll,$advapi,$ws2)) {
+            if (-not $required -or -not (Test-Path $required)) { throw "Required YY linker input missing: $required" }
+          }
+
+          $members = @(& lib.exe /nologo /list $ntdll 2>&1 |
+            ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 ntdll.lib' }
+          $direct = @($members | Where-Object { $_ -match '(?i)[\\/]_NtCancelIoFileEx@12\.obj$' })
+          $import = @($members | Where-Object { $_ -match '(?i)[\\/]_NtCancelIoFileEx@12\.obi$' })
+          if ($direct.Count -ne 1 -or $import.Count -ne 1) { throw "Expected one NtCancelIoFileEx .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)" }
+          $aliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-ntcancel-alias'
+          $selected = Join-Path $aliasWork 'selected'
+          if (Test-Path $aliasWork) { Remove-Item -Recurse -Force $aliasWork }
+          New-Item -ItemType Directory -Force $selected | Out-Null
+          $aliasObjects = @()
+          foreach ($item in @($direct[0],$import[0])) {
+            $dir = Join-Path $selected ([IO.Path]::GetExtension($item).TrimStart('.'))
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$item" $ntdll *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw 'NtCancelIoFileEx alias extraction failed' }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw 'NtCancelIoFileEx alias extraction produced no object' }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            $aliasObjects += $dst
+          }
+          $ntCancelAlias = Join-Path $aliasWork 'yy-xp-ntcancel-alias.lib'
+          & lib.exe /nologo "/out:$ntCancelAlias" @aliasObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ntCancelAlias)) { throw 'NtCancelIoFileEx alias library build failed' }
+          $aliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $ntCancelAlias 2>&1 | Out-String)
+          $aliasSymbols | Set-Content -Encoding utf8 (Join-Path $aliasWork 'alias-symbols.txt')
+          if ($aliasSymbols.IndexOf('_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) { throw 'NtCancelIoFileEx alias library lacks the x86 entry symbol' }
+          $providerSymbols = (& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1 | Out-String)
+          if ($providerSymbols.IndexOf('_YY_Thunks_NtCancelIoFileEx@12',[System.StringComparison]::Ordinal) -lt 0) { throw 'Proven narrow provider lacks YY_Thunks_NtCancelIoFileEx implementation' }
+          @(
+            "direct=$($direct[0])",
+            "import=$($import[0])",
+            "alias_provider=$ntCancelAlias",
+            'implementation=existing NARROW_YY_LIB common YY object',
+            'evidence_run=33861819326',
+            'evidence_job=100987750213',
+            'evidence_sha=be122cfc36d84e3144b73bcbaa2a2f46ff45f1a2',
+            'capability=PASS'
+          ) | Set-Content -Encoding utf8 diagnostics\yy-ntcancel-capability.txt
+
+          $etwApis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
+          $advapiMembers = @(& lib.exe /nologo /list $advapi 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $advapiMembers.Count -eq 0) { throw 'Cannot enumerate YY XP x86 advapi32.lib' }
+          $etwAliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-advapi32-etw-alias'
+          $etwSelected = Join-Path $etwAliasWork 'selected'
+          if (Test-Path $etwAliasWork) { Remove-Item -Recurse -Force $etwAliasWork }
+          New-Item -ItemType Directory -Force $etwSelected | Out-Null
+          $etwAliasObjects = @()
+          $etwEvidence = [System.Collections.Generic.List[string]]::new()
+          foreach ($api in $etwApis) {
+            $escaped = [regex]::Escape($api)
+            $direct = @($advapiMembers | Where-Object { $_ -match "(?i)[\\/]_${escaped}@\d+\.obj$" })
+            $import = @($advapiMembers | Where-Object { $_ -match "(?i)[\\/]_${escaped}@\d+\.obi$" })
+            if ($direct.Count -ne 1 -or $import.Count -ne 1) { throw "Expected one $api .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)" }
+            $etwEvidence.Add("$api|direct=$($direct[0])|import=$($import[0])")
+            foreach ($item in @($direct[0],$import[0])) {
+              $kind = [IO.Path]::GetExtension($item).TrimStart('.')
+              $dir = Join-Path $etwSelected "$api-$kind"
+              New-Item -ItemType Directory -Force $dir | Out-Null
+              Push-Location $dir
+              try { & lib.exe /nologo "/extract:$item" $advapi *> extract.log; if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" } } finally { Pop-Location }
+              $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+              if (-not $file) { throw "$api alias extraction produced no object" }
+              $dst = Join-Path $dir 'member.obj'
+              Copy-Item -Force $file.FullName $dst
+              $etwAliasObjects += $dst
+            }
+          }
+          $advapiEtwAlias = Join-Path $etwAliasWork 'yy-xp-advapi32-etw-alias.lib'
+          & lib.exe /nologo "/out:$advapiEtwAlias" @etwAliasObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $advapiEtwAlias)) { throw 'ADVAPI32 alias library build failed' }
+          $etwAliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $advapiEtwAlias 2>&1 | Out-String)
+          $etwAliasSymbols | Set-Content -Encoding utf8 (Join-Path $etwAliasWork 'alias-symbols.txt')
+          foreach ($api in $etwApis) {
+            if ($etwAliasSymbols.IndexOf($api,[System.StringComparison]::Ordinal) -lt 0) { throw "ADVAPI32 alias provider missing $api" }
+            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Proven narrow provider lacks YY_Thunks_$api implementation" }
+          }
+          $etwEvidence.Add("alias_provider=$advapiEtwAlias")
+          $etwEvidence.Add('implementation=existing NARROW_YY_LIB common YY object')
+          $etwEvidence.Add('apis=EventRegister,EventUnregister,EventWrite,EventWriteTransfer,RegGetValueW')
+          $etwEvidence.Add('etw_evidence_run=33882235341')
+          $etwEvidence.Add('etw_evidence_job=101053403554')
+          $etwEvidence.Add('etw_evidence_sha=53971dcfdf12e7bcd7f35692ff2c02fb3360d792')
+          $etwEvidence.Add('reggetvaluew_evidence_run=33946751857')
+          $etwEvidence.Add('reggetvaluew_evidence_job=101254130849')
+          $etwEvidence.Add('reggetvaluew_evidence_sha=8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4')
+          $etwEvidence.Add('capability=PASS')
+          $etwEvidence | Set-Content -Encoding utf8 diagnostics\yy-etw-capability.txt
+
+          $ws2Apis = @(@{ Name='WSAIoctl'; Stack=36 }, @{ Name='inet_ntop'; Stack=16 })
+          $ws2Members = @(& lib.exe /nologo /list $ws2 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $ws2Members.Count -eq 0) { throw 'Cannot enumerate YY XP x86 ws2_32.lib' }
+          $ws2AliasWork = Join-Path $env:RUNNER_TEMP 'r3dfox-xp-x32-ws2_32-alias'
+          $ws2Selected = Join-Path $ws2AliasWork 'selected'
+          if (Test-Path $ws2AliasWork) { Remove-Item -Recurse -Force $ws2AliasWork }
+          New-Item -ItemType Directory -Force $ws2Selected | Out-Null
+          $ws2AliasObjects = @()
+          $ws2Evidence = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $ws2Apis) {
+            $api = $spec.Name
+            $stack = $spec.Stack
+            $escaped = [regex]::Escape($api)
+            $direct = @($ws2Members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@$stack\.obj$" })
+            $import = @($ws2Members | Where-Object { $_ -match "(?i)[\\/]_${escaped}@$stack\.obi$" })
+            if ($direct.Count -ne 1 -or $import.Count -ne 1) { throw "Expected one proven $api @$stack .obj/.obi pair; found obj=$($direct.Count) obi=$($import.Count)" }
+            if ($providerSymbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "Proven narrow provider lacks YY_Thunks_$api implementation" }
+            $ws2Evidence.Add("$api|direct=$($direct[0])|import=$($import[0])")
+            foreach ($item in @($direct[0],$import[0])) {
+              $kind = [IO.Path]::GetExtension($item).TrimStart('.')
+              $dir = Join-Path $ws2Selected "$api-$kind"
+              New-Item -ItemType Directory -Force $dir | Out-Null
+              Push-Location $dir
+              try { & lib.exe /nologo "/extract:$item" $ws2 *> extract.log; if ($LASTEXITCODE -ne 0) { throw "$api alias extraction failed" } } finally { Pop-Location }
+              $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+              if (-not $file) { throw "$api alias extraction produced no object"}
+              $dst = Join-Path $dir 'member.obj'
+              Copy-Item -Force $file.FullName $dst
+              $ws2AliasObjects += $dst
+            }
+          }
+          $ws2Alias = Join-Path $ws2AliasWork 'yy-xp-ws2_32-alias.lib'
+          & lib.exe /nologo "/out:$ws2Alias" @ws2AliasObjects
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ws2Alias)) { throw 'WS2_32 alias library build failed' }
+          $ws2AliasSymbols = (& dumpbin.exe /nologo /linkermember:1 $ws2Alias 2>&1 | Out-String)
+          $ws2AliasSymbols | Set-Content -Encoding utf8 (Join-Path $ws2AliasWork 'alias-symbols.txt')
+          foreach ($spec in $ws2Apis) { if ($ws2AliasSymbols.IndexOf($spec.Name,[System.StringComparison]::Ordinal) -lt 0) { throw "WS2_32 alias provider missing $($spec.Name)" } }
+          $ws2Evidence.Add("alias_provider=$ws2Alias")
+          $ws2Evidence.Add('implementation=existing NARROW_YY_LIB common YY object')
+          $ws2Evidence.Add('apis=WSAIoctl,inet_ntop')
+          $ws2Evidence.Add('evidence_run=34021400841')
+          $ws2Evidence.Add('evidence_job=101454550948')
+          $ws2Evidence.Add('evidence_sha=5451673565030445262f5b6ef48b4059e0e0501e')
+          $ws2Evidence.Add('capability=PASS')
+          $ws2Evidence | Set-Content -Encoding utf8 diagnostics\yy-ws2_32-capability.txt
+
+          $yySynch = $env:THUNK_YY_SYNCH_LIB -replace '\\','/'
+          $narrow = $env:NARROW_YY_LIB -replace '\\','/'
+          $ntCancelAliasLink = $ntCancelAlias -replace '\\','/'
+          $advapiEtwAliasLink = $advapiEtwAlias -replace '\\','/'
+          $ws2AliasLink = $ws2Alias -replace '\\','/'
+          $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB -replace '\\','/'
+          $fullNtdll = $ntdll -replace '\\','/'
+          $fullAdvapi = $advapi -replace '\\','/'
+          $fullWs2 = $ws2 -replace '\\','/'
+          $targetLdflags = "$env:LDFLAGS $ntCancelAliasLink $advapiEtwAliasLink $ws2AliasLink $narrow $yySynch".Trim()
+          if ($targetLdflags.IndexOf($fullKernel32, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY kernel32.lib was injected into global target LDFLAGS' }
+          if ($targetLdflags.IndexOf($fullNtdll, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY ntdll.lib was injected into global target LDFLAGS' }
+          if ($targetLdflags.IndexOf($fullAdvapi, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY advapi32.lib was injected into global target LDFLAGS' }
+          if ($targetLdflags.IndexOf($fullWs2, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'Invariant violation: full YY ws2_32.lib was injected into global target LDFLAGS' }
+          "LDFLAGS=$targetLdflags" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @(
+            'scope=all-target-links',
+            "ntcancel_alias_provider=$ntCancelAliasLink",
+            "advapi32_etw_alias_provider=$advapiEtwAliasLink",
+            "ws2_32_alias_provider=$ws2AliasLink",
+            "narrow_provider=$narrow",
+            "synchronization_lib=$yySynch",
+            'full_kernel32_lib=prohibited',
+            'full_ntdll_lib=prohibited',
+            'full_advapi32_lib=prohibited',
+            'full_ws2_32_lib=prohibited',
+            "target_ldflags=$targetLdflags"
+          ) | Set-Content -Encoding utf8 diagnostics\xp-x32-global-yy-link-contract.txt
+
+      - name: Apply YY-Thunks XP DLL TLS entry point to xul.dll
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'toolkit\library\moz.build'
+          $text = [System.IO.File]::ReadAllText($path)
+          $pattern = '(?m)^    if name == "xul-real":\r?\n        SYMBOLS_FILE = "\.\./libxul\.symbols"\r?$'
+          $replacement = @'
+              if name == "xul-real":
+                  SYMBOLS_FILE = "../libxul.symbols"
+                  if CONFIG["OS_ARCH"] == "WINNT":
+                      LDFLAGS += [
+                          "-ENTRY:DllMainCRTStartupForYY_Thunks",
+                          "-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12",
+                      ]
+          '@
+          $regex = [regex]::new($pattern)
+          if ($regex.Matches($text).Count -ne 1) { throw 'Expected unique xul-real SYMBOLS_FILE anchor was not found.' }
+          $updated = $regex.Replace($text, $replacement, 1)
+          foreach ($required in @('-ENTRY:DllMainCRTStartupForYY_Thunks','-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12')) {
+            if ($updated.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) { throw "xul.dll YY TLS entry-point contract missing linker flag: $required" }
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $updated, $utf8NoBom)
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            'scope=toolkit/library Libxul xul-real only',
+            'entry=-ENTRY:DllMainCRTStartupForYY_Thunks',
+            'alternate=-alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12',
+            'global_target_ldflags=unchanged'
+          ) | Set-Content -Encoding utf8 diagnostics\xul-yy-dll-entrypoint-source.txt
+
+      - name: Apply YY DLL entry-point contract to baseline candidate shared libraries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'config\rules.mk'
+          $text = [System.IO.File]::ReadAllText($path)
+          $needle = '$(RELRHACK_LDFLAGS) $(LDFLAGS) $(STATIC_LIBS) $(SHARED_LIBS) $(EXTRA_DSO_LDOPTS) $(MOZ_GLUE_LDFLAGS) $(OS_LIBS)'
+          $targets = 'gkcodecs.dll clearkey.dll fake.dll fakeopenh264.dll libGLESv2.dll mozavcodec.dll mozavutil.dll mozglue.dll mozinference.dll nss3.dll'
+          $flags = '-ENTRY:DllMainCRTStartupForYY_Thunks -alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
+          $replacement = '$(RELRHACK_LDFLAGS) $(if $(filter $(@F),' + $targets + '),' + $flags + ') $(LDFLAGS) $(STATIC_LIBS) $(SHARED_LIBS) $(EXTRA_DSO_LDOPTS) $(MOZ_GLUE_LDFLAGS) $(OS_LIBS)'
+          $first = $text.IndexOf($needle, [System.StringComparison]::Ordinal)
+          $last = $text.LastIndexOf($needle, [System.StringComparison]::Ordinal)
+          if ($first -lt 0 -or $first -ne $last) { throw 'Expected unique shared-library linker rule anchor was not found in config/rules.mk' }
+          $updated = $text.Replace($needle, $replacement)
+          if ($updated.IndexOf('$(filter $(@F),gkcodecs.dll clearkey.dll fake.dll fakeopenh264.dll libGLESv2.dll mozavcodec.dll mozavutil.dll mozglue.dll mozinference.dll nss3.dll)', [System.StringComparison]::Ordinal) -lt 0) {
+            throw 'YY DLL candidate linker filter was not injected.'
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $updated, $utf8NoBom)
+          @(
+            'scope=shared-library link rule only',
+            'baseline_run=34107793132',
+            'baseline_job=101696721232',
+            'baseline_source=cd5e7155b0f227a22b7c35a0a44e2e24f69456d4',
+            "targets=$targets",
+            "flags=$flags",
+            'program_link_rule=unchanged',
+            'host_shared_library_rule=unchanged'
+          ) | Set-Content -Encoding utf8 diagnostics\yy-dll-entrypoint-link-rule.txt
+
+      - name: Write XP x32 mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-xp-x32
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --enable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --disable-sandbox
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --disable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-gost-xp-x32'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Firefox x86 target
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = .\mach.ps1 configure 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | Tee-Object -FilePath configure-xp-x32.log
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = $output -join "`n"
+          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+i686-pc-windows-msvc') { throw 'XP x32 build did not select i686-pc-windows-msvc Rust target.' }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C $env:OBJDIR recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C $env:OBJDIR recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile security manager SSL target objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C $env:OBJDIR 'security/manager/ssl/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build release r3dfox XP x32
+        id: build-release
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Warm-relink early YY DLLs from completed objdir
+        id: yy-early-warm-relink
+        if: always() && steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake missing: $mozmake" }
+          $distBin = (Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path
+          $nssExpected = Join-Path $env:OBJDIR 'security\nss\lib\nss\nss_nss3'
+          $specs = @(
+            @{ Name='mozglue.dll'; Dir=(Join-Path $env:OBJDIR 'mozglue\build') },
+            @{ Name='nss3.dll'; Dir=$nssExpected },
+            @{ Name='libGLESv2.dll'; Dir=(Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2') }
+          )
+          $results = [System.Collections.Generic.List[string]]::new()
+          $failures = [System.Collections.Generic.List[string]]::new()
+
+          foreach ($spec in $specs) {
+            $name = $spec.Name
+            $targetDir = $spec.Dir
+            try {
+              if ($name -eq 'nss3.dll' -and -not (Test-Path $targetDir)) {
+                $root = Join-Path $env:OBJDIR 'security\nss'
+                $matches = @(Get-ChildItem -LiteralPath $root -Recurse -Directory -Filter 'nss_nss3')
+                if ($matches.Count -ne 1) { throw "Expected one generated nss_nss3 target directory; found $($matches.Count)" }
+                $targetDir = $matches[0].FullName
+              }
+              $makefile = Join-Path $targetDir 'Makefile'
+              if (-not (Test-Path $makefile)) { throw "Generated target Makefile missing: $makefile" }
+              $local = Join-Path $targetDir $name
+              if (-not (Test-Path $local)) {
+                $localMatches = @(Get-ChildItem -LiteralPath $targetDir -Recurse -File -Filter $name)
+                if ($localMatches.Count -ne 1) { throw "Expected one local $name before warm relink; found $($localMatches.Count)" }
+                $local = $localMatches[0].FullName
+              }
+              $dist = Join-Path $distBin $name
+              if (-not (Test-Path $dist)) { throw "dist/bin $name missing before warm relink" }
+              $before = (Get-FileHash -Algorithm SHA256 $dist).Hash.ToLowerInvariant()
+              Remove-Item -Force $local
+              $stem = [IO.Path]::GetFileNameWithoutExtension($name)
+              $log = Join-Path $env:GITHUB_WORKSPACE "diagnostics\yy-warm-relink-$stem.log"
+              $saved = $ErrorActionPreference
+              $ErrorActionPreference = 'Continue'
+              try {
+                & $mozmake -C $targetDir compile 2>&1 | Tee-Object -FilePath $log
+                $exitCode = $LASTEXITCODE
+              } finally {
+                $ErrorActionPreference = $saved
+              }
+              if ($exitCode -ne 0) { throw "Warm relink failed with exit $exitCode" }
+              if (-not (Test-Path $local)) {
+                $rebuilt = @(Get-ChildItem -LiteralPath $targetDir -Recurse -File -Filter $name)
+                if ($rebuilt.Count -ne 1) { throw "Warm relink completed but local $name count is $($rebuilt.Count)" }
+                $local = $rebuilt[0].FullName
+              }
+              Copy-Item -Force $local $dist
+              $after = (Get-FileHash -Algorithm SHA256 $dist).Hash.ToLowerInvariant()
+              $results.Add("$name|PASS|target_dir=$targetDir|sha256_before=$before|sha256_after=$after")
+            } catch {
+              $message = $_.Exception.Message -replace '[\r\n]+',' '
+              $results.Add("$name|FAIL|target_dir=$targetDir|message=$message")
+              $failures.Add("${name}: $message")
+            }
+          }
+
+          $results | Set-Content -Encoding utf8 diagnostics\yy-early-warm-relink.txt
+          $results | ForEach-Object { Write-Host $_ }
+          if ($failures.Count -gt 0) { throw ('Early YY DLL warm relink failures: ' + ($failures -join '; ')) }
+
+      - name: DIAG - Record xul IPHLPAPI XP compatibility imports
+        id: xul-iphlpapi-import-diag
+        if: always() && steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\diag-xul-iphlpapi.ps1
+
+      - name: GATE - Require source-remediation quartet absent from xul.dll
+        id: source-remediation-quartet
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-source-remediation-quartet'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          if (-not (Test-Path $xul)) { 'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "xul.dll missing for source-remediation quartet gate: $xul" }
+          $raw = (& dumpbin.exe /nologo /imports $xul 2>&1 | Out-String)
+          $dumpbinExit = $LASTEXITCODE
+          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
+          if ($dumpbinExit -ne 0) { "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit" }
+          $apis = @('GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart','GetNamedPipeServerProcessId')
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($api in $apis) { if ($raw.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($api) } }
+          $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-quartet-imports.txt')
+          if ($hits.Count -gt 0) { ("result=FAIL|surviving=" + ($hits -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw ("xul.dll still imports source-remediation quartet members: " + ($hits -join ', ')) }
+          'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+          Write-Host 'xul.dll contains none of the four source-remediation imports.'
+
+      - name: GATE - Require ADVAPI32 compatibility family absent from xul.dll
+        id: advapi32-etw-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xul = Join-Path $env:OBJDIR 'dist\bin\xul.dll'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-advapi32-etw-import'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          if (-not (Test-Path $xul)) { 'result=FAIL|reason=xul.dll missing' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "xul.dll missing for ADVAPI32 compatibility gate: $xul" }
+          $raw = @(& dumpbin.exe /nologo /imports $xul 2>&1)
+          $dumpbinExit = $LASTEXITCODE
+          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'xul.dll-imports.txt')
+          if ($dumpbinExit -ne 0) { "result=FAIL|reason=dumpbin exit $dumpbinExit" | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw "dumpbin /imports failed for xul.dll with exit $dumpbinExit" }
+          $apis = @('EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW')
+          $mode = 'none'
+          $currentDll = ''
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($line in $raw) {
+            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
+            if ($mode -ne 'direct' -or $currentDll -notmatch '(?i)^ADVAPI32\.dll$') { continue }
+            foreach ($api in $apis) { if ($line.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($api) } }
+          }
+          $hits | Sort-Object -Unique | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-etw-imports.txt')
+          if ($hits.Count -gt 0) { ("result=FAIL|surviving=" + (($hits | Sort-Object -Unique) -join ',')) | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt'); throw ("xul.dll still imports ADVAPI32 compatibility family members: " + (($hits | Sort-Object -Unique) -join ', ')) }
+          'result=PASS|surviving=none' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+
+      - name: GATE - Verify mozglue SetProcessDPIAware stays delay-loaded
+        id: dpi-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Join-Path $env:OBJDIR 'dist\bin\mozglue.dll'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-dpi-delay-import'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          if (-not (Test-Path $dll)) { throw "mozglue.dll missing for DPI import-mode gate: $dll" }
+          $raw = @(& dumpbin.exe /nologo /imports $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for mozglue.dll' }
+          $raw | Set-Content -Encoding utf8 (Join-Path $diag 'mozglue.dll-imports.txt')
+          $mode = 'none'
+          $currentDll = ''
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($line in $raw) {
+            if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = ''; continue }
+            if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = ''; continue }
+            if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { $currentDll = $matches[1]; continue }
+            if ($line.IndexOf('SetProcessDPIAware', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add("$mode|$currentDll|$($line.Trim())") }
+          }
+          $hits | Set-Content -Encoding utf8 (Join-Path $diag 'setprocessdpiaware-import-mode.txt')
+          $directHits = @($hits | Where-Object { $_ -like 'direct|*' })
+          $delayUser32Hits = @($hits | Where-Object { $_ -match '(?i)^delay\|USER32\.dll\|' })
+          if ($directHits.Count -gt 0) { throw 'mozglue.dll has an ordinary SetProcessDPIAware import; XP startup would remain loader-incompatible.' }
+          if ($delayUser32Hits.Count -ne 1 -or $hits.Count -ne 1) { throw "Expected exactly one USER32.dll delay import for SetProcessDPIAware; observed: $($hits -join '; ')" }
+          'result=PASS|direct=0|delay_user32=1' | Set-Content -Encoding utf8 (Join-Path $diag 'result.txt')
+
+      - name: GATE - Reject proven core browser XP direct imports
+        id: sync-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-sync-import-gate'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          $apis = @(
+            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal','GetCurrentProcessorNumber','GetFileInformationByHandleEx','GetFinalPathNameByHandleW',
+            'GetLocaleInfoEx','LCIDToLocaleName','LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx','CreateWaitableTimerExW','CancelSynchronousIo',
+            'GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+            'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable','NtCancelIoFileEx'
+          )
+          $targets = @('r3dfox.exe','xul.dll','mozglue.dll','plugin-container.exe')
+          $hits = [System.Collections.Generic.List[string]]::new()
+          foreach ($name in $targets) {
+            $path = Join-Path $bin $name
+            if (-not (Test-Path $path)) { throw "Core browser PE missing for synchronization gate: $path" }
+            $raw = (& dumpbin.exe /nologo /imports $path 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $raw | Set-Content -Encoding utf8 (Join-Path $diag "$name-imports.txt")
+            foreach ($api in $apis) { if ($raw.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add("$name|$api") } }
+          }
+          $hits | Set-Content -Encoding utf8 (Join-Path $diag 'surviving-sync-imports.txt')
+          if ($hits.Count -gt 0) { throw 'Core browser imports survived the proven SRW/KERNEL32/NTDLL YY integration; see xp-x32-sync-import-gate/surviving-sync-imports.txt' }
+
+      - name: Stage msvcr14x XP runtime DLLs
+        id: stage-runtime
+        if: always() && steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          if (-not (Test-Path $bin)) { throw "Firefox dist/bin missing: $bin" }
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $src = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $src)) { throw "Required msvcr14x runtime missing: $src" }
+            Copy-Item -Force $src (Join-Path $bin $dll)
+          }
+
+      - name: Stage pinned legacy Firefox XP D3DCompiler_47
+        id: stage-legacy-d3dcompiler
+        if: steps.stage-runtime.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $dst = Join-Path $bin 'd3dcompiler_47.dll'
+          if (-not (Test-Path $dst)) { throw "Build-produced D3DCompiler_47 missing: $dst" }
+          $before = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
+          Copy-Item -Force $env:LEGACY_D3DCOMPILER47 $dst
+          $after = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
+          if ($after -ne $expected) { throw "Legacy D3DCompiler_47 stage hash mismatch: $after" }
+          $version = (Get-Item $dst).VersionInfo.FileVersion
+          if ($version -notlike '10.0.14393.33*') { throw "Unexpected legacy D3DCompiler_47 version: $version" }
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") | Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+
+      - name: Retarget dist/bin PE subsystem headers to XP x86
+        id: retarget-pe
+        if: steps.stage-legacy-d3dcompiler.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $rows = [System.Collections.Generic.List[string]]::new()
+          $targets = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll') })
+          foreach ($target in $targets) {
+            $headers = @(& dumpbin.exe /nologo /headers $target.FullName 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $($target.FullName)" }
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { continue }
+            $subsystem = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ subsystem \(' } | Select-Object -First 1
+            if (-not $subsystem) { continue }
+            if ($subsystem -match '(?i)Windows CUI') { $kind = 'CONSOLE' } elseif ($subsystem -match '(?i)Windows GUI') { $kind = 'WINDOWS' } else { continue }
+            & editbin.exe /nologo "/SUBSYSTEM:$kind,$env:WINDOWS_XP_SUBSYSTEM" $target.FullName
+            if ($LASTEXITCODE -ne 0) { throw "editbin failed for $($target.FullName)" }
+            $rows.Add("$($target.FullName)|$kind|$env:WINDOWS_XP_SUBSYSTEM")
+          }
+          $rows | Set-Content -Encoding utf8 xp-x32-retargeted-pe.txt
+
+      - name: GATE - Verify retargeted legacy D3DCompiler_47
+        id: verify-retargeted-d3dcompiler
+        if: steps.retarget-pe.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Join-Path $env:OBJDIR 'dist\bin\d3dcompiler_47.dll'
+          if (-not (Test-Path $dll)) { throw "Retargeted D3DCompiler_47 missing: $dll" }
+          $version = (Get-Item $dll).VersionInfo.FileVersion
+          if ($version -notlike '10.0.14393.33*') { throw "Unexpected retargeted D3DCompiler_47 version: $version" }
+          $headers = @(& dumpbin.exe /nologo /headers $dll 2>&1)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /headers failed for retargeted D3DCompiler_47' }
+          $subsystem = $headers | Where-Object { $_ -match '(?i)^\s*5\.01\s+subsystem version' } | Select-Object -First 1
+          if (-not $subsystem) { throw 'Retargeted D3DCompiler_47 is not subsystem 5.01' }
+          $imports = (& dumpbin.exe /nologo /imports $dll 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin /imports failed for retargeted D3DCompiler_47' }
+          foreach ($forbidden in @('FlsAlloc','FlsFree','FlsGetValue','FlsSetValue','InitializeCriticalSectionEx')) { if ($imports -match ('(?m)\b' + [regex]::Escape($forbidden) + '\b')) { throw "Legacy D3DCompiler_47 still imports $forbidden" } }
+          $hash = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          "LEGACY_D3DCOMPILER47_RETARGETED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @("retargeted_sha256=$hash", "retargeted_file_version=$version", "retargeted_subsystem=5.01") | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+
+      - name: Stage proven XP bcrypt.dll
+        id: stage-xp-bcrypt
+        if: always() && steps.retarget-pe.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:PROVEN_XP_BCRYPT -or -not (Test-Path $env:PROVEN_XP_BCRYPT)) { throw 'Proven XP bcrypt release asset is unavailable' }
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $dst = Join-Path $bin 'bcrypt.dll'
+          Copy-Item -Force $env:PROVEN_XP_BCRYPT $dst
+          $item = Get-Item $dst
+          $sha1 = (Get-FileHash -Algorithm SHA1 $dst).Hash.ToLowerInvariant()
+          $sha256 = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
+          if ([string]$item.Length -ne $env:BCRYPT_SIZE) { throw "Staged bcrypt.dll size mismatch: $($item.Length)" }
+          if ($sha1 -ne $env:BCRYPT_SHA1) { throw "Staged bcrypt.dll SHA1 mismatch: $sha1" }
+          if ($sha256 -ne $env:BCRYPT_SHA256) { throw "Staged bcrypt.dll SHA256 mismatch: $sha256" }
+          "XP_BCRYPT_STAGED_SHA256=$sha256" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @("bcrypt.dll|size=$($item.Length)","bcrypt.dll|sha1=$sha1","bcrypt.dll|sha256=$sha256","source_tag=$env:BCRYPT_TAG","source_asset_id=$env:BCRYPT_ASSET_ID") | Set-Content -Encoding utf8 diagnostics\packaged-bcrypt-contract.txt
+
+      - name: GATE - Record staged XP CRT identity before packaging
+        id: record-staged-crt
+        if: steps.stage-xp-bcrypt.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $rows = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $path = Join-Path $bin $dll
+            if (-not (Test-Path $path)) { throw "Staged XP CRT missing before packaging: $path" }
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            $rows.Add("$dll|sha256=$hash")
+            if ($dll -eq 'ucrtbase.dll') { "XP_UCRTBASE_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 } else { "XP_MSVCP140_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
+          $rows | Set-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+
+      - name: Package XP x32 experiment
+        id: package-release
+        if: steps.record-staged-crt.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify legacy D3DCompiler_47 survived packaging
+        id: verify-legacy-d3dcompiler
+        if: steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = $env:LEGACY_D3DCOMPILER47_RETARGETED_SHA256
+          if (-not $expected) { throw 'Retargeted D3DCompiler_47 hash was not recorded' }
+          $dll = Join-Path $env:OBJDIR 'dist\bin\d3dcompiler_47.dll'
+          if (-not (Test-Path $dll)) { throw "Staged D3DCompiler_47 disappeared after package: $dll" }
+          $hash = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          if ($hash -ne $expected) { throw "D3DCompiler_47 changed during package: expected=$expected actual=$hash" }
+          "post_package_sha256=$hash" | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+
+      - name: GATE - Verify msvcr14x CRT survived portable packaging
+        id: verify-packaged-crt
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:XP_UCRTBASE_STAGED_SHA256 -or -not $env:XP_MSVCP140_STAGED_SHA256) { throw 'Staged XP CRT hashes were not recorded before packaging' }
+          $expected = @{ 'ucrtbase.dll'=$env:XP_UCRTBASE_STAGED_SHA256; 'msvcp140.dll'=$env:XP_MSVCP140_STAGED_SHA256 }
+          $dist = (Resolve-Path (Join-Path $env:OBJDIR 'dist')).Path
+          $archives = @(Get-ChildItem -LiteralPath $dist -File | Where-Object { $_.Extension -in @('.7z','.zip') -and $_.Name -ne 'r3dfox-gost-xp-x32-runtime.7z' } | Sort-Object LastWriteTimeUtc -Descending)
+          if ($archives.Count -eq 0) { throw "No portable package archive found under $dist" }
+          "XP_PORTABLE_ARCHIVE=$($archives[0].FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $verifiedArchive = $null
+          foreach ($archive in $archives) {
+            $extract = Join-Path $env:RUNNER_TEMP ("xp-package-crt-" + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Force $extract | Out-Null
+            & 7z.exe x $archive.FullName "-o$extract" -y | Out-Null
+            if ($LASTEXITCODE -ne 0) { continue }
+            $matches = @{}
+            $candidateOk = $true
+            foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+              $found = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter $dll)
+              if ($found.Count -ne 1) { $candidateOk = $false; break }
+              $hash = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
+              if ($hash -ne $expected[$dll]) { throw "$dll packaged hash mismatch in $($archive.Name): expected=$expected[$dll] actual=$hash" }
+              $matches[$dll] = $hash
+            }
+            if (-not $candidateOk) { continue }
+            $verifiedArchive = $archive
+            @("archive=$($archive.FullName)","ucrtbase.dll|sha256=$($matches['ucrtbase.dll'])","msvcp140.dll|sha256=$($matches['msvcp140.dll'])") | Add-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+            "XP_PORTABLE_ARCHIVE=$($verifiedArchive.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            break
+          }
+          if (-not $verifiedArchive) { throw 'No produced portable package contains exactly one matching ucrtbase.dll and msvcp140.dll' }
+
+      - name: GATE - Verify proven bcrypt survived portable packaging
+        id: verify-packaged-bcrypt
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:XP_PORTABLE_ARCHIVE -or -not (Test-Path $env:XP_PORTABLE_ARCHIVE)) { throw 'Portable archive is unavailable for bcrypt gate' }
+          if (-not $env:XP_BCRYPT_STAGED_SHA256) { throw 'Staged bcrypt hash was not recorded before packaging' }
+          $extract = Join-Path $env:RUNNER_TEMP ("xp-package-bcrypt-" + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force $extract | Out-Null
+          & 7z.exe x $env:XP_PORTABLE_ARCHIVE "-o$extract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract portable archive for bcrypt gate' }
+          $found = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter 'bcrypt.dll')
+          if ($found.Count -ne 1) { throw "Portable package must contain exactly one bcrypt.dll; found $($found.Count)" }
+          $item = Get-Item $found[0].FullName
+          $sha1 = (Get-FileHash -Algorithm SHA1 $found[0].FullName).Hash.ToLowerInvariant()
+          $sha256 = (Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLowerInvariant()
+          if ([string]$item.Length -ne $env:BCRYPT_SIZE) { throw "Packaged bcrypt.dll size mismatch: $($item.Length)" }
+          if ($sha1 -ne $env:BCRYPT_SHA1) { throw "Packaged bcrypt.dll SHA1 mismatch: $sha1" }
+          if ($sha256 -ne $env:XP_BCRYPT_STAGED_SHA256 -or $sha256 -ne $env:BCRYPT_SHA256) { throw "Packaged bcrypt.dll SHA256 mismatch: expected=$env:BCRYPT_SHA256 staged=$env:XP_BCRYPT_STAGED_SHA256 actual=$sha256" }
+          @("archive=$env:XP_PORTABLE_ARCHIVE","packaged_path=$($found[0].FullName)","bcrypt.dll|size=$($item.Length)","bcrypt.dll|sha1=$sha1","bcrypt.dll|sha256=$sha256") | Add-Content -Encoding utf8 diagnostics\packaged-bcrypt-contract.txt
+
+      - name: Build XP x32 runtime test archive from dist/bin
+        id: runtime-archive
+        if: always() && steps.package-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = (Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path
+          $dist = (Resolve-Path (Join-Path $env:OBJDIR 'dist')).Path
+          $archive = Join-Path $dist 'r3dfox-gost-xp-x32-runtime.7z'
+          if (Test-Path $archive) { Remove-Item -Force $archive }
+          Push-Location $bin
+          try { & 7z.exe a -t7z -mx=7 $archive '.\*'; if ($LASTEXITCODE -ne 0) { throw "7z runtime archive failed: $LASTEXITCODE" } } finally { Pop-Location }
+          "XP_RUNTIME_ARCHIVE=$archive" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: GATE - Audit XP x32 PE floor and direct imports
+        id: xp-import-audit
+        if: steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Normalize-Api([string]$name) { if ($name -match '^_(.+)@\d+$') { return $matches[1] }; return $name }
+          function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot) {
+            $safe = ($binary.FullName.Substring((Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path.Length).TrimStart('\') -replace '[^A-Za-z0-9_.-]', '_')
+            $headers = @(& dumpbin.exe /nologo /headers $binary.FullName 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $($binary.FullName)" }
+            $headers | Set-Content -Encoding utf8 (Join-Path $diagRoot "$safe-headers.txt")
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$($binary.FullName) is not PE x86 machine 14C" }
+            $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $($binary.FullName)" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$($binary.FullName) subsystem $version is newer than XP x86 5.01" }
+            $importsRaw = @(& dumpbin.exe /nologo /imports $binary.FullName 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $($binary.FullName)" }
+            $importsRaw | Set-Content -Encoding utf8 (Join-Path $diagRoot "$safe-imports.txt")
+            $dlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $apis = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $delayDlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $delayApis = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $mode = 'none'
+            foreach ($line in $importsRaw) {
+              if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
+              if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
+              if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { if ($mode -eq 'direct') { [void]$dlls.Add($matches[1]) } elseif ($mode -eq 'delay') { [void]$delayDlls.Add($matches[1]) }; continue }
+              $entry = $line.Trim()
+              if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') { $api = Normalize-Api $matches[1]; if ($mode -eq 'direct') { [void]$apis.Add($api) } elseif ($mode -eq 'delay') { [void]$delayApis.Add($api) } }
+            }
+            return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis }
+          }
+          $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-import-audit'
+          New-Item -ItemType Directory -Force $diagRoot | Out-Null
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $targets = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll') })
+          $forbiddenDllPatterns = @('^(?i)(api-ms-win-|ext-ms-)','^(?i)KERNELBASE\.dll$','^(?i)BCRYPTPRIMITIVES\.dll$','^(?i)COMBASE\.dll$','^(?i)NCRYPT\.dll$','^(?i)WEVTAPI\.dll$','^(?i)DWMAPI\.dll$','^(?i)SHCORE\.dll$','^(?i)PATHCCH\.dll$','^(?i)NORMALIZ\.dll$','^(?i)PROPSYS\.dll$','^(?i)DXGI\.dll$','^(?i)VCRUNTIME140(?:_1)?\.dll$')
+          $forbiddenApis = @(
+            'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal','CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+            'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo','CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx','GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+            'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W','GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+            'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SetThreadStackGuarantee',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable',
+            'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+            'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
+            'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','WSASendMsg','WSCGetProviderInfo',
+            'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+          )
+          $hits = [System.Collections.Generic.List[string]]::new()
+          $rows = [System.Collections.Generic.List[string]]::new()
+          $delayRows = [System.Collections.Generic.List[string]]::new()
+          foreach ($target in $targets) {
+            $imports = Read-Binary $target $diagRoot
+            foreach ($dll in @($imports.Dlls | Sort-Object)) { $rows.Add("$($target.FullName)|DLL|$dll"); foreach ($pattern in $forbiddenDllPatterns) { if ($dll -match $pattern) { $hits.Add("$($target.FullName)|DLL|$dll"); break } } }
+            foreach ($api in @($imports.Apis | Sort-Object)) { $rows.Add("$($target.FullName)|API|$api"); if ($forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") } }
+            foreach ($dll in @($imports.DelayDlls | Sort-Object)) { $delayRows.Add("$($target.FullName)|DLL|$dll") }
+            foreach ($api in @($imports.DelayApis | Sort-Object)) { $delayRows.Add("$($target.FullName)|API|$api") }
+          }
+          $rows | Set-Content -Encoding utf8 xp-x32-direct-imports.txt
+          $delayRows | Set-Content -Encoding utf8 xp-x32-delay-imports.txt
+          $hits | Sort-Object -Unique | Set-Content -Encoding utf8 xp-x32-forbidden-direct-imports.txt
+          if ($hits.Count -gt 0) { throw 'Known direct post-XP imports survived; see xp-x32-forbidden-direct-imports.txt' }
+
+      - name: GATE - Verify YY-Thunks DLL entry-point coverage
+        id: yy-dll-entrypoint-diag
+        if: always() && steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $bin = (Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path
+          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\yy-dll-entrypoint-audit.txt'
+          $missingPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\yy-dll-entrypoint-missing-contract.txt'
+          $requiredPath = Join-Path $env:GITHUB_WORKSPACE 'diagnostics\yy-dll-entrypoint-required-contract.txt'
+
+          function Read-U16([byte[]]$Data, [int]$Offset) {
+            if ($Offset -lt 0 -or ($Offset + 2) -gt $Data.Length) { throw "PE read U16 out of range at $Offset" }
+            return [BitConverter]::ToUInt16($Data, $Offset)
+          }
+          function Read-U32([byte[]]$Data, [int]$Offset) {
+            if ($Offset -lt 0 -or ($Offset + 4) -gt $Data.Length) { throw "PE read U32 out of range at $Offset" }
+            return [BitConverter]::ToUInt32($Data, $Offset)
+          }
+          function Convert-RvaToFileOffset([byte[]]$Data, [int]$SectionTable, [int]$SectionCount, [uint32]$Rva) {
+            for ($i = 0; $i -lt $SectionCount; $i++) {
+              $section = $SectionTable + (40 * $i)
+              $virtualSize = Read-U32 $Data ($section + 8)
+              $virtualAddress = Read-U32 $Data ($section + 12)
+              $rawSize = Read-U32 $Data ($section + 16)
+              $rawPointer = Read-U32 $Data ($section + 20)
+              $span = [Math]::Max([uint64]$virtualSize, [uint64]$rawSize)
+              $rva64 = [uint64]$Rva
+              $va64 = [uint64]$virtualAddress
+              if ($rva64 -ge $va64 -and $rva64 -lt ($va64 + $span)) {
+                return [int]([uint64]$rawPointer + ($rva64 - $va64))
+              }
+            }
+            throw ("Cannot map RVA 0x{0:X8}" -f $Rva)
+          }
+          function Test-FixedBytes([byte[]]$Data, [int]$Offset, [hashtable]$Expected) {
+            foreach ($key in $Expected.Keys) {
+              $index = $Offset + [int]$key
+              if ($index -lt 0 -or $index -ge $Data.Length -or $Data[$index] -ne [byte]$Expected[$key]) { return $false }
+            }
+            return $true
+          }
+
+          $entryFingerprint = @{
+            0=0x53; 1=0x56; 2=0x57; 3=0x8B; 4=0x3D;
+            9=0x85; 10=0xFF; 11=0x75; 12=0x05; 13=0xBF;
+            18=0x8B; 19=0x44; 20=0x24; 21=0x14; 22=0x83; 23=0xE8; 24=0x00
+          }
+          $firstCallbackFingerprint = @{
+            0=0x33; 1=0xC0; 2=0x40; 3=0x39; 4=0x44; 5=0x24; 6=0x08;
+            7=0x75; 8=0x0E; 9=0x83; 10=0x3D; 15=0x00; 16=0x75; 17=0x05;
+            18=0xA3; 23=0xC2; 24=0x0C; 25=0x00
+          }
+
+          function Get-YyDllContract([byte[]]$Data, [string]$Path) {
+            if ($Data.Length -lt 0x100) { throw "PE too small: $Path" }
+            $peOffset = [int](Read-U32 $Data 0x3C)
+            if (($peOffset + 24) -gt $Data.Length) { throw "Invalid PE offset: $Path" }
+            if ($Data[$peOffset] -ne 0x50 -or $Data[$peOffset + 1] -ne 0x45 -or $Data[$peOffset + 2] -ne 0 -or $Data[$peOffset + 3] -ne 0) { throw "Missing PE signature: $Path" }
+            $coff = $peOffset + 4
+            $machine = Read-U16 $Data $coff
+            if ($machine -ne 0x14C) { return [pscustomobject]@{ X86=$false; EntryWrapper=$false; FirstTlsCallback=$false } }
+            $sectionCount = [int](Read-U16 $Data ($coff + 2))
+            $optionalSize = [int](Read-U16 $Data ($coff + 16))
+            $optional = $coff + 20
+            if ((Read-U16 $Data $optional) -ne 0x10B) { throw "Expected PE32 optional header: $Path" }
+            $entryRva = Read-U32 $Data ($optional + 16)
+            $imageBase = Read-U32 $Data ($optional + 28)
+            $sectionTable = $optional + $optionalSize
+
+            $entryWrapper = $false
+            if ($entryRva -ne 0) {
+              $entryOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $entryRva
+              $entryWrapper = Test-FixedBytes $Data $entryOffset $entryFingerprint
+            }
+
+            $firstTlsCallback = $false
+            $numberOfRvaAndSizes = Read-U32 $Data ($optional + 92)
+            if ($numberOfRvaAndSizes -gt 9) {
+              $tlsRva = Read-U32 $Data ($optional + 96 + (9 * 8))
+              if ($tlsRva -ne 0) {
+                $tlsOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $tlsRva
+                $callbacksVa = Read-U32 $Data ($tlsOffset + 12)
+                if ([uint64]$callbacksVa -ge [uint64]$imageBase -and $callbacksVa -ne 0) {
+                  $callbacksRva = [uint32]([uint64]$callbacksVa - [uint64]$imageBase)
+                  $callbacksOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $callbacksRva
+                  for ($i = 0; $i -lt 32; $i++) {
+                    $callbackVa = Read-U32 $Data ($callbacksOffset + (4 * $i))
+                    if ($callbackVa -eq 0) { break }
+                    if ([uint64]$callbackVa -lt [uint64]$imageBase) { continue }
+                    $callbackRva = [uint32]([uint64]$callbackVa - [uint64]$imageBase)
+                    try {
+                      $callbackOffset = Convert-RvaToFileOffset $Data $sectionTable $sectionCount $callbackRva
+                      if (Test-FixedBytes $Data $callbackOffset $firstCallbackFingerprint) { $firstTlsCallback = $true; break }
+                    } catch { }
+                  }
+                }
+              }
+            }
+            return [pscustomobject]@{ X86=$true; EntryWrapper=$entryWrapper; FirstTlsCallback=$firstTlsCallback }
+          }
+
+          $trackedApis = @(
+            'ProcessPrng','GetSystemTimePreciseAsFileTime','FlsAlloc','FlsFree','FlsSetValue',
+            'IsThreadAFiber','SetThreadStackGuarantee','AcquireSRWLockExclusive','AcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable',
+            'SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable',
+            'GetTickCount64','InitializeCriticalSectionEx','CompareStringOrdinal','GetCurrentProcessorNumber',
+            'GetFileInformationByHandleEx','GetFinalPathNameByHandleW','GetLocaleInfoEx','LCIDToLocaleName',
+            'LocaleNameToLCID','SetFileInformationByHandle','CancelIoEx','CreateWaitableTimerExW',
+            'CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx',
+            'GetThreadId','GetTimeZoneInformationForYear','GetUserPreferredUILanguages','GetThreadPreferredUILanguages',
+            'InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','QueryFullProcessImageNameA',
+            'QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime','TryAcquireSRWLockExclusive','FlsGetValue',
+            'NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop'
+          )
+
+          $report = [System.Collections.Generic.List[string]]::new()
+          $missing = [System.Collections.Generic.List[string]]::new()
+          $contractByDll = @{}
+          $strongCount = 0
+          $contractCount = 0
+          $xulPositiveControl = $false
+          $dlls = @(Get-ChildItem -LiteralPath $bin -Recurse -File -Filter '*.dll' | Sort-Object FullName)
+          foreach ($dll in $dlls) {
+            $relative = $dll.FullName.Substring($bin.Length).TrimStart('\') -replace '\\','/'
+            try {
+              $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+              $pe = Get-YyDllContract $bytes $dll.FullName
+              if (-not $pe.X86) {
+                $report.Add("dll=$relative|classification=SKIP_NON_X86")
+                continue
+              }
+              $imports = @(& dumpbin.exe /nologo /imports $dll.FullName 2>&1)
+              $dumpbinExit = $LASTEXITCODE
+              if ($dumpbinExit -ne 0) {
+                $report.Add("dll=$relative|classification=INCONCLUSIVE_IMPORT_SCAN|dumpbin_exit=$dumpbinExit")
+                continue
+              }
+              $importText = $imports -join "`n"
+              $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+              $resolverHits = [System.Collections.Generic.List[string]]::new()
+              foreach ($api in $trackedApis) {
+                if ($ascii.IndexOf($api, [System.StringComparison]::Ordinal) -lt 0) { continue }
+                if ($importText.IndexOf($api, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { continue }
+                $resolverHits.Add($api)
+              }
+              $strong = $resolverHits.Count -ge 2
+              $contract = [bool]($pe.EntryWrapper -and $pe.FirstTlsCallback)
+              $contractByDll[$relative] = $contract
+              if ($strong) { $strongCount++ }
+              if ($contract) { $contractCount++ }
+              if ($strong -and $contract) { $classification = 'YY_CANDIDATE_CONTRACT_PRESENT' }
+              elseif ($strong) { $classification = 'YY_CANDIDATE_CONTRACT_MISSING' }
+              elseif ($contract) { $classification = 'YY_CONTRACT_PRESENT_NO_STRONG_RESOLVER_EVIDENCE' }
+              else { $classification = 'NO_STRONG_YY_RESOLVER_EVIDENCE' }
+              $hash = (Get-FileHash -Algorithm SHA256 $dll.FullName).Hash.ToLowerInvariant()
+              $report.Add("dll=$relative|sha256=$hash|resolver_nonimport_hits=$($resolverHits.Count)|entry_wrapper=$($pe.EntryWrapper.ToString().ToLowerInvariant())|yy_first_tls_callback=$($pe.FirstTlsCallback.ToString().ToLowerInvariant())|contract=$($contract.ToString().ToLowerInvariant())|classification=$classification|apis=$($resolverHits -join ',')")
+              if ($classification -eq 'YY_CANDIDATE_CONTRACT_MISSING') { $missing.Add("$relative|apis=$($resolverHits -join ',')") }
+              if ($relative -ieq 'xul.dll' -and $strong -and $contract) { $xulPositiveControl = $true }
+            } catch {
+              $report.Add("dll=$relative|classification=INCONCLUSIVE_EXCEPTION|message=$($_.Exception.Message -replace '[\r\n]+',' ')")
+            } finally {
+              Remove-Variable ascii,bytes -ErrorAction SilentlyContinue
+            }
+          }
+
+          $sourceUnderTest = (& git.exe rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $sourceUnderTest) { throw 'Cannot resolve source-under-test SHA for YY DLL audit' }
+          $header = @(
+            "source=$sourceUnderTest",
+            "workflow_definition_sha=$env:GITHUB_SHA",
+            'scope=dist/bin/**/*.dll',
+            'mode=blocking baseline-candidate contract gate',
+            'baseline_run=34107793132',
+            'baseline_job=101696721232',
+            'baseline_source=cd5e7155b0f227a22b7c35a0a44e2e24f69456d4',
+            'strong_candidate_rule=at least two tracked YY-provider API strings absent from ordinary/delay import dump',
+            'contract_rule=YY v1.2.2 x86 entry-wrapper fingerprint AND YY FirstCallback TLS fingerprint',
+            "xul_positive_control=$($xulPositiveControl.ToString().ToLowerInvariant())",
+            "strong_candidates=$strongCount",
+            "contracts_present=$contractCount",
+            "missing_contract_candidates=$($missing.Count)"
+          )
+          @($header + $report) | Set-Content -Encoding utf8 $reportPath
+          if ($missing.Count -gt 0) { $missing | Set-Content -Encoding utf8 $missingPath } else { 'none' | Set-Content -Encoding utf8 $missingPath }
+
+          $requiredDlls = @(
+            'gkcodecs.dll',
+            'gmp-clearkey/0.1/clearkey.dll',
+            'gmp-fake/1.0/fake.dll',
+            'gmp-fakeopenh264/1.0/fakeopenh264.dll',
+            'libGLESv2.dll',
+            'mozavcodec.dll',
+            'mozavutil.dll',
+            'mozglue.dll',
+            'mozinference.dll',
+            'nss3.dll'
+          )
+          $requiredRows = [System.Collections.Generic.List[string]]::new()
+          $failures = [System.Collections.Generic.List[string]]::new()
+          foreach ($required in $requiredDlls) {
+            if (-not $contractByDll.ContainsKey($required)) {
+              $requiredRows.Add("$required|FAIL|reason=not-scanned")
+              $failures.Add("$required not scanned")
+            } elseif (-not [bool]$contractByDll[$required]) {
+              $requiredRows.Add("$required|FAIL|reason=contract-false")
+              $failures.Add("$required contract=false")
+            } else {
+              $requiredRows.Add("$required|PASS|contract=true")
+            }
+          }
+          $requiredRows | Set-Content -Encoding utf8 $requiredPath
+
+          Write-Host "YY DLL inventory: strong candidates=$strongCount, contracts=$contractCount, missing-contract candidates=$($missing.Count)"
+          if (-not $xulPositiveControl) { $failures.Add('xul.dll positive control failed') }
+          if ($missing.Count -gt 0) {
+            $missing | ForEach-Object { Write-Warning $_ }
+            $failures.Add("strong YY candidates still missing contract=$($missing.Count)")
+          }
+          if ($failures.Count -gt 0) { throw ('YY DLL entry-point contract gate failed: ' + ($failures -join '; ')) }
+
+      - name: Upload XP x32 full-build package
+        if: always() && steps.package-release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-xp-x32-package
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            obj-gost-xp-x32/dist/*.zip
+            obj-gost-xp-x32/dist/*.7z
+            obj-gost-xp-x32/dist/*.installer.exe
+
+      - name: Upload XP x32 physical-test runtime archive
+        if: always() && steps.runtime-archive.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-xp-x32-runtime
+          if-no-files-found: error
+          compression-level: 0
+          path: ${{ env.XP_RUNTIME_ARCHIVE }}
+
+      - name: Upload XP x32 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-xp-x32-diagnostics
+          if-no-files-found: warn
+          path: |
+            configure-xp-x32.log
+            xp-x32-retargeted-pe.txt
+            xp-x32-direct-imports.txt
+            xp-x32-delay-imports.txt
+            xp-x32-forbidden-direct-imports.txt
+            xp-x32-source-remediation-quartet/**
+            xp-x32-advapi32-etw-import/**
+            xp-x32-dpi-delay-import/**
+            xp-x32-sync-import-gate/**
+            xp-x32-import-audit/**
+            diagnostics/**
+            obj-gost-xp-x32/**/xul.pdb
+            ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
+            ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
+            ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
+            ${{ runner.temp }}/r3dfox-xp-x32-ws2_32-alias/**
+
+      - name: GATE - Summarize XP YY x32 full build
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $checks = @(
+            @{ Name='dpi-source-guard'; Outcome='${{ steps.dpi-source-guard.outcome }}' },
+            @{ Name='early-yy-dll-warm-relink'; Outcome='${{ steps.yy-early-warm-relink.outcome }}' },
+            @{ Name='source-remediation-quartet'; Outcome='${{ steps.source-remediation-quartet.outcome }}' },
+            @{ Name='advapi32-compat-import'; Outcome='${{ steps.advapi32-etw-import-gate.outcome }}' },
+            @{ Name='dpi-import-mode'; Outcome='${{ steps.dpi-import-gate.outcome }}' },
+            @{ Name='core-import'; Outcome='${{ steps.sync-import-gate.outcome }}' },
+            @{ Name='retargeted-d3dcompiler'; Outcome='${{ steps.verify-retargeted-d3dcompiler.outcome }}' },
+            @{ Name='packaged-d3dcompiler'; Outcome='${{ steps.verify-legacy-d3dcompiler.outcome }}' },
+            @{ Name='packaged-crt'; Outcome='${{ steps.verify-packaged-crt.outcome }}' },
+            @{ Name='packaged-bcrypt'; Outcome='${{ steps.verify-packaged-bcrypt.outcome }}' },
+            @{ Name='broad-import-audit'; Outcome='${{ steps.xp-import-audit.outcome }}' },
+            @{ Name='yy-dll-entrypoint-contract'; Outcome='${{ steps.yy-dll-entrypoint-diag.outcome }}' }
+          )
+          $operations = @(
+            @{ Name='build'; Outcome='${{ steps.build-release.outcome }}' },
+            @{ Name='package'; Outcome='${{ steps.package-release.outcome }}' },
+            @{ Name='runtime-archive'; Outcome='${{ steps.runtime-archive.outcome }}' }
+          )
+          $red = [System.Collections.Generic.List[string]]::new()
+          $sourceUnderTest = (& git.exe rev-parse HEAD).Trim()
+          "## GOST TLS PoC build XP YY x32: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-under-test: $sourceUnderTest" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Workflow-definition SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Baseline evidence: source cd5e7155b0f227a22b7c35a0a44e2e24f69456d4 / run 34107793132 / job 101696721232 / YY inventory strong=13 contracts=3 missing=10." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY DLL entry-point experiment applies the proven wrapper/TLS contract only to the ten baseline missing shared-library names; program and host-shared link rules are unchanged." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Early warm relink after full objdir completion: mozglue.dll, nss3.dll, libGLESv2.dll = ${{ steps.yy-early-warm-relink.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- DPI pre-Vista source guard: ${{ steps.dpi-source-guard.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-remediation quartet gate: ${{ steps.source-remediation-quartet.outcome }} (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- ADVAPI32 compatibility final xul.dll gate: ${{ steps.advapi32-etw-import-gate.outcome }}; ETW focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554; RegGetValueW focused capability source 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4 / run 33946751857 / job 101254130849." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- WS2_32 focused YY capability: WSAIoctl + inet_ntop from source 5451673565030445262f5b6ef48b4059e0e0501e / run 34021400841 / job 101454550948; production link uses only their weak-alias pairs plus the shared narrow YY implementation." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- WSASendMsg is source late-bound and WSCGetProviderInfo LSP-category diagnostics are compiled out under MOZ_XP_COMPAT; all four WS2_32 names are forbidden as ordinary final imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- xul IPHLPAPI legacy MTU diagnostic: ${{ steps.xul-iphlpapi-import-diag.outcome }} (non-blocking; see diagnostics/xul-iphlpapi-xp-imports.txt)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY DLL entry-point contract gate: ${{ steps.yy-dll-entrypoint-diag.outcome }}; requires xul positive control, all ten baseline candidates contract=true, and zero remaining strong missing-contract candidates." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- mozglue SetProcessDPIAware import-mode gate: ${{ steps.dpi-import-gate.outcome }}." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + five-name ADVAPI32 alias family + two-name WS2_32 alias family + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib, ntdll.lib, advapi32.lib and ws2_32.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($item in $operations) {
+            "- $($item.Name): $($item.Outcome)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            if ($item.Outcome -ne 'success') { $red.Add("operation:$($item.Name)=$($item.Outcome)") }
+          }
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "### Diagnostic gates" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          foreach ($item in $checks) {
+            "- $($item.Name): $($item.Outcome)" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            if ($item.Outcome -notin @('success','skipped')) { $red.Add("gate:$($item.Name)=$($item.Outcome)") }
+          }
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Package/runtime/diagnostics uploads execute before this final verdict." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- A diagnostic RED does not suppress later evidence collection." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Real Firefox startup on physical XP remains a separate runtime gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if ($red.Count -gt 0) {
+            $red | Set-Content -Encoding utf8 diagnostics\final-red-gates.txt
+            throw ("XP YY x32 build completed evidence collection with RED outcomes: " + ($red -join '; '))
+          }

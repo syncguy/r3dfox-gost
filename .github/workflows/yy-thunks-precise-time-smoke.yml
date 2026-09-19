@@ -1,0 +1,416 @@
+name: YY-Thunks precise-time closing smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/yy-thunks-precise-time-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  RUST_TOOLCHAIN: "nightly-2026-08-20"
+  RUST_TARGET: "x86_64-pc-windows-msvc"
+
+jobs:
+  precise-time-closing-smoke:
+    name: Narrow YY GetSystemTimePreciseAsFileTime provider
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Download YY-Thunks 1.2.2 Win7 x64 LIB package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $release = Invoke-RestMethod `
+            -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } `
+            -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets |
+            Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } |
+            Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found" }
+
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-precise-time-package'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match '(?i)[\\/]Lib[\\/]6\.1\.7600\.0[\\/]x64$' } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw 'YY-Thunks Lib/6.1.7600.0/x64 not found' }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          if (-not (Test-Path $kernel32)) { throw "YY kernel32.lib missing: $kernel32" }
+
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Locate lld-link
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmd = Get-Command lld-link.exe -ErrorAction SilentlyContinue
+          $lld = if ($cmd) { $cmd.Source } else { 'C:\Program Files\LLVM\bin\lld-link.exe' }
+          if (-not (Test-Path $lld)) { throw "lld-link.exe not found: $lld" }
+          "REAL_LLD_LINK=$lld" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          & $lld --version
+
+      - name: Build one narrow YY precise-time provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $work = Join-Path $env:RUNNER_TEMP 'precise-time-closing-smoke'
+          $scan = Join-Path $work 'selected'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $scan | Out-Null
+
+          $kernel32 = $env:THUNK_YY_KERNEL32_LIB
+          $members = @(& lib.exe /nologo /list $kernel32 2>&1 |
+            ForEach-Object { "$_".Trim() } |
+            Where-Object { $_ } |
+            Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) {
+            throw "Cannot enumerate YY kernel32.lib: $kernel32"
+          }
+          $members | Set-Content -Encoding utf8 (Join-Path $work 'yy-kernel32-members.txt')
+
+          $directMembers = @($members | Where-Object { $_ -match '(?i)[\\/]GetSystemTimePreciseAsFileTime\.obj$' })
+          $importMembers = @($members | Where-Object { $_ -match '(?i)[\\/]GetSystemTimePreciseAsFileTime\.obi$' })
+          $implMembers = @($members | Where-Object { $_ -match '(?i)[\\/]YY_Thunks_for_6\.1\.7600\.0\.obj$' })
+
+          if ($directMembers.Count -ne 1) { throw "Expected one GetSystemTimePreciseAsFileTime.obj weak-alias member; found $($directMembers.Count)" }
+          if ($importMembers.Count -ne 1) { throw "Expected one GetSystemTimePreciseAsFileTime.obi weak-alias member; found $($importMembers.Count)" }
+          if ($implMembers.Count -ne 1) { throw "Expected one YY implementation member; found $($implMembers.Count)" }
+
+          function Extract-Member([string]$member, [string]$name) {
+            $dir = Join-Path $scan $name
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$member" $kernel32 *> (Join-Path $dir 'extract.log')
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $member" }
+            }
+            finally { Pop-Location }
+
+            $file = Get-ChildItem -Path $dir -File |
+              Where-Object { $_.Name -ne 'extract.log' } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+            if (-not $file) { throw "No extracted file for $member" }
+
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            (& dumpbin /nologo /symbols $dst 2>&1 | Out-String) |
+              Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
+            (& dumpbin /nologo /directives $dst 2>&1 | Out-String) |
+              Set-Content -Encoding utf8 (Join-Path $dir 'directives.txt')
+            $member | Set-Content -Encoding utf8 (Join-Path $dir 'member-name.txt')
+            return $dst
+          }
+
+          function Get-SymbolRecords([string]$text) {
+            $records = @()
+            foreach ($line in ($text -split "`r?`n")) {
+              if ($line -notmatch '^\s*([0-9A-F]+)\s+\S+\s+(\S+)\s+.*?\b(WeakExternal|External)\b\s+\|\s+(\S+)\s*$') { continue }
+              $records += [pscustomobject]@{
+                Index = [Convert]::ToInt32($Matches[1], 16)
+                Section = $Matches[2]
+                Storage = $Matches[3]
+                Name = $Matches[4]
+                Undefined = ($Matches[2] -eq 'UNDEF')
+              }
+            }
+            return @($records)
+          }
+
+          function Test-WeakAlias([string]$text, [string]$alias, [string]$target) {
+            $records = @(Get-SymbolRecords $text)
+            $byIndex = @{}
+            foreach ($record in $records) { $byIndex[$record.Index] = $record }
+            $lines = @($text -split "`r?`n")
+
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -notmatch '^\s*([0-9A-F]+)\s+\S+\s+UNDEF\s+.*?\bWeakExternal\b\s+\|\s+(\S+)\s*$') { continue }
+              if ($Matches[2] -ne $alias -or $i + 1 -ge $lines.Count) { continue }
+              if ($lines[$i + 1] -notmatch '^\s*Default index\s+([0-9A-F]+)\s+Alias record\s*$') { continue }
+
+              $targetIndex = [Convert]::ToInt32($Matches[1], 16)
+              if ($byIndex.ContainsKey($targetIndex) -and $byIndex[$targetIndex].Name -eq $target) {
+                return $true
+              }
+            }
+            return $false
+          }
+
+          function Test-DefinedExternal([string]$text, [string]$name) {
+            $records = @(Get-SymbolRecords $text)
+            return @($records | Where-Object {
+              -not $_.Undefined -and $_.Storage -eq 'External' -and $_.Name -eq $name
+            }).Count -gt 0
+          }
+
+          $direct = Extract-Member $directMembers[0] 'direct-alias'
+          $import = Extract-Member $importMembers[0] 'import-alias'
+          $impl = Extract-Member $implMembers[0] 'implementation'
+
+          $directSymbols = Get-Content (Join-Path $scan 'direct-alias\symbols.txt') -Raw
+          $importSymbols = Get-Content (Join-Path $scan 'import-alias\symbols.txt') -Raw
+          $implSymbols = Get-Content (Join-Path $scan 'implementation\symbols.txt') -Raw
+
+          if (-not (Test-WeakAlias $directSymbols 'GetSystemTimePreciseAsFileTime' 'YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+            throw 'GetSystemTimePreciseAsFileTime.obj is not a COFF weak alias to YY_Thunks_GetSystemTimePreciseAsFileTime'
+          }
+          if (-not (Test-WeakAlias $importSymbols '__imp_GetSystemTimePreciseAsFileTime' '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+            throw 'GetSystemTimePreciseAsFileTime.obi is not a COFF weak alias to __imp_YY_Thunks_GetSystemTimePreciseAsFileTime'
+          }
+          if (-not (Test-DefinedExternal $implSymbols 'YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+            throw 'YY implementation member does not define YY_Thunks_GetSystemTimePreciseAsFileTime'
+          }
+          if (-not (Test-DefinedExternal $implSymbols '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+            throw 'YY implementation member does not define __imp_YY_Thunks_GetSystemTimePreciseAsFileTime'
+          }
+
+          @(
+            [pscustomobject]@{ Alias = 'GetSystemTimePreciseAsFileTime'; Target = 'YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $directMembers[0] },
+            [pscustomobject]@{ Alias = '__imp_GetSystemTimePreciseAsFileTime'; Target = '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $importMembers[0] },
+            [pscustomobject]@{ Alias = '<implementation>'; Target = 'YY_Thunks_GetSystemTimePreciseAsFileTime + __imp_YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $implMembers[0] }
+          ) | Export-Csv -NoTypeInformation -Encoding utf8 (Join-Path $work 'precise-time-member-map.csv')
+
+          $forbiddenSurface = @('LockResource', '__imp_LockResource', 'LoadLibraryExW', '__imp_LoadLibraryExW')
+          foreach ($obj in @($direct, $import, $impl)) {
+            $text = (& dumpbin /nologo /symbols $obj 2>&1 | Out-String)
+            foreach ($name in $forbiddenSurface) {
+              if (Test-DefinedExternal $text $name) {
+                throw "Selected YY member defines forbidden broad ordinary symbol '$name': $obj"
+              }
+            }
+          }
+
+          $narrow = Join-Path $work 'yy-precise-time.lib'
+          & lib.exe /nologo "/out:$narrow" $direct $import $impl
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) {
+            throw 'Failed to build yy-precise-time.lib'
+          }
+
+          $narrowSymbols = (& dumpbin /nologo /linkermember:1 $narrow 2>&1 | Out-String)
+          $narrowSymbols | Set-Content -Encoding utf8 (Join-Path $work 'yy-precise-time-symbols.txt')
+
+          function Archive-Exposes([string]$name) {
+            foreach ($line in ($narrowSymbols -split "`r?`n")) {
+              if ($line -match ('(?:^|\s)' + [regex]::Escape($name) + '\s*$')) { return $true }
+            }
+            return $false
+          }
+
+          if (-not (Archive-Exposes 'YY_Thunks_GetSystemTimePreciseAsFileTime')) {
+            throw 'yy-precise-time.lib does not contain YY_Thunks_GetSystemTimePreciseAsFileTime'
+          }
+          foreach ($name in $forbiddenSurface) {
+            if (Archive-Exposes $name) { throw "yy-precise-time.lib exposes forbidden broad symbol '$name'" }
+          }
+
+          "SMOKE_DIR=$work" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "NARROW_PRECISE_TIME_LIB=$narrow" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          Write-Host "Direct weak alias: $($directMembers[0])"
+          Write-Host "Import weak alias: $($importMembers[0])"
+          Write-Host "Implementation: $($implMembers[0])"
+          Write-Host "Narrow provider: $narrow"
+
+      - name: Build representative Rust raw-dylib archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $src = Join-Path $env:SMOKE_DIR 'probe.rs'
+          $rlib = Join-Path $env:SMOKE_DIR 'libyy_precise_time_probe.rlib'
+
+          @'
+          use std::ffi::c_void;
+          use std::hint::black_box;
+
+          #[repr(C)]
+          struct FileTime {
+              low: u32,
+              high: u32,
+          }
+
+          #[link(name = "kernel32", kind = "raw-dylib")]
+          unsafe extern "system" {
+              fn GetSystemTimePreciseAsFileTime(file_time: *mut FileTime);
+              fn LockResource(hmem: *mut c_void) -> *mut c_void;
+          }
+
+          #[inline(never)]
+          pub fn run_probe() {
+              let mut file_time = FileTime { low: 0, high: 0 };
+              unsafe {
+                  GetSystemTimePreciseAsFileTime(&mut file_time);
+              }
+              black_box((file_time.low, file_time.high));
+              black_box(LockResource as unsafe extern "system" fn(*mut c_void) -> *mut c_void);
+          }
+          '@ | Set-Content -Encoding utf8 $src
+
+          & rustc $src `
+            --crate-name yy_precise_time_probe `
+            --crate-type rlib `
+            --edition 2021 `
+            --target $env:RUST_TARGET `
+            -O `
+            -o $rlib
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $rlib)) {
+            throw "Rust archive build failed: $LASTEXITCODE"
+          }
+
+          $probeSymbols = (& dumpbin /nologo /linkermember:1 $rlib 2>&1 | Out-String)
+          $probeSymbols | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'rust-probe-archive-symbols.txt')
+          if ($probeSymbols -notmatch '(?i)(?:__imp_)?GetSystemTimePreciseAsFileTime') {
+            throw 'Probe rlib does not contain GetSystemTimePreciseAsFileTime'
+          }
+          if ($probeSymbols -notmatch '(?i)(?:__imp_)?LockResource') {
+            throw 'Probe rlib does not contain the LockResource raw-dylib control'
+          }
+
+          "RUST_PROBE_RLIB=$rlib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Link exactly one candidate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $main = Join-Path $env:SMOKE_DIR 'main.rs'
+          $exe = Join-Path $env:SMOKE_DIR 'precise-time-closing-smoke.exe'
+          $wrapper = Join-Path $env:SMOKE_DIR 'lld-narrow-precise-time.cmd'
+          $linkLog = Join-Path $env:SMOKE_DIR 'final-link-command.txt'
+          $linkOutput = Join-Path $env:SMOKE_DIR 'final-link-output.txt'
+          $map = Join-Path $env:SMOKE_DIR 'final-link.map'
+
+          @'
+          extern crate yy_precise_time_probe;
+
+          fn main() {
+              yy_precise_time_probe::run_probe();
+          }
+          '@ | Set-Content -Encoding utf8 $main
+
+          @"
+          @echo off
+          >"$linkLog" echo "$env:REAL_LLD_LINK" "$env:NARROW_PRECISE_TIME_LIB" %*
+          "$env:REAL_LLD_LINK" "$env:NARROW_PRECISE_TIME_LIB" %*
+          exit /b %ERRORLEVEL%
+          "@ | Set-Content -Encoding ascii $wrapper
+
+          & rustc $main `
+            --edition 2021 `
+            --target $env:RUST_TARGET `
+            -O `
+            --extern "yy_precise_time_probe=$env:RUST_PROBE_RLIB" `
+            "-Clinker=$wrapper" `
+            "-Clink-arg=/map:$map" `
+            -o $exe 2>&1 | Tee-Object -FilePath $linkOutput
+          $linkRc = $LASTEXITCODE
+          if ($linkRc -ne 0) { throw "Single narrow-provider link failed: $linkRc" }
+          if (-not (Test-Path $exe)) { throw "Linked executable missing: $exe" }
+          if (-not (Test-Path $map)) { throw "Link map missing: $map" }
+
+          $mapText = Get-Content $map -Raw
+          if ($mapText.IndexOf('YY_Thunks_GetSystemTimePreciseAsFileTime', [System.StringComparison]::Ordinal) -lt 0) {
+            throw 'Final link did not select YY_Thunks_GetSystemTimePreciseAsFileTime from the narrow provider'
+          }
+
+          $logged = Get-Content $linkLog -Raw
+          if ($logged.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY kernel32.lib reached the final link command'
+          }
+          if ($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB", [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: YY full Lib directory reached final LIBPATH'
+          }
+
+          "SMOKE_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Audit final PE imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $imports = (& dumpbin /nologo /imports $env:SMOKE_EXE 2>&1 | Out-String)
+          $imports | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'final-imports.txt')
+
+          $dllImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $apiImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($line in ($imports -split "`r?`n")) {
+            $entry = $line.Trim()
+            if ($entry -match '^[A-Za-z0-9_.-]+\.dll$') {
+              [void]$dllImports.Add($entry)
+              continue
+            }
+            if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+              [void]$apiImports.Add($Matches[1])
+            }
+          }
+
+          @($dllImports | Sort-Object) | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'final-import-dlls.txt')
+          @($apiImports | Sort-Object) | Set-Content -Encoding utf8 (Join-Path $env:SMOKE_DIR 'final-import-api-names.txt')
+
+          if ($apiImports.Contains('GetSystemTimePreciseAsFileTime')) {
+            throw 'GetSystemTimePreciseAsFileTime survived as a final PE import'
+          }
+          if (-not $apiImports.Contains('LockResource')) {
+            throw 'LockResource control import is absent from the final PE'
+          }
+          if (-not $dllImports.Contains('KERNEL32.dll')) {
+            throw 'KERNEL32.dll is absent from final imports'
+          }
+
+      - name: Run probe on current Windows runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:SMOKE_EXE
+          if ($LASTEXITCODE -ne 0) { throw "Probe execution failed: $LASTEXITCODE" }
+
+          "## YY-Thunks precise-time closing smoke: PASS" |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The exact GetSystemTimePreciseAsFileTime direct/import weak-alias members were selected." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- The complete YY kernel32.lib was not supplied to the final linker." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- LockResource remains a normal KERNEL32 import control." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- GetSystemTimePreciseAsFileTime is absent from final PE imports." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Execution on windows-latest passed; this is not a Windows 7 runtime proof." |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-thunks-precise-time-closing-smoke-diagnostics
+          path: ${{ runner.temp }}/precise-time-closing-smoke
+          if-no-files-found: warn

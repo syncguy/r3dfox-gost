@@ -1,0 +1,453 @@
+name: XP YY TLS detach re-entry smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/xp-yy-tls-detach-reentry-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+  YY_THUNKS_VERSION: "1.2.2"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+
+jobs:
+  detach-reentry:
+    name: YY DLL static-TLS detach re-entry / XP x86
+    runs-on: windows-2022
+    timeout-minutes: 35
+
+    steps:
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Record test identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force diagnostics,runtime,src | Out-Null
+          @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "workflow_commit=$env:GITHUB_SHA"
+            "compatibility_target=Windows XP SP3 x86"
+            "hosted_control=windows-2022 x86"
+            "msvcr14x_commit=$env:MSVCR14X_SHA"
+            "yy_thunks_version=$env:YY_THUNKS_VERSION"
+            "yy_thunks_target=$env:YY_THUNKS_TARGET"
+            "pe_subsystem_min_version=$env:WINDOWS_XP_SUBSYSTEM"
+            "purpose=reproduce DLL_THREAD_DETACH re-entry into a compiler thread-safe local static"
+            "physical_xp_result=NOT_ESTABLISHED"
+          ) | Set-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'msvcr14x-tls-reentry'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git init $root
+          git -C $root remote add origin $env:MSVCR14X_REPO
+          git -C $root fetch --depth=1 origin $env:MSVCR14X_SHA
+          git -C $root checkout --detach FETCH_HEAD
+          git -C $root submodule update --init --recursive --depth 1
+          if ((git -C $root rev-parse HEAD).Trim() -ne $env:MSVCR14X_SHA) { throw 'Unexpected msvcr14x commit' }
+
+          & msbuild.exe (Join-Path $root 'msvcr14x.sln') /m /t:Build '/p:Configuration=Release;Platform=x86' -r "/bl:$env:GITHUB_WORKSPACE\diagnostics\msvcr14x-release-x86.binlog"
+          if ($LASTEXITCODE -ne 0) { throw "msvcr14x build failed: $LASTEXITCODE" }
+
+          $required = @('ucrtbase.dll','ucrt.lib','vcruntime.lib','msvcprt.lib','msvcp140.dll')
+          $release = $null
+          foreach ($candidate in @(Get-ChildItem -Path $root -Recurse -File -Filter ucrtbase.dll | ForEach-Object { $_.Directory.FullName } | Sort-Object -Unique)) {
+            if (@($required | Where-Object { -not (Test-Path (Join-Path $candidate $_)) }).Count) { continue }
+            $headers = (& dumpbin.exe /nologo /headers (Join-Path $candidate 'ucrtbase.dll') 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0 -and $headers -match '(?im)^\s*14C machine \(x86\)') { $release = $candidate; break }
+          }
+          if (-not $release) { throw 'Cannot locate complete x86 msvcr14x Release output' }
+
+          "MSVCR14X_RELEASE=$release" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LIB=$release;$env:LIB" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem -LiteralPath $release -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 240 |
+            Set-Content -Encoding utf8 diagnostics\msvcr14x-release-files.txt
+
+      - name: GATE - Require proven XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbiddenApis = @(
+            'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+            'AcquireSRWLockExclusive','AcquireSRWLockShared',
+            'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared',
+            'ReleaseSRWLockExclusive','ReleaseSRWLockShared',
+            'SleepConditionVariableSRW'
+          )
+          $forbiddenDllPatterns = @(
+            '^(?i)(api-ms-win-|ext-ms-)',
+            '^(?i)KERNELBASE\.dll$',
+            '^(?i)BCRYPT(?:PRIMITIVES)?\.dll$',
+            '^(?i)COMBASE\.dll$',
+            '^(?i)NCRYPT\.dll$',
+            '^(?i)VCRUNTIME140(?:_1)?\.dll$'
+          )
+          $report = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $path = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $path)) { throw "XP CRT contract missing runtime: $path" }
+
+            $headers = @(& dumpbin.exe /nologo /headers $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $path" }
+            $headers | Set-Content -Encoding utf8 (Join-Path 'diagnostics' "$dll-headers.txt")
+            $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
+            if (-not $machine -or $machine -notmatch '(?i)^\s*14C machine \(x86\)') { throw "$dll is not x86 machine 14C" }
+            $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+            if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $dll" }
+            $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
+            if ($version -gt [version]'5.1') { throw "$dll subsystem $version is newer than XP x86 5.01" }
+
+            $imports = @(& dumpbin.exe /nologo /imports $path 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $path" }
+            $imports | Set-Content -Encoding utf8 (Join-Path 'diagnostics' "$dll-imports.txt")
+            $text = $imports -join "`n"
+            foreach ($api in $forbiddenApis) {
+              if ($text -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "$dll retains forbidden XP direct import $api" }
+            }
+            foreach ($line in $imports) {
+              if ($line -notmatch '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') { continue }
+              $dep = $matches[1]
+              foreach ($pattern in $forbiddenDllPatterns) {
+                if ($dep -match $pattern) { throw "$dll retains forbidden XP dependency $dep" }
+              }
+            }
+
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            $report.Add("$dll|sha256=$hash|subsystem=$version|machine=x86")
+          }
+          $report | Set-Content -Encoding utf8 diagnostics\msvcr14x-xp-contract.txt
+
+      - name: Prepare YY-Thunks DLL TLS entry-point provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent'='r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw 'YY-Thunks Lib asset not found' }
+
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-tls-reentry'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory | Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } | Select-Object -First 1
+          if (-not $yyLib) { throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found" }
+
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synchronization = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synchronization)) { throw 'Required YY libraries missing' }
+
+          $members = @(& lib.exe /nologo /list $kernel32 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or -not $members.Count) { throw 'Cannot enumerate YY kernel32.lib' }
+
+          $implementationPattern = '(?i)[\\/]YY_Thunks_for_' + [regex]::Escape($env:YY_THUNKS_TARGET) + '\.obj$'
+          $wanted = @(
+            @{ Key='process-direct'; Pattern='(?i)[\\/]_ProcessPrng@8\.obj$' },
+            @{ Key='process-import'; Pattern='(?i)[\\/]_ProcessPrng@8\.obi$' },
+            @{ Key='precise-direct'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obj$' },
+            @{ Key='precise-import'; Pattern='(?i)[\\/]_GetSystemTimePreciseAsFileTime@4\.obi$' },
+            @{ Key='flsalloc-direct'; Pattern='(?i)[\\/]_FlsAlloc@4\.obj$' },
+            @{ Key='flsalloc-import'; Pattern='(?i)[\\/]_FlsAlloc@4\.obi$' },
+            @{ Key='flsfree-direct'; Pattern='(?i)[\\/]_FlsFree@4\.obj$' },
+            @{ Key='flsfree-import'; Pattern='(?i)[\\/]_FlsFree@4\.obi$' },
+            @{ Key='flsset-direct'; Pattern='(?i)[\\/]_FlsSetValue@8\.obj$' },
+            @{ Key='flsset-import'; Pattern='(?i)[\\/]_FlsSetValue@8\.obi$' },
+            @{ Key='isfiber-direct'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obj$' },
+            @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
+            @{ Key='stackguarantee-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
+            @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='implementation'; Pattern=$implementationPattern }
+          )
+
+          $work = Join-Path $env:RUNNER_TEMP 'yy-entry-provider'
+          $selected = Join-Path $work 'selected'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $selected | Out-Null
+
+          $objects = @()
+          $memberMap = [System.Collections.Generic.List[string]]::new()
+          foreach ($spec in $wanted) {
+            $matches = @($members | Where-Object { $_ -match $spec.Pattern })
+            if ($matches.Count -ne 1) { throw "Expected one $($spec.Key) member; found $($matches.Count)" }
+            $dir = Join-Path $selected $spec.Key
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$($matches[0])" $kernel32 *> extract.log
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $($matches[0])" }
+            } finally { Pop-Location }
+            $file = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -ne 'extract.log' } | Sort-Object Length -Descending | Select-Object -First 1
+            if (-not $file) { throw "No object extracted for $($spec.Key)" }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            $objects += $dst
+            $memberMap.Add("$($spec.Key)|$($matches[0])")
+          }
+          $memberMap | Set-Content -Encoding utf8 diagnostics\yy-entry-provider-members.txt
+
+          $provider = Join-Path $work 'yy-dll-tls-entry.lib'
+          & lib.exe /nologo "/out:$provider" @objects
+          if ($LASTEXITCODE -ne 0) { throw 'YY entry provider build failed' }
+
+          $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
+          $symbols | Set-Content -Encoding utf8 diagnostics\yy-entry-provider-symbols.txt
+          foreach ($required in @(
+            'DllMainCRTStartupForYY_Thunks',
+            'YY_Thunks_ProcessPrng',
+            'YY_Thunks_GetSystemTimePreciseAsFileTime',
+            'YY_Thunks_FlsAlloc','YY_Thunks_FlsFree','YY_Thunks_FlsSetValue',
+            'YY_Thunks_IsThreadAFiber','YY_Thunks_SetThreadStackGuarantee'
+          )) {
+            if ($symbols.IndexOf($required,[System.StringComparison]::Ordinal) -lt 0) { throw "YY entry provider missing $required" }
+          }
+
+          $entryMatches = @([regex]::Matches($symbols, '(?m)(?:^|\s)(_?DllMainCRTStartupForYY_Thunks(?:@\d+)?)(?:\s|$)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          if ($entryMatches.Count -ne 1) { throw "Cannot resolve unique YY DLL entry symbol; found $($entryMatches.Count)" }
+          $entryLinkName = $entryMatches[0]
+          if ($entryLinkName.StartsWith('_',[System.StringComparison]::Ordinal)) { $entryLinkName = $entryLinkName.Substring(1) }
+
+          "YY_ENTRY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_ENTRY_SYMBOL=$($entryMatches[0])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_ENTRY_LINK_NAME=$entryLinkName" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "YY_SYNCH_LIB=$synchronization" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "yy_entry_symbol=$($entryMatches[0])" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          "yy_entry_link_name=$entryLinkName" | Add-Content -Encoding utf8 diagnostics\identity.txt
+          'yy_entry_provider=production-narrow-dependency-closure' | Add-Content -Encoding utf8 diagnostics\identity.txt
+
+      - name: Generate detach re-entry sources
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          static volatile LONG* gSequence = nullptr;
+          static volatile LONG gOwnerDetachOrder = 0;
+          static __declspec(thread) volatile LONG gTlsMarker = 1;
+          static __declspec(noinline) int InitializeValue() { return (int)(GetTickCount() | 1u); }
+          extern "C" __declspec(dllexport) __declspec(noinline) int TouchLocalStatic() {
+            static int value = InitializeValue();
+            return value + (int)(gTlsMarker - 1);
+          }
+          extern "C" __declspec(dllexport) void SetOwnerSequence(volatile LONG* sequence) { gSequence = sequence; }
+          extern "C" __declspec(dllexport) LONG GetOwnerDetachOrder() { return gOwnerDetachOrder; }
+          BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+            if (reason == DLL_THREAD_DETACH && gSequence) { gOwnerDetachOrder = InterlockedIncrement(gSequence); }
+            return TRUE;
+          }
+          '@ | Set-Content -Encoding ascii src\tls-owner.cpp
+
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          typedef int (__cdecl* TouchFn)();
+          static volatile LONG* gSequence = nullptr;
+          static volatile LONG gLateDetachOrder = 0;
+          static volatile LONG gCallbackCalls = 0;
+          static volatile LONG gLastValue = 0;
+          static TouchFn gTouch = nullptr;
+          extern "C" __declspec(dllexport) void SetLateSequence(volatile LONG* sequence) { gSequence = sequence; }
+          extern "C" __declspec(dllexport) void SetDetachCallback(TouchFn touch) { gTouch = touch; }
+          extern "C" __declspec(dllexport) LONG GetLateDetachOrder() { return gLateDetachOrder; }
+          extern "C" __declspec(dllexport) LONG GetCallbackCalls() { return gCallbackCalls; }
+          extern "C" __declspec(dllexport) LONG GetLastValue() { return gLastValue; }
+          BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+            if (reason == DLL_THREAD_DETACH && gSequence) {
+              gLateDetachOrder = InterlockedIncrement(gSequence);
+              if (gTouch) { gLastValue = gTouch(); InterlockedIncrement(&gCallbackCalls); }
+            }
+            return TRUE;
+          }
+          '@ | Set-Content -Encoding ascii src\late-callback.cpp
+
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #include <stdio.h>
+          #include <string.h>
+          typedef int (__cdecl* TouchFn)();
+          typedef void (__cdecl* SetSequenceFn)(volatile LONG*);
+          typedef void (__cdecl* SetCallbackFn)(TouchFn);
+          typedef LONG (__cdecl* GetLongFn)();
+          struct WorkerArg { TouchFn touch; };
+          static DWORD WINAPI WorkerMain(void* opaque) {
+            WorkerArg* arg = static_cast<WorkerArg*>(opaque);
+            int value = arg->touch();
+            printf("worker-body-ok value=%d\n", value);
+            fflush(stdout);
+            return 0;
+          }
+          static FARPROC RequireProc(HMODULE module, const char* name) {
+            FARPROC proc = GetProcAddress(module, name);
+            if (!proc) { printf("GetProcAddress failed: %s err=%lu\n", name, GetLastError()); ExitProcess(10); }
+            return proc;
+          }
+          int main(int argc, char** argv) {
+            const bool lateFirst = argc > 1 && strcmp(argv[1], "late-first") == 0;
+            const bool ownerFirst = argc > 1 && strcmp(argv[1], "owner-first") == 0;
+            if (!lateFirst && !ownerFirst) { printf("usage: probe.exe late-first|owner-first\n"); return 2; }
+            HMODULE owner = nullptr;
+            HMODULE late = nullptr;
+            if (lateFirst) { late = LoadLibraryA("late-callback.dll"); owner = LoadLibraryA("tls-owner.dll"); }
+            else { owner = LoadLibraryA("tls-owner.dll"); late = LoadLibraryA("late-callback.dll"); }
+            if (!owner || !late) { printf("LoadLibrary failed err=%lu\n", GetLastError()); return 3; }
+            TouchFn touch = reinterpret_cast<TouchFn>(RequireProc(owner, "TouchLocalStatic"));
+            SetSequenceFn setOwnerSequence = reinterpret_cast<SetSequenceFn>(RequireProc(owner, "SetOwnerSequence"));
+            GetLongFn getOwnerOrder = reinterpret_cast<GetLongFn>(RequireProc(owner, "GetOwnerDetachOrder"));
+            SetSequenceFn setLateSequence = reinterpret_cast<SetSequenceFn>(RequireProc(late, "SetLateSequence"));
+            SetCallbackFn setCallback = reinterpret_cast<SetCallbackFn>(RequireProc(late, "SetDetachCallback"));
+            GetLongFn getLateOrder = reinterpret_cast<GetLongFn>(RequireProc(late, "GetLateDetachOrder"));
+            GetLongFn getCalls = reinterpret_cast<GetLongFn>(RequireProc(late, "GetCallbackCalls"));
+            GetLongFn getLast = reinterpret_cast<GetLongFn>(RequireProc(late, "GetLastValue"));
+            volatile LONG sequence = 0;
+            setOwnerSequence(&sequence); setLateSequence(&sequence); setCallback(touch);
+            int initial = touch();
+            WorkerArg arg = {touch};
+            HANDLE thread = CreateThread(nullptr, 0, WorkerMain, &arg, 0, nullptr);
+            if (!thread) { printf("CreateThread failed err=%lu\n", GetLastError()); return 4; }
+            DWORD wait = WaitForSingleObject(thread, 10000);
+            DWORD workerExit = 0; GetExitCodeThread(thread, &workerExit); CloseHandle(thread);
+            if (wait != WAIT_OBJECT_0) { printf("WaitForSingleObject failed result=%lu err=%lu\n", wait, GetLastError()); return 5; }
+            LONG ownerOrder = getOwnerOrder(); LONG lateOrder = getLateOrder(); LONG calls = getCalls(); LONG last = getLast();
+            const char* afterOwner = ownerOrder > 0 && lateOrder > ownerOrder ? "YES" : "NO";
+            printf("mode=%s initial=%d worker_exit=%lu owner_order=%ld late_order=%ld callback_calls=%ld last_value=%ld\n", lateFirst ? "late-first" : "owner-first", initial, workerExit, ownerOrder, lateOrder, calls, last);
+            printf("reentry_after_owner_detach=%s\n", afterOwner);
+            if (workerExit != 0 || ownerOrder <= 0 || lateOrder <= 0 || calls <= 0) { return 20; }
+            return 0;
+          }
+          '@ | Set-Content -Encoding ascii src\probe.cpp
+
+      - name: Compile XP x86 DLLs and probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $common = @('/nologo','/c','/O2','/MD','/EHsc','/DWIN32_LEAN_AND_MEAN','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501')
+          & cl.exe @common src\tls-owner.cpp '/Fo:tls-owner.obj'
+          if ($LASTEXITCODE -ne 0) { throw 'tls-owner compile failed' }
+          & cl.exe @common src\late-callback.cpp '/Fo:late-callback.obj'
+          if ($LASTEXITCODE -ne 0) { throw 'late-callback compile failed' }
+          & cl.exe @common src\probe.cpp '/Fo:probe.obj'
+          if ($LASTEXITCODE -ne 0) { throw 'probe compile failed' }
+
+          $yyEntry = "/ENTRY:$env:YY_ENTRY_LINK_NAME"
+          $yyAlternate = '/alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12'
+          $forceTlsDirectory = '/include:__tls_used'
+          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate $forceTlsDirectory "/map:diagnostics\tls-owner.map" '/out:runtime\tls-owner.dll' tls-owner.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
+          if ($LASTEXITCODE -ne 0) { throw 'tls-owner link failed' }
+          & link.exe /nologo /dll /machine:x86 "/subsystem:windows,$env:WINDOWS_XP_SUBSYSTEM" $yyEntry $yyAlternate "/map:diagnostics\late-callback.map" '/out:runtime\late-callback.dll' late-callback.obj $env:YY_ENTRY_LIB $env:YY_SYNCH_LIB kernel32.lib
+          if ($LASTEXITCODE -ne 0) { throw 'late-callback link failed' }
+          & link.exe /nologo /machine:x86 "/subsystem:console,$env:WINDOWS_XP_SUBSYSTEM" "/map:diagnostics\probe.map" '/out:runtime\probe.exe' probe.obj kernel32.lib
+          if ($LASTEXITCODE -ne 0) { throw 'probe link failed' }
+
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $src = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $src)) { throw "Missing proven XP runtime DLL: $dll" }
+            Copy-Item -Force $src runtime\
+          }
+          Get-ChildItem runtime -File | Sort-Object Name |
+            Select-Object Name,Length | Format-Table -AutoSize | Out-String -Width 200 |
+            Set-Content -Encoding utf8 diagnostics\staged-runtime.txt
+
+          @'
+          @echo off
+          probe.exe late-first
+          echo exit=%errorlevel%
+          '@ | Set-Content -Encoding ascii runtime\run-late-first.cmd
+          @'
+          @echo off
+          probe.exe owner-first
+          echo exit=%errorlevel%
+          '@ | Set-Content -Encoding ascii runtime\run-owner-first.cmd
+
+      - name: GATE - Verify PE and YY TLS contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('tls-owner.dll','late-callback.dll','probe.exe')) {
+            $path = Join-Path 'runtime' $name
+            $headers = (& dumpbin.exe /nologo /headers $path 2>&1 | Out-String)
+            $imports = (& dumpbin.exe /nologo /imports $path 2>&1 | Out-String)
+            $headers | Set-Content -Encoding utf8 ("diagnostics\" + $name + "-headers.txt")
+            $imports | Set-Content -Encoding utf8 ("diagnostics\" + $name + "-imports.txt")
+            foreach ($api in @(
+              'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+              'ProcessPrng','GetSystemTimePreciseAsFileTime','IsThreadAFiber','SetThreadStackGuarantee'
+            )) {
+              if ($imports.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "$name retains forbidden XP direct import $api" }
+            }
+            if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw "$name is not x86" }
+            if ($headers -notmatch "(?im)^\s*$([regex]::Escape($env:WINDOWS_XP_SUBSYSTEM)) subsystem version") { throw "$name subsystem is not $env:WINDOWS_XP_SUBSYSTEM" }
+          }
+          $ownerHeaders = Get-Content diagnostics\tls-owner.dll-headers.txt -Raw
+          if ($ownerHeaders -notmatch '(?im)^\s*[0-9A-F]+\s+\[\s*[0-9A-F]+\]\s+RVA \[size\] of Thread Storage Directory\s*$') {
+            throw 'tls-owner.dll has no nonzero PE Thread Storage Directory; local-static TLS reproduction is invalid'
+          }
+          $ownerMap = Get-Content diagnostics\tls-owner.map -Raw
+          $lateMap = Get-Content diagnostics\late-callback.map -Raw
+          foreach ($pair in @(@{Name='tls-owner.dll';Text=$ownerMap},@{Name='late-callback.dll';Text=$lateMap})) {
+            if ($pair.Text.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw "$($pair.Name) map does not contain DllMainCRTStartupForYY_Thunks" }
+          }
+          $exports = (& dumpbin.exe /nologo /exports runtime\tls-owner.dll 2>&1 | Out-String)
+          $exports | Set-Content -Encoding utf8 diagnostics\tls-owner-exports.txt
+          if ($exports.IndexOf('TouchLocalStatic',[System.StringComparison]::Ordinal) -lt 0) { throw 'tls-owner.dll export missing TouchLocalStatic' }
+
+      - name: Run hosted Windows control
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = (Resolve-Path runtime).Path
+          $env:PATH = "$runtime;$env:PATH"
+          $results = @()
+          foreach ($mode in @('late-first','owner-first')) {
+            Push-Location runtime
+            try { $output = @(& .\probe.exe $mode 2>&1 | ForEach-Object { "$_" }); $code = $LASTEXITCODE }
+            finally { Pop-Location }
+            $output | Set-Content -Encoding utf8 ("diagnostics\hosted-" + $mode + ".txt")
+            $output | ForEach-Object { Write-Host $_ }
+            if ($code -ne 0) { throw "Hosted control failed for $mode with exit $code" }
+            $results += ($output -join [Environment]::NewLine)
+          }
+          $combined = $results -join [Environment]::NewLine
+          if ($combined.IndexOf('reentry_after_owner_detach=YES',[System.StringComparison]::Ordinal) -lt 0) { throw 'Neither load order produced callback re-entry after owner DLL_THREAD_DETACH' }
+          @('hosted_control=PASS','expected_host_behavior=no crash','required_order_observed=reentry_after_owner_detach=YES','physical_xp_behavior=NOT_ESTABLISHED') | Set-Content -Encoding utf8 diagnostics\hosted-summary.txt
+
+      - name: Upload XP physical-test bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-yy-tls-detach-reentry-smoke
+          path: |
+            runtime
+            diagnostics
+          if-no-files-found: error
+
+      - name: Summarize evidence
+        if: always()
+        shell: powershell
+        run: |
+          "## XP YY TLS detach re-entry smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Test commit: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Target: Windows XP SP3 x86; hosted Windows run is a control only." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- msvcr14x uses the physically proven restore-enabled XP x86 build path; staged ucrtbase.dll/msvcp140.dll pass the canonical XP runtime contract gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- tls-owner.dll uses compiler thread-safe function-local static initialization and YY-Thunks v$env:YY_THUNKS_VERSION DLL TLS entry point." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- late-callback.dll re-enters tls-owner.dll from DLL_THREAD_DETACH." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- A hosted PASS proves build/contract/control behavior, not reproduction on physical XP." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

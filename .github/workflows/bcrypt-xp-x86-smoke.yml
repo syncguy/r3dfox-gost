@@ -1,0 +1,144 @@
+name: bcrypt XP x86 smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/bcrypt-xp-x86-smoke.yml"
+      - ".github/scripts/bcrypt-xp-x86-smoke.ps1"
+      - "tools/gost/xp/bcrypt-smoke/**"
+
+permissions:
+  contents: read
+
+env:
+  ONECORE_REPO: "shorthorn-project/One-Core-API-Binaries"
+  ONECORE_COMMIT: "6c3b3b372d46dace7ba729dcd16b316b0acf664c"
+  ONECORE_BASE_PATH: "Packages/x86/Pack Installer/base"
+  BCRYPT_BLOB_SHA1: "0b7d83ddbae62142ee6fca69208d77a8a5d3b0f7"
+  BCRYPT_SIZE: "279552"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+
+jobs:
+  bcrypt-xp-x86-smoke:
+    name: One-Core-API bcrypt / XP x86 focused smoke
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Run pinned bcrypt audit and probes
+        id: audit
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $script = Join-Path $env:RUNNER_TEMP 'bcrypt-xp-x86-smoke.ps1'
+          $url = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/.github/scripts/bcrypt-xp-x86-smoke.ps1"
+          Invoke-WebRequest -Uri $url -OutFile $script
+          & $script
+
+      - name: Capture exact bcrypt integrity diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not (Test-Path runtime\bcrypt.dll)) { exit 0 }
+          Get-AuthenticodeSignature runtime\bcrypt.dll | Format-List * | Out-String -Width 4096 | Set-Content -Encoding utf8 diagnostics\bcrypt-authenticode.txt
+          cmd /c "where signtool > diagnostics\signtool-path.txt 2>&1 & signtool verify /pa /v runtime\bcrypt.dll > diagnostics\signtool-verify.txt 2>&1 & echo ExitCode=%%ERRORLEVEL%%>> diagnostics\signtool-verify.txt & exit /b 0"
+          $headers = Get-Content -Raw diagnostics\bcrypt.dll.headers.txt
+          @(
+            "check_integrity=$($headers -match '(?im)^\s*Check integrity\s*$')"
+            "certificate_directory_zero=$($headers -match '(?im)^\s*0 \[\s*0\] RVA \[size\] of Certificates Directory')"
+          ) | Set-Content -Encoding utf8 diagnostics\bcrypt-integrity-summary.txt
+
+      - name: Capture normal linked consumer result
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not (Test-Path runtime\bcrypt-linked.exe)) { exit 0 }
+          Push-Location runtime
+          try {
+            & .\bcrypt-linked.exe 2>&1 | Tee-Object ..\diagnostics\hosted-linked.txt
+            $rc = $LASTEXITCODE
+          } finally { Pop-Location }
+          "ExitCode=$rc" | Add-Content -Encoding utf8 diagnostics\hosted-linked.txt
+          Write-Host "linked diagnostic ExitCode=$rc"
+          exit 0
+
+      - name: GATE - classify hosted runtime result
+        if: always()
+        shell: powershell
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path runtime\bcrypt.dll) -or
+              -not (Test-Path runtime\bcrypt-dynamic.exe) -or
+              -not (Test-Path runtime\bcrypt-linked.exe)) {
+            throw 'Runtime bundle was not fully staged; this is not an expected hosted limitation.'
+          }
+
+          if ($env:AUDIT_OUTCOME -eq 'success') {
+            Write-Host 'Hosted exact-local probe passed normally.'
+          } else {
+            if (-not (Test-Path diagnostics\hosted-dynamic.txt)) {
+              throw 'Audit failed before hosted dynamic execution.'
+            }
+            $dynamic = Get-Content -Raw diagnostics\hosted-dynamic.txt
+            if ($dynamic -notmatch 'LOAD FAIL error=0x00000241') {
+              throw 'Audit failed for a reason other than the known Windows 2022 ERROR_INVALID_IMAGE_HASH limitation.'
+            }
+            if (-not (Test-Path diagnostics\bcrypt-integrity-summary.txt)) {
+              throw 'Integrity diagnostics are missing.'
+            }
+            $integrity = Get-Content -Raw diagnostics\bcrypt-integrity-summary.txt
+            if ($integrity -notmatch 'check_integrity=True' -or $integrity -notmatch 'certificate_directory_zero=True') {
+              throw 'Expected Check integrity / unsigned-image evidence is not present.'
+            }
+            Write-Host 'HOSTED DYNAMIC XFAIL: exact upstream bcrypt.dll rejected with ERROR_INVALID_IMAGE_HASH (577) under Windows 2022 Code Integrity.'
+          }
+
+          if (-not (Test-Path diagnostics\hosted-linked.txt)) {
+            throw 'Linked-consumer hosted diagnostics are missing.'
+          }
+          $linked = Get-Content -Raw diagnostics\hosted-linked.txt
+          if ($linked -notmatch 'ExitCode=0' -or
+              $linked -notmatch 'LOAD PASS' -or
+              $linked -notmatch 'EXPORTS PASS' -or
+              $linked -notmatch 'RNG PASS' -or
+              $linked -notmatch 'SHA256 PASS') {
+            throw 'Normal linked consumer did not pass its hosted functional smoke.'
+          }
+          @(
+            'Hosted Windows execution is diagnostic only, not physical Windows XP evidence.'
+            'ERROR_INVALID_IMAGE_HASH (577) is accepted only for the exact-local dynamic probe when Check integrity is set and the image has no certificate directory.'
+            'The linked consumer may resolve the OS KnownDLL bcrypt.dll on modern Windows; MODULE PATH is recorded and must not be treated as validation of the One-Core bytes.'
+            'Physical Windows XP SP3 x86 validation must use the runtime artifact unchanged.'
+          ) | Set-Content -Encoding utf8 diagnostics\hosted-runtime-caveat.txt
+
+      - name: Upload physical-XP runtime artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bcrypt-xp-x86-runtime
+          path: runtime/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bcrypt-xp-x86-diagnostics
+          path: diagnostics/
+          if-no-files-found: error
+          retention-days: 14

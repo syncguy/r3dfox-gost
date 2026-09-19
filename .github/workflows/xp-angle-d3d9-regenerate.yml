@@ -1,0 +1,73 @@
+name: XP ANGLE D3D9-only regeneration smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/xp-angle-d3d9-regenerate.yml"
+      - ".github/scripts/xp/angle-d3d9-regenerate-test.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate-angle:
+    name: Regenerate ANGLE with D3D11 disabled
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout default experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/gost-tls-poc
+          path: gost-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout XP implementation branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/winrt-source-poc
+          path: xp-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Regenerate ANGLE target graph
+        shell: powershell
+        run: |
+          & .\gost-source\.github\scripts\xp\angle-d3d9-regenerate-test.ps1 `
+            -GostSource .\gost-source `
+            -XpSource .\xp-source `
+            -WorkRoot .\angle-regeneration-work `
+            -Diagnostics .\diagnostics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish regeneration summary
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path .\diagnostics\summary.txt) {
+            Get-Content .\diagnostics\summary.txt | ForEach-Object { "$_  " } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          if (Test-Path .\diagnostics\libGLESv2.moz.build.diff) {
+            "`n### libGLESv2 moz.build diff`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "``````diff" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content .\diagnostics\libGLESv2.moz.build.diff | Select-Object -First 300 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+      - name: Upload regeneration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-angle-d3d9-regeneration-${{ github.run_id }}
+          path: diagnostics
+          if-no-files-found: warn

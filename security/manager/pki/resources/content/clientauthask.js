@@ -51,12 +51,6 @@ var certArray;
 var args;
 
 async function onLoad() {
-  let rememberSetting = Services.prefs.getIntPref(
-    "security.client_auth_certificate_default_remember_setting"
-  );
-  document.getElementById("rememberSetting").value =
-    rememberSetting >= 0 && rememberSetting <= 2 ? rememberSetting : 2;
-
   let propBag = window.arguments[0]
     .QueryInterface(Ci.nsIWritablePropertyBag2)
     .QueryInterface(Ci.nsIWritablePropertyBag);
@@ -64,6 +58,14 @@ async function onLoad() {
   for (let prop of propBag.enumerator) {
     args[prop.name] = prop.value;
   }
+
+  let rememberSetting = Number.isInteger(args.defaultRememberDuration)
+    ? args.defaultRememberDuration
+    : Services.prefs.getIntPref(
+        "security.client_auth_certificate_default_remember_setting"
+      );
+  document.getElementById("rememberSetting").value =
+    rememberSetting >= 0 && rememberSetting <= 2 ? rememberSetting : 2;
 
   certArray = args.certArray;
 
@@ -73,13 +75,18 @@ async function onLoad() {
     { hostname: args.hostname }
   );
 
+  const dateFormatter = new Intl.DateTimeFormat(undefined);
   let selectElement = document.getElementById("nicknames");
   for (let i = 0; i < certArray.length; i++) {
     let menuItemNode = document.createXULElement("menuitem");
     let cert = certArray[i];
-    let nickAndSerial = `${cert.displayName} [${cert.serialNumber}]`;
+    let label = await document.l10n.formatValue("client-auth-cert-list-entry", {
+      name: cert.displayName,
+      date: dateFormatter.format(new Date(cert.validity.notAfter / 1000)),
+      issuer: cert.issuerCommonName || cert.issuerName,
+    });
     menuItemNode.setAttribute("value", i);
-    menuItemNode.setAttribute("label", nickAndSerial); // This is displayed.
+    menuItemNode.setAttribute("label", label);
     selectElement.menupopup.appendChild(menuItemNode);
     if (i == 0) {
       selectElement.selectedItem = menuItemNode;
@@ -108,7 +115,7 @@ async function setDetails() {
   document.l10n.setAttributes(
     document.getElementById("clientAuthCertDetailsIssuedTo"),
     "client-auth-cert-details-issued-to",
-    { issuedTo: cert.subjectName }
+    { issuedTo: cert.displayName }
   );
   document.l10n.setAttributes(
     document.getElementById("clientAuthCertDetailsSerialNumber"),
@@ -148,7 +155,7 @@ async function setDetails() {
   document.l10n.setAttributes(
     document.getElementById("clientAuthCertDetailsIssuedBy"),
     "client-auth-cert-details-issued-by",
-    { issuedBy: cert.issuerName }
+    { issuedBy: cert.issuerCommonName || cert.issuerName }
   );
   document.l10n.setAttributes(
     document.getElementById("clientAuthCertDetailsStoredOn"),
