@@ -39,6 +39,7 @@ class Array;
 using mozilla::NotNull;
 
 class nsIRunnable;
+class nsThreadManager;
 class nsThreadShutdownContext;
 
 // See https://www.w3.org/TR/longtasks
@@ -263,6 +264,9 @@ class nsThread : public nsIThreadInternal,
   // For full nsThreads, they will always contain valid pointers. For thin
   // wrappers around non-XPCOM threads, they will be null, and event dispatch
   // methods which rely on them will fail (and assert) if called.
+#ifdef MOZ_XP_COMPAT
+  nsThreadManager* mThreadManager = nullptr;
+#endif
   RefPtr<mozilla::SynchronizedEventQueue> mEvents;
   RefPtr<mozilla::ThreadEventTarget> mEventTarget;
 

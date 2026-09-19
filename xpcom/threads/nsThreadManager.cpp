@@ -30,7 +30,6 @@
 #include "mozilla/ipc/SharedMemoryMapping.h"
 #include "TaskController.h"
 #include "ThreadEventTarget.h"
-#include "prinit.h"
 #ifdef MOZ_CANARY
 #  include <fcntl.h>
 #  include <unistd.h>
@@ -39,14 +38,6 @@
 #include "MainThreadIdlePeriod.h"
 
 using namespace mozilla;
-
-#ifdef MOZ_XP_COMPAT
-// Windows XP does not reliably provide static TLS blocks to threads that
-// predate a dynamically loaded DLL. Avoid compiler-generated thread-safe
-// local-static TLS for the process-lifetime thread manager singleton.
-static PRCallOnceType sXPThreadManagerOnce = {0, 0, PR_FAILURE};
-static nsThreadManager* sXPThreadManager = nullptr;
-#endif
 
 static MOZ_THREAD_LOCAL(bool) sTLSIsMainThread;
 
@@ -291,17 +282,8 @@ NS_IMPL_CI_INTERFACE_GETTER(nsThreadManager, nsIThreadManager)
 }
 
 /*static*/ nsThreadManager& nsThreadManager::get() {
-#ifdef MOZ_XP_COMPAT
-  PRStatus status = PR_CallOnce(&sXPThreadManagerOnce, []() -> PRStatus {
-    sXPThreadManager = new nsThreadManager();
-    return PR_SUCCESS;
-  });
-  MOZ_RELEASE_ASSERT(status == PR_SUCCESS && sXPThreadManager);
-  return *sXPThreadManager;
-#else
   static NeverDestroyed<nsThreadManager> sInstance;
   return *sInstance;
-#endif
 }
 
 nsThreadManager::nsThreadManager()
