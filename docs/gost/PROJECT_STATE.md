@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 This file is the authoritative current technical synthesis and handoff for new chats. The immediately preceding full synthesis is preserved unchanged in [`PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md`](./PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md). Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -105,13 +105,13 @@ This is a full-build/package/static compatibility PASS only. It does not by itse
 
 ## Physical XP browser/runtime state
 
-The latest build/static candidate is `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`, but it has not yet been physically exercised on XP.
+The latest integrated full-build/static candidate, source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`, is now also the latest physically exercised exact browser target. The user-supplied runtime hashes for `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and private `pwrp_k32.dll` were independently matched against package artifact `10555076979`; matching diagnostics/PDB artifact is `10555616046`. See the 2026-09-19 entry in `TEST_LOG.md` for the exact hashes and sanitized Procmon evidence.
 
-The latest physically exercised exact target remains `52e05a161da601e656e6ba3031084bcc60fdb098`, run `35059756036`, job `104677385743`. The test uses the complete `r3dfox-v153.0.3.win32.portable.7z` from package `10436053344`, with diagnostics `10436392402`. Runtime file identity and offline PE/PDB correspondence were verified; the physical test has reached a first-chance AV, not runtime PASS. See the 2026-09-18 entry in `TEST_LOG.md` for identity, configuration and provenance.
+Current observed boundary: the exact successor physically advances beyond the predecessor private-loader failure. In the parent browser process, private `pwrp_k32.dll`, private `DWrite.dll` and the remaining private DirectWrite closure load successfully; the parent then opens and reads the existing `DWriteCore/FontSet-v3.dat` cache and creates GPU, socket, tab/content, RDD, additional tab/content and utility child processes. The parent nevertheless terminates roughly 5.55 seconds after start with signed exit status `-1073741819` / `0xC0000005`. This is not sustained runtime PASS.
 
-Current observed boundary: captures `E001`/`E002` reach `0xc0000005` read access at `pwrp_k32+0x2c50d` during private DWrite loading. A value inside `ntdll.dll` is being treated as an image base by the private helper. In targeted capture `E003`, the same DWrite request, `api-ms-win-core-fibers-l1-1-1`, has just returned `STATUS_DLL_NOT_FOUND` from the original `LdrLoadDll`. At `mozglue+0x70806`, the hook-local handle is invalid and `NONNULL`, while the caller output is initially `NULL`. The continuation now observes the `+0x70810` store replacing that output with the invalid value and the same value returning from system `LoadLibraryExW` at `pwrp_k32+0x298fd`, for the same request and thread.
+The predecessor source defect in `patched_LdrLoadDll` remains directly proven on source `52e05a...`, and the new source contains the narrow failed-output remediation. The successor's advancement through private DWrite and font-cache activity establishes physical progress beyond the old startup boundary. Procmon does not expose the new faulting EIP or stack, so the exact new AV owner remains unresolved and the absence of the predecessor fault instruction has not yet been confirmed in a debugger.
 
-The identified source defect is failed-load output handling in `patched_LdrLoadDll`, `toolkit/xre/dllservices/mozglue/WindowsDllBlocklist.cpp`: a local handle declared without initialization is forwarded without a success-status guard. Propagation through the output store and Win32 return is now directly observed in `E003`. Immediate Win32 error fields remain unverified because `!gle` failed to resolve `_TEB`; read the two fields directly using the target-checked offsets, then follow the unmodified call to the next stop. The earlier private-helper AV mechanism is established in `E002`; its final recurrence in this same `E003` call, exception fatality, and browser startup/stability acceptance remain open.
+The new Procmon capture still contains failed dynamic searches for `combase.dll`, but no successful `Load Image` of that DLL; the process continues substantially beyond those probes. Do not reassign the current blocker to COMBASE from filesystem lookups alone. The Abseil WinRT timezone probe remains compile-time excluded under `MOZ_XP_COMPAT`; any remaining COMBASE probe has a different, as-yet-unlocalized owner.
 
 Predecessor physical evidence remains source `5845ff2da277f2cc4af40f74a1ef5dd8b8b2da11`, run `34688317433`, job `103539109910`, with package `10298184343`, runtime `10297859657`, and diagnostics/PDB `10298342641`. No newly accepted physical capture is assigned to the intermediate `55a5415b...` or `630804c5...` builds.
 
@@ -158,9 +158,9 @@ Keep the XP mechanisms distinct:
 
 The canonical full XP x86 browser build/package/static compatibility boundary is **GREEN** on exact source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`. This source contains the narrow `patched_LdrLoadDll` failed-output remediation and retains the previously accepted XP compatibility work, including the Abseil WinRT/COMBASE exclusion.
 
-Physical XP runtime acceptance remains **OPEN**. The predecessor exact package from source `52e05a...` physically established the failed-load propagation defect; the successor fix now has its own all-GREEN full build/static evidence but no physical runtime result yet. The next acceptance step is to use the complete portable archive from package `10555076979` with matching diagnostics `10555616046`, bind local binaries/PDB to that exact artifact, and verify whether the private-loader AV disappears and startup advances.
+Physical XP runtime acceptance remains **OPEN**, but the exact successor now has physical evidence. Package `10555076979` advances through successful private DirectWrite loading, font-cache access and multiprocess startup, then the parent process exits with `0xC0000005`. The prior failed-output/private-helper startup boundary is therefore physically advanced beyond; the current acceptance blocker is the later parent-process AV whose faulting module/stack is not yet captured.
 
-If the remediation is physically accepted, the deferred cleanup remains to remove the temporary early `PreloadXPPrivatePwrp()` call, rebuild, and physically retest the exact successor without that ordering workaround.
+Next acceptance step: keep the exact source and temporary early `PreloadXPPrivatePwrp()` ordering unchanged, reproduce under matching WinDbg/PDB, and capture the new AV's exception record, registers, stack, module/symbol and full dump. Do not mix the deferred preload cleanup into this diagnostic run. After the new AV is localized and the current boundary is stable, remove the temporary early preload in a separate rebuild/retest experiment.
 
 # Bundled government-system extensions / localization
 
@@ -188,6 +188,6 @@ Source `52e05a161da601e656e6ba3031084bcc60fdb098` contains functional commit `9d
 
 Current source `6a3ffb8295bfdde77df3ed34dfca911beae9941a` implements the narrow owner fix in `patched_LdrLoadDll`: defined null initialization for the local handle, no failed-handle forwarding to the caller, and null passed to `ModuleLoadFrame::SetLoadStatus` on failed NTSTATUS while preserving successful-load semantics and the returned status. The exact successor passed the canonical full build/static gates in run `35346927393`, job `105605594476`, with package/runtime/diagnostics artifacts recorded above.
 
-The hook's predecessor invalid-output propagation is directly proven; the successor remediation is now full-build/package/static accepted but not yet physically accepted. The next evidence boundary is the exact package from run `35346927393` on physical XP. Absence of the probed API-set alone does not establish a need for an additional provider DLL.
+The hook's predecessor invalid-output propagation is directly proven. The successor remediation is now both full-build/package/static accepted and physically exercised: the exact package from run `35346927393` progresses through private DWrite loading, font-cache access and child-process startup instead of dying at the predecessor private-loader boundary. Sustained runtime is still not accepted because the parent later exits with a new `0xC0000005`; WinDbg localization is the next evidence boundary. Absence of the probed API-set alone does not establish a need for an additional provider DLL.
 
 Publication check: xp-bridge-allowlist-v1 checked
