@@ -479,6 +479,42 @@ using fd_async::AsyncExecute;
  */
 RefPtr<mozilla::MozPromise<bool, nsFilePicker::Error, true>>
 nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
+#ifdef MOZ_XP_COMPAT
+  using Promise = mozilla::MozPromise<bool, Error, true>;
+
+  ScopedRtlShimWindow shim(mParentWidget.get());
+  AutoWidgetPickerState awps(mParentWidget);
+
+  BROWSEINFOW bi = {};
+  bi.hwndOwner = shim.get();
+  bi.lpszTitle = mTitle.IsEmpty() ? nullptr : mTitle.get();
+  bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+  bi.lParam =
+      reinterpret_cast<LPARAM>(aInitialDir.IsEmpty() ? nullptr : aInitialDir.get());
+  bi.lpfn = [](HWND hwnd, UINT msg, LPARAM, LPARAM data) -> int {
+    if (msg == BFFM_INITIALIZED && data) {
+      SendMessageW(hwnd, BFFM_SETSELECTIONW, TRUE, data);
+    }
+    return 0;
+  };
+
+  PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+  if (!pidl) {
+    return Promise::CreateAndResolve(false, __PRETTY_FUNCTION__);
+  }
+
+  wchar_t path[MAX_PATH] = {};
+  const bool ok = SHGetPathFromIDListW(pidl, path);
+  CoTaskMemFree(pidl);
+  if (!ok) {
+    return Promise::CreateAndReject(
+        MOZ_FD_LOCAL_ERROR("SHGetPathFromIDListW", E_FAIL),
+        __PRETTY_FUNCTION__);
+  }
+
+  mUnicodeFile.Assign(path);
+  return Promise::CreateAndResolve(true, __PRETTY_FUNCTION__);
+#else
   namespace fd = ::mozilla::widget::filedialog;
   nsTArray<fd::Command> commands = {
       fd::SetOptions(FOS_PICKFOLDERS),
@@ -508,6 +544,7 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
               }
               return false;
             });
+#endif
 }
 
 /*
