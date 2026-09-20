@@ -8,6 +8,61 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-20 — physical XP YY TLS detach re-entry smoke reaches teardown-order-dependent hang
+
+Track: Windows XP SP3 x86 compatibility / DLL static-TLS and thread teardown. Independent of GOST TLS handshake behavior.
+
+Exact experiment identity:
+
+- workflow `.github/workflows/xp-yy-tls-detach-reentry-smoke.yml` / `XP YY TLS detach re-entry smoke`;
+- branch and source-under-test `agent/gost-tls-poc` / `1a61565dd3442d817893c52d473365442e24ba6c`;
+- Actions run `35495864771`, job `106038556671`, aggregate result **completed / success / GREEN**;
+- physical-test artifact `10600581430` (`xp-yy-tls-detach-reentry-smoke`), digest `sha256:5720d3432849d31097084bde37228e64eee21e49ad79cec50e661d85d3868201`;
+- physical OS: Windows XP SP3 x86 / 5.1.2600.
+
+The artifact closes the preceding XP loader blockers for this focused reproducer: the staged CRT and both test DLLs load, the worker thread is created, and `TouchLocalStatic()` executes on physical XP in both load-order modes. The earlier `FlsGetValue` and direct SRW/condition-variable import failures are therefore not the current boundary for this exact artifact.
+
+Physical `owner-first` result is a complete PASS:
+
+```text
+worker-body-ok value=443654421
+mode=owner-first initial=443654421 worker_exit=0 owner_order=2 late_order=1 callback_calls=1 last_value=443654421
+reentry_after_owner_detach=NO
+exit=0
+```
+
+This proves that the worker body, thread exit, both `DLL_THREAD_DETACH` callbacks and the late DLL callback can all complete on physical XP when the late callback runs before owner detach.
+
+Physical `late-first` reaches the worker body but the worker never terminates:
+
+```text
+worker-body-ok value=444015969
+WaitForSingleObject failed result=258 err=127
+exit=-2147483641
+```
+
+`258` is `WAIT_TIMEOUT`; the probe waits 10 seconds. The printed `err=127` is not treated as the failure owner because `GetLastError()` is sampled after a timeout, where that value is not the reason for `WAIT_TIMEOUT`. A DrWatson snapshot of the still-running probe shows a worker-side thread blocked in `ntdll!RtlEnterCriticalSection` during the teardown interval. The capture does not establish an access violation and does not provide enough unwind/symbol evidence to assign the critical section to a specific YY or CRT function.
+
+The strongest proven differential is therefore:
+
+```text
+owner-first -> physical XP PASS
+late-first  -> physical XP HANG during thread teardown
+```
+
+Normal worker execution succeeds in both modes; changing DLL load/detach order changes only the teardown outcome. This strongly localizes the focused failure class to thread-exit / DLL-detach / TLS-lifecycle ordering rather than ordinary `TouchLocalStatic()` execution or the XP loader boundary.
+
+Important limit: the intended narrower chain `owner detach -> YY TLS cleanup -> later DLL callback -> re-entry into owner -> AV` is **not yet proven**. In `late-first`, the probe never reaches its post-wait reads of `owner_order`, `late_order`, `callback_calls` or `last_value`; therefore the current evidence does not establish that the late callback was reached after owner detach. The observed symptom is a hang, not the Firefox GPU-child `C0000005`.
+
+Relation to the browser line: this focused result independently demonstrates a real physical-XP sensitivity to DLL detach ordering in a YY/static-TLS reproducer, which is consistent with continued investigation of the browser's late thread teardown. It is not an exact reproduction of the Firefox GPU crash and does not supersede the browser-specific evidence. Candidate browser commit `62835966a1c680382b8ab8a7100b810abccbf2c5` on `agent/winrt-source-poc` remains a narrow, separately testable remediation for the browser's observed `nsThreadManager::get()` detach re-entry; this focused hang is not evidence that the candidate has passed physical browser runtime.
+
+Next discriminating experiment: instrument the focused reproducer with non-CRT atomic markers immediately before/after owner `DLL_THREAD_DETACH`, before/after the late DLL callback, and, if practical without broad changes, around the YY TLS cleanup boundary. The goal is to distinguish hang-before-owner-detach, hang-inside-owner/YY teardown, completed-owner-detach, late-callback entry, and re-entry into `TouchLocalStatic()` without changing the lifecycle topology under test.
+
+Status: **current physical-XP focused evidence; owner-first PASS, late-first teardown HANG; exact late re-entry point still open.**
+
+---
+
+
 ## 2026-09-12 — exact-vendored ANGLE D3D9 generated graph passes the authoritative semantic gate
 
 Track: Windows XP SP3 x86 ANGLE build-graph generation. Independent of GOST TLS runtime and not physical-XP browser-runtime evidence.
