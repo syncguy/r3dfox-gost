@@ -662,3 +662,28 @@ User-reported local runtime binary hashes were supplied for `r3dfox.exe`, `xul.d
 Status: **physical-XP no-preload cleanup accepted; RSA and GOST TLS exercised successfully on this build.**
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+
+---
+
+## 2026-09-20 — XP legacy file-picker focused source compile GREEN
+
+Track: Windows XP SP3 x86 compatibility / Windows file-picker source fallback. Independent of GOST TLS runtime.
+
+Exact identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `e9d4a1115d3c97cad8cdeb0aa42c61ee5e9240a8` (`fix(xp): pass folder path as native wide string`);
+- workflow/job role: focused `Firefox source WinRT isolation / x86` source compile;
+- run `35509299508`;
+- job `106074306188`;
+- result: **completed / success / GREEN**;
+- diagnostics artifact `10605097098` (`winrt-source-poc-x86-diagnostics`), 12,810 bytes, digest `sha256:cc068c5d8460e0c45499129941cc8860f9f4a55c1da434949248a5a00db53f4c`.
+
+The focused job successfully completed x86 configuration/export prerequisites, `GATE - Compile WinRT-related target objects`, the gate requiring disabled legacy paths to have no WinRT API references, remaining-widget WinRT inventory, diagnostics upload, and summary.
+
+This is the first GREEN focused compile after explicitly enabling `-DMOZ_XP_COMPAT` for `nsFilePicker.cpp` and correcting the XP legacy Open/Save/Folder picker source. It therefore establishes **source-level compile acceptance of the active XP picker fallback**, unlike the earlier focused GREEN that had compiled the Vista+ branch because the file-specific XP define was absent.
+
+Evidence boundary: this is a focused source/build PASS only. It does not prove that `GetOpenFileNameW`, `GetSaveFileNameW`, or `SHBrowseForFolderW` operate correctly in the physical browser on Windows XP. Full-build/link/package evidence and physical Ctrl+O / save-as / download-directory picker validation remain separate boundaries.
+
+Status: **focused XP legacy file-picker source compile GREEN.**
