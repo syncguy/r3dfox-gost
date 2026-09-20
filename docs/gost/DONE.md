@@ -410,3 +410,9 @@ The portable package contains CryptoPro CAdES `1.2.14`, legacy Gosuslugi/IFCPlug
 ### Three-extension clean-profile discovery/enabled state — COMPLETE
 
 On the exact packaged browser from source `b3d097de...`, run `32976571122`, artifact `9614275050`, a fresh dedicated profile shows all three bundled project extensions enabled. Native functionality of IFCPlugin/Gosplugin and update behavior remain open separately.
+
+### Windows XP legacy file-picker runtime — COMPLETE
+
+Source `e9d4a1115d3c97cad8cdeb0aa42c61ee5e9240a8`; focused compile run `35509299508`, job `106074306188`; full build run `35509338997`, job `106074415929`; package artifact `10606724582`.
+
+The XP-specific legacy Windows file-picker fallback passed focused compilation, the complete XP build/package/import gates, and user-reported physical Windows XP execution. The previously observed failure to open the Windows file dialog is closed for this exact lineage. Vista+ continues to use its separate `IFileDialog` path.
