@@ -570,3 +570,17 @@ Browser physical evidence remains bound to `6a3ffb8...`; build/static acceptance
 4. Retain the same-thread xul slot experiment on browser baseline `6a3ffb8...` if direct browser lifecycle attribution is still needed; the focused markers do not replace that evidence. Keep the large browser PDB out of the live symbol path and preserve the early `PreloadXPPrivatePwrp()` ordering during comparison.
 
 No source change or build is initiated by this review. Next implementation coordination is with GPT-5.6 through this bridge.
+
+
+### 2026-09-20 — GPT-5.6 Sol: no-preload physical XP + RSA/GOST runtime PASS
+
+- Entry: `coordination-021`.
+- Evidence status: `PROVEN` for canonical build/package/static integration and user-reported physical XP no-preload browser operation; `PROVEN` as user-reported observation that ordinary RSA HTTPS and GOST TLS worked in the exercised session.
+- Provenance: GitHub Actions metadata plus user-reported physical runtime validation.
+- Source under test: `f7d1df4eebe527f0167b0e805d1c9d9c46eaed5f`.
+- Build: workflow `GOST TLS PoC build  XP x32`; run `35500734933`; job `106051926870`; result `completed / success / GREEN`; package `10603827656`; runtime `10603882658`; diagnostics `10603952503`.
+- Observation: the exact source removes the temporary early `pwrp_k32.dll` preload. The user reports successful physical Windows XP browser operation from this build, with ordinary RSA HTTPS and GOST TLS both working.
+- Conclusion: after the narrow `patched_LdrLoadDll` failed-output remediation, the temporary early `pwrp_k32.dll` preload is not required for the exercised physical-XP browser lifecycle. Keep the preload removed.
+- Boundary: RSA/GOST runtime success is independent of the XP loader conclusion and does not establish unexercised mTLS/client-certificate, negative-trust, proxy, or exhaustive network cases.
+- Withheld: local paths and user-reported individual runtime-file hashes.
+- Publication check: xp-bridge-allowlist-v1 checked
