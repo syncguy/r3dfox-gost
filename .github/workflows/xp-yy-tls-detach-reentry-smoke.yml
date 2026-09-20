@@ -174,6 +174,14 @@ jobs:
             @{ Key='isfiber-import'; Pattern='(?i)[\\/]_IsThreadAFiber@0\.obi$' },
             @{ Key='stackguarantee-direct'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obj$' },
             @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
+            @{ Key='srw-acq-ex-direct'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-acq-ex-import'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-rel-ex-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obj$' },
+            @{ Key='srw-rel-ex-import'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-sleep-direct'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obj$' },
+            @{ Key='srw-sleep-import'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obi$' },
+            @{ Key='cv-wake-all-direct'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obj$' },
+            @{ Key='cv-wake-all-import'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obi$' },
             @{ Key='implementation'; Pattern=$implementationPattern }
           )
 
@@ -388,8 +396,19 @@ jobs:
             $headers | Set-Content -Encoding utf8 ("diagnostics\" + $name + "-headers.txt")
             $imports | Set-Content -Encoding utf8 ("diagnostics\" + $name + "-imports.txt")
             foreach ($api in @(
-              'FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
-              'ProcessPrng','GetSystemTimePreciseAsFileTime','IsThreadAFiber','SetThreadStackGuarantee'
+              'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal',
+              'CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+              'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo',
+              'CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+              'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx',
+              'GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+              'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W',
+              'GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+              'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime',
+              'ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription',
+              'SetThreadStackGuarantee','SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork',
+              'TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable',
+              'WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable'
             )) {
               if ($imports.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "$name retains forbidden XP direct import $api" }
             }
@@ -404,6 +423,9 @@ jobs:
           $lateMap = Get-Content diagnostics\late-callback.map -Raw
           foreach ($pair in @(@{Name='tls-owner.dll';Text=$ownerMap},@{Name='late-callback.dll';Text=$lateMap})) {
             if ($pair.Text.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw "$($pair.Name) map does not contain DllMainCRTStartupForYY_Thunks" }
+          }
+          foreach ($api in @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','SleepConditionVariableSRW','WakeAllConditionVariable')) {
+            if ($ownerMap.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "tls-owner.dll map did not select YY_Thunks_$api" }
           }
           $exports = (& dumpbin.exe /nologo /exports runtime\tls-owner.dll 2>&1 | Out-String)
           $exports | Set-Content -Encoding utf8 diagnostics\tls-owner-exports.txt
@@ -448,6 +470,6 @@ jobs:
           "- Test commit: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Target: Windows XP SP3 x86; hosted Windows run is a control only." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- msvcr14x uses the physically proven restore-enabled XP x86 build path; staged ucrtbase.dll/msvcp140.dll pass the canonical XP runtime contract gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- tls-owner.dll uses compiler thread-safe function-local static initialization and YY-Thunks v$env:YY_THUNKS_VERSION DLL TLS entry point." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- tls-owner.dll uses compiler thread-safe function-local static initialization and YY-Thunks v$env:YY_THUNKS_VERSION DLL TLS entry point; its SRW/condition-variable guard imports are forced through the narrow YY provider." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- late-callback.dll re-enters tls-owner.dll from DLL_THREAD_DETACH." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- A hosted PASS proves build/contract/control behavior, not reproduction on physical XP." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
