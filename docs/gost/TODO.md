@@ -169,3 +169,7 @@ The current lineage has already closed or physically advanced past the following
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
 The active runtime acceptance target is exact successor source `6a3ffb8...` / run `35346927393`; its current blocker is the later parent-process `0xC0000005`. Do not spend new cycles on the closed families above without contradictory evidence.
+
+## 2026-09-20 — XP loader cleanup closed
+
+The temporary early `pwrp_k32.dll` preload is no longer pending work. Source `f7d1df4eebe527f0167b0e805d1c9d9c46eaed5f`, run `35500734933`, job `106051926870` passed the canonical full build and user-reported physical Windows XP validation without that preload. Ordinary RSA HTTPS and GOST TLS also worked in the physical browser session. Keep the preload removed unless later exact-artifact evidence contradicts this result.
