@@ -495,3 +495,40 @@ This result does **not** prove that the prior physical GPU-child `0xC0000005` is
 Next browser evidence boundary: execute the exact `62835966...` package/runtime on physical Windows XP SP3 x86 and determine whether execution advances beyond the prior GPU-child `nsThreadManager::get()` / null-xul-TLS-slot detach boundary while keeping the separate parent-process AV and focused YY lifecycle control distinct.
 
 Status: **current authoritative all-GREEN XP full-build/static baseline; physical XP validation pending.**
+
+---
+
+## 2026-09-20 — focused YY detach harness physical-XP loader failures localized before TLS test
+
+Track: Windows XP SP3 x86 compatibility / focused TLS-lifecycle reproducer. Independent of GOST TLS runtime and separate from full-browser physical validation.
+
+Two physical-XP attempts have now established loader defects in successive harness artifacts, not results of the intended detach/re-entry experiment.
+
+First physical attempt used the hosted-control artifact from source `14a081882ae657115ae799f7adeca6605677d9d0`, run `35448707456`, job `105912013098`, artifact `10586477797`. Physical Windows XP stopped before `probe.exe` entered the test with missing `KERNEL32!FlsGetValue`. Inspection showed the staged CRT closure was not the physically proven XP-compatible msvcr14x output. This did **not** exercise TLS detach/re-entry.
+
+The follow-up workflow fixed the CRT build/restore path and added the canonical CRT runtime gate:
+
+- source-under-test / Actions head SHA `a98d08f3096f06bbc8d823584d3752465898f5d7`;
+- workflow `.github/workflows/xp-yy-tls-detach-reentry-smoke.yml`;
+- run `35456649606`;
+- job `105933017753`;
+- CI result: **completed / success / GREEN**;
+- artifact `10587894239` (`xp-yy-tls-detach-reentry-smoke`), 1,636,331 bytes, digest `sha256:581201342e651a229acaf0cdfa50a9d64fd3a47c17a2511bb7c9039245d36f26`.
+
+On physical Windows XP this exact second artifact also stopped before the intended test, now with missing `KERNEL32!AcquireSRWLockExclusive`.
+
+Artifact diagnostics localize the remaining loader defect to `tls-owner.dll` itself. Its direct KERNEL32 imports include the compiler thread-safe local-static guard family:
+
+- `AcquireSRWLockExclusive`;
+- `ReleaseSRWLockExclusive`;
+- `SleepConditionVariableSRW`;
+- `WakeAllConditionVariable`.
+
+The exact `probe.exe`, `late-callback.dll`, `ucrtbase.dll`, and `msvcp140.dll` diagnostics do not contain this quartet as direct imports. Therefore the second physical failure is a focused-harness link closure defect: the owner DLL deliberately exercises MSVC thread-safe function-local static machinery, but its narrow YY provider did not include the required SRW/condition-variable weak-alias objects.
+
+Corrective workflow-only commit `5c323d003ca1c7f3fd7b740aa16a450e5bdcfe7a` (`test(xp): close SRW imports in TLS detach smoke`) adds the exact YY weak-alias pairs for the four observed owner imports, requires the final owner map to select the corresponding `YY_Thunks_*` implementations, and expands the final target-PE gate to the canonical curated post-XP API set used by the main XP build.
+
+Conclusion: **neither physical attempt reached the TLS detach/re-entry discriminator.** The `FlsGetValue` and `AcquireSRWLockExclusive` loader dialogs are harness/runtime-closure failures and provide no evidence for or against the browser teardown hypothesis.
+
+Next evidence boundary: use a new artifact built from `5c323d003ca1c7f3fd7b740aa16a450e5bdcfe7a` (or its exact successor if CI-only correction is required) only after the hosted build/PE gates pass, then run both `owner-first` and `late-first` on physical Windows XP SP3 x86. Do not treat the workflow commit itself as GREEN until its Actions run completes.
+
