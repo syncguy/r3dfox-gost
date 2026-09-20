@@ -145,6 +145,7 @@ SOURCES += [
     "WinTaskbar.cpp",
 ]
 SOURCES["LSPAnnotator.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["nsFilePicker.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["nsWindow.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["WinTaskbar.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 SOURCES["WindowsUIUtils.cpp"].flags += ["-DMOZ_NO_WINRT"]
