@@ -489,10 +489,11 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
   bi.hwndOwner = shim.get();
   bi.lpszTitle = mTitle.IsEmpty() ? nullptr : mTitle.get();
   bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-  bi.lParam = aInitialDir.IsEmpty()
-                  ? 0
-                  : static_cast<LPARAM>(
-                        reinterpret_cast<intptr_t>(aInitialDir.get()));
+  const wchar_t* initialDir =
+      aInitialDir.IsEmpty()
+          ? nullptr
+          : reinterpret_cast<const wchar_t*>(aInitialDir.BeginReading());
+  bi.lParam = reinterpret_cast<LPARAM>(initialDir);
   bi.lpfn = [](HWND hwnd, UINT msg, LPARAM, LPARAM data) -> int {
     if (msg == BFFM_INITIALIZED && data) {
       SendMessageW(hwnd, BFFM_SETSELECTIONW, TRUE, data);
