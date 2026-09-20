@@ -176,8 +176,12 @@ jobs:
             @{ Key='stackguarantee-import'; Pattern='(?i)[\\/]_SetThreadStackGuarantee@4\.obi$' },
             @{ Key='srw-acq-ex-direct'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obj$' },
             @{ Key='srw-acq-ex-import'; Pattern='(?i)[\\/]_AcquireSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-acq-sh-direct'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obj$' },
+            @{ Key='srw-acq-sh-import'; Pattern='(?i)[\\/]_AcquireSRWLockShared@4\.obi$' },
             @{ Key='srw-rel-ex-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obj$' },
             @{ Key='srw-rel-ex-import'; Pattern='(?i)[\\/]_ReleaseSRWLockExclusive@4\.obi$' },
+            @{ Key='srw-rel-sh-direct'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obj$' },
+            @{ Key='srw-rel-sh-import'; Pattern='(?i)[\\/]_ReleaseSRWLockShared@4\.obi$' },
             @{ Key='srw-sleep-direct'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obj$' },
             @{ Key='srw-sleep-import'; Pattern='(?i)[\\/]_SleepConditionVariableSRW@16\.obi$' },
             @{ Key='cv-wake-all-direct'; Pattern='(?i)[\\/]_WakeAllConditionVariable@4\.obj$' },
@@ -424,7 +428,7 @@ jobs:
           foreach ($pair in @(@{Name='tls-owner.dll';Text=$ownerMap},@{Name='late-callback.dll';Text=$lateMap})) {
             if ($pair.Text.IndexOf('DllMainCRTStartupForYY_Thunks',[System.StringComparison]::Ordinal) -lt 0) { throw "$($pair.Name) map does not contain DllMainCRTStartupForYY_Thunks" }
           }
-          foreach ($api in @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','SleepConditionVariableSRW','WakeAllConditionVariable')) {
+          foreach ($api in @('AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SleepConditionVariableSRW','WakeAllConditionVariable')) {
             if ($ownerMap.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal) -lt 0) { throw "tls-owner.dll map did not select YY_Thunks_$api" }
           }
           $exports = (& dumpbin.exe /nologo /exports runtime\tls-owner.dll 2>&1 | Out-String)
