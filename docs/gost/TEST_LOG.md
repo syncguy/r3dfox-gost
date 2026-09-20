@@ -715,3 +715,30 @@ The complete XP x86 build, packaging, PE/import audit, runtime archive construct
 Evidence boundary: **full build/package PASS is not physical runtime PASS.** The next experiment is physical Windows XP SP3 x86 validation of: Ctrl+O legacy Open dialog; ask-where-to-save legacy Save dialog plus actual download; Settings download-directory legacy Folder dialog; and the existing no-prompt download path as a regression control. Browser stability and orderly shutdown after picker use should also be observed.
 
 Status: **full XP file-picker candidate build GREEN; physical XP runtime validation pending.**
+
+
+---
+
+## 2026-09-20 — XP legacy file-picker physical runtime PASS
+
+Track: Windows XP SP3 x86 compatibility / Windows file-picker source fallback. Independent of GOST TLS runtime.
+
+Exact source/build identity remains:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `e9d4a1115d3c97cad8cdeb0aa42c61ee5e9240a8`;
+- full-build run `35509338997`;
+- job `106074415929`;
+- package artifact `10606724582`, digest `sha256:5052e8e605c66c342b64af22d9dc887cb39ace644c9bf1acc3664d4105bc384d`;
+- runtime artifact `10606634609`, digest `sha256:d567d128f544a1cfaa301be190b9a70bdb04b8b1da2d0f601aaad9d8c6ec0762`;
+- diagnostics artifact `10606639685`, digest `sha256:130eebbb003c73296f8b11a8713dc29d1721a02cafe6600f543779da4cfe4d28`.
+
+User-reported physical Windows XP validation of this exact build is **PASS**: the previously broken Windows file-dialog path now works on XP. This physically accepts the XP source fallback carried by this source after the focused compile and full build/package gates had already passed.
+
+The user supplied local SHA-1 identities for `r3dfox.exe`, `xul.dll`, `mozglue.dll`, and `nss3.dll`. Concrete local paths and hashes are intentionally withheld from public documentation under `xp-bridge-allowlist-v1`; they remain available in the private test conversation for artifact correlation.
+
+Conclusion: **the Windows XP legacy file-picker remediation is physically accepted for the exercised browser behavior.** The prior failure where the Windows file dialog could not be opened is closed for this exact source/build lineage. Keep the Vista+ `IFileDialog` path separate; the XP build uses the legacy source fallback.
+
+Status: **physical XP file-picker runtime PASS.**
+
+Publication check: xp-bridge-allowlist-v1 checked
