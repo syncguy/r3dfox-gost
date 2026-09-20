@@ -330,9 +330,11 @@ Role:
 
 This is a focused Windows XP x86 TLS-lifecycle reproducer for the current GPU-child static-TLS investigation. It builds a small owner DLL with compiler thread-safe function-local-static state, an explicit PE static-TLS directory and the YY-Thunks DLL entry-point contract, plus a second DLL that can re-enter the owner from `DLL_THREAD_DETACH`.
 
-The authoritative hosted control is source `14a081882ae657115ae799f7adeca6605677d9d0`, run `35448707456`, job `105912013098`, artifact `10586477797`, result **completed / success / GREEN**. The `late-first` control observes owner detach before the later DLL callback and successfully re-enters the owner on hosted Windows; `owner-first` is the inverse-order control.
+The authoritative hosted topology control remains source `14a081882ae657115ae799f7adeca6605677d9d0`, run `35448707456`, job `105912013098`, artifact `10586477797`, result **completed / success / GREEN**. The `late-first` control observes owner detach before the later DLL callback and successfully re-enters the owner on hosted Windows; `owner-first` is the inverse-order control. That exact artifact is **not** accepted as a physical-XP runtime bundle because XP stops before the test on a staged CRT `FlsGetValue` loader import.
 
-This workflow proves the focused PE/YY contract and deterministic detach/re-entry topology. It does **not** prove the behavior on physical Windows XP, does not prove Firefox startup, and does not close the full-browser GPU or parent-process AVs. Physical XP execution of the exact artifact is a separate runtime gate.
+Follow-up source `a98d08f3096f06bbc8d823584d3752465898f5d7`, run `35456649606`, job `105933017753`, artifact `10587894239` fixes the CRT contract but is also physically loader-invalid: `tls-owner.dll` retains direct `AcquireSRWLockExclusive`, `ReleaseSRWLockExclusive`, `SleepConditionVariableSRW`, and `WakeAllConditionVariable` imports. Corrective workflow commit `5c323d003ca1c7f3fd7b740aa16a450e5bdcfe7a` adds the exact YY weak aliases and a broader final target-PE post-XP import gate; treat it as a candidate until its Actions run completes.
+
+This workflow proves hosted topology only when its hosted gates pass. Physical Windows XP acceptance additionally requires that the exact uploaded runtime closure pass the XP loader and execute both modes. It does **not** prove Firefox startup and does not close the full-browser GPU or parent-process AVs.
 
 ## Terminology rule
 
