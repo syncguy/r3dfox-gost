@@ -33,6 +33,20 @@ Physical Windows XP GOST TLS server-auth proof exists for source `88453be37a7f39
 
 # Windows XP SP3 x86 compatibility
 
+
+## Current physical XP full-browser baseline — PASS
+
+Exact source `62835966a1c680382b8ab8a7100b810abccbf2c5`, canonical full-build run `35443499166`, job `105898364295`, package artifact `10587340718`, runtime artifact `10587396294`, and diagnostics artifact `10586618851` are now physically accepted on Windows XP SP3 x86.
+
+Eight key binaries from the physically executed portable package — `r3dfox.exe`, `xul.dll`, private `DWrite.dll`, private `pwrp_k32.dll`, `bcrypt.dll`, `d3dcompiler_47.dll`, `mozglue.dll`, and `nss3.dll` — were independently matched against the exact package artifact before accepting the runtime result.
+
+The hash-matched browser starts, installs the bundled plugins/extensions, opens the start page, remains running for an extended period without an observed crash, and then completes a user-initiated orderly shutdown. The predecessor fatal GPU-child detach AV and parent-process startup AV do not recur as blockers in this observed lifecycle.
+
+This is the current authoritative **physical XP full-browser startup / sustained-runtime / orderly-shutdown PASS**. It supersedes source `6a3ffb8...` as the latest physically exercised browser baseline. It does not prove GOST TLS/mTLS behavior, exhaustive browser feature coverage, or the exact internal YY/static-TLS lifecycle mechanism behind the predecessor GPU-child failure.
+
+The focused YY/static-TLS detach-order reproducer remains a separate forensic line. Its next marker experiment is deferred from the immediate browser acceptance path now that the exact `62835966...` browser has completed a sustained physical-XP lifecycle.
+
+
 ## Physical XP YY/static-TLS detach-order reproducer — owner-first PASS, late-first teardown HANG
 
 Focused workflow `.github/workflows/xp-yy-tls-detach-reentry-smoke.yml` now has physical Windows XP SP3 x86 evidence from exact source `1a61565dd3442d817893c52d473365442e24ba6c`: run `35495864771`, job `106038556671`, artifact `10600581430`, digest `sha256:5720d3432849d31097084bde37228e64eee21e49ad79cec50e661d85d3868201`.
@@ -99,7 +113,7 @@ The current authoritative integrated full-build/static baseline is:
 - job `105898364295` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
 - aggregate result **completed / success / GREEN**.
 
-The source change is the narrow browser consumer remediation for the already-localized GPU-child detach failure. The canonical build/static result establishes that the change integrates cleanly into Firefox/r3dfox 153 and preserves the existing XP build/package/static compatibility gates. It does not establish the physical runtime effect.
+The source change is the narrow browser consumer remediation for the already-localized GPU-child detach failure. The canonical build/static result establishes clean integration into Firefox/r3dfox 153 and preservation of the existing XP build/package/static compatibility gates. Physical runtime acceptance is now established separately by the exact hash-matched XP lifecycle PASS above.
 
 The canonical build completed the Firefox/r3dfox release compile/link, targeted XP compatibility gates, staging of the pinned XP CRT / legacy `D3DCompiler_47.dll` / private DirectWrite closure / proven `bcrypt.dll`, PE subsystem retargeting, package creation, package-survival checks, runtime-test archive creation, broad XP PE/direct-import audit, YY-Thunks inventory, all artifact uploads, and the final summary gate successfully.
 
@@ -111,7 +125,7 @@ Artifacts:
 
 This supersedes source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476` as the latest integrated build/static baseline. Source `6a3ffb8...` remains the latest physically exercised exact browser target until the new package is run on XP.
 
-This is a full-build/package/static compatibility PASS only. It does not by itself prove browser startup or stability on physical Windows XP and does not prove GOST TLS behavior.
+The build result itself remains build/package/static evidence; the separate exact-package physical run above now establishes browser startup, sustained runtime and orderly shutdown on XP. Neither result proves GOST TLS behavior.
 
 ## Physical XP browser/runtime state
 
