@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-07
+Last updated: 2026-09-20
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -212,6 +212,16 @@ Sanitized user confirmation closes the detailed Russian picker UX beyond SD6: ow
 No raw screenshot or certificate identity is retained. T10 closes presentation only; it does not prove or imply real `Permanent` persistence, which remains T6.
 
 ## Windows compatibility
+
+
+### Full Firefox/r3dfox 153 physical Windows XP SP3 x86 lifecycle — COMPLETE / CURRENT BASELINE
+
+Exact source `62835966a1c680382b8ab8a7100b810abccbf2c5`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35443499166`, job `105898364295`, package `10587340718`, runtime `10587396294`, diagnostics `10586618851`.
+
+Eight key runtime binaries were independently matched to the exact package artifact. On physical Windows XP SP3 x86 the browser starts, installs bundled plugins/extensions, opens the start page, remains running for an extended period without an observed crash, and completes a normal user-initiated shutdown.
+
+This closes the current “full browser can start, remain usable, and shut down on physical XP” milestone. It does not close GOST TLS/mTLS runtime, exhaustive browser feature coverage, or the independent forensic question of the predecessor YY/static-TLS teardown mechanism. Detailed evidence is in `TEST_LOG.md`.
+
 
 ### Single-DLL source-built One-Core bcrypt with embedded mbedTLS XP x86 runtime — COMPLETE / SELECTED
 
