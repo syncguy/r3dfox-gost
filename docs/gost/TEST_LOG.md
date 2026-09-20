@@ -629,3 +629,36 @@ Conclusion: **PHYSICAL WINDOWS XP SP3 x86 FULL-BROWSER STARTUP / SUSTAINED RUNTI
 Status: **current authoritative physical-XP full-browser runtime baseline.**
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+
+---
+
+## 2026-09-20 — no-preload full build passes physical XP and RSA/GOST TLS runtime
+
+Track: Windows XP SP3 x86 compatibility plus independent TLS runtime validation.
+
+Exact build identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `f7d1df4eebe527f0167b0e805d1c9d9c46eaed5f` (`cleanup(xp): remove temporary pwrp_k32 preload`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35500734933`;
+- job `106051926870` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- result: **completed / success / GREEN**;
+- package artifact `10603827656`, digest `sha256:9d6a975ca4af3bb1695f14a227ea961e56374a87815765eb2cf1815963f6548d`;
+- runtime artifact `10603882658`, digest `sha256:18e758a6344f0a9eedd229795e0c4a8bc6964dc4f8eefef4dfad6f3c8b40db07`;
+- diagnostics artifact `10603952503`, digest `sha256:6f676d1a5dc8938090803b4dfed038387aef57453d60018445e9e59b4dffbb81`.
+
+The canonical job passed the full Firefox/r3dfox 153 XP x86 compile/link, compatibility gates, staging, packaging, PE/direct-import audit, runtime archive generation, artifact uploads, and final summary.
+
+User-reported physical Windows XP validation of this exact no-preload build is **PASS**. The browser runs successfully without the temporary early `pwrp_k32.dll` preload. Ordinary RSA HTTPS and the project's GOST TLS path were both exercised successfully in the physical browser session.
+
+Conclusion for the XP loader line: **after the `patched_LdrLoadDll` failed-output fix, the temporary early `pwrp_k32.dll` preload is not required for the exercised physical-XP browser lifecycle.** The cleanup commit is physically accepted; the previous preload ordering workaround should remain removed.
+
+Independent TLS conclusion: **RSA HTTPS PASS and GOST TLS runtime PASS were user-observed on the same exact physical-XP build.** This statement does not by itself establish every GOST mTLS/client-certificate mode, negative trust case, or exhaustive network path unless separately exercised and recorded.
+
+User-reported local runtime binary hashes were supplied for `r3dfox.exe`, `xul.dll`, `mozglue.dll`, and `nss3.dll`; concrete local hashes and paths are intentionally withheld from public documentation under `xp-bridge-allowlist-v1`.
+
+Status: **physical-XP no-preload cleanup accepted; RSA and GOST TLS exercised successfully on this build.**
+
+Publication check: xp-bridge-allowlist-v1 checked
