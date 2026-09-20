@@ -223,3 +223,13 @@ Current source `6a3ffb8295bfdde77df3ed34dfca911beae9941a` implements the narrow 
 The hook's predecessor invalid-output propagation is directly proven. The successor remediation is now both full-build/package/static accepted and physically exercised: the exact package from run `35346927393` progresses through private DWrite loading, font-cache access and child-process startup instead of dying at the predecessor private-loader boundary. Sustained runtime is still not accepted because the parent later exits with a new `0xC0000005`; WinDbg localization is the next evidence boundary. Absence of the probed API-set alone does not establish a need for an additional provider DLL.
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+## 2026-09-20 — physical XP no-preload cleanup accepted
+
+The temporary early `PreloadXPPrivatePwrp()` ordering workaround is no longer part of the accepted XP runtime baseline. Exact source `f7d1df4eebe527f0167b0e805d1c9d9c46eaed5f` removes that preload while retaining the narrow `patched_LdrLoadDll` failed-output correction. Canonical full build run `35500734933`, job `106051926870`, completed successfully with package `10603827656`, runtime `10603882658`, and diagnostics `10603952503`.
+
+The user physically validated this exact no-preload build on Windows XP: browser runtime is successful, ordinary RSA HTTPS works, and GOST TLS works. Therefore the accepted narrow conclusion is that **the corrected loader failure semantics make the temporary early `pwrp_k32.dll` preload unnecessary for the exercised physical-XP lifecycle**. Do not restore the preload without new contradictory evidence.
+
+The RSA/GOST observation is a separate TLS-runtime evidence line from XP loader compatibility. It does not automatically close unexercised mTLS/client-certificate, negative server-trust, proxy, or other network-coverage cases.
+
+Publication check: xp-bridge-allowlist-v1 checked
