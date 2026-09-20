@@ -105,7 +105,8 @@ At the start of every new technical chat, and again before making a technical ch
 6. Read `docs/gost/WORKFLOWS.md` before analyzing, comparing, naming, or drawing conclusions from GitHub Actions workflows or build runs.
 7. If the question concerns a previous build, runtime test, regression, error, failed experiment, or discarded approach, read the relevant entry in the active `docs/gost/TEST_LOG.md` and, when necessary, the dated `docs/gost/TEST_LOG_*.md` volume containing that event.
 8. If the question concerns Windows XP x86 building, staging, dependency remediation, PE imports, or physical-XP testing, read and follow `docs/gost/XP_BUILD_CONTRACT.md` before proposing or making changes.
-9. Prefer verified repository, code, workflow, run, and log state over conversational memory.
+9. If the question concerns an active Windows XP runtime/debugging investigation, model-to-model handoff, or continuation of a thread previously discussed with Astra/GPT-5.6, read `docs/gost/XP_RUNTIME_ASTRA_BRIDGE.md` to recover the current coordination thread. Before writing to that bridge, also read `docs/gost/XP_RUNTIME_BRIDGE_SANITIZATION.md` in full and follow its publication procedure. Treat the bridge as coordination context only: canonical evidence remains in `PROJECT_STATE.md`, `TEST_LOG.md`, `TODO.md`, `DONE.md`, `XP_BUILD_CONTRACT.md`, and `WORKFLOWS.md`. Both models should continue from the latest applicable bridge entry rather than relying on conversational memory alone.
+10. Prefer verified repository, code, workflow, run, and log state over conversational memory.
 
 Do not resurrect a hypothesis marked resolved or rejected in `DONE.md` or in any current or historical test-log volume without new evidence.
 
