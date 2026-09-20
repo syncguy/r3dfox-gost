@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 This file is the authoritative current technical synthesis and handoff for new chats. The immediately preceding full synthesis is preserved unchanged in [`PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md`](./PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md). Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -32,6 +32,17 @@ Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `ns
 Physical Windows XP GOST TLS server-auth proof exists for source `88453be37a7f39f690c504078f6f9434e2547ab6`, workflow run `34459906476`, job `102815008544`, runtime artifact `10150744314`. Under forced non-e10s and an explicit GOST host allowlist, the exact browser completed TLS 1.2 MSSPI handshakes with successful server verification and HTTP application traffic. This is server-auth evidence only; mTLS/client-certificate positive proof, fail-closed negative verification coverage, persistent certificate semantics and default-e10s acceptance remain separate work.
 
 # Windows XP SP3 x86 compatibility
+
+## Physical XP YY/static-TLS detach-order reproducer — owner-first PASS, late-first teardown HANG
+
+Focused workflow `.github/workflows/xp-yy-tls-detach-reentry-smoke.yml` now has physical Windows XP SP3 x86 evidence from exact source `1a61565dd3442d817893c52d473365442e24ba6c`: run `35495864771`, job `106038556671`, artifact `10600581430`, digest `sha256:5720d3432849d31097084bde37228e64eee21e49ad79cec50e661d85d3868201`.
+
+The exact runtime bundle passes the XP loader boundary and executes the worker body in both DLL load-order modes. `owner-first` completes thread teardown and exits 0 with `owner_order=2`, `late_order=1`, `callback_calls=1`, and `reentry_after_owner_detach=NO`. `late-first` prints `worker-body-ok` but the worker does not terminate within the probe's 10-second wait; `WaitForSingleObject` returns `WAIT_TIMEOUT` (258). A DrWatson snapshot of the hung process finds a worker-side thread blocked in `ntdll!RtlEnterCriticalSection`.
+
+This establishes a real physical-XP **detach-order-dependent teardown failure** in the focused YY/static-TLS topology: ordinary worker execution succeeds in both modes, while the teardown result changes with DLL load/detach order. It does not yet prove the narrower intended sequence `owner detach -> YY TLS cleanup -> late callback -> re-entry -> AV`, because the `late-first` worker never terminates and the probe therefore never reads its final detach/callback counters. The focused symptom is a hang, not the browser GPU-child `C0000005`.
+
+The next focused experiment should add non-CRT atomic boundary markers around owner detach, late detach/callback, and the YY TLS cleanup boundary where feasible. Do not broaden the YY workaround before that boundary is established. Browser candidate `62835966a1c680382b8ab8a7100b810abccbf2c5` on `agent/winrt-source-poc` remains a separate narrow remediation candidate and still requires exact-build physical browser validation.
+
 
 Active implementation is `agent/winrt-source-poc`; canonical documentation remains on `agent/gost-tls-poc`.
 
