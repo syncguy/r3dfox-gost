@@ -102,33 +102,22 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current XP browser successor — fatal GPU xul TLS-slot blocker; establish detach ordering
+### Current XP browser baseline — physical lifecycle PASS; focused detach forensics deferred
 
-Current exact target:
+Current exact browser baseline:
 
-- source `6a3ffb8295bfdde77df3ed34dfca911beae9941a` (`fix(xp): sanitize failed LdrLoadDll output`);
+- source `62835966a1c680382b8ab8a7100b810abccbf2c5`;
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `35346927393`, job `105605594476`, **completed / success / GREEN**;
-- package `10555076979`;
-- runtime `10554622022`;
-- diagnostics `10555616046`;
-- physical XP execution is bound to the exact packaged `r3dfox.exe`, `xul.dll`, private `DWrite.dll` and private `pwrp_k32.dll` by matching file hashes; matching `xul.pdb` SHA-1 is `5adb2a93d6640d1cfd0964fdf45e5b535f95ac7c`.
+- run `35443499166`, job `105898364295`, **completed / success / GREEN**;
+- package `10587340718`, runtime `10587396294`, diagnostics `10586618851`;
+- eight key runtime binaries independently match the exact package artifact;
+- physical Windows XP SP3 x86 browser lifecycle: startup PASS, bundled plugin/extension installation PASS, start-page display PASS, sustained runtime without observed crash, orderly user-initiated shutdown PASS.
 
-The exact successor advances through private DirectWrite loading, reads `DWriteCore/FontSet-v3.dat`, and starts multiprocess children. Procmon separately records a later parent-process `0xC0000005`; that parent fault remains unsymbolized.
+The predecessor GPU-child detach AV and parent startup AV are no longer current blockers for this exact exercised lifecycle. Do not reopen them without contradictory evidence from the exact current lineage.
 
-The current WinDbg capture proves a distinct fatal GPU-child failure: first and second chance both stop at `xul.dll+0x0090DED4` on the same exiting thread. xul `_tls_index` is 5, that thread's TLS slot 5 is null, and 24 other current threads have non-null slot 5. Matching-PDB symbolization places the xul path in the compiler thread-safe-static access used by `nsThreadManager::get()`, reached from `nsThread` destruction / NSPR TPD release. The raw stack reaches `nss3.dll` DllMain reason 3 / `DLL_THREAD_DETACH`. The faulting thread starts in xul's Rust thread entry path, so the simple “thread existed before xul load” explanation is rejected.
+Immediate XP browser work is therefore no longer “make the browser launch and survive.” Preserve this exact baseline while moving to the next deliberately selected compatibility/runtime objective. GOST TLS remains an independent track and is not proven by this browser lifecycle result.
 
-The xul PE already has the committed YY-Thunks `DllMainCRTStartupForYY_Thunks` entry/TLS contract. Do not add a second broad TLS workaround on the assumption that this contract is missing.
-
-Immediate work:
-
-1. **Run the focused YY detach reproducer on physical XP first.** Use exact artifact `10586477797` from run `35448707456` / job `105912013098` without rebuilding it. Execute both modes; `late-first` is decisive because the hosted control proves owner detach order 1, later callback order 2 and callback re-entry after owner detach. Record whether XP completes the callback or faults in the owner TLS/local-static path. `owner-first` is the inverse-order control.
-2. **Physically validate the new browser candidate separately.** Source `62835966a1c680382b8ab8a7100b810abccbf2c5` passed canonical full-build run `35443499166` / job `105898364295` with **completed / success / GREEN**. Use exact package `10587340718`, runtime `10587396294` and diagnostics `10586618851`; do not call the prior GPU-child blocker fixed until this exact browser is exercised on physical XP.
-3. **If the focused XP reproducer fails only in `late-first`, treat that as direct support for the YY-emulated static-TLS teardown mechanism.** Then use the browser candidate only as a narrow consumer remediation test; it must not be described as a global TLS lifecycle fix.
-4. **If the focused XP reproducer survives, return to the exact Firefox/NSPR lifecycle.** The same-thread xul TLS observation on baseline `6a3ffb8...` remains available to distinguish browser-specific population/cleanup ordering without reopening already closed compatibility boundaries.
-5. **Keep the parent-process AV and temporary preload separate.** Do not substitute the GPU-child result for the parent `0xC0000005`, and keep `PreloadXPPrivatePwrp()` unchanged during this comparison.
-
-The focused hosted control is **GREEN** only for build/PE/ordering behavior. The canonical browser candidate now also has an exact successful full build; physical XP runtime remains open, and acceptance requires execution of source `62835966...` proving advancement beyond the prior GPU-child blocker.
+The focused YY/static-TLS line remains diagnostically useful but is deferred from the immediate browser path. Its current physical result is `owner-first PASS / late-first teardown HANG` on source `1a61565...`, run `35495864771`, job `106038556671`, artifact `10600581430`. If resumed, follow the Astra/Sol bridge marker plan rather than broadening YY-Thunks from inference.
 
 #### Supermium DWrite component refresh — separate follow-up
 
@@ -141,7 +130,7 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 Current latest integrated full-build/static evidence is source `62835966a1c680382b8ab8a7100b810abccbf2c5`, run `35443499166`, job `105898364295`: aggregate **completed / success / GREEN**, with package `10587340718`, runtime `10587396294`, diagnostics `10586618851`. This exact source contains the narrow detach re-entry consumer remediation and retains the prior loader, COMBASE and XP compatibility fixes.
 
-Current latest physically exercised exact full-browser target is source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`, package `10555076979`, diagnostics `10555616046`. Its hash-bound Procmon run advances through private DWrite and font-cache initialization, then records a parent-process `0xC0000005`; debugger localization is pending. Predecessor source `52e05a...` remains the proof of the failed-output/private-helper defect that this successor advances beyond.
+Current latest physically exercised exact full-browser target is source `62835966a1c680382b8ab8a7100b810abccbf2c5`, run `35443499166`, job `105898364295`, package `10587340718`, diagnostics `10586618851`. Its exact package is now physically accepted for startup, sustained runtime and orderly shutdown on XP. Source `6a3ffb8...` remains historical evidence for the predecessor GPU-child/null-TLS-slot and parent-AV boundaries; source `52e05a...` remains the proof of the earlier failed-output/private-helper defect.
 
 Older source `88453be...`, run `34459906476`, job `102815008544`, remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s, but it is not the current runtime target.
 
