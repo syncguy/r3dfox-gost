@@ -587,3 +587,45 @@ Conclusion: **neither physical attempt reached the TLS detach/re-entry discrimin
 
 Next evidence boundary: use a new artifact built from `5c323d003ca1c7f3fd7b740aa16a450e5bdcfe7a` (or its exact successor if CI-only correction is required) only after the hosted build/PE gates pass, then run both `owner-first` and `late-first` on physical Windows XP SP3 x86. Do not treat the workflow commit itself as GREEN until its Actions run completes.
 
+
+
+---
+
+## 2026-09-20 — exact 62835966 browser completes sustained physical XP startup/runtime/shutdown
+
+Track: Windows XP SP3 x86 physical full-browser runtime. Independent of GOST TLS handshake/runtime proof and separate from the focused YY/static-TLS reproducer.
+
+Exact build identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `62835966a1c680382b8ab8a7100b810abccbf2c5` (`fix(xp): avoid thread manager singleton re-entry on detach`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35443499166`;
+- job `105898364295`;
+- result `completed / success / GREEN`;
+- package artifact `10587340718`, digest `sha256:325d908cf19bfa20eba01307d4c4559518cad26d83bb2126e1ed530f5e2178a7`;
+- runtime artifact `10587396294`, digest `sha256:d86bc02ee189ac2105ebb8ef9327091b56beaf190fa01cf750aff22c9de56cd3`;
+- diagnostics artifact `10586618851`, digest `sha256:3d80cabc544c333d652e037e3fa88296ab7106b5704fc1752aad00197bf73d04`.
+
+Binary identity was independently checked against the complete package artifact. User-reported SHA-1 identities for the physically executed `r3dfox.exe`, `xul.dll`, private `xpcompat/dwrite/DWrite.dll`, private `xpcompat/dwrite/pwrp_k32.dll`, `bcrypt.dll`, `d3dcompiler_47.dll`, `mozglue.dll`, and `nss3.dll` all match the corresponding files extracted from artifact `10587340718`. The concrete local hashes and path remain outside the public documentation under the XP bridge publication policy.
+
+Physical Windows XP SP3 x86 observation, user-reported for that hash-matched package:
+
+- the browser starts successfully;
+- bundled plugins/extensions install successfully;
+- the start page opens;
+- the browser remains running for an extended period without an observed crash;
+- the user closes the browser normally;
+- the browser completes normal shutdown and terminates.
+
+This is the first accepted end-to-end physical-XP browser lifecycle PASS for the current `62835966...` lineage. During this observed lifecycle, the predecessor fatal GPU-child detach AV did not recur and the previously observed parent-process startup AV did not prevent sustained operation or orderly shutdown.
+
+Evidence boundary: this run proves physical startup, usable sustained browser runtime, extension/plugin installation during startup, and orderly shutdown for the exact hash-matched package. It does **not** prove GOST TLS handshake behavior, mTLS, exhaustive feature coverage, absence of all latent XP regressions, or the exact internal TLS-slot lifecycle that caused the predecessor GPU-child failure. The narrow `62835966...` consumer remediation is therefore physically accepted for this exercised browser lifecycle without being promoted to a global YY/static-TLS lifecycle fix.
+
+The focused `owner-first PASS / late-first HANG` YY/static-TLS experiment remains useful forensic evidence but is no longer the immediate browser acceptance blocker. Further focused marker work can be deferred while the exact full-browser physical PASS is preserved as the current XP runtime baseline.
+
+Conclusion: **PHYSICAL WINDOWS XP SP3 x86 FULL-BROWSER STARTUP / SUSTAINED RUNTIME / ORDERLY SHUTDOWN PASS for exact source `62835966...`, with eight key runtime binaries independently matched to package artifact `10587340718`.**
+
+Status: **current authoritative physical-XP full-browser runtime baseline.**
+
+Publication check: xp-bridge-allowlist-v1 checked
