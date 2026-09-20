@@ -337,35 +337,6 @@ static void ExpandFileDescriptorTable() {
 }
 #endif
 
-
-#ifdef MOZ_XP_COMPAT
-static HMODULE PreloadXPPrivatePwrp() {
-  WCHAR path[MAX_PATH + 1];
-  DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH + 1);
-  if (!length || length >= MAX_PATH + 1) {
-    return nullptr;
-  }
-
-  WCHAR* slash = wcsrchr(path, L'\\');
-  if (!slash) {
-    return nullptr;
-  }
-
-  static constexpr WCHAR suffix[] =
-      L"\\xpcompat\\dwrite\\pwrp_k32.dll";
-
-  size_t prefixLen = slash - path;
-  if (prefixLen + (sizeof(suffix) / sizeof(suffix[0])) > MAX_PATH + 1) {
-    return nullptr;
-  }
-
-  memcpy(slash, suffix, sizeof(suffix));
-
-  return LoadLibraryExW(
-      path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-}
-#endif
-
 int main(int argc, char* argv[], char* envp[]) {
 #if defined(XP_UNIX)
   ReserveDefaultFileDescriptors();
@@ -552,10 +523,6 @@ int main(int argc, char* argv[], char* envp[]) {
   #endif
 #endif
 
-#ifdef MOZ_XP_COMPAT
-  HMODULE xpPwrpModule = PreloadXPPrivatePwrp();
-#endif
-  
   nsresult rv = InitXPCOMGlue(LibLoadingStrategy::ReadAhead);
   if (NS_FAILED(rv)) {
     return 255;
