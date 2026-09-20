@@ -687,3 +687,31 @@ This is the first GREEN focused compile after explicitly enabling `-DMOZ_XP_COMP
 Evidence boundary: this is a focused source/build PASS only. It does not prove that `GetOpenFileNameW`, `GetSaveFileNameW`, or `SHBrowseForFolderW` operate correctly in the physical browser on Windows XP. Full-build/link/package evidence and physical Ctrl+O / save-as / download-directory picker validation remain separate boundaries.
 
 Status: **focused XP legacy file-picker source compile GREEN.**
+
+
+---
+
+## 2026-09-20 — XP legacy file-picker full build GREEN; physical runtime pending
+
+Track: Windows XP SP3 x86 compatibility / Windows file-picker source fallback. Independent of GOST TLS runtime.
+
+Exact identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `e9d4a1115d3c97cad8cdeb0aa42c61ee5e9240a8` (`fix(xp): pass folder path as native wide string`);
+- job `Windows x86 / r3dfox GOST / XP SP3 full build`;
+- run `35509338997`;
+- job `106074415929`;
+- result: **completed / success / GREEN**.
+
+Artifacts:
+
+- package `10606724582`, `r3dfox-gost-xp-x32-package`, 333,295,669 bytes, digest `sha256:5052e8e605c66c342b64af22d9dc887cb39ace644c9bf1acc3664d4105bc384d`;
+- runtime `10606634609`, `r3dfox-gost-xp-x32-runtime`, 76,162,290 bytes, digest `sha256:d567d128f544a1cfaa301be190b9a70bdb04b8b1da2d0f601aaad9d8c6ec0762`;
+- diagnostics `10606639685`, `r3dfox-gost-xp-x32-diagnostics`, 420,276,223 bytes, digest `sha256:130eebbb003c73296f8b11a8713dc29d1721a02cafe6600f543779da4cfe4d28`.
+
+The complete XP x86 build, packaging, PE/import audit, runtime archive construction, compatibility gates, artifact uploads, and final summary all completed successfully. Together with focused run `35509299508 / 106074306188`, this establishes that the active `MOZ_XP_COMPAT` legacy Open/Save/Folder picker implementation is accepted by both the focused compile path and the full XP build/package path.
+
+Evidence boundary: **full build/package PASS is not physical runtime PASS.** The next experiment is physical Windows XP SP3 x86 validation of: Ctrl+O legacy Open dialog; ask-where-to-save legacy Save dialog plus actual download; Settings download-directory legacy Folder dialog; and the existing no-prompt download path as a regression control. Browser stability and orderly shutdown after picker use should also be observed.
+
+Status: **full XP file-picker candidate build GREEN; physical XP runtime validation pending.**
