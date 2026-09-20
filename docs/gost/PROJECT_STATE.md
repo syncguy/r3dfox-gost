@@ -233,3 +233,12 @@ The user physically validated this exact no-preload build on Windows XP: browser
 The RSA/GOST observation is a separate TLS-runtime evidence line from XP loader compatibility. It does not automatically close unexercised mTLS/client-certificate, negative server-trust, proxy, or other network-coverage cases.
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+
+## 2026-09-20 — XP legacy Windows file picker physically accepted
+
+Exact source `e9d4a1115d3c97cad8cdeb0aa42c61ee5e9240a8` passed focused XP-path compile run `35509299508 / 106074306188`, then canonical full XP build/package run `35509338997 / 106074415929`, and is now user-validated on physical Windows XP. The previously failing Windows file-dialog path works on the exact physical browser lineage.
+
+The accepted architecture is source-level XP fallback: legacy Windows common-dialog APIs are used under `MOZ_XP_COMPAT`, while the Vista+ `IFileDialog` implementation remains the non-XP path. This closes the observed XP file-dialog blocker for the exercised behavior; do not replace it with COM emulation or YY-Thunks absent new contradictory evidence.
+
+Publication check: xp-bridge-allowlist-v1 checked
