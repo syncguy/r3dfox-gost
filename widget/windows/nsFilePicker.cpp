@@ -489,8 +489,10 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
   bi.hwndOwner = shim.get();
   bi.lpszTitle = mTitle.IsEmpty() ? nullptr : mTitle.get();
   bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-  bi.lParam =
-      reinterpret_cast<LPARAM>(aInitialDir.IsEmpty() ? nullptr : aInitialDir.get());
+  bi.lParam = aInitialDir.IsEmpty()
+                  ? 0
+                  : static_cast<LPARAM>(
+                        reinterpret_cast<intptr_t>(aInitialDir.get()));
   bi.lpfn = [](HWND hwnd, UINT msg, LPARAM, LPARAM data) -> int {
     if (msg == BFFM_INITIALIZED && data) {
       SendMessageW(hwnd, BFFM_SETSELECTIONW, TRUE, data);
@@ -508,7 +510,7 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
   CoTaskMemFree(pidl);
   if (!ok) {
     return Promise::CreateAndReject(
-        MOZ_FD_LOCAL_ERROR("SHGetPathFromIDListW", E_FAIL),
+        MOZ_FD_LOCAL_ERROR("ShowFolderPicker", E_FAIL),
         __PRETTY_FUNCTION__);
   }
 
@@ -581,12 +583,12 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir) {
   nsString filterBuffer;
   for (const auto& filter : mFilterList) {
     filterBuffer.Append(filter.title);
-    filterBuffer.Append(L'\0');
+    filterBuffer.Append(char16_t(0));
     filterBuffer.Append(filter.filter);
-    filterBuffer.Append(L'\0');
+    filterBuffer.Append(char16_t(0));
   }
   if (!filterBuffer.IsEmpty()) {
-    filterBuffer.Append(L'\0');
+    filterBuffer.Append(char16_t(0));
   }
 
   nsAutoString defaultExtension(mDefaultExtension);
