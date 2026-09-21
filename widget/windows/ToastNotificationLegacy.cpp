@@ -10,8 +10,8 @@
 namespace mozilla {
 namespace widget {
 
-NS_IMPL_ISUPPORTS(ToastNotificationLegacy, nsIAlertsService, nsIWindowsAlertsService,
-                  nsIAlertsDoNotDisturb)
+NS_IMPL_ISUPPORTS(ToastNotificationLegacy, nsIAlertsService,
+                  nsIWindowsAlertsService, nsIAlertsDoNotDisturb)
 
 ToastNotificationLegacy::ToastNotificationLegacy() = default;
 ToastNotificationLegacy::~ToastNotificationLegacy() = default;
@@ -49,21 +49,22 @@ ToastNotificationLegacy::GetManualDoNotDisturb(bool* aRetVal) {
 
 NS_IMETHODIMP
 ToastNotificationLegacy::ShowAlert(nsIAlertNotification* aAlert,
-                             nsIObserver* aAlertListener) {
+                                   nsIObserver* aAlertListener) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
-ToastNotificationLegacy::GetXmlStringForWindowsAlert(nsIAlertNotification* aAlert,
-                                               const nsAString& aWindowsTag,
-                                               nsAString& aString) {
+ToastNotificationLegacy::GetXmlStringForWindowsAlert(
+    nsIAlertNotification* aAlert, const nsAString& aWindowsTag,
+    nsAString& aString) {
   aString.Truncate();
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
 ToastNotificationLegacy::HandleWindowsTag(const nsAString& aWindowsTag,
-                                    JSContext* aCx, dom::Promise** aPromise) {
+                                          JSContext* aCx,
+                                          dom::Promise** aPromise) {
   if (aPromise) {
     *aPromise = nullptr;
   }
@@ -72,7 +73,7 @@ ToastNotificationLegacy::HandleWindowsTag(const nsAString& aWindowsTag,
 
 NS_IMETHODIMP
 ToastNotificationLegacy::CloseAlert(const nsAString& aAlertName,
-                              bool aContextClosed) {
+                                    bool aContextClosed) {
   return NS_OK;
 }
 
