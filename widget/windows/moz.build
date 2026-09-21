@@ -219,11 +219,11 @@ OS_LIBS += [
     "winmm",
 ]
 
-# XP legacy source selection: keep the component ABI with the no-WinRT
-# ToastNotification.cpp stub, and do not compile ToastNotificationHandler.cpp.
+# XP legacy source selection: use the no-WinRT backend and do not compile
+# ToastNotification.cpp or ToastNotificationHandler.cpp.
 if CONFIG["CC_TYPE"] == "clang-cl":
     SOURCES += [
-        "ToastNotification.cpp",
+        "ToastNotificationLegacy.cpp",
     ]
 
 SPHINX_TREES["/widget/windows"] = "docs"
