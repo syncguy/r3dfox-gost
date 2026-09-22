@@ -35,6 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory.h>
 #include <sys/types.h>
 #include <errno.h>
+#ifdef MOZ_XP_COMPAT
+#include <ctype.h>
+#include <stdint.h>
+#include <stdlib.h>
+#endif
 #ifdef WIN32
 #include <winsock2.h>
 #else
@@ -47,6 +52,142 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "nr_api.h"
 #include "util.h"
 #include "transport_addr.h"
+
+#ifdef MOZ_XP_COMPAT
+static int nr_win32_inet_pton_v4(const char *src, void *dst)
+  {
+    const int kIpv4AddressSize = 4;
+    int found = 0;
+    const char *src_pos = src;
+    unsigned char result[kIpv4AddressSize] = {0};
+
+    while (*src_pos != '\0') {
+      if (!isdigit(*src_pos)) {
+        return 0;
+      }
+      char *end_pos;
+      long value = strtol(src_pos, &end_pos, 10);
+      if (value < 0 || value > 255 || src_pos == end_pos) {
+        return 0;
+      }
+      ++found;
+      if (found > kIpv4AddressSize) {
+        return 0;
+      }
+      result[found - 1] = static_cast<unsigned char>(value);
+      src_pos = end_pos;
+      if (*src_pos == '.') {
+        ++src_pos;
+      } else if (*src_pos != '\0') {
+        return 0;
+      }
+    }
+    if (found != kIpv4AddressSize) {
+      return 0;
+    }
+    memcpy(dst, result, sizeof(result));
+    return 1;
+  }
+
+static int nr_win32_inet_pton_v6(const char *src, void *dst)
+  {
+    const char *readcursor = src;
+    char c = *readcursor++;
+    while (c) {
+      if (c == 'x') {
+        return 0;
+      }
+      c = *readcursor++;
+    }
+    readcursor = src;
+
+    struct in6_addr an_addr;
+    memset(&an_addr, 0, sizeof(an_addr));
+
+    uint16_t *addr_cursor = reinterpret_cast<uint16_t *>(&an_addr.s6_addr[0]);
+    uint16_t *addr_end = reinterpret_cast<uint16_t *>(&an_addr.s6_addr[16]);
+    bool seencompressed = false;
+
+    while (*readcursor != 0 && addr_cursor < addr_end) {
+      if (*readcursor == ':') {
+        if (*(readcursor + 1) == ':') {
+          if (seencompressed) {
+            return 0;
+          }
+          readcursor += 2;
+          const char *coloncounter = readcursor;
+          int coloncount = 0;
+          if (*coloncounter == 0) {
+            addr_cursor = addr_end;
+          } else {
+            bool has_dot = false;
+            while (*coloncounter) {
+              if (*coloncounter == ':') {
+                ++coloncount;
+              } else if (*coloncounter == '.') {
+                has_dot = true;
+              }
+              ++coloncounter;
+            }
+            int expected_shorts = coloncount + 1;
+            if (has_dot) {
+              expected_shorts++;
+            }
+            if (expected_shorts > addr_end - addr_cursor) {
+              return 0;
+            }
+            addr_cursor = addr_end - expected_shorts;
+            seencompressed = true;
+          }
+        } else {
+          ++readcursor;
+        }
+      } else {
+        if (strchr(readcursor, '.') && addr_cursor + 2 <= addr_end) {
+          struct in_addr v4;
+          if (nr_win32_inet_pton_v4(readcursor, &v4.s_addr)) {
+            memcpy(addr_cursor, &v4, sizeof(v4));
+            addr_cursor += 2;
+            readcursor += strlen(readcursor);
+            break;
+          }
+        }
+        uint16_t word;
+        int bytesread = 0;
+        if (sscanf(readcursor, "%4hx%n", &word, &bytesread) != 1) {
+          return 0;
+        } else {
+          *addr_cursor = htons(word);
+          ++addr_cursor;
+          readcursor += bytesread;
+          if (*readcursor != ':' && *readcursor != '\0') {
+            return 0;
+          }
+        }
+      }
+    }
+
+    if (*readcursor != '\0' || addr_cursor < addr_end) {
+      return 0;
+    }
+    memcpy(dst, &an_addr, sizeof(an_addr));
+    return 1;
+  }
+
+static int nr_win32_inet_pton(int af, const char *src, void *dst)
+  {
+    if (!src || !dst) {
+      return 0;
+    }
+    if (af == AF_INET) {
+      return nr_win32_inet_pton_v4(src, dst);
+    }
+    if (af == AF_INET6) {
+      return nr_win32_inet_pton_v6(src, dst);
+    }
+    return -1;
+  }
+#endif
 
 int nr_transport_addr_fmt_addr_string(nr_transport_addr *addr)
   {
@@ -241,10 +382,18 @@ int nr_str_port_to_transport_addr(const char *ip, UINT2 port, int protocol, nr_t
     struct in_addr addr;
     struct in6_addr addr6;
 
+#ifdef MOZ_XP_COMPAT
+    if (nr_win32_inet_pton(AF_INET, ip, &addr) == 1) {
+#else
     if (inet_pton(AF_INET, ip, &addr) == 1) {
+#endif
       if(r=nr_ip4_port_to_transport_addr(ntohl(addr.s_addr),port,protocol,addr_out))
         ABORT(r);
+#ifdef MOZ_XP_COMPAT
+    } else if (nr_win32_inet_pton(AF_INET6, ip, &addr6) == 1) {
+#else
     } else if (inet_pton(AF_INET6, ip, &addr6) == 1) {
+#endif
       if(r=nr_ip6_port_to_transport_addr(&addr6,port,protocol,addr_out))
         ABORT(r);
     } else {
