@@ -118,7 +118,7 @@ This clean baseline contains no GOST TLS/MSSPI source injection. It supersedes t
 
 Immediate XP work is no longer “make the browser launch and survive.” Preserve this exact clean baseline while expanding real-world regression/feature coverage and collecting tester feedback. GOST TLS remains an independent track and is not proven by this browser lifecycle result.
 
-The physically accepted WebGL/Russian-langpack localization patch has been transferred to `win-153-xp` at head `85863f2355a23223bf33f55b641ccb509a2b72ac`. Next clean-product acceptance step for that head is the ordinary `xp-release-build-x32.yml` build and, if GREEN, a short physical-XP regression check. Until then, `586fe5f8...` remains the authoritative clean-product physical baseline.
+The physically accepted WebGL/Russian-langpack localization patch is present on `win-153-xp` at source `85863f2355a23223bf33f55b641ccb509a2b72ac`. Its ordinary release build is now GREEN: `.github/workflows/xp-release-build-x32.yml`, run `35724604122`, job `106735182867`, package `10700255591`, runtime `10700395290`, diagnostics `10700061102`. The remaining clean-product acceptance step is a short physical-XP regression check of that exact artifact. Until that physical run is accepted, `586fe5f8...` remains the authoritative clean-product physical baseline.
 
 The focused YY/static-TLS line remains diagnostically useful but is deferred from the immediate browser path. Its current physical result is `owner-first PASS / late-first teardown HANG` on source `1a61565...`, run `35495864771`, job `106038556671`, artifact `10600581430`. If resumed, follow the Astra/Sol bridge marker plan rather than broadening YY-Thunks from inference.
 
@@ -139,7 +139,7 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated clean-product full-build/static evidence is source `586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`: aggregate **completed / success / GREEN**, with package `10685004306`, runtime `10684874629`, diagnostics `10686043053`.
+Current latest integrated clean-product full-build/static evidence is source `85863f2355a23223bf33f55b641ccb509a2b72ac`, run `35724604122`, job `106735182867`: aggregate **completed / success / GREEN**, with package `10700255591`, runtime `10700395290`, diagnostics `10700061102`. This source adds the physically pre-proven WebGL/stock-langpack fallback patch to the preceding clean product line.
 
 Current latest physically exercised exact clean full-browser target is the same source/run/package. It is physically accepted on Windows XP for startup, new-profile creation, policy-driven uBlock installation, representative page browsing, and orderly shutdown; `r3dfox.exe`, `xul.dll`, `nss3.dll`, and `mozglue.dll` were independently hash-matched to package artifact `10685004306`.
 
