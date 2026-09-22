@@ -210,7 +210,7 @@ jobs:
           ac_add_options --disable-eme
           ac_add_options --enable-jxl
           ac_add_options --enable-raw
-          ac_add_options --disable-webrtc
+          ac_add_options --enable-webrtc
           ac_add_options --disable-backgroundtasks
           ac_add_options --disable-bits-download
           ac_add_options --disable-crashreporter
