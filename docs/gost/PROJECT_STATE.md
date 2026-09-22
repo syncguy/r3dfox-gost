@@ -242,3 +242,12 @@ Exact source `e9d4a1115d3c97cad8cdeb0aa42c61ee5e9240a8` passed focused XP-path c
 The accepted architecture is source-level XP fallback: legacy Windows common-dialog APIs are used under `MOZ_XP_COMPAT`, while the Vista+ `IFileDialog` implementation remains the non-XP path. This closes the observed XP file-dialog blocker for the exercised behavior; do not replace it with COM emulation or YY-Thunks absent new contradictory evidence.
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+
+## 2026-09-22 — clean XP release branch build boundary
+
+The clean product branch `win-153-xp` at exact source `586fe5f856971a790db6e3529bdb0ac7a6133872` has now completed a full Firefox/r3dfox XP x32 compile/link, packaging, runtime-archive creation, and all current XP compatibility/static gates successfully in `XP release build x32` run `35684223870`, job `106607518565`.
+
+The workflow itself is recorded as **completed / failure**, not GREEN, because the final reporting script had a PowerShell interpolation parser error after all substantive work and artifact uploads had completed. Package/runtime/diagnostics artifacts are `10678723711`, `10680095187`, and `10679890591`. The reporting-only defect is corrected in XP CI scripts commit `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`.
+
+Current narrow conclusion: **clean `win-153-xp` source has full build/package/static PASS evidence without GOST TLS/MSSPI injection.** Physical XP execution of the exact produced package remains the next independent acceptance boundary. GOST TLS remains a separate line.
