@@ -65,6 +65,7 @@ using mozilla::IsWin7OrLater;
 static const uint32_t kOneDriveBusinessFolderStartIdx = 1;
 static const uint32_t kOneDriveBusinessFolderEndIdx = 10;
 
+#ifndef MOZ_XP_COMPAT
 static nsresult GetKnownFolder(GUID* aGuid, nsIFile** aFile) {
   if (!aGuid) {
     return NS_ERROR_FAILURE;
@@ -82,6 +83,7 @@ static nsresult GetKnownFolder(GUID* aGuid, nsIFile** aFile) {
   CoTaskMemFree(path);
   return rv;
 }
+#endif
 
 static nsresult GetWindowsFolder(int aFolder, nsIFile** aFile) {
   WCHAR path_orig[MAX_PATH + 3];
@@ -688,6 +690,9 @@ nsresult GetSpecialSystemDirectory(SystemDirectories aSystemSystemDirectory,
     }
 
     case Win_Downloads: {
+#ifdef MOZ_XP_COMPAT
+      return GetWindowsFolder(CSIDL_DESKTOP, aFile);
+#else
       // Defined in KnownFolders.h.
       GUID folderid_downloads = {
           0x374de290,
@@ -701,6 +706,7 @@ nsresult GetSpecialSystemDirectory(SystemDirectories aSystemSystemDirectory,
         rv = GetWindowsFolder(CSIDL_DESKTOP, aFile);
       }
       return rv;
+#endif
     }
 
     case Win_Favorites: {

@@ -9,7 +9,14 @@ SOURCES += [
     "UiaRoot.cpp",
     "UiaText.cpp",
     "UiaTextRange.cpp",
+    "WinXpVariantCompare.cpp",
 ]
+
+SOURCES["UiaTextRange.cpp"].flags += [
+    "-DMOZ_XP_COMPAT",
+    "-DVariantCompare=CompareVariantsXP",
+]
+SOURCES["WinXpVariantCompare.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 
 LOCAL_INCLUDES += [
     "/accessible/base",

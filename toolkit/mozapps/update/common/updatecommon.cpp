@@ -295,6 +295,15 @@ bool IsProgramFilesPath(NS_tchar* fullPath) {
 
   // First check for Program Files (x86).
   {
+#ifdef MOZ_XP_COMPAT
+    wchar_t programFiles32PathBuffer[MAX_PATH] = {};
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_PROGRAM_FILES, nullptr,
+                                SHGFP_TYPE_CURRENT,
+                                programFiles32PathBuffer))) {
+      return false;
+    }
+    const wchar_t* programFiles32Path = programFiles32PathBuffer;
+#else
     PWSTR programFiles32PathRaw = nullptr;
     // FOLDERID_ProgramFilesX86 gets native Program Files directory on a 32-bit
     // OS or the (x86) directory on a 64-bit OS regardless of this binary's
@@ -305,17 +314,18 @@ bool IsProgramFilesPath(NS_tchar* fullPath) {
       return false;
     }
     mozilla::UniquePtr<wchar_t, mozilla::CoTaskMemFreeDeleter>
-        programFiles32Path(programFiles32PathRaw);
+        programFiles32PathOwned(programFiles32PathRaw);
+    const wchar_t* programFiles32Path = programFiles32PathOwned.get();
+#endif
     // We need this path to have a trailing slash so our prefix test doesn't
     // match on a different folder which happens to have a name beginning with
     // the prefix we're looking for but then also more characters after that.
-    size_t length = wcslen(programFiles32Path.get());
+    size_t length = wcslen(programFiles32Path);
     if (length == 0) {
       return false;
     }
-    if (programFiles32Path.get()[length - 1] == L'\\') {
-      if (wcsnicmp(longInstallPath.get(), programFiles32Path.get(), length) ==
-          0) {
+    if (programFiles32Path[length - 1] == L'\\') {
+      if (wcsnicmp(longInstallPath.get(), programFiles32Path, length) == 0) {
         return true;
       }
     } else {
@@ -326,7 +336,7 @@ bool IsProgramFilesPath(NS_tchar* fullPath) {
           mozilla::MakeUnique<wchar_t[]>(length + 1);
 
       NS_tsnprintf(programFiles32PathWithSlash.get(), length + 1, NS_T("%s\\"),
-                   programFiles32Path.get());
+                   programFiles32Path);
 
       if (wcsnicmp(longInstallPath.get(), programFiles32PathWithSlash.get(),
                    length) == 0) {

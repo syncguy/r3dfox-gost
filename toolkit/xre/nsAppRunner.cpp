@@ -2287,6 +2287,7 @@ nsresult XRE_GetBinaryPath(nsIFile** aResult) {
 
 typedef BOOL(WINAPI* SetProcessDEPPolicyFunc)(DWORD dwFlags);
 
+#  ifndef MOZ_XP_COMPAT
 static void RegisterApplicationRestartChanged(const char* aPref, void* aData) {
   DWORD cchCmdLine = 0;
   HRESULT rc = ::GetApplicationRestartSettings(::GetCurrentProcess(), nullptr,
@@ -2324,6 +2325,7 @@ static void RegisterApplicationRestartChanged(const char* aPref, void* aData) {
     ::UnregisterApplicationRestart();
   }
 }
+#  endif
 
 static void OnAlteredPrefetchPrefChanged(const char* aPref, void* aData) {
   int32_t prefVal = Preferences::GetInt(PREF_WIN_ALTERED_DLL_PREFETCH, 0);
@@ -4040,7 +4042,11 @@ static void LogRegistryEvent(const wchar_t* msg) {
 static DWORD WINAPI InitDwriteBG(LPVOID lpdwThreadParam) {
   SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
   LOGREGISTRY(L"loading dwrite.dll");
+  #ifdef MOZ_XP_COMPAT
+  HMODULE dwdll = LoadLibraryXPPrivateDWrite();
+  #else
   HMODULE dwdll = LoadLibrarySystem32(L"dwrite.dll");
+  #endif
   if (dwdll) {
     decltype(DWriteCreateFactory)* createDWriteFactory =
         (decltype(DWriteCreateFactory)*)GetProcAddress(dwdll,
@@ -4847,7 +4853,11 @@ static void ReadAheadDlls(const wchar_t* greDir) {
     ReadAheadPackagedDll(L"softokn3.dll", greDir);
 
     // Prefetch the system DLLs
+    #ifdef MOZ_XP_COMPAT
+    ReadAheadPackagedDll(L"xpcompat\\dwrite\\DWrite.dll", greDir);
+    #else
     ReadAheadSystemDll(L"DWrite.dll");
+    #endif
     ReadAheadSystemDll(L"D3DCompiler_47.dll");
   } else {
     // Load DataExchange.dll and twinapi.appcore.dll for
@@ -6128,9 +6138,11 @@ nsresult XREMain::XRE_mainRun() {
 #endif
 
 #ifdef XP_WIN
+#  ifndef MOZ_XP_COMPAT
       Preferences::RegisterCallbackAndCall(
           RegisterApplicationRestartChanged,
           PREF_WIN_REGISTER_APPLICATION_RESTART);
+#  endif      
       SetupAlteredPrefetchPref();
 #  if defined(MOZ_LAUNCHER_PROCESS)
       SetupLauncherProcessPref();

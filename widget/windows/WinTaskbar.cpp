@@ -64,6 +64,9 @@ HWND GetHWNDFromDOMWindow(mozIDOMWindow* dw) {
 
 nsresult SetWindowAppUserModelProp(mozIDOMWindow* aParent,
                                    const nsString& aIdentifier) {
+#ifdef MOZ_XP_COMPAT
+  return NS_ERROR_NO_INTERFACE;
+#else
   NS_ENSURE_ARG_POINTER(aParent);
 
   if (aIdentifier.IsEmpty()) return NS_ERROR_INVALID_ARG;
@@ -110,6 +113,7 @@ nsresult SetWindowAppUserModelProp(mozIDOMWindow* aParent,
   FreeLibrary(hDLL);
 
   return rv;
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////

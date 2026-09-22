@@ -7,14 +7,14 @@
 #include "mozilla/Logging.h"
 #include "mozilla/WindowsVersion.h"
 #include "mozilla/WinHeaderOnlyUtils.h"
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
 #  include "nsProxyRelease.h"
 #  include <comutil.h>
 #  include <wrl.h>
 #  include <windows.applicationmodel.store.h>
 #  include <windows.management.deployment.h>
 #  include <windows.services.store.h>
-#endif  // __MINGW32__
+#endif
 #include "nsError.h"
 #include "nsString.h"
 #include "nsISupportsPrimitives.h"
@@ -23,7 +23,7 @@
 #include "nsXPCOMCID.h"
 #include "json/json.h"
 
-#ifndef __MINGW32__  // WinRT headers not yet supported by MinGW
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 using namespace ABI::Windows;
@@ -46,7 +46,7 @@ NS_IMPL_ISUPPORTS(nsWindowsPackageManager, nsIWindowsPackageManager)
 NS_IMETHODIMP
 nsWindowsPackageManager::FindUserInstalledPackages(
     const nsTArray<nsString>& aNamePrefixes, nsTArray<nsString>& aPackages) {
-#ifdef __MINGW32__
+#if defined(__MINGW32__) || defined(MOZ_NO_WINRT)
   return NS_ERROR_NOT_IMPLEMENTED;
 #else
   // The classes we're using are only available beginning with Windows 10
@@ -108,12 +108,12 @@ nsWindowsPackageManager::FindUserInstalledPackages(
     hr = iterator->MoveNext(&hasCurrent);
   }
   return NS_OK;
-#endif  // __MINGW32__
+#endif
 }
 
 NS_IMETHODIMP
 nsWindowsPackageManager::GetInstalledDate(uint64_t* ts) {
-#ifdef __MINGW32__
+#if defined(__MINGW32__) || defined(MOZ_NO_WINRT)
   return NS_ERROR_NOT_IMPLEMENTED;
 #else
   // The classes we're using are only available beginning with Windows 10
@@ -149,7 +149,7 @@ nsWindowsPackageManager::GetInstalledDate(uint64_t* ts) {
 
   *ts = installedDate.UniversalTime;
   return NS_OK;
-#endif  // __MINGW32__
+#endif
 }
 
 static HRESULT RejectOnMainThread(
@@ -164,7 +164,7 @@ static HRESULT RejectOnMainThread(
   return S_OK;
 }
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
 // forward declarations
 static void GetCampaignIdFromStoreProductOnBackgroundThread(
     ComPtr<IAsyncOperation<StoreProductResult*> > asyncSpr,
@@ -174,7 +174,7 @@ static void GetCampaignIdFromLicenseOnBackgroundThread(
     ComPtr<IAsyncOperation<StoreAppLicense*> > asyncSal,
     nsMainThreadPtrHandle<dom::Promise> promiseHolder,
     nsAutoString aCampaignId);
-#endif  // __MINGW32__
+#endif
 
 static std::tuple<nsMainThreadPtrHolder<dom::Promise>*, nsresult>
 InitializePromise(JSContext* aCx, dom::Promise** aPromise) {
@@ -203,7 +203,7 @@ NS_IMETHODIMP
 nsWindowsPackageManager::CampaignId(JSContext* aCx, dom::Promise** aPromise) {
   NS_ENSURE_ARG_POINTER(aPromise);
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) || defined(MOZ_NO_WINRT)
   return NS_ERROR_NOT_IMPLEMENTED;
 #else
 
@@ -307,10 +307,10 @@ nsWindowsPackageManager::CampaignId(JSContext* aCx, dom::Promise** aPromise) {
   }
 
   return NS_OK;
-#endif  // __MINGW32__
+#endif
 }
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
 static void GetCampaignIdFromStoreProductOnBackgroundThread(
     ComPtr<IAsyncOperation<StoreProductResult*> > asyncSpr,
     ComPtr<IStoreContext> storeContext,
@@ -466,7 +466,7 @@ static void GetCampaignIdFromLicenseOnBackgroundThread(
       }));
   NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "NS_DispatchToMainThread failed");
 }
-#endif  // __MINGW32__
+#endif
 
 }  // namespace system
 }  // namespace toolkit

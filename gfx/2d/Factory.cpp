@@ -641,7 +641,16 @@ RefPtr<IDWriteFactory> Factory::EnsureDWriteFactory() {
     return mDWriteFactory;
   }
 
+#ifdef MOZ_XP_COMPAT
+  HMODULE dwriteModule = LoadLibraryXPPrivateDWrite();
+#else
   HMODULE dwriteModule = LoadLibrarySystem32(L"dwrite.dll");
+#endif
+  if (!dwriteModule) {
+    gfxWarning() << "Failed to load DWrite module.";
+    return nullptr;
+  }
+
   decltype(DWriteCreateFactory)* createDWriteFactory =
       (decltype(DWriteCreateFactory)*)GetProcAddress(dwriteModule,
                                                      "DWriteCreateFactory");

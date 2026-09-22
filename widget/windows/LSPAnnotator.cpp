@@ -85,6 +85,7 @@ LSPAnnotationGatherer::Run() {
     }
 
     str.AppendLiteral(" : ");
+#ifndef MOZ_XP_COMPAT
     // Call WSCGetProviderInfo to obtain the category flags for this provider.
     // When present, these flags inform Windows as to which order to chain the
     // providers.
@@ -94,6 +95,7 @@ LSPAnnotationGatherer::Run() {
                             (PBYTE)&categoryInfo, &categoryInfoSize, 0, &err)) {
       str.AppendPrintf("0x%lx", categoryInfo);
     }
+#endif
 
     str.AppendLiteral(" : ");
     if (providers[i].ProtocolChain.ChainLen <= BASE_PROTOCOL) {

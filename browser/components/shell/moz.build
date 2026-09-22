@@ -64,6 +64,7 @@ elif CONFIG["OS_ARCH"] == "WINNT":
         "WindowsDefaultBrowser.cpp",
         "WindowsUserChoice.cpp",
     ]
+    SOURCES["nsWindowsShellService.cpp"].flags += ["-DMOZ_XP_COMPAT"]
     LOCAL_INCLUDES += [
         "../../../other-licenses/nsis/Contrib/CityHash/cityhash",
         "/toolkit/xre",

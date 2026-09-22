@@ -183,9 +183,10 @@ PlatformHandle Platform::CloneHandle(const PlatformHandle& aHandle) {
 
 bool Platform::Freeze(FreezableHandle& aHandle) {
   HANDLE ro_handle;
+  DWORD readOnlyAccess = GENERIC_READ | FILE_MAP_READ;
   if (!::DuplicateHandle(::GetCurrentProcess(), aHandle.mHandle.get(),
-                         ::GetCurrentProcess(), &ro_handle,
-                         GENERIC_READ | FILE_MAP_READ, false, 0)) {
+                         ::GetCurrentProcess(), &ro_handle, readOnlyAccess,
+                         false, 0)) {
     return false;
   }
 

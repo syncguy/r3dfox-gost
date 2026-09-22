@@ -10,6 +10,8 @@
 
 if not CONFIG["JS_STANDALONE"]:
     DEFINES["IMPL_MFBT"] = True
+    if CONFIG["OS_TARGET"] == "WINNT":
+        DEFINES["MOZ_NO_WINRT"] = True
     EXPORTS += [
         "public/BaseProfilingStack.h",
     ]

@@ -121,12 +121,9 @@ NS_IMETHODIMP nsAlertsService::ShowAlert(nsIAlertNotification* aAlert,
     return NS_OK;
   }
 
-  // Check if there is an optional service that handles system-level
-  // notifications
-  if (StaticPrefs::alerts_useSystemBackend()) {
-    if (!mBackend) {
-      return NS_ERROR_NOT_AVAILABLE;
-    }
+  // Use the system backend when it exists.  XP builds deliberately provide no
+  // WinRT backend, so fall through to the existing XUL implementation.
+  if (StaticPrefs::alerts_useSystemBackend() && mBackend) {
     return mBackend->ShowAlert(aAlert, aAlertListener);
   }
 
@@ -138,7 +135,7 @@ NS_IMETHODIMP nsAlertsService::ShowAlert(nsIAlertNotification* aAlert,
     return NS_OK;
   }
 
-  // Use XUL notifications as a fallback if above methods have failed.
+  // Use XUL notifications as a fallback if no platform backend is available.
   nsCOMPtr<nsIAlertsService> xulBackend(nsXULAlerts::GetInstance());
   NS_ENSURE_TRUE(xulBackend, NS_ERROR_FAILURE);
   return xulBackend->ShowAlert(aAlert, aAlertListener);
@@ -146,16 +143,13 @@ NS_IMETHODIMP nsAlertsService::ShowAlert(nsIAlertNotification* aAlert,
 
 NS_IMETHODIMP nsAlertsService::CloseAlert(const nsAString& aAlertName,
                                           bool aContextClosed) {
-  if (!StaticPrefs::alerts_useSystemBackend()) {
-    nsCOMPtr<nsIAlertsService> xulBackend(nsXULAlerts::GetInstance());
-    NS_ENSURE_TRUE(xulBackend, NS_ERROR_FAILURE);
-    return xulBackend->CloseAlert(aAlertName, aContextClosed);
-  }
-  if (!mBackend) {
-    return NS_ERROR_NOT_AVAILABLE;
+  if (StaticPrefs::alerts_useSystemBackend() && mBackend) {
+    return mBackend->CloseAlert(aAlertName, aContextClosed);
   }
 
-  return mBackend->CloseAlert(aAlertName, aContextClosed);
+  nsCOMPtr<nsIAlertsService> xulBackend(nsXULAlerts::GetInstance());
+  NS_ENSURE_TRUE(xulBackend, NS_ERROR_FAILURE);
+  return xulBackend->CloseAlert(aAlertName, aContextClosed);
 }
 
 NS_IMETHODIMP nsAlertsService::GetHistory(nsTArray<nsString>& aResult) {

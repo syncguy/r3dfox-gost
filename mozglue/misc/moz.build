@@ -96,6 +96,10 @@ if CONFIG["OS_ARCH"] == "WINNT":
         "WindowsUnicode.cpp",
     ]
 
+    # r3dfox-gost XP compatibility: keep the pre-Vista DPI startup guard
+    # explicitly owned by this translation unit as well as by the XP workflow.
+    SOURCES["WindowsDpiInitialization.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+
     OS_LIBS += [
         "dbghelp",
         "oleaut32",

@@ -137,7 +137,6 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android":
     ]
 
 UNIFIED_SOURCES += [
-    "/toolkit/mozapps/update/common/commonupdatedir.cpp",
     "AutoSQLiteLifetime.cpp",
     "Bootstrap.cpp",
     "CmdLineAndEnvUtils.cpp",
@@ -146,7 +145,6 @@ UNIFIED_SOURCES += [
     "nsConsoleWriter.cpp",
     "nsNativeAppSupportBase.cpp",
     "nsSigHandlers.cpp",
-    "nsXREDirProvider.cpp",
 ]
 
 # nsAppRunner.cpp and ProfileReset.cpp cannot be built in unified mode because
@@ -154,10 +152,18 @@ UNIFIED_SOURCES += [
 # nsEmbedFunctions.cpp cannot be built in unified mode because it pulls in X11 headers.
 SOURCES += [
     "../../other-licenses/nsis/Contrib/CityHash/cityhash/city.cpp",
+    "/toolkit/mozapps/update/common/commonupdatedir.cpp",
     "nsAppRunner.cpp",
     "nsEmbedFunctions.cpp",
+    "nsXREDirProvider.cpp",
     "ProfileReset.cpp",
 ]
+
+SOURCES["/toolkit/mozapps/update/common/commonupdatedir.cpp"].flags += [
+    "-DMOZ_XP_COMPAT"
+]
+SOURCES["nsAppRunner.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["nsXREDirProvider.cpp"].flags += ["-DMOZ_XP_COMPAT"]
 
 if CONFIG["MOZ_UPDATER"]:
     if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android":

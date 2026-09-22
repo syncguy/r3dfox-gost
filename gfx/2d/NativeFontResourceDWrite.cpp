@@ -200,7 +200,11 @@ DWriteFontFileStream::ReleaseFileFragment(void* fragmentContext) {}
 /* static */
 already_AddRefed<NativeFontResourceDWrite> NativeFontResourceDWrite::Create(
     const uint8_t* aFontData, uint32_t aDataLength) {
+#ifdef MOZ_XP_COMPAT
+  RefPtr<IDWriteFactory> factory = Factory::EnsureDWriteFactory();
+#else
   RefPtr<IDWriteFactory> factory = Factory::GetDWriteFactory();
+#endif
   if (!factory) {
     gfxWarning() << "Failed to get DWrite Factory.";
     return nullptr;

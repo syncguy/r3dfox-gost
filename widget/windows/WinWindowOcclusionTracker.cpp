@@ -1432,8 +1432,9 @@ Maybe<bool> WinWindowOcclusionTracker::WindowOcclusionCalculator::
   // real (non-null) GUID -- the existing GUID_NULL workaround below misses
   // this case.
   BOOL isCloaked = FALSE;
-  if (FAILED(::DwmGetWindowAttribute(aHwnd, DWMWA_CLOAKED, &isCloaked,
-                                     sizeof(isCloaked))) ||
+  if (!WinUtils::dwmGetWindowAttributePtr ||
+      FAILED(WinUtils::dwmGetWindowAttributePtr(
+          aHwnd, DWMWA_CLOAKED, &isCloaked, sizeof(isCloaked))) ||
       !isCloaked) {
     return Some(true);
   }

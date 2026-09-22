@@ -10,6 +10,9 @@
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
 #include "libANGLE/renderer/d3d/d3d11/renderer11_utils.h"
 
+#include <dxgi.h>
+#include <windows.h>
+
 #if defined(ANGLE_ENABLE_WINDOWS_UWP)
 #    include <windows.applicationmodel.core.h>
 #    include <wrl.h>
@@ -101,3 +104,27 @@ void Trim11::unregisterForRendererTrimRequest()
 }
 
 }  // namespace rx
+
+using CreateDXGIFactory1Fn = HRESULT(WINAPI *)(REFIID, void **);
+
+extern "C" HRESULT WINAPI ANGLECreateDXGIFactory1(REFIID riid, void **factory)
+{
+    static HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
+    if (!dxgi)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    auto createFactory = reinterpret_cast<CreateDXGIFactory1Fn>(
+        GetProcAddress(dxgi, "CreateDXGIFactory1"));
+    if (!createFactory)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    return createFactory(riid, factory);
+}
+
+#define CreateDXGIFactory1 ANGLECreateDXGIFactory1
+#include "libANGLE/renderer/d3d/d3d11/Renderer11.cpp"
+#undef CreateDXGIFactory1

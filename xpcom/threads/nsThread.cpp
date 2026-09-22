@@ -309,7 +309,15 @@ struct ThreadInitData {
 }  // namespace
 
 void nsThread::MaybeRemoveFromThreadList() {
+#ifdef MOZ_XP_COMPAT
+  if (!mThreadManager) {
+    MOZ_ASSERT(!isInList());
+    return;
+  }
+  nsThreadManager& tm = *mThreadManager;
+#else
   nsThreadManager& tm = nsThreadManager::get();
+#endif
   OffTheBooksMutexAutoLock mal(tm.ThreadListMutex());
   if (isInList()) {
     removeFrom(tm.ThreadList());
@@ -641,6 +649,10 @@ nsresult nsThread::Init(const nsACString& aName) {
     // The thread has successfully started, so we can mark it as requiring
     // shutdown & add it to the thread list.
     mShutdownRequired = true;
+#ifdef MOZ_XP_COMPAT
+    MOZ_ASSERT(!mThreadManager);
+    mThreadManager = &tm;
+#endif
     tm.ThreadList().insertBack(this);
   }
 
@@ -664,6 +676,10 @@ nsresult nsThread::InitCurrentThread() {
     // this way do not need shutdown, so are OK to create after nsThreadManager
     // shutdown. In addition, the main thread is initialized this way, which
     // happens before AllowNewXPCOMThreads begins to return true.
+#ifdef MOZ_XP_COMPAT
+    MOZ_ASSERT(!mThreadManager);
+    mThreadManager = &tm;
+#endif
     tm.ThreadList().insertBack(this);
   }
 

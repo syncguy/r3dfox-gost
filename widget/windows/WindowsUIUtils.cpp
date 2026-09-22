@@ -36,10 +36,11 @@
 
 mozilla::LazyLogModule gTabletModeLog("TabletMode");
 
-/* mingw currently doesn't support windows.ui.viewmanagement.h, so we disable it
- * until it's fixed. */
+/* MinGW currently doesn't support windows.ui.viewmanagement.h. Legacy Windows
+ * builds selected with MOZ_NO_WINRT intentionally use the same non-WinRT
+ * fallbacks without changing the compiler/toolchain identity. */
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
 
 #  include <inspectable.h>
 #  include <roapi.h>
@@ -203,7 +204,7 @@ WindowsUIUtils::GetInWin11TabletMode(bool* aResult) {
 
 static IInspectable* GetUISettings() {
   MOZ_DIAGNOSTIC_ASSERT(NS_IsMainThread());
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   // We need to keep this alive for ~ever so that change callbacks work as
   // expected, sigh.
   static StaticRefPtr<IInspectable> sUiSettingsAsInspectable;
@@ -293,7 +294,7 @@ static IInspectable* GetUISettings() {
 Maybe<nscolor> WindowsUIUtils::GetAccentColor(int aTone) {
   MOZ_ASSERT(aTone >= -3);
   MOZ_ASSERT(aTone <= 3);
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   ComPtr<IInspectable> settings = GetUISettings();
   if (NS_WARN_IF(!settings)) {
     return Nothing();
@@ -315,7 +316,7 @@ Maybe<nscolor> WindowsUIUtils::GetAccentColor(int aTone) {
 
 Maybe<nscolor> WindowsUIUtils::GetSystemColor(ColorScheme aScheme,
                                               int aSysColor) {
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   if (!StaticPrefs::widget_windows_uwp_system_colors_enabled()) {
     return Nothing();
   }
@@ -383,7 +384,7 @@ Maybe<nscolor> WindowsUIUtils::GetSystemColor(ColorScheme aScheme,
 #endif
 }
 bool WindowsUIUtils::ComputeOverlayScrollbars() {
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   if (!IsWin11OrLater()) {
     // While in theory Windows 10 supports overlay scrollbar settings, it's off
     // by default and it's untested whether our Win10 scrollbar drawing code
@@ -412,7 +413,7 @@ bool WindowsUIUtils::ComputeOverlayScrollbars() {
 }
 
 double WindowsUIUtils::ComputeTextScaleFactor() {
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   ComPtr<IInspectable> settings = GetUISettings();
   if (NS_WARN_IF(!settings)) {
     return 1.0;
@@ -433,7 +434,7 @@ double WindowsUIUtils::ComputeTextScaleFactor() {
 
 bool WindowsUIUtils::ComputeTransparencyEffects() {
   constexpr bool kDefault = true;
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   ComPtr<IInspectable> settings = GetUISettings();
   if (NS_WARN_IF(!settings)) {
     return kDefault;
@@ -465,7 +466,7 @@ void WindowsUIUtils::UpdateInWin10TabletMode() {
   // thread; its operation is not known to be thread-safe, let alone lock-free.
   MOZ_DIAGNOSTIC_ASSERT(NS_IsMainThread());
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   if (!IsWin10OrLater()) {
     return;
   }
@@ -758,7 +759,7 @@ void WindowsUIUtils::UpdateInWin11TabletMode() {
   }
 }
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
 struct HStringDeleter {
   using pointer = HSTRING;
   void operator()(pointer aString) { WindowsDeleteString(aString); }
@@ -870,7 +871,7 @@ RefPtr<SharePromise> WindowsUIUtils::Share(nsAutoString aTitle,
       mozilla::media::Refcountable<MozPromiseHolder<SharePromise>>>();
   RefPtr<SharePromise> promise = promiseHolder->Ensure(__func__);
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(MOZ_NO_WINRT)
   auto result = RequestShare([promiseHolder, title = std::move(aTitle),
                               text = std::move(aText), url = std::move(aUrl)](
                                  IDataRequestedEventArgs* pArgs) {

@@ -8,6 +8,7 @@ with Files("**"):
 TEST_DIRS += ["tests/gtest"]
 
 SOURCES += ["nsWindowsPackageManager.cpp"]
+SOURCES["nsWindowsPackageManager.cpp"].flags += ["-DMOZ_NO_WINRT"]
 
 LOCAL_INCLUDES += ["/toolkit/components/jsoncpp/include"]
 

@@ -557,15 +557,15 @@ continue_loading:
   glue::ModuleLoadFrame loadFrame(moduleFileName);
 
   NTSTATUS ret;
-  HANDLE myHandle;
+  HANDLE myHandle = nullptr;
 
   ret = stub_LdrLoadDll(filePath, flags, moduleFileName, &myHandle);
 
-  if (handle) {
+  if (ret >= 0 && handle) {
     *handle = myHandle;
   }
 
-  loadFrame.SetLoadStatus(ret, myHandle);
+  loadFrame.SetLoadStatus(ret, ret >= 0 ? myHandle : nullptr);
 
   return ret;
 }

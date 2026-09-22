@@ -310,6 +310,32 @@ HMODULE inline LoadLibrarySystem32(LPCWSTR aModule) {
   return LoadLibraryExW(systemPath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 }
 
+#ifdef MOZ_XP_COMPAT
+HMODULE inline LoadLibraryXPPrivateDWrite() {
+  WCHAR path[MAX_PATH + 1];
+  DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH + 1);
+  if (!length || length >= MAX_PATH + 1) {
+    return NULL;
+  }
+
+  WCHAR* slash = wcsrchr(path, L'\\');
+  if (!slash) {
+    slash = wcsrchr(path, L'/');
+  }
+  if (!slash) {
+    return NULL;
+  }
+
+  static constexpr WCHAR suffix[] = L"\\xpcompat\\dwrite\\DWrite.dll";
+  size_t prefixLen = slash - path;
+  if (prefixLen + (sizeof(suffix) / sizeof(suffix[0])) > MAX_PATH + 1) {
+    return NULL;
+  }
+  memcpy(slash, suffix, sizeof(suffix));
+  return LoadLibraryExW(path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+}
+#endif
+
 // for UniquePtr
 struct LocalFreeDeleter {
   void operator()(void* aPtr) { ::LocalFree(aPtr); }

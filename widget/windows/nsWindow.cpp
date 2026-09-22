@@ -251,6 +251,9 @@ using namespace mozilla::plugins;
  **************************************************************/
 static const wchar_t kUser32LibName[] = L"user32.dll";
 
+static HRESULT SafeDwmSetWindowAttribute(HWND aWnd, DWORD aAttribute,
+                                         LPCVOID aValue, DWORD aValueSize);
+
 uint32_t nsWindow::sInstanceCount = 0;
 bool nsWindow::sIsOleInitialized = false;
 constinit nsIWidget::Cursor nsWindow::sCurrentCursor = {};
@@ -823,7 +826,7 @@ class InitializeVirtualDesktopManagerTask : public Task {
 
 // Ground-truth query: does Windows claim the window is cloaked right now?
 static bool IsCloaked(HWND hwnd) {
-  DWORD cloakedState;
+  DWORD cloakedState = 0;
   if (!WinUtils::dwmGetWindowAttributePtr) {
     return false;
   }
@@ -1205,6 +1208,7 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
         Preferences::GetBool("browser.privateWindowSeparation.enabled", true) &&
         aInitData.mIsPrivate &&
         !StaticPrefs::browser_privatebrowsing_autostart();
+#ifndef MOZ_XP_COMPAT
     RefPtr<IPropertyStore> pPropStore;
 const wchar_t kShellLibraryName[] =  L"shell32.dll";
 
@@ -1247,6 +1251,7 @@ const wchar_t kShellLibraryName[] =  L"shell32.dll";
       }
     }
     ::FreeLibrary(hDLL);
+#endif  // !MOZ_XP_COMPAT
     HICON smallIcon;
     smallIcon = (HICON)::LoadImageW(
         ::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(usePrivateAumid ? IDI_PBMODE : IDI_APPICON), IMAGE_ICON,
@@ -1269,7 +1274,7 @@ const wchar_t kShellLibraryName[] =  L"shell32.dll";
 
   if (mIsRTL && WinUtils::dwmSetWindowAttributePtr) {
     DWORD dwAttribute = TRUE;
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
+    SafeDwmSetWindowAttribute(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
                           sizeof dwAttribute);
   }
 
@@ -1380,7 +1385,7 @@ void nsWindow::LocalesChanged() {
   bool isRTL = intl::LocaleService::GetInstance()->IsAppLocaleRTL();
   if (mIsRTL != isRTL && WinUtils::dwmSetWindowAttributePtr) {
     DWORD dwAttribute = isRTL;
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
+    SafeDwmSetWindowAttribute(mWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &dwAttribute,
                           sizeof dwAttribute);
     mIsRTL = isRTL;
   }
@@ -2419,9 +2424,19 @@ void nsWindow::MoveToWorkspace(const nsAString& workspaceID) {
   }
 }
 
+static HRESULT SafeDwmSetWindowAttribute(HWND aWnd, DWORD aAttribute,
+                                     LPCVOID aValue, DWORD aValueSize) {
+  if (!WinUtils::dwmSetWindowAttributePtr) {
+    return E_NOTIMPL;
+  }
+
+  return WinUtils::dwmSetWindowAttributePtr(aWnd, aAttribute, aValue,
+                                            aValueSize);
+}
+
 void nsWindow::SuppressAnimation(bool aSuppress) {
   DWORD dwAttribute = aSuppress ? TRUE : FALSE;
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &dwAttribute,
+  SafeDwmSetWindowAttribute(mWnd, DWMWA_TRANSITIONS_FORCEDISABLED, &dwAttribute,
                         sizeof dwAttribute);
 }
 
@@ -2779,9 +2794,9 @@ void nsWindow::SetColorScheme(const Maybe<ColorScheme>& aScheme) {
   }
   BOOL dark =
       aScheme.valueOrFrom(LookAndFeel::SystemColorScheme) == ColorScheme::Dark;
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, &dark,
+  SafeDwmSetWindowAttribute(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, &dark,
                         sizeof dark);
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
+  SafeDwmSetWindowAttribute(mWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
                         sizeof dark);
 }
 
@@ -2823,7 +2838,7 @@ void nsWindow::UpdateMicaBackdrop(bool aForce) {
         return DWMSBT_TABBEDWINDOW;
     }
   }();
-  WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
+  SafeDwmSetWindowAttribute(mWnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
                           sizeof backdrop);
   if (IsPopup()) {
     // For popups, we need a couple extra tweaks:
@@ -2834,7 +2849,7 @@ void nsWindow::UpdateMicaBackdrop(bool aForce) {
     //    acrylic). See also the WM_NCACTIVATE implementation.
     const DWM_WINDOW_CORNER_PREFERENCE corner =
         useBackdrop ? DWMWCP_ROUND : DWMWCP_DEFAULT;
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner,
+    SafeDwmSetWindowAttribute(mWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner,
                             sizeof corner);
     ::PostMessageW(mWnd, WM_NCACTIVATE, TRUE, -1);
   }
@@ -3459,8 +3474,11 @@ void nsWindow::UpdateGlass() {
 
   // Extends the window frame behind the client area
   if (dwmCompositionEnabled) {
-    WinUtils::dwmExtendFrameIntoClientAreaPtr(mWnd, &margins);
-    WinUtils::dwmSetWindowAttributePtr(mWnd, DWMWA_NCRENDERING_POLICY, &policy,
+    if (WinUtils::dwmExtendFrameIntoClientAreaPtr) {
+      WinUtils::dwmExtendFrameIntoClientAreaPtr(mWnd, &margins);
+    }
+
+    SafeDwmSetWindowAttribute(mWnd, DWMWA_NCRENDERING_POLICY, &policy,
                           sizeof policy);
   }
 }
@@ -5204,6 +5222,7 @@ LRESULT CALLBACK nsWindow::WindowProcInternal(HWND hWnd, UINT msg,
 }
 
 const char16_t* GetQuitType() {
+  #ifndef MOZ_XP_COMPAT
   if (Preferences::GetBool(PREF_WIN_REGISTER_APPLICATION_RESTART, false)) {
     DWORD cchCmdLine = 0;
     HRESULT rc = ::GetApplicationRestartSettings(::GetCurrentProcess(), nullptr,
@@ -5212,6 +5231,7 @@ const char16_t* GetQuitType() {
       return u"os-restart";
     }
   }
+  #endif
   return nullptr;
 }
 
@@ -5287,7 +5307,7 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
   if (mCustomNonClient && dwmCompositionEnabled &&
       /* We don't do this for win10 glass with a custom titlebar,
        * in order to avoid the caption buttons breaking. */
-      !(isWin10 && HasGlass()) &&
+      !(isWin10 && HasGlass()) && WinUtils::dwmDwmDefWindowProcPtr &&
       WinUtils::dwmDwmDefWindowProcPtr(mWnd, msg, wParam, lParam, &dwmHitResult)) {
     *aRetValue = dwmHitResult;
     return true;

@@ -677,6 +677,16 @@ LauncherResult<bool> LauncherRegistryInfo::ClearLauncherCrashTimestamp() {
 
 LauncherResult<std::wstring>
 LauncherRegistryInfo::BuildDefaultBlocklistFilename() {
+#ifdef MOZ_XP_COMPAT
+  wchar_t appDataPath[MAX_PATH] = {};
+  HRESULT hr = ::SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_DONT_VERIFY,
+                                  nullptr, SHGFP_TYPE_CURRENT, appDataPath);
+  if (FAILED(hr)) {
+    return LAUNCHER_ERROR_FROM_HRESULT(hr);
+  }
+
+  std::wstring defaultBlocklistPath(appDataPath);
+#else
   // These flags are chosen to avoid I/O, see bug 1363398.
   const DWORD flags =
       KF_FLAG_SIMPLE_IDLIST | KF_FLAG_DONT_VERIFY | KF_FLAG_NO_ALIAS;
@@ -690,6 +700,7 @@ LauncherRegistryInfo::BuildDefaultBlocklistFilename() {
 
   UniquePtr<wchar_t, CoTaskMemFreeDeleter> appDataPath(rawPath);
   std::wstring defaultBlocklistPath(appDataPath.get());
+#endif
 
   UniquePtr<NS_tchar[]> hash;
   std::wstring binPathLower;

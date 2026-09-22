@@ -79,7 +79,6 @@ UNIFIED_SOURCES += [
     "JumpListBuilder.cpp",
     "KeyboardLayout.cpp",
     "LegacyJumpListItem.cpp",
-    "LSPAnnotator.cpp",
     "nsAppShell.cpp",
     "nsClipboard.cpp",
     "nsColorPicker.cpp",
@@ -94,7 +93,6 @@ UNIFIED_SOURCES += [
     "nsToolkit.cpp",
     "nsUserIdleServiceWin.cpp",
     "nsUXThemeData.cpp",
-    "nsWindow.cpp",
     "nsWindowDbg.cpp",
     "nsWindowGfx.cpp",
     "nsWindowLoggedMessages.cpp",
@@ -123,7 +121,6 @@ UNIFIED_SOURCES += [
     "WinMouseScrollHandler.cpp",
     "WinPointerEvents.cpp",
     "WinRegistry.cpp",
-    "WinTaskbar.cpp",
     "WinTextEventDispatcherListener.cpp",
     "WinUtils.cpp",
     "WinWindowOcclusionTracker.cpp",
@@ -134,16 +131,24 @@ SOURCES += [
     "CompositorWidgetParent.cpp",
     "InProcessWinCompositorWidget.cpp",
     "LegacyJumpListBuilder.cpp",
+    "LSPAnnotator.cpp",
     "MediaKeysEventSourceFactory.cpp",
     "nsBidiKeyboard.cpp",
     "nsFilePicker.cpp",
     "nsSharePicker.cpp",
     "nsWidgetFactory.cpp",
-    "OSKInputPaneManager.cpp",
+    "nsWindow.cpp",
+    "OSKInputPaneManagerLegacy.cpp",
     "WinCompositorWidget.cpp",
     "WindowsSMTCProvider.cpp",
     "WindowsUIUtils.cpp",
+    "WinTaskbar.cpp",
 ]
+SOURCES["LSPAnnotator.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["nsFilePicker.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["nsWindow.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["WinTaskbar.cpp"].flags += ["-DMOZ_XP_COMPAT"]
+SOURCES["WindowsUIUtils.cpp"].flags += ["-DMOZ_NO_WINRT"]
 
 # Needs INITGUID and we don't allow INITGUID in unified sources since bug 970429.
 SOURCES += [
@@ -198,9 +203,9 @@ if CONFIG["MOZ_BUILD_APP"] == "browser":
     DEFINES["MOZ_BUILD_APP_IS_BROWSER"] = True
 
 DEFINES["MOZ_UNICODE"] = True
-DEFINES["MOZ_APP_NAME"] = '"%s"' % CONFIG["MOZ_APP_NAME"]
+DEFINES["MOZ_APP_NAME"] = '\"%s\"' % CONFIG["MOZ_APP_NAME"]
 # Turn `firefox` into `Firefox`.
-DEFINES["MOZ_TOAST_APP_NAME"] = '"%s"' % CONFIG["MOZ_APP_NAME"].title()
+DEFINES["MOZ_TOAST_APP_NAME"] = '\"%s\"' % CONFIG["MOZ_APP_NAME"].title()
 
 USE_LIBS += [
     "jsoncpp",
@@ -214,11 +219,11 @@ OS_LIBS += [
     "winmm",
 ]
 
-# mingw is missing Windows toast notification definitions.
+# XP legacy source selection: use the no-WinRT backend and do not compile
+# ToastNotification.cpp or ToastNotificationHandler.cpp.
 if CONFIG["CC_TYPE"] == "clang-cl":
     SOURCES += [
-        "ToastNotification.cpp",
-        "ToastNotificationHandler.cpp",
+        "ToastNotificationLegacy.cpp",
     ]
 
 SPHINX_TREES["/widget/windows"] = "docs"

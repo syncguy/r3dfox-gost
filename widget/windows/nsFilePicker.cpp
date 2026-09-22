@@ -12,6 +12,7 @@
 #include <winerror.h>
 #include <winuser.h>
 #include <utility>
+#include <vector>
 
 #include "ContentAnalysis.h"
 #include "mozilla/Assertions.h"
@@ -478,6 +479,45 @@ using fd_async::AsyncExecute;
  */
 RefPtr<mozilla::MozPromise<bool, nsFilePicker::Error, true>>
 nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
+#ifdef MOZ_XP_COMPAT
+  using Promise = mozilla::MozPromise<bool, Error, true>;
+
+  ScopedRtlShimWindow shim(mParentWidget.get());
+  AutoWidgetPickerState awps(mParentWidget);
+
+  BROWSEINFOW bi = {};
+  bi.hwndOwner = shim.get();
+  bi.lpszTitle = mTitle.IsEmpty() ? nullptr : mTitle.get();
+  bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+  const wchar_t* initialDir =
+      aInitialDir.IsEmpty()
+          ? nullptr
+          : reinterpret_cast<const wchar_t*>(aInitialDir.BeginReading());
+  bi.lParam = reinterpret_cast<LPARAM>(initialDir);
+  bi.lpfn = [](HWND hwnd, UINT msg, LPARAM, LPARAM data) -> int {
+    if (msg == BFFM_INITIALIZED && data) {
+      SendMessageW(hwnd, BFFM_SETSELECTIONW, TRUE, data);
+    }
+    return 0;
+  };
+
+  PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+  if (!pidl) {
+    return Promise::CreateAndResolve(false, __PRETTY_FUNCTION__);
+  }
+
+  wchar_t path[MAX_PATH] = {};
+  const bool ok = SHGetPathFromIDListW(pidl, path);
+  CoTaskMemFree(pidl);
+  if (!ok) {
+    return Promise::CreateAndReject(
+        MOZ_FD_LOCAL_ERROR("ShowFolderPicker", E_FAIL),
+        __PRETTY_FUNCTION__);
+  }
+
+  mUnicodeFile.Assign(path);
+  return Promise::CreateAndResolve(true, __PRETTY_FUNCTION__);
+#else
   namespace fd = ::mozilla::widget::filedialog;
   nsTArray<fd::Command> commands = {
       fd::SetOptions(FOS_PICKFOLDERS),
@@ -507,6 +547,7 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
               }
               return false;
             });
+#endif
 }
 
 /*
@@ -527,6 +568,129 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir) {
 RefPtr<mozilla::MozPromise<bool, nsFilePicker::Error, true>>
 nsFilePicker::ShowFilePicker(const nsString& aInitialDir) {
   AUTO_PROFILER_LABEL("nsFilePicker::ShowFilePicker", OTHER);
+
+#ifdef MOZ_XP_COMPAT
+  using Promise = mozilla::MozPromise<bool, Error, true>;
+
+  std::vector<wchar_t> fileBuffer(32768, L'\0');
+  if (!mDefaultFilename.IsEmpty()) {
+    size_t copyLen =
+        std::min<size_t>(mDefaultFilename.Length(), fileBuffer.size() - 1);
+    for (size_t i = 0; i < copyLen; ++i) {
+      fileBuffer[i] = mDefaultFilename.CharAt(i);
+    }
+  }
+
+  nsString filterBuffer;
+  for (const auto& filter : mFilterList) {
+    filterBuffer.Append(filter.title);
+    filterBuffer.Append(char16_t(0));
+    filterBuffer.Append(filter.filter);
+    filterBuffer.Append(char16_t(0));
+  }
+  if (!filterBuffer.IsEmpty()) {
+    filterBuffer.Append(char16_t(0));
+  }
+
+  nsAutoString defaultExtension(mDefaultExtension);
+  if (defaultExtension.IsEmpty() && IsDefaultPathHtml()) {
+    defaultExtension.AssignLiteral("html");
+  }
+
+  OPENFILENAMEW ofn = {};
+  ofn.lStructSize = sizeof(ofn);
+  ofn.hwndOwner =
+      mParentWidget
+          ? static_cast<HWND>(mParentWidget->GetNativeData(NS_NATIVE_WINDOW))
+          : nullptr;
+  ofn.lpstrFilter = filterBuffer.IsEmpty() ? nullptr : filterBuffer.get();
+  ofn.nFilterIndex = mSelectedType > 0 ? mSelectedType : 1;
+  ofn.lpstrFile = fileBuffer.data();
+  ofn.nMaxFile = static_cast<DWORD>(fileBuffer.size());
+  ofn.lpstrInitialDir = aInitialDir.IsEmpty() ? nullptr : aInitialDir.get();
+  ofn.lpstrTitle = mTitle.IsEmpty() ? nullptr : mTitle.get();
+  ofn.lpstrDefExt =
+      defaultExtension.IsEmpty() ? nullptr : defaultExtension.get();
+  ofn.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
+
+  if (IsPrivacyModeEnabled() || !mAddToRecentDocs) {
+    ofn.Flags |= OFN_DONTADDTORECENT;
+  }
+
+  switch (mMode) {
+    case modeOpenMultiple:
+      ofn.Flags |= OFN_ALLOWMULTISELECT;
+      [[fallthrough]];
+    case modeOpen:
+      ofn.Flags |= OFN_FILEMUSTEXIST;
+      if (mozilla::StaticPrefs::widget_windows_follow_shortcuts_on_file_open() !=
+          1) {
+        ofn.Flags |= OFN_NODEREFERENCELINKS;
+      }
+      break;
+    case modeSave:
+      ofn.Flags |= OFN_OVERWRITEPROMPT | OFN_NOREADONLYRETURN;
+      if (IsDefaultPathLink()) {
+        ofn.Flags |= OFN_NODEREFERENCELINKS;
+      }
+      break;
+    case modeGetFolder:
+      return Promise::CreateAndReject(
+          MOZ_FD_LOCAL_ERROR("file-picker opened in directory-picker mode",
+                             E_INVALIDARG),
+          "nsFilePicker::ShowFilePicker");
+  }
+
+  AutoWidgetPickerState awps(mParentWidget);
+  BOOL ok = mMode == modeSave ? ::GetSaveFileNameW(&ofn)
+                              : ::GetOpenFileNameW(&ofn);
+  if (!ok) {
+    DWORD error = ::CommDlgExtendedError();
+    if (error == 0) {
+      return Promise::CreateAndResolve(false, "nsFilePicker::ShowFilePicker");
+    }
+    return Promise::CreateAndReject(
+        MOZ_FD_LOCAL_ERROR("ShowFilePicker", static_cast<HRESULT>(error)),
+        "nsFilePicker::ShowFilePicker");
+  }
+
+  mSelectedType = static_cast<int32_t>(ofn.nFilterIndex);
+
+  const wchar_t* first = fileBuffer.data();
+  if (mMode != modeOpenMultiple) {
+    mUnicodeFile.Assign(first);
+    return Promise::CreateAndResolve(true, "nsFilePicker::ShowFilePicker");
+  }
+
+  const wchar_t* next = first + wcslen(first) + 1;
+  if (*next == L'\0') {
+    nsCOMPtr<nsIFile> file;
+    if (NS_SUCCEEDED(
+            NS_NewLocalFile(nsDependentString(first), getter_AddRefs(file)))) {
+      mFiles.AppendObject(file);
+    }
+    return Promise::CreateAndResolve(!mFiles.IsEmpty(),
+                                     "nsFilePicker::ShowFilePicker");
+  }
+
+  nsDependentString directory(first);
+  while (*next != L'\0') {
+    nsAutoString path(directory);
+    if (!path.IsEmpty() && path.Last() != L'\\') {
+      path.Append(L'\\');
+    }
+    path.Append(next);
+
+    nsCOMPtr<nsIFile> file;
+    if (NS_SUCCEEDED(NS_NewLocalFile(path, getter_AddRefs(file)))) {
+      mFiles.AppendObject(file);
+    }
+    next += wcslen(next) + 1;
+  }
+
+  return Promise::CreateAndResolve(!mFiles.IsEmpty(),
+                                   "nsFilePicker::ShowFilePicker");
+#else
 
   using Promise = mozilla::MozPromise<bool, Error, true>;
   constexpr static auto NotOk = [](Error error) -> RefPtr<Promise> {
@@ -676,6 +840,7 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir) {
 
         return true;
       });
+#endif
 }
 
 void nsFilePicker::ClearFiles() {

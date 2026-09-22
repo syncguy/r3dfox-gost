@@ -152,6 +152,8 @@ static bool FindHandle(const ComparatorFnT& aComparator) {
   return false;
 }
 
+#ifndef MOZ_XP_COMPAT
+
 class GetUiaClientPidsWin11 {
  public:
   static void Run(nsTArray<DWORD>& aPids);
@@ -398,10 +400,15 @@ static DWORD GetUiaClientPidWin10() {
   return 0;
 }
 
+#endif
+
 namespace mozilla {
 namespace a11y {
 
 void Compatibility::GetUiaClientPids(nsTArray<DWORD>& aPids) {
+#ifdef MOZ_XP_COMPAT
+  return;
+#else
   if (!::GetModuleHandleW(L"uiautomationcore.dll")) {
     // UIAutomationCore isn't loaded, so there is no UIA client.
     return;
@@ -413,6 +420,7 @@ void Compatibility::GetUiaClientPids(nsTArray<DWORD>& aPids) {
       aPids.AppendElement(pid);
     }
   }
+#endif
 }
 
 }  // namespace a11y

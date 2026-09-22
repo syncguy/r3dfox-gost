@@ -211,9 +211,13 @@ SamplerThread::SamplerThread(PSLockRef aLock, uint32_t aActivityGeneration,
           std::max(1, int(floor(aIntervalMilliseconds * 1000 + 0.5)))),
       mNoTimerResolutionChange(
           ProfilerFeature::HasNoTimerResolutionChange(aFeatures)),
+#ifdef MOZ_NO_WINRT
+      mHiResTimer(nullptr) {
+#else
       mHiResTimer(::CreateWaitableTimerExA(
           nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
           TIMER_ALL_ACCESS)) {
+#endif
   if (!mHiResTimer) {
     if ((!mNoTimerResolutionChange) && (mIntervalMicroseconds < 10 * 1000)) {
       // By default the timer resolution (which tends to be 1/64Hz, around 16ms)
