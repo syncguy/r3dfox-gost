@@ -4,6 +4,11 @@
 
 import { PrivateBrowsingUtils } from "resource://gre/modules/PrivateBrowsingUtils.sys.mjs";
 
+const lazy = {};
+ChromeUtils.defineLazyGetter(lazy, "webGLPermissionL10n", () =>
+  new Localization(["preview/r3dfoxWebGL.ftl"], true)
+);
+
 export let WebGLPermissionPromptHelper = {
   _permissionsPrompt: "webgl-permissions-prompt",
   _permissionsPromptHideDoorHanger: "webgl-permissions-prompt-hide-doorhanger",
@@ -32,11 +37,8 @@ export let WebGLPermissionPromptHelper = {
       return;
     }
 
-    let { gNavigatorBundle, gBrowserBundle } = window;
-    let message = gNavigatorBundle.getFormattedString(
-      "webgl.siteprompt2",
-      ["<>"],
-      1
+    let message = lazy.webGLPermissionL10n.formatValueSync(
+      "r3dfox-webgl-siteprompt"
     );
 
     let principal =
@@ -54,8 +56,10 @@ export let WebGLPermissionPromptHelper = {
     }
 
     let mainAction = {
-      label: gNavigatorBundle.getString("webgl.allow2"),
-      accessKey: gNavigatorBundle.getString("webgl.allow2.accesskey"),
+      label: lazy.webGLPermissionL10n.formatValueSync("r3dfox-webgl-allow"),
+      accessKey: lazy.webGLPermissionL10n.formatValueSync(
+        "r3dfox-webgl-allow-accesskey"
+      ),
       callback(state) {
         setWebGLPermission(
           Ci.nsIPermissionManager.ALLOW_ACTION,
@@ -70,8 +74,10 @@ export let WebGLPermissionPromptHelper = {
 
     let secondaryActions = [
       {
-        label: gNavigatorBundle.getString("webgl.block"),
-        accessKey: gNavigatorBundle.getString("webgl.block.accesskey"),
+        label: lazy.webGLPermissionL10n.formatValueSync("r3dfox-webgl-block"),
+        accessKey: lazy.webGLPermissionL10n.formatValueSync(
+          "r3dfox-webgl-block-accesskey"
+        ),
         callback(state) {
           setWebGLPermission(
             Ci.nsIPermissionManager.DENY_ACTION,
@@ -87,7 +93,9 @@ export let WebGLPermissionPromptHelper = {
     };
     if (checkbox.show) {
       checkbox.checked = true;
-      checkbox.label = gBrowserBundle.GetStringFromName("webgl.remember2");
+      checkbox.label = lazy.webGLPermissionL10n.formatValueSync(
+        "r3dfox-webgl-remember"
+      );
     }
 
     let options = {
@@ -101,8 +109,8 @@ export let WebGLPermissionPromptHelper = {
         if (e == "showing" && this?.browser?.ownerDocument) {
           this.browser.ownerDocument.getElementById(
             "webgl-permissions-prompt-warning"
-          ).textContent = gBrowserBundle.GetStringFromName(
-            "webgl.siteprompt2.warning"
+          ).textContent = lazy.webGLPermissionL10n.formatValueSync(
+            "r3dfox-webgl-siteprompt-warning"
           );
         }
       },
