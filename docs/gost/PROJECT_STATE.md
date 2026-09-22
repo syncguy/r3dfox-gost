@@ -33,7 +33,11 @@ Physical Windows XP SP3 x86 testing of the exact packaged browser with the Russi
 
 This closes the reproduced Russian-langpack WebGL/Page Info localization blocker for this exact lineage. It is separate from the later WebRTC-enable experiment at source `75b4e8f052fb6fc09c723651938fde18f95af4ea`.
 
-The exact six-file localization patch has now been transferred unchanged into product branch `win-153-xp`: pre-transfer head `586fe5f856971a790db6e3529bdb0ac7a6133872`, post-transfer head `85863f2355a23223bf33f55b641ccb509a2b72ac`. All six resulting file blobs match the physically accepted patch source `9e692fc9...`. This transfer is source identity only; the current clean-product physical baseline remains `586fe5f8...` until the new `win-153-xp` head is built and exercised.
+The exact six-file localization patch has now been transferred unchanged into product branch `win-153-xp`: pre-transfer head `586fe5f856971a790db6e3529bdb0ac7a6133872`, post-transfer/source-under-test `85863f2355a23223bf33f55b641ccb509a2b72ac`. All six resulting file blobs match the physically accepted patch source `9e692fc9...`.
+
+The actual clean-product release line now also has a full GREEN integration build for that exact head: workflow `.github/workflows/xp-release-build-x32.yml`, run `35724604122`, job `106735182867`, package `10700255591`, runtime `10700395290`, diagnostics `10700061102`. The workflow run itself was dispatched from docs head `8e9c6914...`, but its recorded product source checkout is `win-153-xp @ 85863f23...`; keep those identities separate. Full compile/link, XP gates, packaging, runtime-archive generation and broad PE/direct-import audit all passed.
+
+This establishes the localization patch in the real `win-153-xp` release build/package/static path. The current clean-product **physical** baseline remains `586fe5f8...` until the exact `85863f23...` release package/runtime is exercised on Windows XP.
 
 # GOST TLS runtime
 
