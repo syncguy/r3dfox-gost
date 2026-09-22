@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -382,6 +382,25 @@ Exact successor carrying the YY-Thunks DLL/TLS entry-point contract:
 - user-reported extracted `xul.dll` SHA-1 `7ef46570af15390fa1c431c9d1b93ff985d79c22`.
 
 Physical Windows XP execution of the successor no longer reproduces the `RtlpWaitForCriticalSection` failure. The blocker is therefore closed for this exact browser. Active XP work has moved to later IP Helper API compatibility; full XP acceptance remains open separately.
+
+## Localization / stock language-pack compatibility
+
+### Fork-specific WebGL permission fallback for stock Firefox langpacks — COMPLETE
+
+Exact accepted source/runtime browser:
+
+- source `9e692fc9dfb1dd6f8099503e94afe887545cb5bb` on `agent/winrt-source-poc`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
+- run `35700636148`, job `106657546780`, completed / success;
+- package artifact `10687983276`, runtime artifact `10688178293`, diagnostics artifact `10688053368`.
+
+The fork-specific legacy WebGL permission/prompt strings that were absent from stock Firefox language packs were moved to a source-owned Fluent fallback resource and their direct consumers were switched to that resource. The full XP x86 build/package/static gates passed.
+
+Physical Windows XP SP3 x86 validation with the Russian language pack confirms the reproduced failure is closed: Page Info General/Media/Permissions/Security populate normally, the WebGL permission appears as the built-in English fallback `Create WebGL context`, Security details render, and the Page Info actions successfully open `about:certificate` and `about:logins`.
+
+User-recorded SHA-1 identities for the tested portable browser are `r3dfox.exe=5a0df81069fa21bb13ec2b12659f44b43945aeb1`, `xul.dll=06099786dc6f9e95a4f2457dee937bd0aef4e2e6`, `mozglue.dll=709f01c38d7a2e2f2f07a47e79432ca124f90f79`, and `nss3.dll=9de2d33d537db8488537686e0fa08ec8539ba386`.
+
+This closure is independent of WebRTC enablement and independent of GOST TLS handshake behavior.
 
 ## Bundled government-system extensions
 
