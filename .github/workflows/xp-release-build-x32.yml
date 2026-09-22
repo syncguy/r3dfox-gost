@@ -1,0 +1,532 @@
+name: "XP release build x32"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xp-x32:
+    name: Windows x86 / r3dfox / XP SP3 release build
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-xp-release-x32
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "i686-pc-windows-msvc"
+      RUSTFLAGS: "--cfg moz_xp_compat"
+      MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+      MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+      YY_THUNKS_VERSION: "1.2.2"
+      YY_THUNKS_TARGET: "5.1.2600.0"
+      WINDOWS_XP_SUBSYSTEM: "5.01"
+      OBJDIR: "obj-xp-release-x32"
+      BCRYPT_TAG: "xp-bcrypt-v1"
+      BCRYPT_RELEASE_ID: "380563342"
+      BCRYPT_ASSET_ID: "539647946"
+      BCRYPT_SOURCE_SHA: "a30a701fcf50eb08b6ea7574cb7cc927f6eae014"
+      BCRYPT_SIZE: "520704"
+      BCRYPT_SHA1: "ae021f44edc48b03bb4d67cb5773b62bdf60cb67"
+      BCRYPT_SHA256: "f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193"
+
+    steps:
+      - name: Checkout XP product source
+        uses: actions/checkout@v4
+        with:
+          ref: win-153-xp
+          fetch-depth: 1
+
+      - name: Checkout XP CI scripts
+        uses: actions/checkout@v4
+        with:
+          ref: agent/winrt-source-poc
+          path: .xp-ci-source
+          sparse-checkout: |
+            .github/scripts/xp
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: Install XP CI scripts and record source identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $sourceSha) { throw 'Cannot resolve XP product source SHA' }
+          $scriptsSha = (git -C .xp-ci-source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $scriptsSha) { throw 'Cannot resolve XP CI scripts SHA' }
+
+          New-Item -ItemType Directory -Force '.github\scripts\xp' | Out-Null
+          Copy-Item -Recurse -Force '.xp-ci-source\.github\scripts\xp\*' '.github\scripts\xp\'
+          Remove-Item -Recurse -Force '.xp-ci-source'
+
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @(
+            "workflow_sha=$env:GITHUB_SHA"
+            "source_ref=win-153-xp"
+            "source_sha=$sourceSha"
+            "ci_scripts_ref=agent/winrt-source-poc"
+            "ci_scripts_sha=$scriptsSha"
+          ) | Set-Content -Encoding utf8 diagnostics\xp-release-build-identity.txt
+
+          "XP_SOURCE_SHA=$sourceSha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "XP_CI_SCRIPTS_SHA=$scriptsSha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "XP release source: win-153-xp @ $sourceSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "XP CI scripts: agent/winrt-source-poc @ $scriptsSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: GATE - SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify XP DPI pre-Vista source guard
+        id: dpi-source-guard
+        shell: powershell
+        run: .\.github\scripts\xp\verify-dpi-source-guard.ps1
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: .\.github\scripts\xp\plan-pagefile.ps1
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile and show runner CPU
+        shell: powershell
+        run: .\.github\scripts\xp\verify-runner-pagefile.ps1
+        
+      - name: GATE - Verify committed mime_guess vendored checksum
+        shell: powershell
+        run: .\.github\scripts\xp\verify-mime-guess-checksum.ps1
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Prepare pinned legacy Firefox XP D3DCompiler_47
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-legacy-d3dcompiler47.ps1
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare pinned XP bcrypt release asset
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-pinned-xp-bcrypt.ps1
+
+      - name: Install pinned ordinary Rust x86 target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: .\.github\scripts\xp\build-msvcr14x-release-x86.ps1
+
+      - name: GATE - Require proven XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: .\.github\scripts\xp\verify-msvcr14x-xp-contract.ps1
+
+      - name: Prepare pinned private DirectWrite integration
+        id: prepare-private-dwrite
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-private-dwrite-integration.ps1
+
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-yy-thunks-x86.ps1
+
+      - name: Build narrow YY XP x86 provider
+        shell: powershell
+        run: .\.github\scripts\xp\build-narrow-yy.ps1
+
+      - name: Activate narrow YY XP x86 provider for all target links
+        shell: powershell
+        run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
+
+      - name: GATE - Verify committed xul.dll YY TLS entry-point contract
+        shell: powershell
+        run: .\.github\scripts\xp\verify-xul-yy-entrypoint-contract.ps1
+
+      - name: Write XP x32 mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xp-release-x32
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --enable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --disable-sandbox
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --disable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-xp-release-x32'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Firefox x86 target
+        shell: powershell
+        run: .\.github\scripts\xp\configure-firefox-x86-target.ps1
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: .\.github\scripts\xp\build-export-prerequisites.ps1
+
+      - name: GATE - Compile security manager SSL target objects
+        shell: powershell
+        run: .\.github\scripts\xp\compile-security-manager-ssl-targets.ps1
+
+      - name: Build release r3dfox XP x32
+        id: build-release
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: DIAG - Record xul IPHLPAPI XP compatibility imports
+        id: xul-iphlpapi-import-diag
+        if: always() && steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\diag-xul-iphlpapi.ps1
+
+      - name: GATE - Require XP battery Vista-only USER32 imports absent from xul.dll
+        id: battery-power-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-xul-battery-user32-imports.ps1
+
+      - name: GATE - Require source-remediation quartet absent from xul.dll
+        id: source-remediation-quartet
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-xul-source-remediation-quartet.ps1
+
+      - name: GATE - Require ADVAPI32 compatibility family absent from xul.dll
+        id: advapi32-etw-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-xul-advapi32-compat-imports.ps1
+
+      - name: GATE - Verify mozglue SetProcessDPIAware stays delay-loaded
+        id: dpi-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-mozglue-dpi-delay-import.ps1
+
+      - name: GATE - Reject proven core browser XP direct imports
+        id: sync-import-gate
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\reject-core-browser-xp-direct-imports.ps1
+
+      - name: Stage msvcr14x XP runtime DLLs
+        id: stage-runtime
+        if: always() && steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          if (-not (Test-Path $bin)) { throw "Firefox dist/bin missing: $bin" }
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $src = Join-Path $env:MSVCR14X_RELEASE $dll
+            if (-not (Test-Path $src)) { throw "Required msvcr14x runtime missing: $src" }
+            Copy-Item -Force $src (Join-Path $bin $dll)
+          }
+
+      - name: Stage pinned legacy Firefox XP D3DCompiler_47
+        id: stage-legacy-d3dcompiler
+        if: steps.stage-runtime.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $dst = Join-Path $bin 'd3dcompiler_47.dll'
+          if (-not (Test-Path $dst)) { throw "Build-produced D3DCompiler_47 missing: $dst" }
+          $before = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
+          Copy-Item -Force $env:LEGACY_D3DCOMPILER47 $dst
+          $after = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
+          if ($after -ne $expected) { throw "Legacy D3DCompiler_47 stage hash mismatch: $after" }
+          $version = (Get-Item $dst).VersionInfo.FileVersion
+          if ($version -notlike '10.0.14393.33*') { throw "Unexpected legacy D3DCompiler_47 version: $version" }
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") | Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+
+      - name: Stage pinned private DirectWrite closure
+        id: stage-private-dwrite
+        if: steps.stage-legacy-d3dcompiler.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Stage
+
+      - name: Retarget dist/bin PE subsystem headers to XP x86
+        id: retarget-pe
+        if: steps.stage-private-dwrite.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\retarget-dist-bin-pe-subsystem.ps1
+
+      - name: GATE - Verify retargeted legacy D3DCompiler_47
+        id: verify-retargeted-d3dcompiler
+        if: steps.retarget-pe.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-retargeted-legacy-d3dcompiler47.ps1
+
+      - name: GATE - Verify private DirectWrite closure after PE retarget
+        id: verify-private-dwrite
+        if: steps.retarget-pe.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Verify
+
+      - name: Stage proven XP bcrypt.dll
+        id: stage-xp-bcrypt
+        if: always() && steps.verify-private-dwrite.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\stage-proven-xp-bcrypt.ps1
+
+      - name: GATE - Record staged XP CRT identity before packaging
+        id: record-staged-crt
+        if: steps.stage-xp-bcrypt.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:OBJDIR 'dist\bin'
+          $rows = [System.Collections.Generic.List[string]]::new()
+          foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+            $path = Join-Path $bin $dll
+            if (-not (Test-Path $path)) { throw "Staged XP CRT missing before packaging: $path" }
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            $rows.Add("$dll|sha256=$hash")
+            if ($dll -eq 'ucrtbase.dll') { "XP_UCRTBASE_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 } else { "XP_MSVCP140_STAGED_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
+          $rows | Set-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
+
+      - name: Package XP x32 experiment
+        id: package-release
+        if: steps.record-staged-crt.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify legacy D3DCompiler_47 survived packaging
+        id: verify-legacy-d3dcompiler
+        if: steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = $env:LEGACY_D3DCOMPILER47_RETARGETED_SHA256
+          if (-not $expected) { throw 'Retargeted D3DCompiler_47 hash was not recorded' }
+          $dll = Join-Path $env:OBJDIR 'dist\bin\d3dcompiler_47.dll'
+          if (-not (Test-Path $dll)) { throw "Staged D3DCompiler_47 disappeared after package: $dll" }
+          $hash = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          if ($hash -ne $expected) { throw "D3DCompiler_47 changed during package: expected=$expected actual=$hash" }
+          "post_package_sha256=$hash" | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+
+      - name: GATE - Verify msvcr14x CRT survived portable packaging
+        id: verify-packaged-crt
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-packaged-msvcr14x-crt.ps1
+
+      - name: GATE - Verify private DirectWrite closure survived portable packaging
+        id: verify-packaged-private-dwrite
+        if: always() && steps.verify-packaged-crt.outcome == 'success'
+        shell: powershell
+        run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode VerifyPackage
+
+      - name: GATE - Verify proven bcrypt survived portable packaging
+        id: verify-packaged-bcrypt
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-packaged-proven-bcrypt.ps1
+
+      - name: Build XP x32 runtime test archive from dist/bin
+        id: runtime-archive
+        if: always() && steps.package-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = (Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path
+          $dist = (Resolve-Path (Join-Path $env:OBJDIR 'dist')).Path
+          $archive = Join-Path $dist 'r3dfox-xp-x32-runtime.7z'
+          if (Test-Path $archive) { Remove-Item -Force $archive }
+          Push-Location $bin
+          try { & 7z.exe a -t7z -mx=7 $archive '.\*'; if ($LASTEXITCODE -ne 0) { throw "7z runtime archive failed: $LASTEXITCODE" } } finally { Pop-Location }
+          "XP_RUNTIME_ARCHIVE=$archive" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: GATE - Audit XP x32 PE floor and direct imports
+        id: xp-import-audit
+        if: steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\audit-xp-x32-pe-floor-direct-imports.ps1
+
+      - name: DIAG - Inventory YY-Thunks DLL entry-point coverage
+        id: yy-dll-entrypoint-diag
+        if: always() && steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\inventory-yy-dll-entrypoint-coverage.ps1
+
+      - name: Upload XP x32 full-build package
+        if: always() && steps.package-release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-xp-x32-package
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            obj-xp-release-x32/dist/*.zip
+            obj-xp-release-x32/dist/*.7z
+            obj-xp-release-x32/dist/*.installer.exe
+
+      - name: Upload XP x32 physical-test runtime archive
+        if: always() && steps.runtime-archive.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-xp-x32-runtime
+          if-no-files-found: error
+          compression-level: 0
+          path: ${{ env.XP_RUNTIME_ARCHIVE }}
+
+      - name: Upload XP x32 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-xp-x32-diagnostics
+          if-no-files-found: warn
+          path: |
+            configure-xp-x32.log
+            xp-x32-retargeted-pe.txt
+            xp-x32-direct-imports.txt
+            xp-x32-delay-imports.txt
+            xp-x32-forbidden-direct-imports.txt
+            xp-x32-battery-power-import/**
+            xp-x32-source-remediation-quartet/**
+            xp-x32-advapi32-etw-import/**
+            xp-x32-dpi-delay-import/**
+            xp-x32-sync-import-gate/**
+            xp-x32-import-audit/**
+            diagnostics/**
+            obj-xp-release-x32/**/xul.pdb
+            ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
+            ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
+            ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
+            ${{ runner.temp }}/r3dfox-xp-x32-ws2_32-alias/**
+
+      - name: GATE - Summarize XP release x32 full build
+        if: always()
+        shell: powershell
+        env:
+          DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
+          BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
+          SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
+          ADVAPI32_COMPAT_IMPORT_OUTCOME: ${{ steps.advapi32-etw-import-gate.outcome }}
+          DPI_IMPORT_MODE_OUTCOME: ${{ steps.dpi-import-gate.outcome }}
+          CORE_IMPORT_OUTCOME: ${{ steps.sync-import-gate.outcome }}
+          RETARGETED_D3DCOMPILER_OUTCOME: ${{ steps.verify-retargeted-d3dcompiler.outcome }}
+          PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-private-dwrite.outcome }}
+          PACKAGED_D3DCOMPILER_OUTCOME: ${{ steps.verify-legacy-d3dcompiler.outcome }}
+          PACKAGED_CRT_OUTCOME: ${{ steps.verify-packaged-crt.outcome }}
+          PACKAGED_PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-packaged-private-dwrite.outcome }}
+          PACKAGED_BCRYPT_OUTCOME: ${{ steps.verify-packaged-bcrypt.outcome }}
+          BROAD_IMPORT_AUDIT_OUTCOME: ${{ steps.xp-import-audit.outcome }}
+          BUILD_OUTCOME: ${{ steps.build-release.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package-release.outcome }}
+          RUNTIME_ARCHIVE_OUTCOME: ${{ steps.runtime-archive.outcome }}
+          XUL_IPHLPAPI_IMPORT_DIAG_OUTCOME: ${{ steps.xul-iphlpapi-import-diag.outcome }}
+          YY_DLL_ENTRYPOINT_DIAG_OUTCOME: ${{ steps.yy-dll-entrypoint-diag.outcome }}
+        run: .\.github\scripts\xp\summarize-xp-x32-full-build.ps1
