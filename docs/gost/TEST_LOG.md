@@ -829,3 +829,45 @@ This run supersedes run `35684223870 / 106607518565` as the canonical clean-prod
 Evidence boundary: **GREEN full build/package/static evidence is now established for clean source `586fe5f8...` without GOST TLS/MSSPI source injection.** Physical Windows XP execution of the exact produced package remains a separate runtime gate. This run does not prove GOST TLS behavior.
 
 Status: **canonical clean XP release full-build/static baseline GREEN.**
+
+
+---
+
+## 2026-09-22 — clean `win-153-xp` physical Windows XP lifecycle PASS
+
+Track: Windows XP SP3 x86 compatibility / clean XP release product branch. Independent of GOST TLS runtime.
+
+Exact source/build identity:
+
+- source-under-test branch `win-153-xp`;
+- source-under-test SHA `586fe5f856971a790db6e3529bdb0ac7a6133872`;
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- workflow/control SHA `d9f62edbb050fd1182f860ded6cf06a1852f24de`;
+- XP CI scripts SHA `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`;
+- run `35697342392`;
+- job `106647034214`;
+- build result: **completed / success / GREEN**;
+- package artifact `10685004306`, digest `sha256:1572dcdc005d0d9f39ca2381411ce2fac155a616cf7a193bb203a465f939ada3`;
+- runtime artifact `10684874629`, digest `sha256:ac37307d5855653c6e38a20c300bda19df74eb2519b6a4b506ff67b4a1241905`;
+- diagnostics artifact `10686043053`, digest `sha256:bcbb8f399ccc26683a19c362efd6ad9bbd59779590a07ed773176d648d16b8a9`.
+
+Physical Windows XP SP3 x86 observation, user-reported for the package from this exact GREEN build:
+
+- browser startup: PASS;
+- creation of a new Firefox profile: PASS;
+- automatic uBlock extension download/install triggered by policy: PASS;
+- opening/browsing web pages: PASS;
+- normal user-initiated browser shutdown: PASS;
+- orderly process termination: PASS.
+
+The user supplied SHA-1 identities for `r3dfox.exe`, `xul.dll`, `nss3.dll`, and `mozglue.dll`. Those four hashes were independently checked against the binaries extracted from the authoritative package artifact `10685004306` and match exactly. Concrete local paths/hashes remain outside the public documentation under the existing XP publication policy.
+
+This closes the physical-runtime acceptance boundary for the clean XP product source. The same exact source now has both canonical full build/package/static GREEN evidence and a hash-correlated physical Windows XP lifecycle PASS.
+
+Evidence boundary: this proves startup, new-profile creation, policy-driven uBlock installation, representative page browsing, and orderly shutdown for the exact clean XP package. It does not prove exhaustive feature coverage, absence of latent regressions, WebRTC, every extension path, every site, or any GOST TLS behavior. GOST TLS remains an independent track and is not present in this clean product build.
+
+Conclusion: **clean `win-153-xp @ 586fe5f8...` is physically accepted on Windows XP SP3 x86 for the exercised lifecycle.**
+
+Status: **canonical clean XP release build/static + physical runtime baseline PASS.**
+
+Publication check: xp-bridge-allowlist-v1 checked
