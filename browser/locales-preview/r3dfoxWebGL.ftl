@@ -1,5 +1,5 @@
-# r3dfox WebGL permission strings are shipped for every locale so stock Firefox
-# language packs cannot remove the fork-specific UI required by this feature.
+# r3dfox WebGL permission strings live in an untranslated Fluent resource so
+# stock Firefox language packs can fall back to the built-in English strings.
 
 r3dfox-webgl-permission-label = Create WebGL context
 r3dfox-webgl-siteprompt = Allow <> to create a WebGL context?
