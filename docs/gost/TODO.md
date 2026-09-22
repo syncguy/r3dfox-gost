@@ -118,6 +118,8 @@ This clean baseline contains no GOST TLS/MSSPI source injection. It supersedes t
 
 Immediate XP work is no longer “make the browser launch and survive.” Preserve this exact clean baseline while expanding real-world regression/feature coverage and collecting tester feedback. GOST TLS remains an independent track and is not proven by this browser lifecycle result.
 
+The physically accepted WebGL/Russian-langpack localization patch has been transferred to `win-153-xp` at head `85863f2355a23223bf33f55b641ccb509a2b72ac`. Next clean-product acceptance step for that head is the ordinary `xp-release-build-x32.yml` build and, if GREEN, a short physical-XP regression check. Until then, `586fe5f8...` remains the authoritative clean-product physical baseline.
+
 The focused YY/static-TLS line remains diagnostically useful but is deferred from the immediate browser path. Its current physical result is `owner-first PASS / late-first teardown HANG` on source `1a61565...`, run `35495864771`, job `106038556671`, artifact `10600581430`. If resumed, follow the Astra/Sol bridge marker plan rather than broadening YY-Thunks from inference.
 
 #### Supermium DWrite component refresh — separate follow-up
