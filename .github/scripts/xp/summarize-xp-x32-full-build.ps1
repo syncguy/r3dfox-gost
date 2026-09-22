@@ -27,7 +27,7 @@ if (-not $summaryTitle) { $summaryTitle = 'GOST TLS PoC build XP x32' }
 $sourceSha = $env:XP_SOURCE_SHA
 if (-not $sourceSha) { $sourceSha = $env:GITHUB_SHA }
 
-"## $summaryTitle: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+"## ${summaryTitle}: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- Source-under-test: $sourceSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 if ($env:XP_SOURCE_REF) {
