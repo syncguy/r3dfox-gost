@@ -33,6 +33,8 @@ Physical Windows XP SP3 x86 testing of the exact packaged browser with the Russi
 
 This closes the reproduced Russian-langpack WebGL/Page Info localization blocker for this exact lineage. It is separate from the later WebRTC-enable experiment at source `75b4e8f052fb6fc09c723651938fde18f95af4ea`.
 
+The exact six-file localization patch has now been transferred unchanged into product branch `win-153-xp`: pre-transfer head `586fe5f856971a790db6e3529bdb0ac7a6133872`, post-transfer head `85863f2355a23223bf33f55b641ccb509a2b72ac`. All six resulting file blobs match the physically accepted patch source `9e692fc9...`. This transfer is source identity only; the current clean-product physical baseline remains `586fe5f8...` until the new `win-153-xp` head is built and exercised.
+
 # GOST TLS runtime
 
 Ordinary HTTPS remains on Firefox NSS. Explicitly allowlisted GOST hosts use `nsGostSSLIOLayer.cpp` -> pinned `deemru/msspi` -> Windows SSPI/CryptoPro after normal Necko proxy resolution / HTTP CONNECT / proxy authentication. Pinned MSSPI source: `f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232`.
