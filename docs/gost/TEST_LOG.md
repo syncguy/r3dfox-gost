@@ -25,11 +25,20 @@ Exact experiment identity:
 
 The source under test contains the WebGL localization fallback change that moves the fork-specific legacy permission/prompt strings used by `SitePermissions.sys.mjs` and `WebGLPermissionPromptHelper.sys.mjs` into a source-owned Fluent resource and packages that resource independently of stock Firefox language packs. The full XP x86 build, package creation, PE/import gates, runtime-archive creation and final summary all completed successfully.
 
-Conclusion: **BUILD / PACKAGE VALIDATION PASS for the localization fix.** This proves that the localization/resource changes integrate cleanly into the canonical full XP x86 build/package path. It does **not** yet prove the original Russian-langpack runtime failure is fixed. The next acceptance boundary is physical browser execution of this exact artifact with the Russian language pack, specifically the previously failing Page Info permission/security path and WebGL permission prompt.
+Physical Windows XP SP3 x86 runtime validation of the exact packaged browser is now also complete. The user tested the build with the Russian language pack and confirmed that the previously failing Page Info path works across General, Media, Permissions and Security. The Permissions tab is populated and includes the fork-specific WebGL permission as the built-in English fallback `Create WebGL context` instead of throwing from the missing stock-langpack key. The Security tab is populated, shows the ordinary NSS HTTPS connection details, `View Certificate` opens `about:certificate`, and `View Saved Passwords` opens `about:logins`.
+
+User-recorded SHA-1 identities for the physically tested portable browser are:
+
+- `r3dfox.exe`: `5a0df81069fa21bb13ec2b12659f44b43945aeb1`;
+- `xul.dll`: `06099786dc6f9e95a4f2457dee937bd0aef4e2e6`;
+- `mozglue.dll`: `709f01c38d7a2e2f2f07a47e79432ca124f90f79`;
+- `nss3.dll`: `9de2d33d537db8488537686e0fa08ec8539ba386`.
+
+Conclusion: **LOCALIZATION FIX COMPLETE for the reproduced Russian-langpack failure.** The source-owned WebGL fallback resource both builds/packages cleanly and fixes the observed physical-XP runtime failure without breaking the surrounding Page Info, certificate, saved-password or ordinary NSS HTTPS UI paths exercised in this test.
 
 This run predates the separate WebRTC-enable commit `75b4e8f052fb6fc09c723651938fde18f95af4ea`; do not use run `35700636148` as WebRTC build evidence.
 
-Status: **current localization build/package evidence; physical runtime validation pending.**
+Status: **completed / build+package GREEN / physical XP Russian-langpack runtime PASS.**
 
 ---
 
