@@ -122,6 +122,14 @@ The physically accepted WebGL/Russian-langpack localization patch has been trans
 
 The focused YY/static-TLS line remains diagnostically useful but is deferred from the immediate browser path. Its current physical result is `owner-first PASS / late-first teardown HANG` on source `1a61565...`, run `35495864771`, job `106038556671`, artifact `10600581430`. If resumed, follow the Astra/Sol bridge marker plan rather than broadening YY-Thunks from inference.
 
+### Deferred XP WebRTC cleanup — deduplicate `inet_pton` fallback
+
+WebRTC-enabled XP source `75b4e8f052fb6fc09c723651938fde18f95af4ea`, run `35706851492`, job `106677750169` built and packaged GREEN but failed at the first physical XP loader boundary because `xul.dll` directly imported unavailable `WS2_32.dll!inet_pton`. Matching `xul.dll` / `xul.pdb` localized both references to `nr_str_port_to_transport_addr()` in `dom/media/webrtc/transport/third_party/nICEr/src/net/transport_addr.cpp`.
+
+Implementation commit `afee8c9e5ad2da729407ae06cda8d8029895ab06` on `agent/winrt-source-poc` applies the narrow source-level unblock: under `MOZ_XP_COMPAT`, nICEr carries a local copy of the proven IPv4/IPv6 parser used by `third_party/libwebrtc/rtc_base/win32.cc`; non-XP builds retain the native `inet_pton` path. This commit is a candidate until the next build/import gate and physical XP runtime test complete.
+
+After WebRTC runtime is physically established, revisit this deliberate duplication. Prefer extracting the shared parser into a neutral Windows compatibility helper used by both `webrtc::win32_inet_pton()` and nICEr without creating a direct nICEr-to-libwebrtc GN/GYP dependency. Preserve the XP requirement that the final `xul.dll` has no direct `WS2_32!inet_pton` import.
+
 #### Supermium DWrite component refresh — separate follow-up
 
 Keep the physically proven 132 component as the browser-integration control while testing newer Supermium component generations separately; do not replace the full-browser pin merely because a newer release exists.
