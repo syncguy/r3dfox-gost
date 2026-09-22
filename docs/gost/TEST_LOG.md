@@ -795,3 +795,37 @@ The only failing step was `GATE - Summarize XP release x32 full build`. PowerShe
 Evidence boundary: this run is **not workflow GREEN** because its aggregate conclusion is failure. It nevertheless establishes **full compile/link/package/static-gate PASS for clean product source `586fe5f8...`** because every substantive operation and compatibility gate completed successfully and all three artifacts were produced. Physical Windows XP runtime remains a separate gate. This run contains no GOST TLS/MSSPI source injection and proves nothing about GOST TLS.
 
 Status: **clean XP release source full build/package/static PASS; final-summary reporting defect fixed for the next run.**
+
+
+---
+
+## 2026-09-22 — clean `win-153-xp` XP release build fully GREEN
+
+Track: Windows XP SP3 x86 compatibility / clean XP release product branch. Independent of GOST TLS runtime.
+
+Exact identity:
+
+- workflow/control branch `agent/gost-tls-poc`;
+- workflow/control SHA `d9f62edbb050fd1182f860ded6cf06a1852f24de`;
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- run `35697342392`;
+- job `106647034214` (`Windows x86 / r3dfox / XP SP3 release build`);
+- source-under-test branch `win-153-xp`;
+- source-under-test SHA `586fe5f856971a790db6e3529bdb0ac7a6133872`;
+- XP CI scripts ref `agent/winrt-source-poc`;
+- XP CI scripts SHA `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`;
+- result: **completed / success / GREEN**.
+
+The rerun after the final-summary PowerShell interpolation fix completed every step successfully. The full Firefox/r3dfox XP x32 compile/link, package creation, runtime archive generation, XP compatibility/static gates, PE/direct-import audit, artifact uploads, and final summary all passed. The build log records `We know it took a while, but your build finally finished successfully!`.
+
+Artifacts:
+
+- package artifact `10685004306`, digest `sha256:1572dcdc005d0d9f39ca2381411ce2fac155a616cf7a193bb203a465f939ada3`;
+- runtime artifact `10684874629`, digest `sha256:ac37307d5855653c6e38a20c300bda19df74eb2519b6a4b506ff67b4a1241905`;
+- diagnostics artifact `10686043053`, digest `sha256:bcbb8f399ccc26683a19c362efd6ad9bbd59779590a07ed773176d648d16b8a9`.
+
+This run supersedes run `35684223870 / 106607518565` as the canonical clean-product full-build/static evidence. The predecessor already proved the substantive build/package/static path, but remained aggregate RED due solely to the final summary parser defect; this rerun closes that reporting issue and establishes an actual workflow GREEN on the same exact product source.
+
+Evidence boundary: **GREEN full build/package/static evidence is now established for clean source `586fe5f8...` without GOST TLS/MSSPI source injection.** Physical Windows XP execution of the exact produced package remains a separate runtime gate. This run does not prove GOST TLS behavior.
+
+Status: **canonical clean XP release full-build/static baseline GREEN.**
