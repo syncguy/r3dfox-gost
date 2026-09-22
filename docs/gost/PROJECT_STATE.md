@@ -188,11 +188,13 @@ Keep the XP mechanisms distinct:
 
 ## XP acceptance boundary
 
-The canonical full XP x86 browser build/package/static compatibility boundary is **GREEN** on exact source `6a3ffb8295bfdde77df3ed34dfca911beae9941a`, run `35346927393`, job `105605594476`. This source contains the narrow `patched_LdrLoadDll` failed-output remediation and retains the previously accepted XP compatibility work, including the Abseil WinRT/COMBASE exclusion.
+The current canonical clean XP acceptance target is source `586fe5f856971a790db6e3529bdb0ac7a6133872` on branch `win-153-xp`.
 
-Physical XP runtime acceptance remains **OPEN**, but the exact successor now has physical evidence. Package `10555076979` advances through successful private DirectWrite loading, font-cache access and multiprocess startup, then the parent process exits with `0xC0000005`. The prior failed-output/private-helper startup boundary is therefore physically advanced beyond; the current acceptance blocker is the later parent-process AV whose faulting module/stack is not yet captured.
+Build/static evidence is GREEN on workflow `XP release build x32`, run `35697342392`, job `106647034214`, with package `10685004306`, runtime `10684874629`, and diagnostics `10686043053`.
 
-Next acceptance step: keep the exact source and temporary early `PreloadXPPrivatePwrp()` ordering unchanged and run a no-source-change teardown-order debugger experiment on the GPU child. Observe xul TLS slot 5 across the existing `DllMainCRTStartupForYY_Thunks` `DLL_THREAD_DETACH` call and the subsequent nss3/NSPR detach path, so “never allocated” and “cleared before callback” are distinguished before choosing a remediation. Keep the separate parent-process `0xC0000005` open until it is captured independently.
+Physical Windows XP SP3 x86 acceptance is also established for that exact package: browser startup, new-profile creation, policy-driven uBlock installation, representative page browsing, normal shutdown, and orderly termination passed. Four key runtime binaries (`r3dfox.exe`, `xul.dll`, `nss3.dll`, `mozglue.dll`) were hash-correlated against package artifact `10685004306`.
+
+No current blocker prevents the exercised clean browser lifecycle on XP. The next compatibility phase is broader real-world regression/feature coverage while preserving this exact baseline. Build success and physical XP runtime success remain independent from GOST TLS behavior.
 
 # Bundled government-system extensions / localization
 
@@ -244,14 +246,16 @@ The accepted architecture is source-level XP fallback: legacy Windows common-dia
 Publication check: xp-bridge-allowlist-v1 checked
 
 
-## 2026-09-22 — clean XP release branch build boundary
+## 2026-09-22 — clean XP release branch build + physical runtime boundary
 
-The clean product branch `win-153-xp` at exact source `586fe5f856971a790db6e3529bdb0ac7a6133872` now has a **completed / success / GREEN** full Firefox/r3dfox XP x32 build on workflow `XP release build x32`: run `35697342392`, job `106647034214`.
+The clean product branch `win-153-xp` at exact source `586fe5f856971a790db6e3529bdb0ac7a6133872` now has both canonical **completed / success / GREEN** full-build evidence and physical Windows XP SP3 x86 runtime acceptance.
 
-Exact control identity is workflow/control SHA `d9f62edbb050fd1182f860ded6cf06a1852f24de` with XP CI scripts SHA `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`. The full compile/link, packaging, runtime-archive generation, current XP compatibility/static gates, PE/direct-import audit, artifact uploads, and final summary all passed.
+Build identity: workflow `XP release build x32`, run `35697342392`, job `106647034214`, workflow/control SHA `d9f62edbb050fd1182f860ded6cf06a1852f24de`, XP CI scripts SHA `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`. The full compile/link, packaging, runtime-archive generation, current XP compatibility/static gates, PE/direct-import audit, artifact uploads, and final summary all passed.
 
 Canonical artifacts are package `10685004306` (`sha256:1572dcdc005d0d9f39ca2381411ce2fac155a616cf7a193bb203a465f939ada3`), runtime `10684874629` (`sha256:ac37307d5855653c6e38a20c300bda19df74eb2519b6a4b506ff67b4a1241905`), and diagnostics `10686043053` (`sha256:bcbb8f399ccc26683a19c362efd6ad9bbd59779590a07ed773176d648d16b8a9`).
 
-This supersedes the previous aggregate-RED run `35684223870 / 106607518565`, whose only failure was the final-summary parser defect after all substantive gates had already passed.
+The exact GREEN package was then exercised on physical Windows XP. Startup, new-profile creation, policy-driven uBlock download/install, representative page browsing, normal shutdown, and orderly process termination all passed. User-supplied SHA-1 identities for `r3dfox.exe`, `xul.dll`, `nss3.dll`, and `mozglue.dll` were independently matched to the corresponding binaries in package artifact `10685004306`.
 
-Current narrow conclusion: **clean `win-153-xp` source has canonical full build/package/static GREEN evidence without GOST TLS/MSSPI injection.** Physical XP execution of this exact GREEN package remains the next independent acceptance boundary. GOST TLS remains a separate line.
+This supersedes run `35684223870 / 106607518565` as build evidence and supersedes the older GOST-bearing XP package as the current clean-product runtime baseline. The current XP objective is no longer basic startup survival; further work is broader feature/regression coverage on the clean product line.
+
+Current conclusion: **clean `win-153-xp` has canonical full build/package/static GREEN plus hash-correlated physical XP lifecycle PASS without GOST TLS/MSSPI injection.** GOST TLS remains a separate line.
