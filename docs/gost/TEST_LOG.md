@@ -7,6 +7,31 @@ The immediately preceding active volume is preserved unchanged in [`TEST_LOG_202
 For each completed experiment, record the exact date, branch and source-under-test SHA, GitHub Actions run/job when applicable, sanitized observation, conclusion, and whether the finding is current, superseded, or still open. Do not publish client-certificate identifiers, private credential metadata, user data, or unsanitized runtime captures; follow `/AGENTS.md`.
 
 ---
+ 
+## 2026-09-22 — WebGL localization fallback full XP x86 build/package is GREEN
+
+Track: browser localization/packaging validation on the Windows XP x86 full-build line. Independent of physical-XP runtime behavior and independent of GOST TLS handshake proof.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test / Actions head SHA `9e692fc9dfb1dd6f8099503e94afe887545cb5bb`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35700636148`, job `106657546780`;
+- aggregate result: **completed / success / GREEN**;
+- package artifact `10687983276` (`r3dfox-gost-xp-x32-package`), digest `sha256:294415f0c474f6c45958411400ef8abc0877e4662f831a5133aa2602c15cba82`;
+- physical-test runtime artifact `10688178293` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:2b516e765370efcccaa03ec3756a0030e4ffa741824fb49089632503d28b9067`;
+- diagnostics artifact `10688053368` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:fe563fb3e95d224ecc0a274ef5265dff533bd5b75b9fd09d785912c904ad5bd3`.
+
+The source under test contains the WebGL localization fallback change that moves the fork-specific legacy permission/prompt strings used by `SitePermissions.sys.mjs` and `WebGLPermissionPromptHelper.sys.mjs` into a source-owned Fluent resource and packages that resource independently of stock Firefox language packs. The full XP x86 build, package creation, PE/import gates, runtime-archive creation and final summary all completed successfully.
+
+Conclusion: **BUILD / PACKAGE VALIDATION PASS for the localization fix.** This proves that the localization/resource changes integrate cleanly into the canonical full XP x86 build/package path. It does **not** yet prove the original Russian-langpack runtime failure is fixed. The next acceptance boundary is physical browser execution of this exact artifact with the Russian language pack, specifically the previously failing Page Info permission/security path and WebGL permission prompt.
+
+This run predates the separate WebRTC-enable commit `75b4e8f052fb6fc09c723651938fde18f95af4ea`; do not use run `35700636148` as WebRTC build evidence.
+
+Status: **current localization build/package evidence; physical runtime validation pending.**
+
+---
 
 ## 2026-09-20 — physical XP YY TLS detach re-entry smoke reaches teardown-order-dependent hang
 
