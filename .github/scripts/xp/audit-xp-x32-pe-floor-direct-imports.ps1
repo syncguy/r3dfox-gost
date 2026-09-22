@@ -59,7 +59,7 @@ $forbiddenApis = @(
   'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeByAddressSingle','WakeConditionVariable',
   'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
   'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
-  'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','WSASendMsg','WSCGetProviderInfo',
+  'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','inet_pton','WSASendMsg','WSCGetProviderInfo',
   'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
 )
 $hits = [System.Collections.Generic.List[string]]::new()
