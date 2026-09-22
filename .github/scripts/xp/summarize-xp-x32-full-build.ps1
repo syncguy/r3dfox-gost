@@ -22,9 +22,24 @@ $operations = @(
 )
 $red = [System.Collections.Generic.List[string]]::new()
 
-"## GOST TLS PoC build XP x32: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+$summaryTitle = $env:XP_BUILD_SUMMARY_TITLE
+if (-not $summaryTitle) { $summaryTitle = 'GOST TLS PoC build XP x32' }
+$sourceSha = $env:XP_SOURCE_SHA
+if (-not $sourceSha) { $sourceSha = $env:GITHUB_SHA }
+
+"## $summaryTitle: final evidence summary" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-"- Source: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+"- Source-under-test: $sourceSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+if ($env:XP_SOURCE_REF) {
+  "- Source ref: $env:XP_SOURCE_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+}
+if ($env:XP_CI_SCRIPTS_SHA) {
+  $ciRef = if ($env:XP_CI_SCRIPTS_REF) { $env:XP_CI_SCRIPTS_REF } else { 'unspecified' }
+  "- XP CI scripts: $ciRef @ $env:XP_CI_SCRIPTS_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+}
+if ($env:GITHUB_SHA -and $env:GITHUB_SHA -ne $sourceSha) {
+  "- Workflow/control SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+}
 "- Target: i686-pc-windows-msvc / Windows XP SP3 x86." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- XP source defines: MOZ_NO_WINRT + MOZ_XP_COMPAT via CFLAGS/CXXFLAGS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- Private DirectWrite: focused contract source 8c30be63ea03a289ca24de4e2dc3e3859f34473e / run 34321430843 / job 102368728335; packaged as xpcompat/dwrite with exact 10-member pinned closure, shared msvcr14x ucrtbase.dll, absolute private DWrite path + LOAD_WITH_ALTERED_SEARCH_PATH, and no explicit pwrp preload." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
