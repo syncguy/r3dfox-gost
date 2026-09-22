@@ -400,7 +400,7 @@ Physical Windows XP SP3 x86 validation with the Russian language pack confirms t
 
 User-recorded SHA-1 identities for the tested portable browser are `r3dfox.exe=5a0df81069fa21bb13ec2b12659f44b43945aeb1`, `xul.dll=06099786dc6f9e95a4f2457dee937bd0aef4e2e6`, `mozglue.dll=709f01c38d7a2e2f2f07a47e79432ca124f90f79`, and `nss3.dll=9de2d33d537db8488537686e0fa08ec8539ba386`.
 
-The exact accepted six-file patch is now also present in `win-153-xp`: base `586fe5f856971a790db6e3529bdb0ac7a6133872` -> head `85863f2355a23223bf33f55b641ccb509a2b72ac`. Each resulting file blob matches source `9e692fc9...`. The transfer does not by itself supersede the clean-product runtime baseline; a release build/runtime check of the new product head remains separate.
+The exact accepted six-file patch is now also present in `win-153-xp`: base `586fe5f856971a790db6e3529bdb0ac7a6133872` -> source/head `85863f2355a23223bf33f55b641ccb509a2b72ac`. Each resulting file blob matches source `9e692fc9...`. Product-branch build/package/static integration is also complete: `XP release build x32`, run `35724604122`, job `106735182867`, completed GREEN with package `10700255591`, runtime `10700395290`, diagnostics `10700061102`. Physical execution of this exact product artifact remains separate and is not implied by the GREEN release build.
 
 This closure is independent of WebRTC enablement and independent of GOST TLS handshake behavior.
 
