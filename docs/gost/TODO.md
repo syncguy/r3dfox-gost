@@ -102,20 +102,21 @@ After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
 
 Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
 
-### Current XP browser baseline — physical lifecycle PASS; focused detach forensics deferred
+### Current XP browser baseline — clean product physical lifecycle PASS
 
-Current exact browser baseline:
+Current exact clean-product baseline:
 
-- source `62835966a1c680382b8ab8a7100b810abccbf2c5`;
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml`;
-- run `35443499166`, job `105898364295`, **completed / success / GREEN**;
-- package `10587340718`, runtime `10587396294`, diagnostics `10586618851`;
-- eight key runtime binaries independently match the exact package artifact;
-- physical Windows XP SP3 x86 browser lifecycle: startup PASS, bundled plugin/extension installation PASS, start-page display PASS, sustained runtime without observed crash, orderly user-initiated shutdown PASS.
+- branch `win-153-xp`;
+- source `586fe5f856971a790db6e3529bdb0ac7a6133872`;
+- workflow `.github/workflows/xp-release-build-x32.yml`;
+- run `35697342392`, job `106647034214`, **completed / success / GREEN**;
+- package `10685004306`, runtime `10684874629`, diagnostics `10686043053`;
+- four key runtime binaries independently match the exact package artifact;
+- physical Windows XP SP3 x86 browser lifecycle: startup PASS, new-profile creation PASS, policy-driven uBlock download/install PASS, representative page browsing PASS, normal shutdown and orderly termination PASS.
 
-The predecessor GPU-child detach AV and parent startup AV are no longer current blockers for this exact exercised lifecycle. Do not reopen them without contradictory evidence from the exact current lineage.
+This clean baseline contains no GOST TLS/MSSPI source injection. It supersedes the older GOST-bearing package as the current ordinary XP browser acceptance target while preserving the earlier compatibility evidence as historical proof.
 
-Immediate XP browser work is therefore no longer “make the browser launch and survive.” Preserve this exact baseline while moving to the next deliberately selected compatibility/runtime objective. GOST TLS remains an independent track and is not proven by this browser lifecycle result.
+Immediate XP work is no longer “make the browser launch and survive.” Preserve this exact clean baseline while expanding real-world regression/feature coverage and collecting tester feedback. GOST TLS remains an independent track and is not proven by this browser lifecycle result.
 
 The focused YY/static-TLS line remains diagnostically useful but is deferred from the immediate browser path. Its current physical result is `owner-first PASS / late-first teardown HANG` on source `1a61565...`, run `35495864771`, job `106038556671`, artifact `10600581430`. If resumed, follow the Astra/Sol bridge marker plan rather than broadening YY-Thunks from inference.
 
@@ -128,11 +129,11 @@ Keep the physically proven 132 component as the browser-integration control whil
 
 ### Current full-browser baselines
 
-Current latest integrated full-build/static evidence is source `62835966a1c680382b8ab8a7100b810abccbf2c5`, run `35443499166`, job `105898364295`: aggregate **completed / success / GREEN**, with package `10587340718`, runtime `10587396294`, diagnostics `10586618851`. This exact source contains the narrow detach re-entry consumer remediation and retains the prior loader, COMBASE and XP compatibility fixes.
+Current latest integrated clean-product full-build/static evidence is source `586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`: aggregate **completed / success / GREEN**, with package `10685004306`, runtime `10684874629`, diagnostics `10686043053`.
 
-Current latest physically exercised exact full-browser target is source `62835966a1c680382b8ab8a7100b810abccbf2c5`, run `35443499166`, job `105898364295`, package `10587340718`, diagnostics `10586618851`. Its exact package is now physically accepted for startup, sustained runtime and orderly shutdown on XP. Source `6a3ffb8...` remains historical evidence for the predecessor GPU-child/null-TLS-slot and parent-AV boundaries; source `52e05a...` remains the proof of the earlier failed-output/private-helper defect.
+Current latest physically exercised exact clean full-browser target is the same source/run/package. It is physically accepted on Windows XP for startup, new-profile creation, policy-driven uBlock installation, representative page browsing, and orderly shutdown; `r3dfox.exe`, `xul.dll`, `nss3.dll`, and `mozglue.dll` were independently hash-matched to package artifact `10685004306`.
 
-Older source `88453be...`, run `34459906476`, job `102815008544`, remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s, but it is not the current runtime target.
+The previous GOST-bearing physical baseline `62835966...` remains important historical compatibility evidence, and older `6a3ffb8...` / `52e05a...` remain historical blocker-localization evidence. Source `88453be...` remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s. None of those older targets supersedes the clean product baseline for ordinary XP release testing.
 
 ### Deferred XP cleanup — battery observer simplification
 
@@ -168,7 +169,7 @@ The current lineage has already closed or physically advanced past the following
 - YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
 - focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
 
-The active runtime acceptance target is exact successor source `6a3ffb8...` / run `35346927393`; its current blocker is the later parent-process `0xC0000005`. Do not spend new cycles on the closed families above without contradictory evidence.
+There is no active basic-startup blocker on the current clean baseline `586fe5f8...` / run `35697342392`; preserve the closed families above and reopen them only with contradictory evidence from a later exact artifact.
 
 ## 2026-09-20 — XP loader cleanup closed
 
