@@ -4,6 +4,11 @@
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
+const lazy = {};
+ChromeUtils.defineLazyGetter(lazy, "webGLPermissionL10n", () =>
+  new Localization(["preview/r3dfoxWebGL.ftl"], true)
+);
+
 var gStringBundle = Services.strings.createBundle(
   "chrome://browser/locale/sitePermissions.properties"
 );
@@ -712,6 +717,11 @@ export var SitePermissions = {
     if (id == "3rdPartyStorage" || id == "3rdPartyFrameStorage") {
       // The key is the 3rd party origin or site, which we use for the label.
       return key;
+    }
+    if (id == "webgl") {
+      return lazy.webGLPermissionL10n.formatValueSync(
+        "r3dfox-webgl-permission-label"
+      );
     }
     let labelID = gPermissions.get(id).labelID || id;
     return gStringBundle.formatStringFromName(`permission.${labelID}.label`, [
