@@ -742,3 +742,56 @@ Conclusion: **the Windows XP legacy file-picker remediation is physically accept
 Status: **physical XP file-picker runtime PASS.**
 
 Publication check: xp-bridge-allowlist-v1 checked
+
+
+---
+
+## 2026-09-22 — clean `win-153-xp` full build/package/static gates PASS; workflow RED only in final summary parser
+
+Track: Windows XP SP3 x86 compatibility / clean XP release product branch. Independent of GOST TLS runtime.
+
+Exact identity:
+
+- workflow/control branch `agent/gost-tls-poc`;
+- workflow/control SHA `d049edfb81b99913bec785103367c9d5577cb5e3`;
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- run `35684223870`;
+- job `106607518565` (`Windows x86 / r3dfox / XP SP3 release build`);
+- source-under-test branch `win-153-xp`;
+- source-under-test SHA `586fe5f856971a790db6e3529bdb0ac7a6133872`;
+- XP CI scripts ref `agent/winrt-source-poc`;
+- XP CI scripts SHA `c597e238caeff48f5945f049925135497c50da74`;
+- GitHub aggregate result: **completed / failure**, caused only by a PowerShell parser error in the final summary step.
+
+All build/package/static evidence steps completed successfully before the reporting failure. The job log records:
+
+- Firefox/r3dfox XP x32 build: success;
+- package: success;
+- runtime archive: success;
+- DPI source guard: success;
+- battery USER32 import gate: success;
+- source-remediation quartet gate: success;
+- ADVAPI32 compatibility import gate: success;
+- mozglue DPI import-mode gate: success;
+- core direct-import gate: success;
+- retargeted legacy D3DCompiler gate: success;
+- private DirectWrite closure gate: success;
+- packaged D3DCompiler gate: success;
+- packaged CRT gate: success;
+- packaged private DirectWrite gate: success;
+- packaged bcrypt gate: success;
+- broad XP PE/direct-import audit: success;
+- IPHLPAPI diagnostic: success;
+- YY DLL entry-point inventory: success.
+
+Artifacts were uploaded successfully before the final reporting error:
+
+- package artifact `10678723711`, digest `sha256:e8a75d977974c51a481db39d2ac68a514b71c6132943e2b721ffa3a3065e3d9f`;
+- runtime artifact `10680095187`, digest `sha256:e832439287a64dbb6eed4df55de1d6c165aa982898a6a0a0aef1461be25ecbdb`;
+- diagnostics artifact `10679890591`, digest `sha256:89ce15f8c47ae9a7f326499514eb74b376cf86e01c352369c467c98aeef0ec67`.
+
+The only failing step was `GATE - Summarize XP release x32 full build`. PowerShell parsed `"$summaryTitle: ..."` as an invalid scoped-variable reference. CI script commit `5eb84314d1b3d2b819a9ba8b6f77fed660062e67` fixes that reporting-only defect by using `"${summaryTitle}: ..."`.
+
+Evidence boundary: this run is **not workflow GREEN** because its aggregate conclusion is failure. It nevertheless establishes **full compile/link/package/static-gate PASS for clean product source `586fe5f8...`** because every substantive operation and compatibility gate completed successfully and all three artifacts were produced. Physical Windows XP runtime remains a separate gate. This run contains no GOST TLS/MSSPI source injection and proves nothing about GOST TLS.
+
+Status: **clean XP release source full build/package/static PASS; final-summary reporting defect fixed for the next run.**
