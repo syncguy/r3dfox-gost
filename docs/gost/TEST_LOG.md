@@ -7,6 +7,33 @@ The immediately preceding active volume is preserved unchanged in [`TEST_LOG_202
 For each completed experiment, record the exact date, branch and source-under-test SHA, GitHub Actions run/job when applicable, sanitized observation, conclusion, and whether the finding is current, superseded, or still open. Do not publish client-certificate identifiers, private credential metadata, user data, or unsanitized runtime captures; follow `/AGENTS.md`.
 
 ---
+
+## 2026-09-22 — win-153-xp WebGL localization product release build is GREEN
+
+Track: localization/product-branch integration and Windows XP x86 build/static validation. Independent of WebRTC runtime and GOST TLS handshake evidence.
+
+Exact experiment identity:
+
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- Actions run `35724604122`, job `106735182867`;
+- workflow-dispatch head/documentation SHA `8e9c691460711da408db814ab04c210cc628b2a3`;
+- exact product source-under-test, recorded by the workflow checkout: `win-153-xp` / `85863f2355a23223bf33f55b641ccb509a2b72ac`;
+- XP CI scripts source: `agent/winrt-source-poc` / `75b4e8f052fb6fc09c723651938fde18f95af4ea`;
+- aggregate result: **completed / success / GREEN**.
+
+Artifacts bound to this release run:
+
+- package artifact `10700255591` (`r3dfox-xp-x32-package`), digest `sha256:63b97b0e53b31bcb062dbf98d1ebdb67124de76af1bad663911972834c1c2cb2`;
+- physical-test runtime artifact `10700395290` (`r3dfox-xp-x32-runtime`), digest `sha256:f8dd39d87d304f5e99d02e299a08c278287f18a523f207dd257c53aaa04076b3`;
+- diagnostics artifact `10700061102` (`r3dfox-xp-x32-diagnostics`), digest `sha256:ab984ed4662365fdb8fcbba17166edc9ebb362d3ae95d44dd39281c7960eaad0`.
+
+The exact `win-153-xp` product head contains the six-file WebGL localization fallback previously proven on source `9e692fc9...`. The release workflow completed the full Firefox/r3dfox x86 build, XP compatibility gates, packaging, package-survival checks, runtime archive creation, broad PE/direct-import audit, artifact uploads, and final release summary successfully.
+
+Conclusion: **PRODUCT-BRANCH BUILD / PACKAGE / STATIC INTEGRATION PASS.** The localization patch is now proven to build cleanly in the actual `win-153-xp` release line. This does not by itself supersede the current physical clean-product baseline: physical Windows XP execution of the exact `85863f23...` package/runtime remains the next acceptance boundary.
+
+Status: **completed / GREEN at release build+package+static scope; physical product runtime pending.**
+
+---
  
 ## 2026-09-22 — WebGL localization fallback full XP x86 build/package is GREEN
 
