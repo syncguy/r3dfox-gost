@@ -389,7 +389,7 @@ jobs:
           }
           $rows | Set-Content -Encoding utf8 diagnostics\packaged-crt-contract.txt
 
-      - name: Package XP x32 experiment
+      - name: Package XP x32 release build
         id: package-release
         if: steps.record-staged-crt.outcome == 'success'
         shell: powershell
@@ -511,6 +511,9 @@ jobs:
         if: always()
         shell: powershell
         env:
+          XP_BUILD_SUMMARY_TITLE: XP release build x32
+          XP_SOURCE_REF: win-153-xp
+          XP_CI_SCRIPTS_REF: agent/winrt-source-poc
           DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
           BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
           SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
