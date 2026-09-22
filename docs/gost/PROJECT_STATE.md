@@ -246,8 +246,12 @@ Publication check: xp-bridge-allowlist-v1 checked
 
 ## 2026-09-22 — clean XP release branch build boundary
 
-The clean product branch `win-153-xp` at exact source `586fe5f856971a790db6e3529bdb0ac7a6133872` has now completed a full Firefox/r3dfox XP x32 compile/link, packaging, runtime-archive creation, and all current XP compatibility/static gates successfully in `XP release build x32` run `35684223870`, job `106607518565`.
+The clean product branch `win-153-xp` at exact source `586fe5f856971a790db6e3529bdb0ac7a6133872` now has a **completed / success / GREEN** full Firefox/r3dfox XP x32 build on workflow `XP release build x32`: run `35697342392`, job `106647034214`.
 
-The workflow itself is recorded as **completed / failure**, not GREEN, because the final reporting script had a PowerShell interpolation parser error after all substantive work and artifact uploads had completed. Package/runtime/diagnostics artifacts are `10678723711`, `10680095187`, and `10679890591`. The reporting-only defect is corrected in XP CI scripts commit `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`.
+Exact control identity is workflow/control SHA `d9f62edbb050fd1182f860ded6cf06a1852f24de` with XP CI scripts SHA `5eb84314d1b3d2b819a9ba8b6f77fed660062e67`. The full compile/link, packaging, runtime-archive generation, current XP compatibility/static gates, PE/direct-import audit, artifact uploads, and final summary all passed.
 
-Current narrow conclusion: **clean `win-153-xp` source has full build/package/static PASS evidence without GOST TLS/MSSPI injection.** Physical XP execution of the exact produced package remains the next independent acceptance boundary. GOST TLS remains a separate line.
+Canonical artifacts are package `10685004306` (`sha256:1572dcdc005d0d9f39ca2381411ce2fac155a616cf7a193bb203a465f939ada3`), runtime `10684874629` (`sha256:ac37307d5855653c6e38a20c300bda19df74eb2519b6a4b506ff67b4a1241905`), and diagnostics `10686043053` (`sha256:bcbb8f399ccc26683a19c362efd6ad9bbd59779590a07ed773176d648d16b8a9`).
+
+This supersedes the previous aggregate-RED run `35684223870 / 106607518565`, whose only failure was the final-summary parser defect after all substantive gates had already passed.
+
+Current narrow conclusion: **clean `win-153-xp` source has canonical full build/package/static GREEN evidence without GOST TLS/MSSPI injection.** Physical XP execution of this exact GREEN package remains the next independent acceptance boundary. GOST TLS remains a separate line.
