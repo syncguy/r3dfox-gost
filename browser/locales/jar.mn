@@ -19,6 +19,7 @@
   preview/aiWindowContent.ftl                      (../locales-preview/aiWindowContent.ftl)
   preview/smartTabGroups.ftl                       (../locales-preview/smartTabGroups.ftl)
   preview/privacyPreferences.ftl                   (../locales-preview/privacyPreferences.ftl)
+  preview/r3dfoxWebGL.ftl                           (../locales-preview/r3dfoxWebGL.ftl)
 
 @AB_CD@.jar:
 % locale browser @AB_CD@ %locale/browser/
