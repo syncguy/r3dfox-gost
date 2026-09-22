@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
 This file is the authoritative current technical synthesis and handoff for new chats. The immediately preceding full synthesis is preserved unchanged in [`PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md`](./PROJECT_STATE_2026-09-12_pre_angle_d3d9_graph_pass.md). Detailed experiment evidence belongs in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`.
 
@@ -24,6 +24,14 @@ Keep these tracks independent unless a deliberately combined experiment tests bo
 3. Bundled extensions, localization and packaging.
 
 Build success is not physical runtime success. Focused source-graph success is not full-build or PE/import success. Physical browser runtime success is not GOST TLS success. Documentation commits never replace the exact source-under-test SHA of an earlier artifact.
+
+## Localization / stock language-pack compatibility — WebGL fallback COMPLETE
+
+The fork-specific WebGL permission strings are now isolated from stock Firefox language-pack completeness by a source-owned Fluent fallback resource. Exact accepted source is `9e692fc9dfb1dd6f8099503e94afe887545cb5bb` on `agent/winrt-source-poc`; canonical full XP x86 workflow run `35700636148`, job `106657546780`, completed GREEN with package artifact `10687983276`, runtime artifact `10688178293`, and diagnostics artifact `10688053368`.
+
+Physical Windows XP SP3 x86 testing of the exact packaged browser with the Russian language pack passes the previously failing Page Info path: General, Media, Permissions and Security populate normally; the Permissions tab shows the fork-specific `Create WebGL context` English fallback instead of throwing on a missing stock-langpack key; Security details render; `about:certificate` and `about:logins` open from their Page Info actions. User-recorded SHA-1 identities are `r3dfox.exe=5a0df81069fa21bb13ec2b12659f44b43945aeb1`, `xul.dll=06099786dc6f9e95a4f2457dee937bd0aef4e2e6`, `mozglue.dll=709f01c38d7a2e2f2f07a47e79432ca124f90f79`, and `nss3.dll=9de2d33d537db8488537686e0fa08ec8539ba386`.
+
+This closes the reproduced Russian-langpack WebGL/Page Info localization blocker for this exact lineage. It is separate from the later WebRTC-enable experiment at source `75b4e8f052fb6fc09c723651938fde18f95af4ea`.
 
 # GOST TLS runtime
 
