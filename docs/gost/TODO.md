@@ -73,22 +73,15 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 `agent/winrt-source-poc` is allowed to move ahead of the clean release baseline. Its HEAD is not a runtime baseline merely because it contains later fixes/tests. Before every physical claim, bind the exact source-under-test, run/job, artifact and local binary hashes.
 
-### Download completion / Recent Documents
+### Download completion / Recent Documents — closed
 
-The source remediation is now build-proven on exact source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `GOST TLS PoC build  XP x32`, run `35810132801`, job `107019631325`, **completed / success / GREEN**. Package `10733487295`, runtime `10733956483`, and diagnostics `10733113244` are the canonical artifacts for the next test.
+The source remediation is build- and runtime-proven on exact source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `GOST TLS PoC build  XP x32`, run `35810132801`, job `107019631325`, **completed / success / GREEN**. Canonical artifacts are package `10733487295`, runtime `10733956483`, and diagnostics `10733113244`.
 
 The source contains both the XP-only fallback away from `SHELL32!SHCreateItemFromParsingName` and a core-browser import regression gate for that symbol. The targeted core-browser import gate and the broad XP PE/direct-import audit both passed in this run.
 
-Remaining acceptance step:
+Physical Windows XP validation of the exact successor runtime also passed with `browser.download.manager.addToRecentDocs=true`: an ordinary user download completed without error or browser crash. User-recorded SHA-1 identities are `r3dfox.exe=3f4f98bb9ad710bda5c72fa25d1e124d37c211b4` and `xul.dll=17ee19d4a947466b25d95089a967f7d055261c2b`; both match the binaries independently extracted from runtime artifact `10733956483`.
 
-- extract the exact `e13354c...` package/runtime;
-- record local hashes for at least `r3dfox.exe` and `xul.dll` before launch;
-- set `browser.download.manager.addToRecentDocs=true`;
-- complete an ordinary user download on physical Windows XP SP3 x86;
-- confirm the predecessor `0xC06D007F` boundary does not recur;
-- only then call the download/recent-documents blocker physically closed.
-
-The temporary preference workaround `browser.download.manager.addToRecentDocs=false` remains acceptable only for testing older binaries; it is no longer the intended remediation path for the successor source.
+The predecessor `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` boundary is therefore physically closed for this exact artifact-correlated source/run. `browser.download.manager.addToRecentDocs=false` is only a temporary workaround for older affected binaries and is not needed for the accepted successor.
 
 ## XP WebRTC
 
@@ -124,7 +117,7 @@ If resumed, add narrow non-CRT boundary markers around owner detach, late callba
 
 ## Closed XP families — do not reopen without contradictory exact evidence
 
-Do not spend new cycles on already closed/advanced-past families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, the XP legacy file-picker blocker, and the nICEr direct `WS2_32!inet_pton` startup blocker on source `afee8c9e...`.
+Do not spend new cycles on already closed/advanced-past families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, the XP legacy file-picker blocker, the nICEr direct `WS2_32!inet_pton` startup blocker on source `afee8c9e...`, and the download-completion `SHELL32!SHCreateItemFromParsingName` blocker closed on artifact-correlated source `e13354c...`.
 
 # Packaging / localization
 
