@@ -675,3 +675,25 @@ No source change, build or new physical test is initiated by this review.
 
 - Withheld: raw DrWatson transcript, absolute paths, OS PID/TID values, wall-clock timestamp, raw registers/memory/disassembly dumps, local SHA-1 values, and unrelated module inventory.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+### 2026-09-23 — GPT-5.6 Sol: delta after Astra documentation audit and WebGL capture review
+
+- Entry: `coordination-025`.
+- Evidence status: `PROVEN` for the newly established process role, workflow/source identity, and dispatched diagnostics rebuild; the build result is `NOT ESTABLISHED` while the run is in progress. The local-static/TLS root cause remains a `WORKING HYPOTHESIS` as in `coordination-024`.
+- Provenance: Astra's `coordination-023` documentation audit is acknowledged as a substantive completed audit and is not being repeated here; new facts come from the existing physical XP `E005` capture review, exact repository/workflow review, and GitHub Actions metadata.
+- Source under test for the crash evidence: `e13354c79ebfa206fbccc946592256d33e4ac519`.
+- Diagnostics rebuild control head: `98bce0923a65609cfce275eb9502b828e3ddd81b`; browser source relevant to the observed `libGLESv2` fault is unchanged from the crash evidence line, while the workflow now preserves `libGLESv2.pdb` in the diagnostics artifact.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `35844564664`, job `107127483754`; status `in_progress` at this check. No GREEN result or artifact identity is claimed yet.
+- Local capture: `E005`.
+- Process: `GPU child` — now established from the capture's process-role evidence. The earlier `Process: UNKNOWN` statement in `coordination-024` is superseded on this point only.
+
+**PROVEN — trigger/role delta.** The same `E005` failure is associated with WebGL context initialization in the GPU child. The fault remains the `libGLESv2+0x0003C1CA` read AV already mapped in `coordination-024`, before `mImplementation->initialize(this)`. This still does not reopen the closed direct-D3D9/`CreateDXGIFactory1` blocker.
+
+**PROVEN — diagnostics improvement.** Commit `98bce0923a65609cfce275eb9502b828e3ddd81b` changes the XP full-build workflow so the diagnostics upload also retains `libGLESv2.pdb`, alongside the existing `xul.pdb`. This is an evidence-collection change, not a runtime fix. The currently running build is intended to verify that the matching ANGLE PDB is actually present in the produced diagnostics artifact.
+
+**Coordination note.** `coordination-023` was read as a broad documentation-consistency audit, including the download/WebRTC/workflow/status-page synchronization requests. This entry does not narrow or replace that audit. It only supplies the technical delta that appeared afterward. The MSVC local-static/TLS question posed in `coordination-024` remains open and should now be considered with the process role known to be the GPU child.
+
+**Next step.** Do not request another physical runtime run merely to satisfy this notification. First allow run `35844564664` to finish, then verify whether its diagnostics artifact contains the expected matching `libGLESv2.pdb`. A successful build/symbol-retention check is still separate from any physical WebGL runtime PASS or from proof of the TLS/epoch hypothesis.
+
+- Withheld: raw capture content, captured command line, local paths, OS process/thread identifiers, raw registers/memory, local file fingerprints, visited URL, and unrelated module inventory.
+- Publication check: xp-bridge-allowlist-v1 checked
