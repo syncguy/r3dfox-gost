@@ -8,6 +8,38 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-23 — XP ANGLE trace-cache local-static remediation full build GREEN
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact experiment identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test / Actions head SHA `3119c849b3930145c8e4181b8a06a692ec20514d`;
+- source commit `3119c849b3930145c8e4181b8a06a692ec20514d` (`fix(xp): avoid ANGLE trace local-static TLS guard`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35860139917`;
+- job `107178068460` (`Windows x86 / r3dfox GOST / XP SP3 full build`);
+- aggregate result: **completed / success / GREEN**.
+
+Artifacts bound to exact source-under-test `3119c849...`:
+
+- package artifact `10760076917` (`r3dfox-gost-xp-x32-package`), digest `sha256:a78f1943847d57c4adfcaccb08d3fbb754f65e8a08a9edcd42d1e7feb03738eb`;
+- physical-test runtime artifact `10759971452` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:089a6c0ea8b9a3baa1a43ef5df9d0b057967174b42af0d50d9c31a70b2adee75`;
+- diagnostics artifact `10759359771` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:e081580c903dc913b152ec71facf19804b5e82bac77d7865e86126f6f6dd6de1`.
+
+This source is the narrow follow-up to the physically reproduced GPU-child WebGL crash on predecessor source `e13354c79ebfa206fbccc946592256d33e4ac519`. That crash occurs at `libGLESv2.dll+0x0003C1CA` while evaluating the ANGLE trace category used by `ANGLE_TRACE_EVENT0("gpu.angle", "egl::Display::initialize")`, before renderer implementation initialization.
+
+The remediation changes `INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO` in `gfx/angle/checkout/src/third_party/trace_event/trace_event.h`: under `MOZ_XP_COMPAT`, the category pointer is no longer a dynamically initialized function-local `static`, avoiding the MSVC thread-safe local-static guard/TLS-epoch path at this proven runtime owner. Non-XP builds retain the original function-local `static` behavior.
+
+Run `35860139917` completed the release browser build, packaging, runtime-archive creation, XP compatibility/import gates, package-survival checks, artifact uploads, and final summary successfully. Therefore the narrow source change is **build/package/static accepted** for exact source `3119c849...`.
+
+Evidence boundary: this build does **not** prove that the physical GPU-child `libGLESv2` crash is closed and does not independently prove that the inferred TLS/epoch mechanism is the complete root cause. Physical acceptance still requires the exact `10759971452` runtime payload on Windows XP, matching local binary hashes, and the same WebGL trigger (`https://get.webgl.org/` with WebGL context creation allowed) to advance past the former `libGLESv2+0x3C1CA` boundary.
+
+Status: **completed / build+package+static GREEN / physical XP WebGL retest pending.**
+
+---
+
 ## 2026-09-23 — XP download/recent-documents remediation full build and physical runtime PASS
 
 Track: Windows XP SP3 x86 compatibility / download completion / Windows Recent Documents integration. Independent of WebRTC functional runtime and GOST TLS handshake evidence.
