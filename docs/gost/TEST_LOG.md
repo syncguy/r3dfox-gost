@@ -8,7 +8,7 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
-## 2026-09-23 — XP download/recent-documents remediation full build and import gates are GREEN
+## 2026-09-23 — XP download/recent-documents remediation full build and physical runtime PASS
 
 Track: Windows XP SP3 x86 compatibility / download completion / Windows Recent Documents integration. Independent of WebRTC functional runtime and GOST TLS handshake evidence.
 
@@ -35,8 +35,15 @@ Source `e13354c...` applies the narrow XP remediation: under `MOZ_XP_COMPAT`, th
 
 The same source also adds `SHCreateItemFromParsingName` to `.github/scripts/xp/reject-core-browser-xp-direct-imports.ps1`. In run `35810132801`, both `GATE - Reject proven core browser XP direct imports` and the broad `GATE - Audit XP x32 PE floor and direct imports` completed successfully. The release build, packaging, runtime archive creation, package-survival checks, artifact uploads and final summary also passed.
 
-Conclusion: **FULL XP x86 BUILD / PACKAGE / STATIC IMPORT REGRESSION PASS for the download/recent-documents remediation.** The canonical full build accepts the source fix, and the core-browser import gate no longer sees `SHCreateItemFromParsingName` in the scanned PE import output.
+Physical Windows XP validation of the exact successor runtime is now complete with `browser.download.manager.addToRecentDocs=true`. The user completed an ordinary download without an error or browser crash. User-recorded SHA-1 identities are:
 
-Evidence boundary: this is **not yet a physical runtime PASS for the fix**. The decisive next test is the exact `e13354c...` package/runtime on physical Windows XP with `browser.download.manager.addToRecentDocs=true`, completing a normal user download and confirming that the former `0xC06D007F` boundary does not recur. Capture the new local binary hashes before calling the blocker physically closed.
+- `r3dfox.exe`: `3f4f98bb9ad710bda5c72fa25d1e124d37c211b4`;
+- `xul.dll`: `17ee19d4a947466b25d95089a967f7d055261c2b`.
 
-Status: **build/package/static GREEN; physical XP download-completion regression pending.**
+The runtime artifact `10733956483` was independently downloaded and unpacked; its `r3dfox.exe` and `xul.dll` SHA-1 values match the user's physical binaries exactly. This binds the physical PASS directly to source-under-test `e13354c...` and run `35810132801`, rather than relying only on user association.
+
+Conclusion: **DOWNLOAD / WINDOWS RECENT DOCUMENTS XP BLOCKER PHYSICALLY CLOSED.** Exact source `e13354c...` has full build/package/static import-regression PASS and an artifact-correlated physical Windows XP download-completion PASS with `browser.download.manager.addToRecentDocs=true`. The predecessor `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` boundary did not recur in the exercised path.
+
+Evidence boundary: this closes the reproduced download/recent-documents blocker only. It does not add WebRTC functional-runtime evidence or GOST TLS handshake evidence.
+
+Status: **completed / build+package+static GREEN / artifact-correlated physical XP download-completion PASS.**
