@@ -8,6 +8,7 @@ on:
       - agent/gost-tls-poc
     paths:
       - ".github/workflows/xp-angle-libglesv2-smoke.yml"
+      - ".github/scripts/xp/verify-angle-trace-xp-codegen.ps1"
 
 permissions:
   contents: read
@@ -33,6 +34,16 @@ jobs:
           ref: agent/winrt-source-poc
           fetch-depth: 1
 
+      - name: Checkout focused XP verification scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          path: .xp-workflow-tools
+          sparse-checkout: |
+            .github/scripts/xp/verify-angle-trace-xp-codegen.ps1
+          sparse-checkout-cone-mode: false
+
       - name: Record experiment identity
         shell: powershell
         run: |
@@ -43,6 +54,7 @@ jobs:
           @(
             "repo=$env:GITHUB_REPOSITORY",
             "workflow_sha=$env:GITHUB_SHA",
+            "workflow_file_sha=${{ github.workflow_sha }}",
             "checkout_source=$checkoutSource",
             "ref=$env:GITHUB_REF",
             'scope=focused ANGLE libGLESv2 build only'
@@ -126,8 +138,10 @@ jobs:
           ac_add_options --enable-application=browser
           ac_add_options --disable-artifact-builds
           ac_add_options --disable-debug
-          ac_add_options --disable-debug-symbols
+          ac_add_options --enable-debug-symbols
           ac_add_options --disable-tests
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
           ac_add_options --disable-webrtc
           ac_add_options --disable-backgroundtasks
           ac_add_options --disable-notification-server
@@ -321,6 +335,12 @@ jobs:
             throw 'Focused libGLESv2 target was ignored by the build system'
           }
 
+      - name: GATE - Verify XP ANGLE trace codegen
+        id: verify-angle-trace-codegen
+        if: steps.build-libglesv2.outcome == 'success'
+        shell: powershell
+        run: .\.xp-workflow-tools\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1
+
       - name: GATE - Inspect focused libGLESv2 binary
         id: inspect-libglesv2
         if: steps.build-libglesv2.outcome == 'success'
@@ -381,9 +401,11 @@ jobs:
           $checkoutSource = (& git.exe rev-parse HEAD).Trim()
           "## XP ANGLE libGLESv2 focused smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Workflow SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Workflow file SHA: ${{ github.workflow_sha }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Checkout source SHA: $checkoutSource" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Branch/ref: $env:GITHUB_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Build gate: ${{ steps.build-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- XP trace codegen gate: ${{ steps.verify-angle-trace-codegen.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Binary inspection: ${{ steps.inspect-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           if (Test-Path diagnostics\quick-missing-prerequisites.txt) {
             "### Quick dependency dry-run" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
@@ -394,6 +416,11 @@ jobs:
           if (Test-Path diagnostics\mozglue-result.txt) {
             Get-Content diagnostics\mozglue-result.txt | ForEach-Object {
               "- mozglue $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+          }
+          if (Test-Path diagnostics\angle-trace-codegen-result.txt) {
+            Get-Content diagnostics\angle-trace-codegen-result.txt | ForEach-Object {
+              "- trace $_" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             }
           }
           if (Test-Path diagnostics\libGLESv2-result.txt) {
