@@ -11,7 +11,7 @@ $apis = @(
   'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete',
   'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
   'AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive','ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable',
-  'SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable','NtCancelIoFileEx'
+  'SleepConditionVariableCS','SleepConditionVariableSRW','WakeAllConditionVariable','WakeConditionVariable','NtCancelIoFileEx','SHCreateItemFromParsingName'
 )
 
 $targets = @('r3dfox.exe','xul.dll','mozglue.dll','plugin-container.exe')
