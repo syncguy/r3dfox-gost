@@ -47,3 +47,31 @@ Conclusion: **DOWNLOAD / WINDOWS RECENT DOCUMENTS XP BLOCKER PHYSICALLY CLOSED.*
 Evidence boundary: this closes the reproduced download/recent-documents blocker only. It does not add WebRTC functional-runtime evidence or GOST TLS handshake evidence.
 
 Status: **completed / build+package+static GREEN / artifact-correlated physical XP download-completion PASS.**
+
+---
+
+## 2026-09-23 — WebGL permission reliably reproduces GPU-child `libGLESv2` local-static/TLS AV
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact experiment identity:
+
+- physically exercised source: `e13354c79ebfa206fbccc946592256d33e4ac519`, recovered from the uploaded process dump;
+- canonical build for that source: `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`, run `35810132801`, job `107019631325`;
+- runtime artifact: `10733956483`;
+- diagnostics artifact: `10733113244`;
+- the previously recorded `r3dfox.exe` and `xul.dll` physical binaries for this source are artifact-correlated; the crashing local `libGLESv2.dll` itself is still **NOT CHECKED** byte-for-byte against the runtime artifact.
+
+Physical trigger: on Windows XP SP3 x86, opening `https://get.webgl.org/` and allowing creation of the WebGL context reliably reaches the failure.
+
+The uploaded DrWatson capture reports `0xC0000005` read access at `libGLESv2.dll+0x0003C1CA`, with the dereferenced cached pointer `NULL`; `libGLESv2.dll!EGL_Initialize+0x78` is the reliable exported stack anchor. This is the same RVA and failure shape already mapped in the public runtime artifact to the `ANGLE_TRACE_EVENT0("gpu.angle", "egl::Display::initialize")` local-static category cache, before `mImplementation->initialize(this)`.
+
+The accompanying full process dump adds one new proven fact that the earlier DrWatson-only record did not establish: the crashing process is the **GPU child**. Its recovered command line identifies the Firefox child-process role as `gpu`. Therefore this incident must no longer be described as process-role `UNKNOWN` for this capture.
+
+The trigger also strengthens the runtime boundary: the crash occurs when WebGL causes the GPU child to initialize EGL/ANGLE, not during ordinary browser startup and not during D3D9 renderer implementation initialization. The already-closed direct `CreateDXGIFactory1`/D3D9 graph blocker remains closed.
+
+Current root-cause status is still narrower than a final proof. The artifact instructions show the MSVC thread-safe function-local-static fast path consulting module TLS-backed per-thread epoch state; at the fault, the cached category pointer remains `NULL` while the initializer path has been skipped. This is consistent with an invalid or stale per-thread local-static epoch/TLS state on XP, but the exact TLS/epoch values on the faulting thread have not yet been captured.
+
+Preferred remediation direction for a source experiment is to remove this XP dependency on MSVC thread-safe local-static TLS at the ANGLE trace-cache boundary rather than disabling WebGL, removing the trace point, weakening an assertion, or reopening the D3D9 backend. A targeted XP-only trace-cache fallback can avoid the function-local dynamically initialized `static` while leaving non-XP behavior unchanged. A broader `/Zc:threadSafeInit-` ANGLE build experiment remains a secondary diagnostic option because it changes all affected local-static initialization in the compiled target rather than only the proven owner.
+
+Status: **reproduced / GPU-child role PROVEN / fault owner and pre-renderer boundary PROVEN / exact TLS-epoch root cause still OPEN.**
