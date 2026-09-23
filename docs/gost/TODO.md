@@ -83,6 +83,22 @@ Physical Windows XP validation of the exact successor runtime also passed with `
 
 The predecessor `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` boundary is therefore physically closed for this exact artifact-correlated source/run. `browser.download.manager.addToRecentDocs=false` is only a temporary workaround for older affected binaries and is not needed for the accepted successor.
 
+### ANGLE / WebGL GPU-child local-static boundary — physical retest pending
+
+Predecessor source `e13354c79ebfa206fbccc946592256d33e4ac519`, run `35810132801`, job `107019631325`, reliably reproduces a physical Windows XP GPU-child `0xC0000005` at `libGLESv2.dll+0x0003C1CA` when `https://get.webgl.org/` is allowed to create a WebGL context. The fault owner is the ANGLE trace-category function-local `static` used before renderer implementation initialization; the direct `CreateDXGIFactory1` / D3D9 graph blocker remains closed.
+
+Exact remediation source `3119c849b3930145c8e4181b8a06a692ec20514d` (`fix(xp): avoid ANGLE trace local-static TLS guard`) removes that dynamically initialized function-local `static` only under `MOZ_XP_COMPAT`, leaving non-XP behavior unchanged.
+
+Canonical build evidence:
+
+- workflow `GOST TLS PoC build  XP x32`;
+- run `35860139917`, job `107178068460`, **completed / success / GREEN**;
+- package artifact `10760076917`;
+- runtime artifact `10759971452`;
+- diagnostics artifact `10759359771`.
+
+Next acceptance step: extract the exact runtime artifact `10759971452`, record local hashes for `r3dfox.exe`, `xul.dll` and preferably `libGLESv2.dll`, launch on physical Windows XP, open `https://get.webgl.org/`, allow WebGL context creation, and verify that execution advances past the former GPU-child `libGLESv2+0x3C1CA` boundary. A build-only GREEN result is not sufficient to close the runtime blocker.
+
 ## XP WebRTC
 
 The initial WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` built/package GREEN but physically failed at the XP loader because `xul.dll` directly imported unavailable `WS2_32!inet_pton` from nICEr.
