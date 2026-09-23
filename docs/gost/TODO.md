@@ -1,186 +1,124 @@
 # r3dfox GOST TLS — TODO / Deferred Work
 
-This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; the GIS GMP multi-host mTLS branch is in `STAGE2_GIS_GMP.md`; the WinRT source-removal alternative is in `WINRT_SOURCE_POC.md`; Windows XP compatibility architecture/import triage is in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`; experiment evidence is in `TEST_LOG.md` and dated volumes.
+This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; GIS GMP multi-host mTLS work is in `STAGE2_GIS_GMP.md`; Windows XP architecture/import triage is in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`; experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes.
 
 ## GOST TLS runtime — immediate
 
-F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, the SD1-SD6 Session-default exact-artifact regression, T3 explicit Cancel/no-certificate semantics, T4 involuntary tab/load Abort semantics, T7/T8 missing-medium/provider recovery, the T9 long-provider-wait characterization, and T10 detailed Russian picker presentation are closed as experiments.
+Already closed as experiments and not to be repeated on unchanged source merely for confirmation: F1 close/shutdown lifecycle, F2 positive `Once` fanout/scope, F3 generic GOST mTLS host scope, GIS-G4 cross-host decision isolation, explicit positive `Session` lifetime, SD1-SD6 Session-default exact-artifact regression, T3 explicit Cancel/no-certificate semantics, T4 involuntary tab/load Abort semantics, T7/T8 missing-medium/provider recovery, T9 long-provider-wait characterization, and T10 detailed Russian picker presentation.
 
-Current Session-default runtime evidence is source `afbdad307f63e594d3715169d6e34235280dddaf`, main run `33073577269`, job `98521835354`, artifact `9652941006`. Do not repeat closed tests on unchanged source merely for confirmation.
+Current open work:
 
-Physical Windows XP GOST server-auth transport proof is also now established independently on exact source `88453be37a7f39f690c504078f6f9434e2547ab6`, run `34459906476`, job `102815008544`, under forced non-e10s: six completed TLS 1.2 MSSPI handshakes to `fzs.roskazna.ru`, `cipher=0xff85`, successful server verification, encrypted application I/O and HTTP/Treasury traffic. That run has no client certificate (`client_cert_loaded=0`) and does not close mTLS, fail-closed negative-path verification, or default-e10s acceptance.
-
-### 1. Continue client-decision / provider semantics
-
-Immediate next:
-
-1. **T6 — real Permanent semantics.** Implement and prove persistence distinct from the current process-local non-Once store, including intended process-restart persistence and the intended forget/change behavior.
-2. **T11/T12 — discovery boundary.** Verify dynamic `CurrentUser\MY` re-enumeration and determine whether provider/removable-media-only identities are discoverable without browser restart or interactive provider/PIN/media UI during candidate enumeration.
-
-**T5 — Session failure-boundary regression is DEFERRED, not closed.** The 2026-08-28 T5 probe showed that removing the key medium *after* a successful Treasury Session mTLS does not create a provider failure: CryptoPro/SSPI retains an already-acquired credential context, and a fresh Treasury socket about 192 seconds later still receives a new CertificateRequest, reuses `scope=session`, emits a client-auth flight and completes TLS 1.2 / `0xFF85` mTLS. Therefore post-login medium removal is not a valid T5 fault injection in the current environment. Resume T5 only when there is a safe deterministic way to invalidate an already-acquired provider/private-key credential inside the same browser process; do not invent an invasive synthetic invalidation merely to force the test.
-
-T7/T8 prove the complementary pre-acquisition boundary on the current artifact: with the certificate still discoverable from `CurrentUser\MY` but the key medium unavailable before first private-key acquisition, provider refusal produces `SEC_E_NO_CREDENTIALS` only for that MSSPI attempt; the positive Firefox `Session` decision survives, and after the medium returns the next request in the same browser process reuses `scope=session`, completes GOST mTLS and resumes protected application traffic without another picker.
-
-T9 now proves the long-wait concurrency boundary. A positive Treasury Session selection entered the synchronous CryptoPro/SSPI provider path for `74.742 s`. The Firefox UI remained responsive by user observation, but the shared Firefox Socket Thread produced no `GostTLS` activity during that interval. When the provider action was cancelled, `SEC_E_NO_CREDENTIALS` returned and queued network work resumed immediately: `pay.gov.ru` began on the same timestamp and completed GOST TLS `291 ms` later. The later Treasury flow still reused `scope=session` and recovered successfully. Thus timeout/coordinator state remains safe, but **global Socket Thread network starvation during synchronous provider UI is a confirmed behavior**.
-
-T10 closes the detailed picker presentation on the current artifact: human-readable owner/issuer presentation, correct Cyrillic and localized expiry, readable details, serial details-only, all three remember choices visible, and `Session` visibly selected by default. The successful post-inspection Treasury login is only a functional smoke; T10 does not imply real `Permanent` persistence.
-
-T3/T4 establish the negative-decision split on the current artifact: explicit picker Cancel is consumed as Declined/phase `2`, while an unanswered picker abandoned by tab/load teardown remains unresolved phase `0` and is removed by lifecycle cleanup. Neither path poisons later recovery.
-
-The current source routes every non-`Once` positive choice through the same in-memory remember store. Therefore real persistent `Permanent` semantics remain unproven; do not assume the current `Permanent` UI choice survives process restart.
-
-### 2. Provider-wait Socket Thread isolation follow-up
-
-T9 failed the intended no-network-starvation subcriterion: while CryptoPro/provider key access was synchronously blocked for `74.742 s`, new network work from other browser windows/tabs queued behind the same Firefox Socket Thread and started only when the provider call returned.
-
-Open follow-up:
-
-- compare this behavior with stock Firefox synchronous client-certificate/token/PIN handling before declaring it an incompatibility;
-- determine whether MSSPI/CryptoPro key-access can be moved off the shared Socket Thread without breaking NSPR/MSSPI state ownership, client-auth lifecycle, cancellation, or proxy/CONNECT sequencing;
-- do not redesign threading merely from intuition: preserve the exact T9 capture as the concrete baseline and require a focused implementation experiment if offloading is attempted;
-- treat this as a responsiveness/performance limitation, not as evidence of a failed GOST handshake or broken UI event loop.
-
-### 3. Continue the remaining Stage 2 runtime matrix
-
-Remaining groups include:
-
-- T5 deterministic failure-boundary test once an already-acquired provider credential can be invalidated safely;
-- dynamic `CurrentUser\MY` discovery and token-only/removable-media discovery;
-- no acceptable cert / unsuitable cert / wrong cert / unavailable key / PIN-private-key failure / server rejection;
-- issuer-aware validity/KU/EKU/private-key candidate policy;
-- sensitive-log audit;
-- final exact-build Treasury mTLS regression.
-
-### 4. Attribute picker timeout and residual poll churn
-
-T2R and the T3 timeout segment both show lifecycle-safe but non-fixed picker teardown timing. T2R measured `32.576 s`, `37.420 s`, `30.330 s`; T3 measured one additional unanswered-picker removal after `30.276 s`. T4 is deliberately different: closing the owning tab removed the pending decision after only `4.059 s`, confirming that its teardown was user/load driven rather than timeout driven.
-
-T9 is also distinct from those Firefox-picker timeouts: after the Firefox certificate decision had already resolved, the Socket Thread remained synchronously inside provider/key acquisition for `74.742 s` until provider Cancel. No automatic ~30-second picker teardown occurred in that state.
-
-Before changing timeout policy or calling the wait path fully quiescent:
-
-- identify which Firefox/Necko/load timer actually tears down each timed-out *Firefox picker* attempt;
-- keep that lifecycle separate from the T9 provider/key-access wait;
-- explain why the first historical picker-timeout cycle polls much more aggressively than later cycles;
-- preserve stock-compatible timeout semantics rather than introducing an arbitrary GOST-specific timeout.
+1. **T6 — real Permanent semantics.** Implement persistence distinct from the process-local non-Once store. Prove process-restart persistence plus intended forget/change behavior.
+2. **T11/T12 — discovery boundary.** Verify dynamic `CurrentUser\\MY` re-enumeration and determine whether provider/removable-media-only identities become discoverable without browser restart or unwanted provider/PIN/media UI during candidate enumeration.
+3. **T5 — deterministic failure-boundary regression, deferred.** Resume only when an already-acquired provider/private-key credential can be invalidated safely inside the same browser process. Removing the medium after a successful Session acquisition is not a valid fault injection because CryptoPro/SSPI may retain the acquired credential context.
+4. **Provider-wait Socket Thread isolation.** T9 established a synchronous provider/key-access wait of about 74.742 s during which the Firefox UI remained responsive but unrelated network work queued behind the shared Socket Thread. Compare with stock Firefox client-certificate/token behavior and only then evaluate a focused off-thread MSSPI/CryptoPro experiment that preserves NSPR/MSSPI ownership, cancellation and proxy/CONNECT sequencing.
+5. **Remaining client-auth matrix.** Cover no acceptable certificate, unsuitable/wrong certificate, unavailable key, private-key/PIN failure, server rejection, issuer-aware validity/KU/EKU/private-key policy, sensitive-log audit, and final exact-build Treasury mTLS regression.
 
 ## GOST TLS security — mandatory Stage 2 server-trust closure
 
-Complete fail-closed server verification:
+Complete and prove fail-closed server verification:
 
 - reject `verifyOk == 0`;
-- reject any nonzero verification status;
-- integrate Firefox temporary/permanent certificate overrides;
+- reject every nonzero verification failure status;
+- integrate Firefox temporary/permanent certificate overrides without bypassing normal trust semantics;
 - positive browser-session verification cache keyed by exact server identity;
-- prove valid Treasury hostname/chain succeeds;
-- prove wrong hostname and invalid/untrusted chain fail;
-- prove client private-key operations cannot occur before server trust.
+- valid Treasury hostname/chain succeeds;
+- wrong hostname fails;
+- invalid/untrusted chain fails;
+- client private-key operations cannot occur before server trust succeeds.
 
 Do not use a production verification bypass.
 
-## GOST network coverage — later
-
-After Stage 2 security/runtime closure:
+## GOST network coverage — after trust/runtime closure
 
 - direct connection without proxy;
 - HTTPS proxy / nested TLS;
 - SOCKS lifecycle;
-- proxy authentication/reconnect edge cases beyond the currently exercised HTTP CONNECT path.
+- additional proxy authentication/reconnect edge cases beyond the already exercised HTTP CONNECT path.
 
-## Final UX polish — later
+## GOST UX — later
 
-After core GOST TLS is stable, evaluate transparent one-shot GOST discovery:
+After core TLS behavior is stable, evaluate transparent one-shot discovery only under a strict design: explicit allowlist still enters MSSPI immediately; unknown host starts with NSS; only `SSL_ERROR_NO_CYPHER_OVERLAP` may authorize one MSSPI retry; no retry loops; only normally verified GOST success becomes session-confirmed; discovery never bypasses trust or client-auth policy.
 
-- explicit allowlist still enters MSSPI immediately;
-- unknown host starts with NSS;
-- only `SSL_ERROR_NO_CYPHER_OVERLAP` may authorize one MSSPI retry;
-- no retry loops;
-- only a successful, normally verified GOST connection becomes session-confirmed;
-- discovery cache is process/session scoped and never bypasses trust/client-auth policy.
+# Windows XP compatibility — independent
 
-## Windows compatibility — independent
+## Immediate clean-product acceptance task — reconcile 2026-09-23 runtime provenance
 
-Current authoritative synthesis is in [`PROJECT_STATE.md`](./PROJECT_STATE.md); exact physical/runtime evidence is in the newest entries of [`TEST_LOG.md`](./TEST_LOG.md) and dated evidence volumes. The XP dependency/build contract remains [`XP_BUILD_CONTRACT.md`](./XP_BUILD_CONTRACT.md).
+Release candidate build/static identity:
 
-### Current XP browser baseline — clean product physical lifecycle PASS
+- product source `win-153-xp @ 85863f2355a23223bf33f55b641ccb509a2b72ac`;
+- workflow `XP release build x32`;
+- run `35724604122`, job `106735182867`, **completed / success / GREEN**;
+- package artifact `10700255591`;
+- runtime artifact `10700395290`;
+- diagnostics artifact `10700061102`.
 
-Current exact clean-product baseline:
+The 2026-09-23 physical XP Page Info / certificate / ordinary NSS HTTPS smoke passed for exact local SHA-1 identities:
 
-- branch `win-153-xp`;
-- source `586fe5f856971a790db6e3529bdb0ac7a6133872`;
-- workflow `.github/workflows/xp-release-build-x32.yml`;
-- run `35697342392`, job `106647034214`, **completed / success / GREEN**;
-- package `10685004306`, runtime `10684874629`, diagnostics `10686043053`;
-- four key runtime binaries independently match the exact package artifact;
-- physical Windows XP SP3 x86 browser lifecycle: startup PASS, new-profile creation PASS, policy-driven uBlock download/install PASS, representative page browsing PASS, normal shutdown and orderly termination PASS.
+- `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c`;
+- `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
 
-This clean baseline contains no GOST TLS/MSSPI source injection. It supersedes the older GOST-bearing package as the current ordinary XP browser acceptance target while preserving the earlier compatibility evidence as historical proof.
+However both authoritative CI package/runtime payloads contain:
 
-Immediate XP work is no longer “make the browser launch and survive.” Preserve this exact clean baseline while expanding real-world regression/feature coverage and collecting tester feedback. GOST TLS remains an independent track and is not proven by this browser lifecycle result.
+- `r3dfox.exe=adc00ebb4cee4bc9fdd611016433827a695c93a0`;
+- `xul.dll=b7806d06aecdb47b83482666d3a7d59dcd8c5c6a`.
 
-The physically accepted WebGL/Russian-langpack localization patch is present on `win-153-xp` at source `85863f2355a23223bf33f55b641ccb509a2b72ac`. Its ordinary release build is now GREEN: `.github/workflows/xp-release-build-x32.yml`, run `35724604122`, job `106735182867`, package `10700255591`, runtime `10700395290`, diagnostics `10700061102`. The remaining clean-product acceptance step is a short physical-XP regression check of that exact artifact. Until that physical run is accepted, `586fe5f8...` remains the authoritative clean-product physical baseline.
+Therefore the physical result is accepted for the exact local binaries but is **not yet source/artifact-correlated to `85863f23...`**.
 
-The focused YY/static-TLS line remains diagnostically useful but is deferred from the immediate browser path. Its current physical result is `owner-first PASS / late-first teardown HANG` on source `1a61565...`, run `35495864771`, job `106038556671`, artifact `10600581430`. If resumed, follow the Astra/Sol bridge marker plan rather than broadening YY-Thunks from inference.
+Next step, choose one discriminating path:
 
-### Deferred XP WebRTC cleanup — deduplicate `inet_pton` fallback
+1. identify the exact GitHub Actions build/artifact that produced the local `b1e38de2...` / `266b8bae...` pair; or
+2. extract the browser directly from artifact `10700255591` or `10700395290`, verify `adc00ebb...` / `b7806d06...` before launch, and perform the short physical XP regression smoke.
 
-WebRTC-enabled XP source `75b4e8f052fb6fc09c723651938fde18f95af4ea`, run `35706851492`, job `106677750169` built and packaged GREEN but failed at the first physical XP loader boundary because `xul.dll` directly imported unavailable `WS2_32.dll!inet_pton`. Matching `xul.dll` / `xul.pdb` localized both references to `nr_str_port_to_transport_addr()` in `dom/media/webrtc/transport/third_party/nICEr/src/net/transport_addr.cpp`.
+Until that is done, retain `win-153-xp @ 586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` as the last artifact-correlated clean-product physical lifecycle baseline.
 
-Implementation commit `afee8c9e5ad2da729407ae06cda8d8029895ab06` on `agent/winrt-source-poc` applies the narrow source-level unblock: under `MOZ_XP_COMPAT`, nICEr carries a local copy of the proven IPv4/IPv6 parser used by `third_party/libwebrtc/rtc_base/win32.cc`; non-XP builds retain the native `inet_pton` path. This commit is a candidate until the next build/import gate and physical XP runtime test complete.
+Detailed evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
-After WebRTC runtime is physically established, revisit this deliberate duplication. Prefer extracting the shared parser into a neutral Windows compatibility helper used by both `webrtc::win32_inet_pton()` and nICEr without creating a direct nICEr-to-libwebrtc GN/GYP dependency. Preserve the XP requirement that the final `xul.dll` has no direct `WS2_32!inet_pton` import.
+## Active XP implementation work
 
-#### Supermium DWrite component refresh — separate follow-up
+`agent/winrt-source-poc` is allowed to move ahead of the clean release baseline. Its HEAD is not a runtime baseline merely because it contains later fixes/tests. Before every physical claim, bind the exact source-under-test, run/job, artifact and local binary hashes.
 
-Keep the physically proven 132 component as the browser-integration control while testing newer Supermium component generations separately; do not replace the full-browser pin merely because a newer release exists.
+Keep the active download/recent-documents compatibility work narrow. A preference workaround such as `browser.download.manager.addToRecentDocs=false` is useful for continued testing but does not replace source-level remediation or a final import/runtime gate. Preserve exact ownership of any `SHCreateItemFromParsingName` boundary rather than applying broad shell/COM workarounds.
 
-1. **Supermium 138 R9 — active focused refresh experiment.** Use final ESR release `v138-r9`, exact x86 nonsetup asset `supermium_138_32_nonsetup.zip`, SHA-256 `7d5e7578d9e4fe27f1f46530f1614e8ac885c27e36e64004eb97216a54a6bde9`; use the dynamic closure/UCRT-contract methodology and require `DWriteCreateFactory` plus `GetSystemFontCollection` before physical XP testing.
-2. **Supermium 144 R5 — planned follow-up after the 138 result.** Evaluate `v144-r5`, exact x86 nonsetup asset `supermium_144_32_nonsetup.zip`, SHA-256 `17acfcdf89ea651905053b50b0fce5a28db19cb2c69ed5579c7b177806ed6d31`, against the proven 132 control and final 138 R9 before any browser pin migration.
+## XP WebRTC
 
-### Current full-browser baselines
+WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` built/package GREEN but exposed a physical XP loader blocker because `xul.dll` directly imported unavailable `WS2_32!inet_pton` from nICEr.
 
-Current latest integrated clean-product full-build/static evidence is source `85863f2355a23223bf33f55b641ccb509a2b72ac`, run `35724604122`, job `106735182867`: aggregate **completed / success / GREEN**, with package `10700255591`, runtime `10700395290`, diagnostics `10700061102`. This source adds the physically pre-proven WebGL/stock-langpack fallback patch to the preceding clean product line.
+Candidate implementation `afee8c9e5ad2da729407ae06cda8d8029895ab06` uses an XP-only local copy of the proven IPv4/IPv6 parser in the Windows nICEr port while non-XP retains native `inet_pton`.
 
-Current latest physically exercised exact clean full-browser target is the same source/run/package. It is physically accepted on Windows XP for startup, new-profile creation, policy-driven uBlock installation, representative page browsing, and orderly shutdown; `r3dfox.exe`, `xul.dll`, `nss3.dll`, and `mozglue.dll` were independently hash-matched to package artifact `10685004306`.
+Remaining acceptance sequence:
 
-The previous GOST-bearing physical baseline `62835966...` remains important historical compatibility evidence, and older `6a3ffb8...` / `52e05a...` remain historical blocker-localization evidence. Source `88453be...` remains historical proof of representative remote browsing and GOST application traffic under forced non-e10s. None of those older targets supersedes the clean product baseline for ordinary XP release testing.
+- build the exact successor;
+- require the final `xul.dll` import audit to reject direct `WS2_32!inet_pton`;
+- physically exercise WebRTC on XP with exact binary identity;
+- only after runtime acceptance, deduplicate the copied parser into a neutral Windows compatibility helper shared by libwebrtc and nICEr without introducing an unwanted direct nICEr-to-libwebrtc build dependency.
 
-### Deferred XP cleanup — battery observer simplification
+## Focused YY/static-TLS line — deferred unless needed
 
-The current narrow remediation keeps the Windows battery HAL functional on XP by using the legacy `WM_POWERBROADCAST` / `PBT_APMPOWERSTATUSCHANGE` path instead of Vista-only `RegisterPowerSettingNotification` / `UnregisterPowerSettingNotification`.
+Current focused physical evidence remains source `1a61565dd3442d817893c52d473365442e24ba6c`, run `35495864771`, job `106038556671`, artifact `10600581430`: `owner-first` PASS, `late-first` teardown HANG.
 
-For the currently identified GPU consumer, battery state is forwarded to the GPU process and only `charging()` is used to gate D3D11/video enhancement paths such as VP Super Resolution and Auto HDR. Those paths are not useful to the XP target. Therefore, after XP startup/runtime stabilization, consider removing the XP battery notification machinery entirely and replacing it with a narrow XP stub that reports permanent external-power/charging state.
+If resumed, add narrow non-CRT boundary markers around owner detach, late callback and YY TLS cleanup. Do not broaden YY-Thunks from inference. The browser has already achieved sustained physical XP lifecycle PASS on later exact packages, so this is forensic/deferred work rather than an immediate browser-launch blocker.
 
-Before doing that cleanup, re-audit all `BatteryInformation` consumers on the then-current Firefox/r3dfox 153 source so the stub does not accidentally change an unrelated DOM/platform battery contract. This is deferred simplification only; do not spend the current full-build cycle on it.
+## Deferred XP cleanup / component work
 
-### Deferred only if reached by exact evidence — `ncrypt.dll`
+- **Supermium private DWrite refresh:** keep the physically proven 132 component as the browser-integration control while testing newer component generations separately. Do not replace the full-browser pin merely because a newer release exists.
+- **Battery observer simplification:** after current runtime work stabilizes, re-audit `BatteryInformation` consumers and consider an XP-only permanent-external-power/charging stub if it is source-compatible. Do not change it during unrelated blocker work.
+- **`ncrypt.dll`:** do not preemptively remediate. If an exact XP artifact reaches a real NCRYPT boundary, prefer source-level selection of Firefox's legacy CryptoAPI backend under the project-owned Rust XP cfg; use a narrow provider/thunk only if source removal is proven insufficient.
 
-Do not preemptively work on NCRYPT/CNG. If a later exact XP artifact reaches a real `ncrypt.dll` boundary, prefer source-level selection of Firefox's existing legacy CryptoAPI backend under the project-owned Rust XP cfg, compile the NCrypt branch out where practical, and add a final import gate. YY-Thunks for NCRYPT is fallback only if source-level removal is proven insufficient.
+## Closed XP families — do not reopen without contradictory exact evidence
 
-### Closed compatibility families — do not spend new cycles without contradictory evidence
+Do not spend new cycles on already closed/advanced-past families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, and the XP legacy file-picker blocker.
 
-The current lineage has already closed or physically advanced past the following families:
+# Packaging / localization
 
-- `SharedPrefMap.cpp:25` / child preference-HANDLE inheritance / `0x80000003` on source `897e1cdf...`;
-- `USER32!RegisterPowerSettingNotification` / `0xC06D007F`, physically advanced beyond by exact successor `88453be...`;
-- pinned/restored msvcr14x Release x86 contract;
-- app-local `xp-bcrypt-v1/bcrypt.dll`;
-- legacy `D3DCompiler_47.dll` staging/packaging;
-- narrow YY SRW/condition-variable/KERNEL32 residual strategy;
-- `NtCancelIoFileEx`;
-- ADVAPI32 ETW family;
-- KERNEL32 restart/named-pipe source-remediation quartet;
-- `xul.dll -> PROPSYS.dll` ordinary dependency;
-- `USER32!SetProcessDPIAware` startup boundary;
-- WS2_32 observed compatibility family;
-- ANGLE/DXGI `CreateDXGIFactory1` static closure;
-- IP Helper physical boundary;
-- old `xul.dll` `RtlpWaitForCriticalSection` startup failure;
-- YY-Thunks DLL/TLS entry-point static coverage for the current 13 strong candidates (13/13);
-- focused private DWrite component runtime contract on physical XP (`a42b144...` / run `34317489430` / artifact `10090864697`).
+The reproduced stock-Russian-langpack Page Info/WebGL failure is closed by the source-owned Fluent fallback. Preserve the fallback when rebasing/transferring release-product changes and keep packaging proof independent from physical runtime and GOST TLS proof.
 
-There is no active basic-startup blocker on the current clean baseline `586fe5f8...` / run `35697342392`; preserve the closed families above and reopen them only with contradictory evidence from a later exact artifact.
+# Evidence discipline for every remaining task
 
-## 2026-09-20 — XP loader cleanup closed
-
-The temporary early `pwrp_k32.dll` preload is no longer pending work. Source `f7d1df4eebe527f0167b0e805d1c9d9c46eaed5f`, run `35500734933`, job `106051926870` passed the canonical full build and user-reported physical Windows XP validation without that preload. Ordinary RSA HTTPS and GOST TLS also worked in the physical browser session. Keep the preload removed unless later exact-artifact evidence contradicts this result.
+- Build success != physical runtime PASS.
+- Physical runtime PASS != GOST handshake PASS.
+- Static PE/import PASS != runtime PASS.
+- Keep workflow/control SHA separate from product source-under-test SHA.
+- Do not call an in-progress run GREEN.
+- Match runtime binaries/PDBs to the exact artifact before using crash or PASS evidence.
+- Prefer source-level fallback, then correct build configuration, then legacy Windows API path, then a narrow provider/thunk; broad workarounds are last resort.
