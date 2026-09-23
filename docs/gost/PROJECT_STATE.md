@@ -44,7 +44,7 @@ The full Firefox/r3dfox XP x86 compile/link, XP compatibility gates, package con
 
 The source contains the six-file WebGL/stock-language-pack fallback already physically proven on the implementation line.
 
-## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes, CI provenance unresolved
+## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes; release-candidate correlation disproven
 
 The user physically exercised a Windows XP browser and supplied exact local SHA-1 identities:
 
@@ -61,22 +61,20 @@ For that exact local pair, the physical XP smoke is a **PASS**:
 - Page Info reports TLS 1.3 / `TLS_AES_128_GCM_SHA256` for the ordinary HTTPS connection;
 - Saved Passwords opens `about:logins` successfully.
 
-The authoritative CI artifacts from run `35724604122` were independently inspected. Both package artifact `10700255591` and runtime artifact `10700395290` contain:
+The authoritative CI artifacts from release run `35724604122` were independently inspected. Both package artifact `10700255591` and runtime artifact `10700395290` contain:
 
 - `r3dfox.exe` SHA-1 `adc00ebb4cee4bc9fdd611016433827a695c93a0`;
 - `xul.dll` SHA-1 `b7806d06aecdb47b83482666d3a7d59dcd8c5c6a`.
 
-Those hashes do not match the physically tested local pair. Therefore the strongest valid conclusion is:
+Those hashes do not match the physically tested local pair. The local pair is now user-identified as the later WebRTC/GOST full-build lineage from run `35737946733`, job `106779925555`, source-under-test `afee8c9e5ad2da729407ae06cda8d8029895ab06`; the same pair was again supplied when confirming physical XP startup of that build. Therefore the earlier smoke must not be attributed to clean release source `85863f23...`.
 
-**PHYSICAL XP RUNTIME / PAGE INFO / CERTIFICATE UI / ORDINARY NSS HTTPS SMOKE PASS for the exact local hashes, but the local binaries are not yet artifact-correlated to source `85863f23...`.**
+The release-line conclusion remains: **`85863f23...` has build/package/static GREEN evidence, but no hash-correlated physical runtime PASS yet.** The prior provenance ambiguity is resolved in the sense that the tested local pair belongs to a different implementation/WebRTC build lineage; independent artifact-side rehash of the `35737946733` payload against the supplied local SHA-1 pair is still desirable before calling that pair artifact-correlated rather than user-associated.
 
-Do not promote `85863f23...` to an artifact-correlated physical runtime PASS until provenance is reconciled. Either identify the exact build/artifact that produced the user-tested pair or physically test binaries extracted directly from artifact `10700255591` / `10700395290` and record matching hashes.
-
-Detailed evidence is in `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
+Detailed release-line evidence remains in `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 ## Last artifact-correlated clean-product physical baseline — PASS
 
-Until the provenance gap above is closed, the current source/artifact-correlated clean-product physical baseline remains:
+The current source/artifact-correlated clean-product physical baseline remains:
 
 - `win-153-xp @ 586fe5f856971a790db6e3529bdb0ac7a6133872`;
 - workflow `XP release build x32`;
@@ -92,7 +90,7 @@ This distinction is intentional: the newer source has the stronger build/static 
 
 The reproduced Russian-language-pack Page Info/WebGL localization blocker is closed. The source-owned Fluent fallback was physically accepted on implementation source `9e692fc9dfb1dd6f8099503e94afe887545cb5bb`, run `35700636148`, job `106657546780`, and is transferred unchanged into clean-product source `85863f23...`.
 
-The physical Page Info smoke on 2026-09-23 also shows that General, Media, Permissions, Security, certificate-viewer and saved-password UI paths remain functional for the exact local hashes recorded above. Because those local hashes are not yet mapped to the named CI artifact, this observation is runtime evidence for the local binaries and not a new artifact-correlated acceptance of `85863f23...`.
+The physical Page Info smoke on 2026-09-23 also shows that General, Media, Permissions, Security, certificate-viewer and saved-password UI paths remain functional for the exact local hashes recorded above. Those hashes are now associated with the later WebRTC/GOST implementation build, not with release candidate `85863f23...`; this observation therefore remains separate from clean-release acceptance.
 
 # GOST TLS runtime
 
@@ -118,7 +116,22 @@ The active implementation branch has moved beyond the release candidate with add
 
 ## WebRTC XP line
 
-WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` built/package GREEN but exposed a physical XP loader blocker from direct `WS2_32!inet_pton` use in nICEr. Candidate commit `afee8c9e5ad2da729407ae06cda8d8029895ab06` applies the narrow XP-only source fallback by copying the proven parser into the Windows nICEr port. Final build/import/runtime acceptance and later parser deduplication remain separate evidence boundaries.
+The first WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea`, run `35706851492`, job `106677750169`, built/package GREEN but exposed a physical XP loader blocker from direct `xul.dll -> WS2_32.dll!inet_pton`. Matching diagnostics/PDB localized both references to `nr_str_port_to_transport_addr()` in nICEr.
+
+Source-under-test `afee8c9e5ad2da729407ae06cda8d8029895ab06` applies the narrow XP-only source fallback by copying the proven IPv4/IPv6 parser into the Windows nICEr port while non-XP retains native `inet_pton`. Its canonical full-build experiment is:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35737946733`, job `106779925555`;
+- aggregate result **completed / success / GREEN**;
+- package artifact `10707883013`, digest `sha256:3c0c130432521825a4c5961fe5c0f2b390b6a8f70731e32d4a8440477581d995`;
+- runtime artifact `10707967905`, digest `sha256:39c55c4b6904a1f1fb5fad1c829da670a356c532e4aeb0ca08068338b7428ac2`;
+- diagnostics artifact `10707868191`, digest `sha256:c4f3951d2358c4ef530013bedb3abc8e2d7368a4bdcc1981eb866441f9d136f5`.
+
+The user physically launched this build on Windows XP and confirmed that the previous missing-entry-point dialog for `WS2_32!inet_pton` no longer appears and the browser starts. User-reported local SHA-1 identities for this test are `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c` and `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
+
+Conclusion: **the nICEr `inet_pton` XP loader blocker is physically closed for source `afee8c9e...` and the user-associated run `35737946733` binaries.** This is browser startup/runtime-boundary evidence, not a functional WebRTC PASS: `RTCPeerConnection`, `getUserMedia`, DataChannel, ICE/STUN and real-call behavior remain to be exercised separately.
+
+Later commit `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` adds `inet_pton` to the broad forbidden direct-import audit. It postdates run `35737946733`, so that run did not exercise the hardened gate even though its then-current broad audit step passed. A later build containing `1ba6150c...` or a successor must prove the permanent regression gate. Parser deduplication into a neutral shared helper also remains deferred until functional WebRTC runtime is established.
 
 # Build-configuration identity
 
@@ -130,9 +143,9 @@ Keep the XP mechanisms distinct:
 
 # Current acceptance / next boundary
 
-For the clean release line, no evidence currently overturns the proven physical XP lifecycle of `586fe5f8...`. The newer `85863f23...` release candidate is GREEN through build/package/static gates and the WebGL localization patch itself is already proven, but its exact CI binaries have not yet been hash-matched to a physical run.
+For the clean release line, no evidence currently overturns the proven physical XP lifecycle of `586fe5f8...`. The newer `85863f23...` release candidate is GREEN through build/package/static gates, but the physical binaries previously assumed to belong to it are now identified as a different WebRTC/GOST implementation lineage. Immediate clean-product acceptance boundary remains physical execution of the exact `10700255591` / `10700395290` release payload with matching hashes.
 
-Immediate clean-product acceptance boundary: **close the binary provenance gap for the 2026-09-23 smoke or run the exact `10700255591` / `10700395290` payload on physical XP.**
+For the WebRTC XP line, the `inet_pton` loader blocker is physically closed on `afee8c9e...`; the next evidence boundary is actual WebRTC API and transport/media runtime testing, while a later source containing `1ba6150c...` must also prove the hardened direct-import regression gate.
 
 Keep later XP compatibility experiments, WebRTC, packaging/localization and GOST TLS runtime as independent evidence lines.
 
