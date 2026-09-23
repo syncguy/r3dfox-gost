@@ -35,43 +35,32 @@ if (-not $displayText.Contains('ANGLE_TRACE_EVENT0("gpu.angle", "egl::Display::i
   throw 'Display::initialize trace site was not found'
 }
 
-& .\mach.ps1 build-backend -b CompileDB
-if ($LASTEXITCODE -ne 0) {
-  throw "CompileDB backend generation failed with exit code $LASTEXITCODE"
+$targetDir = Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2'
+if (-not (Test-Path $targetDir)) {
+  throw "Generated libGLESv2 target directory missing: $targetDir"
 }
 
-$compileDb = Join-Path $env:OBJDIR 'compile_commands.json'
-if (-not (Test-Path $compileDb)) {
-  throw "compile_commands.json missing: $compileDb"
+$buildLog = 'diagnostics\libglesv2-build.log'
+if (-not (Test-Path $buildLog)) {
+  throw "libGLESv2 build log missing: $buildLog"
 }
-
-$entries = @(Get-Content -Raw $compileDb | ConvertFrom-Json)
-$displayEntries = @(
-  $entries | Where-Object {
-    $file = [string]$_.file
-    if (-not $file) { return $false }
-    if (-not [System.IO.Path]::IsPathRooted($file) -and $_.directory) {
-      $file = Join-Path ([string]$_.directory) $file
-    }
-    $normalized = $file.Replace('\', '/').ToLowerInvariant()
-    $normalized.EndsWith('/gfx/angle/checkout/src/libangle/display.cpp')
+$buildText = [System.IO.File]::ReadAllText($buildLog)
+$displayCompileLines = @(
+  $buildText -split "`r?`n" | Where-Object {
+    $_ -match '(?i)clang-cl\.exe' -and
+    $_ -match '(?i)-Fo(?:")?Display\.obj' -and
+    $_ -match '(?i)[\\/]gfx[\\/]angle[\\/]checkout[\\/]src[\\/]libANGLE[\\/]Display\.cpp(?:\s|$)'
   }
 )
-if ($displayEntries.Count -lt 1) {
-  throw 'CompileDB has no entry for libANGLE/Display.cpp'
+if ($displayCompileLines.Count -lt 1) {
+  throw 'libGLESv2 build log has no clang-cl command for libANGLE/Display.cpp -> Display.obj'
 }
 
-$displayCompile = $displayEntries | Select-Object -First 1
-if ($displayCompile.command) {
-  $compileCommand = [string]$displayCompile.command
-} elseif ($displayCompile.arguments) {
-  $compileCommand = (@($displayCompile.arguments) -join ' ')
-} else {
-  throw 'Display.cpp CompileDB entry contains neither command nor arguments'
-}
+$compileCommand = [string]($displayCompileLines | Select-Object -Last 1)
+$compileCommand | Set-Content -Encoding utf8 diagnostics\Display-compile-command.txt
 
-$hasXpDefine = [bool]($compileCommand -match '(?i)(?:^|\s|\")[-/]DMOZ_XP_COMPAT(?:=1)?(?:\s|\"|$)')
-$hasOptimization = [bool]($compileCommand -match '(?i)(?:^|\s|\")(?:-O[1-3sz]|/O[12x])(?:\s|\"|$)')
+$hasXpDefine = [bool]($compileCommand -match '(?i)(?:^|\s)-DMOZ_XP_COMPAT(?:=1)?(?:\s|$)')
+$hasOptimization = [bool]($compileCommand -match '(?i)(?:^|\s)(?:-O[1-3sz]|/O[12x])(?:\s|$)')
 if (-not $hasXpDefine) {
   throw 'Display.cpp compile command does not contain MOZ_XP_COMPAT'
 }
@@ -79,13 +68,11 @@ if (-not $hasOptimization) {
   throw 'Display.cpp compile command does not contain an optimization flag'
 }
 
-$targetDir = Join-Path $env:OBJDIR 'gfx\angle\targets\libGLESv2'
-if (-not (Test-Path $targetDir)) {
-  throw "Generated libGLESv2 target directory missing: $targetDir"
-}
-
-$displayObjects = @(Get-ChildItem -Path $targetDir -Recurse -File -Filter 'Display.obj')
-if ($displayObjects.Count -lt 1) {
+$displayObjects = @()
+$exactDisplayObject = Join-Path $targetDir 'Display.obj'
+if (Test-Path $exactDisplayObject) {
+  $displayObjects = @(Get-Item $exactDisplayObject)
+} else {
   $displayObjects = @(Get-ChildItem -Path $targetDir -Recurse -File -Filter '*Display*.obj')
 }
 if ($displayObjects.Count -lt 1) {
@@ -152,7 +139,7 @@ $pdbSha256 = (Get-FileHash -Algorithm SHA256 $pdb).Hash.ToLowerInvariant()
 
 @(
   'source_guard=True',
-  "display_compile_entries=$($displayEntries.Count)",
+  "display_compile_log_matches=$($displayCompileLines.Count)",
   "display_compile_moz_xp_compat=$hasXpDefine",
   "display_compile_optimized=$hasOptimization",
   'display_initialize_symbol=True',
