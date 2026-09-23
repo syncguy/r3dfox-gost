@@ -114,6 +114,28 @@ The focused YY/static-TLS detach-order reproducer remains forensic evidence only
 
 The active implementation branch has moved beyond the release candidate with additional compatibility work. Do not infer physical acceptance from its current HEAD. Every new runtime claim still requires exact source/artifact/binary identity.
 
+## Download completion / Windows Recent Documents XP line
+
+The predecessor physical XP build from implementation source `9e692fc9dfb1dd6f8099503e94afe887545cb5bb`, run `35700636148`, job `106657546780`, exposed a stable `0xC06D007F` crash when an ordinary download completed while `browser.download.manager.addToRecentDocs=true`. Matching dump/PDB/PE analysis localized the exact delayed API to `SHELL32.dll!SHCreateItemFromParsingName`, called from `AddToRecentDocs()` in `DownloadPlatform::DownloadDone()`.
+
+On that same predecessor build, setting `browser.download.manager.addToRecentDocs=false` allowed downloads to complete without the crash. This is a useful A/B runtime confirmation of the owner/path, but it is a workaround on the old binary and not proof of the source fix.
+
+The narrow implementation fix is now source `e13354c79ebfa206fbccc946592256d33e4ac519`, containing:
+
+- `2c8dc1dc4696c5efcef0b00da4106ac4170b4de7` — under `MOZ_XP_COMPAT`, skip the AppUserModelID / `SHCreateItemFromParsingName` path and use the existing `SHAddToRecentDocs(SHARD_PATHW, ...)` fallback;
+- `e13354c79ebfa206fbccc946592256d33e4ac519` — add `SHCreateItemFromParsingName` to the core-browser XP import regression gate.
+
+Canonical full-build evidence for this exact source is:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35810132801`, job `107019631325`;
+- aggregate result **completed / success / GREEN**;
+- package artifact `10733487295`, digest `sha256:cc72661870838b6127e08b5c80f27a91de69ab5725546d5134095d6fb27d2b2c`;
+- runtime artifact `10733956483`, digest `sha256:e9edf4fdeb2902592b88332655332f130cf8e914d693fa926b14a4d3dffb45eb`;
+- diagnostics artifact `10733113244`, digest `sha256:d47de71f9b51dbcdf2fdaa857dcac8ce6a5edc1b24d96042ed73afdf0ee02013`.
+
+The release build, package creation, runtime archive, core-browser import gate, broad XP PE/direct-import audit, artifact uploads and final summary all passed. Therefore **build/package/static import-regression acceptance is established for the remediation**. Physical closure remains pending: the exact `e13354c...` artifact must complete a normal download on XP with `browser.download.manager.addToRecentDocs=true` and matching local binary hashes.
+
 ## WebRTC XP line
 
 The first WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea`, run `35706851492`, job `106677750169`, built/package GREEN but exposed a physical XP loader blocker from direct `xul.dll -> WS2_32.dll!inet_pton`. Matching diagnostics/PDB localized both references to `nr_str_port_to_transport_addr()` in nICEr.
@@ -131,7 +153,7 @@ The user physically launched this build on Windows XP and confirmed that the pre
 
 Conclusion: **the nICEr `inet_pton` XP loader blocker is physically closed for source `afee8c9e...` and the user-associated run `35737946733` binaries.** This is browser startup/runtime-boundary evidence, not a functional WebRTC PASS: `RTCPeerConnection`, `getUserMedia`, DataChannel, ICE/STUN and real-call behavior remain to be exercised separately.
 
-Later commit `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` adds `inet_pton` to the broad forbidden direct-import audit. It postdates run `35737946733`, so that run did not exercise the hardened gate even though its then-current broad audit step passed. A later build containing `1ba6150c...` or a successor must prove the permanent regression gate. Parser deduplication into a neutral shared helper also remains deferred until functional WebRTC runtime is established.
+Later commit `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` adds `inet_pton` to the broad forbidden direct-import audit. That hardened rule is now build-proven on successor source `e13354c79ebfa206fbccc946592256d33e4ac519`: run `35810132801`, job `107019631325` completed GREEN with both the targeted core-browser import gate and the broad XP PE/direct-import audit successful. This is regression-gate evidence only; it does not add functional WebRTC runtime coverage. Parser deduplication into a neutral shared helper remains deferred until functional WebRTC runtime is established.
 
 # Build-configuration identity
 
@@ -145,7 +167,9 @@ Keep the XP mechanisms distinct:
 
 For the clean release line, no evidence currently overturns the proven physical XP lifecycle of `586fe5f8...`. The newer `85863f23...` release candidate is GREEN through build/package/static gates, but the physical binaries previously assumed to belong to it are now identified as a different WebRTC/GOST implementation lineage. Immediate clean-product acceptance boundary remains physical execution of the exact `10700255591` / `10700395290` release payload with matching hashes.
 
-For the WebRTC XP line, the `inet_pton` loader blocker is physically closed on `afee8c9e...`; the next evidence boundary is actual WebRTC API and transport/media runtime testing, while a later source containing `1ba6150c...` must also prove the hardened direct-import regression gate.
+For the implementation XP line, source `e13354c...` is now GREEN through the canonical full build/package/static gates, including the hardened `inet_pton` rule and the new `SHCreateItemFromParsingName` regression rule. The immediate download-specific acceptance boundary is physical execution of the exact `10733487295` / `10733956483` payload with `browser.download.manager.addToRecentDocs=true`, followed by a normal completed download and exact binary-hash capture. Until that succeeds, the former download-completion `0xC06D007F` blocker is source-remediated and build-proven but not physically closed.
+
+For the WebRTC XP line, the `inet_pton` loader blocker is physically closed on `afee8c9e...`; the hardened import regression rule is now build-proven on successor `e13354c...`. Actual WebRTC API and transport/media runtime testing remains the next functional evidence boundary.
 
 Keep later XP compatibility experiments, WebRTC, packaging/localization and GOST TLS runtime as independent evidence lines.
 
