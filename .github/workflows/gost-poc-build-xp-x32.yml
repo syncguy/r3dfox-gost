@@ -499,6 +499,7 @@ jobs:
             xp-x32-import-audit/**
             diagnostics/**
             obj-gost-xp-x32/**/xul.pdb
+            obj-gost-xp-x32/**/libGLESv2.pdb
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
             ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
