@@ -73,7 +73,22 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 `agent/winrt-source-poc` is allowed to move ahead of the clean release baseline. Its HEAD is not a runtime baseline merely because it contains later fixes/tests. Before every physical claim, bind the exact source-under-test, run/job, artifact and local binary hashes.
 
-Keep the active download/recent-documents compatibility work narrow. A preference workaround such as `browser.download.manager.addToRecentDocs=false` is useful for continued testing but does not replace source-level remediation or a final import/runtime gate. Preserve exact ownership of any `SHCreateItemFromParsingName` boundary rather than applying broad shell/COM workarounds.
+### Download completion / Recent Documents
+
+The source remediation is now build-proven on exact source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `GOST TLS PoC build  XP x32`, run `35810132801`, job `107019631325`, **completed / success / GREEN**. Package `10733487295`, runtime `10733956483`, and diagnostics `10733113244` are the canonical artifacts for the next test.
+
+The source contains both the XP-only fallback away from `SHELL32!SHCreateItemFromParsingName` and a core-browser import regression gate for that symbol. The targeted core-browser import gate and the broad XP PE/direct-import audit both passed in this run.
+
+Remaining acceptance step:
+
+- extract the exact `e13354c...` package/runtime;
+- record local hashes for at least `r3dfox.exe` and `xul.dll` before launch;
+- set `browser.download.manager.addToRecentDocs=true`;
+- complete an ordinary user download on physical Windows XP SP3 x86;
+- confirm the predecessor `0xC06D007F` boundary does not recur;
+- only then call the download/recent-documents blocker physically closed.
+
+The temporary preference workaround `browser.download.manager.addToRecentDocs=false` remains acceptable only for testing older binaries; it is no longer the intended remediation path for the successor source.
 
 ## XP WebRTC
 
@@ -81,7 +96,9 @@ The initial WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` bui
 
 Source `afee8c9e5ad2da729407ae06cda8d8029895ab06` uses an XP-only local copy of the proven IPv4/IPv6 parser in the Windows nICEr port while non-XP retains native `inet_pton`. Its full build, run `35737946733`, job `106779925555`, completed **success / GREEN** with package `10707883013`, runtime `10707967905`, and diagnostics `10707868191`. Physical Windows XP startup also advances past the old boundary: the browser starts and the missing-entry-point dialog for `WS2_32!inet_pton` no longer appears. User-reported local hashes are `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c` and `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
 
-The loader blocker is therefore closed for that exact source/user-associated build. Remaining acceptance sequence:
+The loader blocker is therefore closed for that exact source/user-associated build. The later hardened regression rule added by `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` is now also build-proven on successor source `e13354c79ebfa206fbccc946592256d33e4ac519`: run `35810132801`, job `107019631325` completed GREEN with both the targeted core-browser import gate and the broad XP PE/direct-import audit successful.
+
+Remaining functional WebRTC acceptance sequence:
 
 - verify JavaScript surface presence: `typeof RTCPeerConnection` and `typeof navigator.mediaDevices?.getUserMedia`;
 - exercise an RTCDataChannel sample;
@@ -89,10 +106,9 @@ The loader blocker is therefore closed for that exact source/user-associated bui
 - exercise a same-host/sample PeerConnection path such as `pc1`;
 - exercise ICE/STUN candidate gathering and connectivity;
 - later exercise a real call; H.264 is not an initial acceptance criterion;
-- build a later source containing `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` (or successor) and prove the hardened broad PE audit rejects any future direct `WS2_32!inet_pton` regression;
 - only after functional WebRTC runtime acceptance, deduplicate the copied parser into a neutral Windows compatibility helper shared by libwebrtc and nICEr without introducing an unwanted direct nICEr-to-libwebrtc build dependency.
 
-Do not reinterpret physical browser startup as WebRTC functional PASS.
+Do not reinterpret physical browser startup or a clean import gate as WebRTC functional PASS.
 
 ## Focused YY/static-TLS line — deferred unless needed
 
