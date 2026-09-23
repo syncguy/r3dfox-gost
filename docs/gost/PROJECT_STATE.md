@@ -9,7 +9,7 @@ This file is the authoritative current technical synthesis and handoff for new c
 - Repository: `syncguy/r3dfox-gost`.
 - Default branch and canonical documentation source: `agent/gost-tls-poc`.
 - Windows XP SP3 x86 implementation branch: `agent/winrt-source-poc`.
-- Current implementation-branch HEAD observed before this documentation update: `e13354c79ebfa206fbccc946592256d33e4ac519` (`test(xp): reject SHCreateItemFromParsingName`).
+- Current implementation-branch HEAD observed before this documentation update: `3119c849b3930145c8e4181b8a06a692ec20514d` (`fix(xp): avoid ANGLE trace local-static TLS guard`).
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
 - PR #1 historically targets `win-153`; it does not define the active work branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides otherwise.
@@ -120,7 +120,7 @@ The predecessor physical XP build from implementation source `9e692fc9dfb1dd6f80
 
 On that same predecessor build, setting `browser.download.manager.addToRecentDocs=false` allowed downloads to complete without the crash. This is a useful A/B runtime confirmation of the owner/path, but it is a workaround on the old binary and not proof of the source fix.
 
-The narrow implementation fix is now source `e13354c79ebfa206fbccc946592256d33e4ac519`, containing:
+The narrow implementation fix is source `e13354c79ebfa206fbccc946592256d33e4ac519`, containing:
 
 - `2c8dc1dc4696c5efcef0b00da4106ac4170b4de7` — under `MOZ_XP_COMPAT`, skip the AppUserModelID / `SHCreateItemFromParsingName` path and use the existing `SHAddToRecentDocs(SHARD_PATHW, ...)` fallback;
 - `e13354c79ebfa206fbccc946592256d33e4ac519` — add `SHCreateItemFromParsingName` to the core-browser XP import regression gate.
@@ -134,7 +134,30 @@ Canonical full-build evidence for this exact source is:
 - runtime artifact `10733956483`, digest `sha256:e9edf4fdeb2902592b88332655332f130cf8e914d693fa926b14a4d3dffb45eb`;
 - diagnostics artifact `10733113244`, digest `sha256:d47de71f9b51dbcdf2fdaa857dcac8ce6a5edc1b24d96042ed73afdf0ee02013`.
 
-The release build, package creation, runtime archive, core-browser import gate, broad XP PE/direct-import audit, artifact uploads and final summary all passed. Therefore **build/package/static import-regression acceptance is established for the remediation**. Physical closure remains pending: the exact `e13354c...` artifact must complete a normal download on XP with `browser.download.manager.addToRecentDocs=true` and matching local binary hashes.
+The full build, package creation, runtime archive, core-browser import gate, broad XP PE/direct-import audit, artifact uploads and final summary all passed. Physical Windows XP validation of the exact successor runtime also passed with `browser.download.manager.addToRecentDocs=true`: an ordinary user download completed without error or browser crash.
+
+User-recorded SHA-1 identities are `r3dfox.exe=3f4f98bb9ad710bda5c72fa25d1e124d37c211b4` and `xul.dll=17ee19d4a947466b25d95089a967f7d055261c2b`; both match the binaries independently extracted from runtime artifact `10733956483`.
+
+Conclusion: **the download-completion `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` blocker is physically closed for artifact-correlated source `e13354c...`.**
+
+## ANGLE / WebGL GPU-child XP line
+
+Physical Windows XP testing of source `e13354c79ebfa206fbccc946592256d33e4ac519` reliably reproduced a GPU-child `0xC0000005` read AV when `https://get.webgl.org/` was allowed to create a WebGL context. The fault is at `libGLESv2.dll+0x0003C1CA`; `libGLESv2.dll!EGL_Initialize+0x78` is the exported stack anchor. Artifact-side mapping localizes the fault to the ANGLE trace category cache used by `ANGLE_TRACE_EVENT0("gpu.angle", "egl::Display::initialize")`, before renderer implementation initialization. The direct `CreateDXGIFactory1` / D3D9 graph blocker remains closed and is not reopened by this evidence.
+
+Source `3119c849b3930145c8e4181b8a06a692ec20514d` applies the narrow owner fix in `gfx/angle/checkout/src/third_party/trace_event/trace_event.h`: under `MOZ_XP_COMPAT`, `INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO` no longer uses a dynamically initialized function-local `static`, avoiding the MSVC thread-safe local-static guard/TLS-epoch path at this boundary; non-XP behavior is unchanged.
+
+Canonical build evidence for this exact source is:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35860139917`, job `107178068460`;
+- aggregate result **completed / success / GREEN**;
+- package artifact `10760076917`, digest `sha256:a78f1943847d57c4adfcaccb08d3fbb754f65e8a08a9edcd42d1e7feb03738eb`;
+- runtime artifact `10759971452`, digest `sha256:089a6c0ea8b9a3baa1a43ef5df9d0b057967174b42af0d50d9c31a70b2adee75`;
+- diagnostics artifact `10759359771`, digest `sha256:e081580c903dc913b152ec71facf19804b5e82bac77d7865e86126f6f6dd6de1`.
+
+The full release build, package creation, runtime archive, XP compatibility/import gates, package-survival checks, artifact uploads and final summary passed. Therefore the narrow ANGLE trace-cache remediation is **build/package/static accepted** for exact source `3119c849...`.
+
+Physical closure is still pending. The exact `10759971452` runtime payload must be run on Windows XP with matching binary hashes and the same WebGL trigger. A successful advance past the former `libGLESv2+0x3C1CA` boundary would close the reproduced runtime blocker; until then, neither runtime closure nor the complete TLS/epoch root-cause hypothesis is proven.
 
 ## WebRTC XP line
 
@@ -167,9 +190,9 @@ Keep the XP mechanisms distinct:
 
 For the clean release line, no evidence currently overturns the proven physical XP lifecycle of `586fe5f8...`. The newer `85863f23...` release candidate is GREEN through build/package/static gates, but the physical binaries previously assumed to belong to it are now identified as a different WebRTC/GOST implementation lineage. Immediate clean-product acceptance boundary remains physical execution of the exact `10700255591` / `10700395290` release payload with matching hashes.
 
-For the implementation XP line, source `e13354c...` is now GREEN through the canonical full build/package/static gates, including the hardened `inet_pton` rule and the new `SHCreateItemFromParsingName` regression rule. The immediate download-specific acceptance boundary is physical execution of the exact `10733487295` / `10733956483` payload with `browser.download.manager.addToRecentDocs=true`, followed by a normal completed download and exact binary-hash capture. Until that succeeds, the former download-completion `0xC06D007F` blocker is source-remediated and build-proven but not physically closed.
+For the implementation XP line, the download/recent-documents blocker is physically closed on artifact-correlated source `e13354c...`. Current implementation source `3119c849...` is GREEN through the canonical full build/package/static gates with the narrow ANGLE trace-cache remediation. The immediate runtime acceptance boundary is physical execution of exact runtime artifact `10759971452` on XP with matching hashes and the same `get.webgl.org` WebGL trigger, specifically verifying advance past the former GPU-child `libGLESv2+0x3C1CA` fault.
 
-For the WebRTC XP line, the `inet_pton` loader blocker is physically closed on `afee8c9e...`; the hardened import regression rule is now build-proven on successor `e13354c...`. Actual WebRTC API and transport/media runtime testing remains the next functional evidence boundary.
+For the WebRTC XP line, the `inet_pton` loader blocker is physically closed on `afee8c9e...`; the hardened import regression rule is build-proven on successor `e13354c...`. Actual WebRTC API and transport/media runtime testing remains the next functional evidence boundary.
 
 Keep later XP compatibility experiments, WebRTC, packaging/localization and GOST TLS runtime as independent evidence lines.
 
