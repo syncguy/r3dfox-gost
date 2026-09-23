@@ -64,6 +64,7 @@ The active implementation branch currently uses the following scripts under `.gi
 - `verify-xul-advapi32-compat-imports.ps1` — verifies the selected ADVAPI32 compatibility family is absent as direct final imports.
 - `verify-mozglue-dpi-delay-import.ps1` — requires `SetProcessDPIAware` to remain exactly one USER32 delay import rather than an ordinary import.
 - `diag-xul-iphlpapi.ps1` — non-blocking xul IPHLPAPI/legacy-MTU diagnostic evidence.
+- `verify-angle-trace-xp-codegen.ps1` — focused ANGLE gate that requires the XP trace-cache source branch, verifies optimized `Display.cpp` compilation with `MOZ_XP_COMPAT`, rejects residual `trace_event_unique_catstatic` codegen in the compiled Display object, records trace/helper and `_Init_thread_epoch` references, and preserves the matching `libGLESv2.pdb`.
 
 ### Final evidence aggregation
 
