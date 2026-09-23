@@ -42,7 +42,7 @@ After core TLS behavior is stable, evaluate transparent one-shot discovery only 
 
 # Windows XP compatibility — independent
 
-## Immediate clean-product acceptance task — reconcile 2026-09-23 runtime provenance
+## Immediate clean-product acceptance task — run the exact release payload
 
 Release candidate build/static identity:
 
@@ -58,21 +58,16 @@ The 2026-09-23 physical XP Page Info / certificate / ordinary NSS HTTPS smoke pa
 - `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c`;
 - `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
 
-However both authoritative CI package/runtime payloads contain:
+That local pair is now user-identified as the WebRTC/GOST implementation build from run `35737946733`, job `106779925555`, source `afee8c9e5ad2da729407ae06cda8d8029895ab06`, not the clean release run above. The authoritative release package/runtime payloads instead contain:
 
 - `r3dfox.exe=adc00ebb4cee4bc9fdd611016433827a695c93a0`;
 - `xul.dll=b7806d06aecdb47b83482666d3a7d59dcd8c5c6a`.
 
-Therefore the physical result is accepted for the exact local binaries but is **not yet source/artifact-correlated to `85863f23...`**.
-
-Next step, choose one discriminating path:
-
-1. identify the exact GitHub Actions build/artifact that produced the local `b1e38de2...` / `266b8bae...` pair; or
-2. extract the browser directly from artifact `10700255591` or `10700395290`, verify `adc00ebb...` / `b7806d06...` before launch, and perform the short physical XP regression smoke.
+Therefore the release-line provenance ambiguity is resolved: the earlier physical smoke does not validate `85863f23...`. The remaining clean-product acceptance task is now singular and concrete: extract directly from artifact `10700255591` or `10700395290`, verify the expected release hashes before launch, and perform the short physical XP regression smoke.
 
 Until that is done, retain `win-153-xp @ 586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` as the last artifact-correlated clean-product physical lifecycle baseline.
 
-Detailed evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
+Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 ## Active XP implementation work
 
@@ -82,16 +77,22 @@ Keep the active download/recent-documents compatibility work narrow. A preferenc
 
 ## XP WebRTC
 
-WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` built/package GREEN but exposed a physical XP loader blocker because `xul.dll` directly imported unavailable `WS2_32!inet_pton` from nICEr.
+The initial WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` built/package GREEN but physically failed at the XP loader because `xul.dll` directly imported unavailable `WS2_32!inet_pton` from nICEr.
 
-Candidate implementation `afee8c9e5ad2da729407ae06cda8d8029895ab06` uses an XP-only local copy of the proven IPv4/IPv6 parser in the Windows nICEr port while non-XP retains native `inet_pton`.
+Source `afee8c9e5ad2da729407ae06cda8d8029895ab06` uses an XP-only local copy of the proven IPv4/IPv6 parser in the Windows nICEr port while non-XP retains native `inet_pton`. Its full build, run `35737946733`, job `106779925555`, completed **success / GREEN** with package `10707883013`, runtime `10707967905`, and diagnostics `10707868191`. Physical Windows XP startup also advances past the old boundary: the browser starts and the missing-entry-point dialog for `WS2_32!inet_pton` no longer appears. User-reported local hashes are `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c` and `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
 
-Remaining acceptance sequence:
+The loader blocker is therefore closed for that exact source/user-associated build. Remaining acceptance sequence:
 
-- build the exact successor;
-- require the final `xul.dll` import audit to reject direct `WS2_32!inet_pton`;
-- physically exercise WebRTC on XP with exact binary identity;
-- only after runtime acceptance, deduplicate the copied parser into a neutral Windows compatibility helper shared by libwebrtc and nICEr without introducing an unwanted direct nICEr-to-libwebrtc build dependency.
+- verify JavaScript surface presence: `typeof RTCPeerConnection` and `typeof navigator.mediaDevices?.getUserMedia`;
+- exercise an RTCDataChannel sample;
+- exercise `getUserMedia` on XP;
+- exercise a same-host/sample PeerConnection path such as `pc1`;
+- exercise ICE/STUN candidate gathering and connectivity;
+- later exercise a real call; H.264 is not an initial acceptance criterion;
+- build a later source containing `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` (or successor) and prove the hardened broad PE audit rejects any future direct `WS2_32!inet_pton` regression;
+- only after functional WebRTC runtime acceptance, deduplicate the copied parser into a neutral Windows compatibility helper shared by libwebrtc and nICEr without introducing an unwanted direct nICEr-to-libwebrtc build dependency.
+
+Do not reinterpret physical browser startup as WebRTC functional PASS.
 
 ## Focused YY/static-TLS line — deferred unless needed
 
@@ -107,7 +108,7 @@ If resumed, add narrow non-CRT boundary markers around owner detach, late callba
 
 ## Closed XP families — do not reopen without contradictory exact evidence
 
-Do not spend new cycles on already closed/advanced-past families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, and the XP legacy file-picker blocker.
+Do not spend new cycles on already closed/advanced-past families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, the XP legacy file-picker blocker, and the nICEr direct `WS2_32!inet_pton` startup blocker on source `afee8c9e...`.
 
 # Packaging / localization
 
