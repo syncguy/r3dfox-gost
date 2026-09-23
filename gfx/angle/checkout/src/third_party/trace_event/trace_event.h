@@ -453,10 +453,18 @@
 #define INTERNAL_TRACE_EVENT_UID2(a, b) INTERNAL_TRACE_EVENT_UID3(a, b)
 #define INTERNALTRACEEVENTUID(name_prefix) INTERNAL_TRACE_EVENT_UID2(name_prefix, __LINE__)
 
-// Implementation detail: internal macro to create static category.
-#define INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO(platform, category) \
-    static const unsigned char *INTERNALTRACEEVENTUID(catstatic) = \
+// Implementation detail: internal macro to create category information.
+// On Windows XP, avoid the MSVC thread-safe function-local static guard,
+// which depends on per-thread TLS epoch state.
+#ifdef MOZ_XP_COMPAT
+#  define INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO(platform, category) \
+    const unsigned char *INTERNALTRACEEVENTUID(catstatic) =          \
         TRACE_EVENT_API_GET_CATEGORY_ENABLED(platform, category);
+#else
+#  define INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO(platform, category) \
+    static const unsigned char *INTERNALTRACEEVENTUID(catstatic) =   \
+        TRACE_EVENT_API_GET_CATEGORY_ENABLED(platform, category);
+#endif
 
 // Implementation detail: internal macro to create static category and add
 // event if the category is enabled.
