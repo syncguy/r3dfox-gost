@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-22
+Last updated: 2026-09-24
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -212,6 +212,15 @@ Sanitized user confirmation closes the detailed Russian picker UX beyond SD6: ow
 No raw screenshot or certificate identity is retained. T10 closes presentation only; it does not prove or imply real `Permanent` persistence, which remains T6.
 
 ## Windows compatibility
+
+### Download completion / Windows Recent Documents XP blocker — COMPLETE
+
+Exact accepted source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35810132801`, job `107019631325`, runtime artifact `10733956483`.
+
+The source-owned `MOZ_XP_COMPAT` remediation skips the modern AppUserModelID / `SHCreateItemFromParsingName` path and uses the existing legacy `SHAddToRecentDocs(SHARD_PATHW, ...)` path. The targeted core-browser import gate and broad XP PE/direct-import audit pass.
+
+Physical Windows XP validation of the exact artifact-correlated successor completed an ordinary download with `browser.download.manager.addToRecentDocs=true` without the predecessor `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` crash. This closes the reproduced download/Recent Documents blocker at its exact scope. It does not prove WebRTC or GOST TLS runtime behavior. Detailed evidence is in `TEST_LOG.md` and `PROJECT_STATE.md`.
+
 
 
 ### Full Firefox/r3dfox 153 physical Windows XP SP3 x86 lifecycle — COMPLETE / CURRENT BASELINE
