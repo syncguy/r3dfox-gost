@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — TODO / Deferred Work
 
-This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; current Windows XP WebRTC runtime/codec status is in [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md); exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; GIS GMP multi-host mTLS work is in `STAGE2_GIS_GMP.md`; Windows XP architecture/import triage is in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`; experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes.
+This file is the persistent forward-looking backlog. Current synthesis is in `PROJECT_STATE.md`; [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for all Windows XP WebRTC build/runtime/codec/ICE/NAT status and remaining WebRTC boundaries; exact runtime test sequencing/recovery is in `STAGE2_RUNTIME_TEST_PLAN.md`; GIS GMP multi-host mTLS work is in `STAGE2_GIS_GMP.md`; Windows XP architecture/import triage is in `XP_COMPATIBILITY_STRATEGY.md`; the mandatory XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`; experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes.
 
 ## GOST TLS runtime — immediate
 
@@ -101,23 +101,7 @@ Next acceptance step: extract the exact runtime artifact `10759971452`, record l
 
 ## XP WebRTC
 
-The initial WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea` built/package GREEN but physically failed at the XP loader because `xul.dll` directly imported unavailable `WS2_32!inet_pton` from nICEr.
-
-Source `afee8c9e5ad2da729407ae06cda8d8029895ab06` uses an XP-only local copy of the proven IPv4/IPv6 parser in the Windows nICEr port while non-XP retains native `inet_pton`. Its full build, run `35737946733`, job `106779925555`, completed **success / GREEN** with package `10707883013`, runtime `10707967905`, and diagnostics `10707868191`. Physical Windows XP startup also advances past the old boundary: the browser starts and the missing-entry-point dialog for `WS2_32!inet_pton` no longer appears. User-reported local hashes are `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c` and `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
-
-The loader blocker is therefore closed for that exact source/user-associated build. The later hardened regression rule added by `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` is now also build-proven on successor source `e13354c79ebfa206fbccc946592256d33e4ac519`: run `35810132801`, job `107019631325` completed GREEN with both the targeted core-browser import gate and the broad XP PE/direct-import audit successful.
-
-Remaining functional WebRTC acceptance sequence:
-
-- verify JavaScript surface presence: `typeof RTCPeerConnection` and `typeof navigator.mediaDevices?.getUserMedia`;
-- exercise an RTCDataChannel sample;
-- exercise `getUserMedia` on XP;
-- exercise a same-host/sample PeerConnection path such as `pc1`;
-- exercise ICE/STUN candidate gathering and connectivity;
-- later exercise a real call; H.264 is not an initial acceptance criterion;
-- only after functional WebRTC runtime acceptance, deduplicate the copied parser into a neutral Windows compatibility helper shared by libwebrtc and nICEr without introducing an unwanted direct nICEr-to-libwebrtc build dependency.
-
-Do not reinterpret physical browser startup or a clean import gate as WebRTC functional PASS.
+[WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for Windows XP WebRTC build identity, runtime evidence, codec/media/ICE/NAT coverage, closed blockers, and remaining WebRTC work. Do not duplicate or maintain WebRTC status in `TODO.md`; update that document directly.
 
 ## Focused YY/static-TLS line — deferred unless needed
 
@@ -133,7 +117,7 @@ If resumed, add narrow non-CRT boundary markers around owner detach, late callba
 
 ## Closed XP families — do not reopen without contradictory exact evidence
 
-Do not spend new cycles on already closed/advanced-past families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, the XP legacy file-picker blocker, the nICEr direct `WS2_32!inet_pton` startup blocker on source `afee8c9e...`, and the download-completion `SHELL32!SHCreateItemFromParsingName` blocker closed on artifact-correlated source `e13354c...`.
+Do not spend new cycles on already closed/advanced-past non-WebRTC families merely because a similar symbol appears elsewhere. This includes the SharedPrefMap inherited-HANDLE boundary, the battery `RegisterPowerSettingNotification` boundary, `NtCancelIoFileEx`, the ADVAPI32 ETW family, direct ANGLE `CreateDXGIFactory1`, the accepted private DWrite component contract, the failed-`LdrLoadDll` output bug after its narrow correction, the temporary early `pwrp_k32.dll` preload, the XP legacy file-picker blocker, and the download-completion `SHELL32!SHCreateItemFromParsingName` blocker closed on artifact-correlated source `e13354c...`. WebRTC-specific blocker state is maintained only in [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md).
 
 # Packaging / localization
 
