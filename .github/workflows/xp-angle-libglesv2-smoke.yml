@@ -402,10 +402,11 @@ jobs:
         shell: powershell
         run: |
           $checkoutSource = (& git.exe rev-parse HEAD).Trim()
+          $verificationToolsSource = (& git.exe -C .xp-workflow-tools rev-parse HEAD).Trim()
           "## XP ANGLE libGLESv2 focused smoke" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Workflow SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Workflow file SHA: ${{ github.workflow_sha }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Caller workflow SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Checkout source SHA: $checkoutSource" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Verification tools SHA: $verificationToolsSource" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Branch/ref: $env:GITHUB_REF" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Build gate: ${{ steps.build-libglesv2.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- XP trace codegen gate: ${{ steps.verify-angle-trace-codegen.outcome }}" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
