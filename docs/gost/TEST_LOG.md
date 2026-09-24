@@ -8,6 +8,43 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-24 — focused ANGLE /Zc:threadSafeInit- build PASS, verifier infrastructure RED
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact experiment identity:
+
+- source-under-test branch `agent/winrt-source-poc`;
+- source-under-test / run head SHA `b01f3461d52eec1b60aa87d12e083f3485032fba`;
+- trigger workflow `.github/workflows/xp-angle-smoke-trigger.yml` / `Trigger XP ANGLE libGLESv2 smoke`;
+- reusable workflow `.github/workflows/xp-angle-libglesv2-smoke.yml@agent/gost-tls-poc`;
+- run `35970854066`;
+- job `107539996865`;
+- artifact `10797530363` (`xp-angle-libglesv2-smoke`), digest `sha256:2ba7dcba3fbe79cdf235870ffd033de88209eb75432b9fc5f84f8b93260f2c65`;
+- aggregate workflow result: **completed / failure**.
+
+The aggregate RED is not a compile/link failure. The exact source checkout is recorded as `b01f3461d52eec1b60aa87d12e083f3485032fba`. All prerequisite build stages, focused `mozglue.dll`, and `Build libGLESv2 only` completed successfully.
+
+The focused build log proves that both physically relevant ANGLE translation units were compiled with the intended XP compatibility configuration:
+
+- `Display.cpp -> Display.obj`: `-DMOZ_XP_COMPAT`, optimized build, and `/Zc:threadSafeInit-`;
+- `formatutils.cpp -> formatutils.obj`: `-DMOZ_XP_COMPAT`, optimized build, and `/Zc:threadSafeInit-`.
+
+The linker then produced `dist/bin/libGLESv2.dll` using `lld-link` with `-SUBSYSTEM:WINDOWS,5.01` and `-MACHINE:X86`; the subsequent Mozilla `check_binary` invocation completed before the build step returned success.
+
+The failure occurred only in `GATE - Verify XP ANGLE trace codegen`. The script invocation failed with `CommandNotFoundException` because the reusable workflow used `${{ github.workflow_sha }}` for the verification-script checkout. In this reusable-call context that value resolved to the caller/source SHA `b01f3461...`, while `.github/scripts/xp/verify-angle-trace-xp-codegen.ps1` exists on the canonical `agent/gost-tls-poc` branch, not on the implementation branch. Therefore the verification file was absent at runtime. The later binary-inspection step was skipped after that gate failure.
+
+Evidence boundary: this run **proves focused compile/link acceptance and propagation of `/Zc:threadSafeInit-` into both known owner translation units**, but it does **not** prove that `_Init_thread_header`, `_Init_thread_footer`, or `_Init_thread_epoch` disappeared from the resulting objects, because the codegen verifier never executed.
+
+Verifier remediation on the canonical branch:
+
+- `fbefe5191c564bca64fc8f83602d6d3dc3d5e294` pins the verification-script checkout to `agent/gost-tls-poc` and records its actual checkout SHA;
+- `741ebbca871a696f82aa857be2e6aa6ef5414738` finalizes the updated verifier contract: retain both original function-local statics, require `Display.cpp` and `formatutils.cpp` to compile with `MOZ_XP_COMPAT`, optimization and `/Zc:threadSafeInit-`, and reject `_Init_thread_header/footer/epoch` evidence from both compiled objects.
+
+Status: **focused ANGLE compile/link PASS for source `b01f3461...`; overall run RED from verifier checkout infrastructure; local-static codegen verdict still pending a clean rerun.**
+
+---
+
 ## 2026-09-24 — XP ANGLE trace fix advances to second TLS-backed local-static crash
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
