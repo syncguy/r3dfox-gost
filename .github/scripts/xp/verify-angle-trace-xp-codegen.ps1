@@ -1,3 +1,8 @@
+param(
+  [ValidateSet('Focused', 'FullBuild')]
+  [string]$Mode = 'Focused'
+)
+
 $ErrorActionPreference = 'Stop'
 
 if (-not $env:OBJDIR) {
@@ -43,21 +48,16 @@ if (-not (Test-Path $targetDir)) {
   throw "Generated libGLESv2 target directory missing: $targetDir"
 }
 
-$buildLog = 'diagnostics/libglesv2-build.log'
-if (-not (Test-Path $buildLog)) {
-  throw "libGLESv2 build log missing: $buildLog"
-}
-$buildLines = [System.IO.File]::ReadAllLines($buildLog)
-
 function Get-CompileCommand {
   param(
+    [Parameter(Mandatory = $true)][string[]]$BuildLines,
     [Parameter(Mandatory = $true)][string]$ObjectName,
     [Parameter(Mandatory = $true)][string]$SourceNeedle
   )
 
   $objectNeedle = "-Fo$ObjectName"
   $lines = @(
-    $buildLines | Where-Object {
+    $BuildLines | Where-Object {
       $_ -match '(?i)clang-cl\.exe' -and
       $_.Contains($objectNeedle) -and
       $_.Replace('\', '/').Contains($SourceNeedle)
@@ -158,14 +158,25 @@ function Get-ObjectEvidence {
   }
 }
 
-$displayCommand = Get-CompileCommand -ObjectName 'Display.obj' -SourceNeedle '/gfx/angle/checkout/src/libANGLE/Display.cpp'
-$formatUtilsCommand = Get-CompileCommand -ObjectName 'formatutils.obj' -SourceNeedle '/gfx/angle/checkout/src/libANGLE/formatutils.cpp'
+$displayCompile = $null
+$formatUtilsCompile = $null
 
-$displayCommand | Set-Content -Encoding utf8 diagnostics/Display-compile-command.txt
-$formatUtilsCommand | Set-Content -Encoding utf8 diagnostics/formatutils-compile-command.txt
+if ($Mode -eq 'Focused') {
+  $buildLog = 'diagnostics/libglesv2-build.log'
+  if (-not (Test-Path $buildLog)) {
+    throw "libGLESv2 build log missing: $buildLog"
+  }
+  $buildLines = [System.IO.File]::ReadAllLines($buildLog)
 
-$displayCompile = Assert-CompileContract -Label 'Display.cpp' -Command $displayCommand
-$formatUtilsCompile = Assert-CompileContract -Label 'formatutils.cpp' -Command $formatUtilsCommand
+  $displayCommand = Get-CompileCommand -BuildLines $buildLines -ObjectName 'Display.obj' -SourceNeedle '/gfx/angle/checkout/src/libANGLE/Display.cpp'
+  $formatUtilsCommand = Get-CompileCommand -BuildLines $buildLines -ObjectName 'formatutils.obj' -SourceNeedle '/gfx/angle/checkout/src/libANGLE/formatutils.cpp'
+
+  $displayCommand | Set-Content -Encoding utf8 diagnostics/Display-compile-command.txt
+  $formatUtilsCommand | Set-Content -Encoding utf8 diagnostics/formatutils-compile-command.txt
+
+  $displayCompile = Assert-CompileContract -Label 'Display.cpp' -Command $displayCommand
+  $formatUtilsCompile = Assert-CompileContract -Label 'formatutils.cpp' -Command $formatUtilsCommand
+}
 
 $displayObject = Get-TargetObject -FileName 'Display.obj'
 $formatUtilsObject = Get-TargetObject -FileName 'formatutils.obj'
@@ -181,29 +192,54 @@ if ($pdbCandidates.Count -lt 1) {
   $pdbCandidates = @(Get-ChildItem -Path $env:OBJDIR -Recurse -File -Filter 'libGLESv2.pdb' | Select-Object -ExpandProperty FullName)
 }
 if ($pdbCandidates.Count -lt 1) {
-  throw 'libGLESv2.pdb was not produced by the focused build'
+  throw 'libGLESv2.pdb was not produced by the build'
 }
 
 $pdb = $pdbCandidates | Select-Object -First 1
 Copy-Item -Force $pdb diagnostics/libGLESv2.pdb
 $pdbSha256 = (Get-FileHash -Algorithm SHA256 $pdb).Hash.ToLowerInvariant()
 
+$dllSha256 = ''
+$dll = Join-Path $env:OBJDIR 'dist/bin/libGLESv2.dll'
+if ($Mode -eq 'FullBuild') {
+  if (-not (Test-Path $dll)) {
+    throw "Full-build libGLESv2.dll missing: $dll"
+  }
+  Copy-Item -Force $dll diagnostics/libGLESv2.dll
+  $dllSha256 = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+}
+
+$displayXp = if ($displayCompile) { [string]$displayCompile.HasXpDefine } else { 'not-checked-full-build' }
+$displayThreadSafe = if ($displayCompile) { [string]$displayCompile.HasThreadSafeInitDisabled } else { 'proven-by-object-codegen' }
+$displayOptimized = if ($displayCompile) { [string]$displayCompile.HasOptimization } else { 'not-checked-full-build' }
+$formatXp = if ($formatUtilsCompile) { [string]$formatUtilsCompile.HasXpDefine } else { 'not-checked-full-build' }
+$formatThreadSafe = if ($formatUtilsCompile) { [string]$formatUtilsCompile.HasThreadSafeInitDisabled } else { 'proven-by-object-codegen' }
+$formatOptimized = if ($formatUtilsCompile) { [string]$formatUtilsCompile.HasOptimization } else { 'not-checked-full-build' }
+
 @(
+  "mode=$Mode",
   'source_trace_static=True',
   'source_formatset_static=True',
   'angle_x86_thread_safe_init_disabled=True',
-  "display_compile_moz_xp_compat=$($displayCompile.HasXpDefine)",
-  "display_compile_thread_safe_init_disabled=$($displayCompile.HasThreadSafeInitDisabled)",
-  "display_compile_optimized=$($displayCompile.HasOptimization)",
+  "display_compile_moz_xp_compat=$displayXp",
+  "display_compile_thread_safe_init_disabled=$displayThreadSafe",
+  "display_compile_optimized=$displayOptimized",
   "display_init_thread_matches=$($displayEvidence.InitThreadMatches)",
-  "formatutils_compile_moz_xp_compat=$($formatUtilsCompile.HasXpDefine)",
-  "formatutils_compile_thread_safe_init_disabled=$($formatUtilsCompile.HasThreadSafeInitDisabled)",
-  "formatutils_compile_optimized=$($formatUtilsCompile.HasOptimization)",
+  "formatutils_compile_moz_xp_compat=$formatXp",
+  "formatutils_compile_thread_safe_init_disabled=$formatThreadSafe",
+  "formatutils_compile_optimized=$formatOptimized",
   "formatutils_init_thread_matches=$($formatUtilsEvidence.InitThreadMatches)",
   'libGLESv2_pdb=True',
-  "libGLESv2_pdb_sha256=$pdbSha256"
+  "libGLESv2_pdb_sha256=$pdbSha256",
+  "libGLESv2_dll_sha256=$dllSha256"
 ) | Set-Content -Encoding utf8 diagnostics/angle-trace-codegen-result.txt
 
-Write-Host 'ANGLE XP local-static codegen gate passed'
-Write-Host "Display.cpp: /Zc:threadSafeInit-=$($displayCompile.HasThreadSafeInitDisabled) Init_thread_matches=$($displayEvidence.InitThreadMatches)"
-Write-Host "formatutils.cpp: /Zc:threadSafeInit-=$($formatUtilsCompile.HasThreadSafeInitDisabled) Init_thread_matches=$($formatUtilsEvidence.InitThreadMatches)"
+Write-Host "ANGLE XP local-static codegen gate passed ($Mode)"
+if ($displayCompile) {
+  Write-Host "Display.cpp: /Zc:threadSafeInit-=$($displayCompile.HasThreadSafeInitDisabled) Init_thread_matches=$($displayEvidence.InitThreadMatches)"
+  Write-Host "formatutils.cpp: /Zc:threadSafeInit-=$($formatUtilsCompile.HasThreadSafeInitDisabled) Init_thread_matches=$($formatUtilsEvidence.InitThreadMatches)"
+} else {
+  Write-Host "Display.obj: Init_thread_matches=$($displayEvidence.InitThreadMatches)"
+  Write-Host "formatutils.obj: Init_thread_matches=$($formatUtilsEvidence.InitThreadMatches)"
+  Write-Host "libGLESv2.dll SHA256: $dllSha256"
+}
