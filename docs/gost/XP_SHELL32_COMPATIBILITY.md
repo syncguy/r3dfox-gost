@@ -1,6 +1,8 @@
 # Windows XP x86 — SHELL32 compatibility cluster
 
-Last updated: 2026-09-07
+> **Historical snapshot.** This page preserves the earlier SHELL32 compatibility investigation; its old validation language is not the current handoff. The later download-completion `SHELL32!SHCreateItemFromParsingName` blocker is physically closed on exact source `e13354c...`, run `35810132801`, job `107019631325`, as recorded in [TEST_LOG.md](TEST_LOG.md), [PROJECT_STATE.md](PROJECT_STATE.md), and [DONE.md](DONE.md). Do not reopen older SHELL32 candidates from this page without contradictory exact evidence.
+
+Last updated: 2026-09-24
 
 Track: Windows XP SP3 x86 compatibility only. This document does not describe or prove GOST TLS runtime behavior.
 
