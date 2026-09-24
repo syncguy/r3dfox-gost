@@ -263,6 +263,13 @@ jobs:
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: GATE - Verify ANGLE XP local-static codegen
+        id: angle-local-static-codegen
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1 -Mode FullBuild
+
       - name: DIAG - Record xul IPHLPAPI XP compatibility imports
         id: xul-iphlpapi-import-diag
         if: always() && steps.build-release.outcome == 'success'
@@ -510,6 +517,7 @@ jobs:
         shell: powershell
         env:
           DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
+          ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME: ${{ steps.angle-local-static-codegen.outcome }}
           BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
           SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
           ADVAPI32_COMPAT_IMPORT_OUTCOME: ${{ steps.advapi32-etw-import-gate.outcome }}
