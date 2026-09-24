@@ -8,6 +8,49 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-24 — XP ANGLE trace fix advances to second TLS-backed local-static crash
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact exercised build identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `3119c849b3930145c8e4181b8a06a692ec20514d`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35860139917`;
+- job `107178068460`;
+- physical-test runtime artifact `10759971452`;
+- diagnostics artifact `10759359771`;
+- `r3dfox.exe` SHA-1 `4103c98f53c53513f42f087df4ff6306083cc9dd`;
+- `xul.dll` SHA-1 `790260efa0bde58fb4faa964a517914efbe44d40`;
+- `libGLESv2.dll` SHA-1 `84edd61305a6bd048c1710f2a6e7d326fd11ac4c`.
+
+A fresh Firefox profile starts and ordinary browsing works, so the earlier no-network observation with a copied older profile is not treated as a binary networking regression.
+
+Physical Windows XP WebGL execution still fails with `0xC0000005`, but the fault boundary has advanced. The predecessor source `e13354c...` failed at `libGLESv2+0x0003C1CA` in the ANGLE trace-category local-static path. The exact `3119c849...` runtime instead fails with `libGLESv2.dll` loaded at `0x0f600000`, EIP `0x0f759ebb`, therefore RVA `libGLESv2+0x00159EBB`. The faulting instruction is `mov ecx,[eax]` with `eax=0`; `EGL_Initialize+0x78` remains a stable exported stack anchor.
+
+Matching `libGLESv2.pdb` from diagnostics artifact `10759359771` maps the fault to the inline `std::_Tree<...>::begin()` called by `rx::d3d9_gl::GenerateCaps()` at `gfx/angle/checkout/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.cpp:517`. The call immediately before the failing `std::set` begin is `gl::GetAllSizedInternalFormats()` at `gfx/angle/checkout/src/libANGLE/formatutils.cpp:2006`.
+
+That function owns another dynamically initialized function-local static:
+
+`static angle::base::NoDestructor<FormatSet> formatSet(BuildAllSizedInternalFormatSet());`
+
+Disassembly of the exact `84edd613...` DLL shows the MSVC thread-safe local-static fast path reading per-thread state through `fs:[0x2c]`; matching PDB symbols identify its slow-path calls as `_Init_thread_header` and `_Init_thread_footer` from `thread_safe_statics.cpp`. The caller receives a `FormatSet` whose tree head is null and faults in `begin()`.
+
+Conclusion: the narrow trace-event source workaround was useful because it advanced execution past the previous `+0x3C1CA` boundary, but the blocker class is broader than that one macro. A second independent ANGLE function-local static now fails through the same TLS-backed MSVC initialization mechanism during real D3D9 capability generation.
+
+Corrective candidate on the implementation branch:
+
+- `5934345e6c6e805a703efc1cc425b6aebfe8c0a4` adds `/Zc:threadSafeInit-` to Windows x86 ANGLE build flags in `gfx/angle/moz.build.common`;
+- `b01f3461d52eec1b60aa87d12e083f3485032fba` restores the normal trace-event static cache so the compiler option, rather than a one-off source workaround, owns this compatibility behavior;
+- candidate HEAD `b01f3461...` has **no CI or physical-runtime acceptance yet**.
+
+Next proof chain: full XP x86 build from exact `b01f3461...`; confirm the ANGLE compile/codegen no longer emits the TLS-backed thread-safe-local-static path at the known sites; then run the exact resulting artifact on physical XP with the same WebGL trigger and matching binary hashes.
+
+Status: **`3119c849...` physical WebGL FAIL / previous trace crash advanced past / new `GenerateCaps -> GetAllSizedInternalFormats` local-static blocker PROVEN / `b01f3461...` candidate pending build.**
+
+---
+
 ## 2026-09-23 — XP ANGLE trace-cache local-static remediation full build GREEN
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
