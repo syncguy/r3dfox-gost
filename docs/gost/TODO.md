@@ -94,11 +94,13 @@ Current candidate implementation HEAD: `b01f3461d52eec1b60aa87d12e083f3485032fba
 - `5934345e6c6e805a703efc1cc425b6aebfe8c0a4`: apply `/Zc:threadSafeInit-` to Windows x86 ANGLE;
 - `b01f3461...`: restore the normal trace-event static cache so the build flag covers both reproduced sites.
 
+Focused run `35970854066`, job `107539996865`, exact source `b01f3461...` has already proved that both known owner translation units compile with `/Zc:threadSafeInit-` and that focused x86 `libGLESv2.dll` links successfully. Its overall RED came from a missing verifier script, not from compilation.
+
 Next acceptance sequence:
 
-1. Run `.github/workflows/gost-poc-build-xp-x32.yml` on exact branch `agent/winrt-source-poc` / source `b01f3461...`.
-2. Require the full build/package/static XP gates to pass; do not call the candidate GREEN while the run is pending.
-3. Inspect exact produced `libGLESv2.dll` plus matching PDB/codegen and confirm the two known sites no longer contain the TLS-backed `_Init_thread_*` fast/slow path.
+1. Cleanly rerun the focused ANGLE smoke with the corrected canonical verifier and exact implementation source `b01f3461...`.
+2. Require both `Display.obj` and `formatutils.obj` to contain no `_Init_thread_header`, `_Init_thread_footer`, or `_Init_thread_epoch` evidence while retaining the original function-local statics in source.
+3. Only after focused codegen PASS, run `.github/workflows/gost-poc-build-xp-x32.yml` on exact source `b01f3461...` and require the full build/package/static XP gates to pass.
 4. On physical XP, verify exact binary hashes, use a fresh profile, trigger WebGL, and confirm execution advances beyond both former RVAs `+0x3C1CA` and `+0x159EBB`.
 5. If another ANGLE boundary appears, symbolize it against the matching PDB before changing code; do not return to the already-advanced trace-only hypothesis without contradictory evidence.
 
