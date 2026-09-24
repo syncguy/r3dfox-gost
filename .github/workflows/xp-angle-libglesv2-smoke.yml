@@ -37,7 +37,7 @@ jobs:
       - name: Checkout focused XP verification scripts
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: agent/gost-tls-poc
           fetch-depth: 1
           path: .xp-workflow-tools
           sparse-checkout: |
@@ -51,11 +51,14 @@ jobs:
           New-Item -ItemType Directory -Force diagnostics | Out-Null
           $checkoutSource = (& git.exe rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or -not $checkoutSource) { throw 'Cannot resolve checked-out source SHA' }
+          $verificationToolsSource = (& git.exe -C .xp-workflow-tools rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $verificationToolsSource) { throw 'Cannot resolve verification tools SHA' }
           @(
             "repo=$env:GITHUB_REPOSITORY",
             "workflow_sha=$env:GITHUB_SHA",
-            "workflow_file_sha=${{ github.workflow_sha }}",
+            "caller_workflow_sha=${{ github.workflow_sha }}",
             "checkout_source=$checkoutSource",
+            "verification_tools_source=$verificationToolsSource",
             "ref=$env:GITHUB_REF",
             'scope=focused ANGLE libGLESv2 build only'
           ) | Set-Content -Encoding utf8 diagnostics\identity.txt
