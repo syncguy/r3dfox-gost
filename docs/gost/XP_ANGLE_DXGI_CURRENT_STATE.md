@@ -1,6 +1,8 @@
 # Windows XP x86 ANGLE / DXGI current state
 
-Last updated: 2026-09-06
+> **Historical snapshot.** This page records the 2026-09-06 DXGI/`CreateDXGIFactory1` closure work and is no longer the active ANGLE/WebGL handoff. Current state is maintained in [PROJECT_STATE.md](PROJECT_STATE.md), [TODO.md](TODO.md), and [TEST_LOG.md](TEST_LOG.md). As of 2026-09-24, product remediation `b01f3461...` has focused codegen GREEN in run `35974426502 / 107551429542`; full browser run `35980235042 / 107570122638` on implementation source `f15a047e...` is in progress. Do not interpret the older “current implementation” text below as the present blocker or next step.
+
+Last updated: 2026-09-24
 
 This document is a handoff note for the current Windows XP SP3 x86 ANGLE/DXGI remediation state. It supplements `PROJECT_STATE.md` and the exact experiment evidence in `TEST_LOG.md`.
 
