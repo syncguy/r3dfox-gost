@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $checks = @(
   @{ Name='dpi-source-guard'; Outcome=$env:DPI_SOURCE_GUARD_OUTCOME },
+  @{ Name='angle-local-static-codegen'; Outcome=$env:ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME },
   @{ Name='battery-power-import'; Outcome=$env:BATTERY_POWER_IMPORT_OUTCOME },
   @{ Name='source-remediation-quartet'; Outcome=$env:SOURCE_REMEDIATION_QUARTET_OUTCOME },
   @{ Name='advapi32-compat-import'; Outcome=$env:ADVAPI32_COMPAT_IMPORT_OUTCOME },
@@ -46,6 +47,7 @@ if ($env:GITHUB_SHA -and $env:GITHUB_SHA -ne $sourceSha) {
 "- Under MOZ_XP_COMPAT both XRE startup and gfx Factory DirectWrite load paths use LoadLibraryXPPrivateDWrite; LoadLibrarySystem32(DWrite.dll) remains non-XP only. Optimized read-ahead uses the packaged private path." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- Broad PE audit retains the api-ms-win-* prohibition except for the five exact pinned CRT API-set imports of xpcompat/dwrite/DWrite.dll; the dedicated private-DWrite closure gate validates that exception recursively." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- DPI pre-Vista source guard: $env:DPI_SOURCE_GUARD_OUTCOME." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+"- ANGLE local-static codegen gate: $env:ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME; full-build Display.obj and formatutils.obj must retain the original source statics while containing no _Init_thread_header/_Init_thread_footer/_Init_thread_epoch evidence." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- Battery USER32 import gate: $env:BATTERY_POWER_IMPORT_OUTCOME; RegisterPowerSettingNotification/UnregisterPowerSettingNotification must be absent from both ordinary and delay imports in xul.dll for the MOZ_XP_COMPAT legacy PBT_APMPOWERSTATUSCHANGE path." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- Source-remediation quartet gate: $env:SOURCE_REMEDIATION_QUARTET_OUTCOME (evidence-preserving; survivors make the final verdict RED)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- ADVAPI32 compatibility final xul.dll gate: $env:ADVAPI32_COMPAT_IMPORT_OUTCOME; ETW focused capability source 53971dcfdf12e7bcd7f35692ff2c02fb3360d792 / run 33882235341 / job 101053403554; RegGetValueW focused capability source 8ad1d5e9a935ed1cce8ee268f693af72aad1f7c4 / run 33946751857 / job 101254130849." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
