@@ -44,7 +44,7 @@ This is the authoritative heavy build/package/static-gate workflow for the activ
 
 The workflow contains the current XP dependency preparation, full Firefox build, package/runtime archive creation, PE/import gates, and the blocking aggregate verdict. For the active ANGLE line it runs `verify-angle-trace-xp-codegen.ps1 -Mode FullBuild` after successful `mach build`; that gate may continue for evidence collection but its recorded failure makes the final summary RED.
 
-Current experiment: run `35980235042`, job `107570122638`, exact source `f15a047e847cdca07d90396fe88d32a74cee416e`, is `in_progress` at this documentation update. Do not call it GREEN until the run and final aggregate gate complete. A successful full build still does not prove physical XP runtime or GOST TLS handshake behavior.
+Current accepted full-build evidence: run `35980235042`, job `107570122638`, exact source `f15a047e847cdca07d90396fe88d32a74cee416e`, completed / success / GREEN. The ANGLE `FullBuild` codegen gate and final aggregate summary both passed; package `10806218628`, runtime `10806283395`, diagnostics `10806562241` were published. This is build/package/static evidence only; it does not prove physical XP WebGL runtime or GOST TLS handshake behavior.
 
 ## Focused XP ANGLE libGLESv2 smoke
 
