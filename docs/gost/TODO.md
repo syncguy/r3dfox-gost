@@ -75,15 +75,9 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 ### Download completion / Recent Documents — closed
 
-The source remediation is build- and runtime-proven on exact source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `GOST TLS PoC build  XP x32`, run `35810132801`, job `107019631325`, **completed / success / GREEN**. Canonical artifacts are package `10733487295`, runtime `10733956483`, and diagnostics `10733113244`.
+Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
 
-The source contains both the XP-only fallback away from `SHELL32!SHCreateItemFromParsingName` and a core-browser import regression gate for that symbol. The targeted core-browser import gate and the broad XP PE/direct-import audit both passed in this run.
-
-Physical Windows XP validation of the exact successor runtime also passed with `browser.download.manager.addToRecentDocs=true`: an ordinary user download completed without error or browser crash. User-recorded SHA-1 identities are `r3dfox.exe=3f4f98bb9ad710bda5c72fa25d1e124d37c211b4` and `xul.dll=17ee19d4a947466b25d95089a967f7d055261c2b`; both match the binaries independently extracted from runtime artifact `10733956483`.
-
-The predecessor `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` boundary is therefore physically closed for this exact artifact-correlated source/run. `browser.download.manager.addToRecentDocs=false` is only a temporary workaround for older affected binaries and is not needed for the accepted successor.
-
-### ANGLE / WebGL GPU-child TLS-backed local statics — full build in progress
+### ANGLE / WebGL GPU-child TLS-backed local statics — full-build/static GREEN; physical XP pending
 
 Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
 
@@ -96,15 +90,14 @@ Current browser/ANGLE remediation commit: `b01f3461d52eec1b60aa87d12e083f3485032
 
 Focused run `35974426502`, job `107551429542`, product source `b01f3461...`, is GREEN. It proves both known owner translation units compile with `/Zc:threadSafeInit-` and both resulting objects have `Init_thread_matches=0`. Focused `libGLESv2.dll` static inspection also passes.
 
-The full XP workflow now contains the corresponding blocking gate after `mach build`; implementation HEAD is `f15a047e...`.
+The full XP workflow contains the corresponding blocking gate after `mach build`; implementation HEAD is `f15a047e...`. Full run `35980235042`, job `107570122638`, is completed / success / GREEN. Package artifact `10806218628`, runtime artifact `10806283395`, and diagnostics artifact `10806562241` were published. The full-build verifier reports zero `_Init_thread_*` matches in both known owner objects.
 
 Next acceptance sequence:
 
-1. Continue the already-dispatched `.github/workflows/gost-poc-build-xp-x32.yml` run `35980235042`, job `107570122638`, exact source `agent/winrt-source-poc @ f15a047e847cdca07d90396fe88d32a74cee416e`; it is `in_progress` at this documentation update. Do not launch a duplicate and do not call it GREEN while pending.
-2. Require the full build plus `GATE - Verify ANGLE XP local-static codegen` to pass; in full-build objects both `Display.obj` and `formatutils.obj` must have zero `_Init_thread_header`, `_Init_thread_footer`, and `_Init_thread_epoch` evidence.
-3. Require the remaining package/static XP gates, artifact publication and final aggregate summary to pass.
-4. Only after full GREEN, validate the exact resulting artifact on physical XP: verify binary identity, use a fresh profile, create a WebGL context and exercise rendering. The predecessor RVAs `+0x3C1CA` and `+0x159EBB` identify older DLL failures and must not be reused as numeric acceptance breakpoints for the newly linked DLL.
-5. If another ANGLE boundary appears, symbolize the new exact `libGLESv2.dll` against its matching PDB before changing code; do not return to the already-advanced trace-only hypothesis without contradictory evidence.
+1. Use the exact outputs of GREEN run `35980235042 / 107570122638`, source `f15a047e847cdca07d90396fe88d32a74cee416e`; bind the physical browser binaries to package/runtime artifact `10806218628` / `10806283395` and matching symbols from diagnostics artifact `10806562241`.
+2. On physical XP, use a fresh profile, create a WebGL context and exercise rendering. Successful context creation plus rendering without the corresponding GPU-child failure is the acceptance criterion.
+3. The predecessor RVAs `+0x3C1CA` and `+0x159EBB` identify older DLL failures and must not be reused as numeric acceptance breakpoints for the newly linked DLL.
+4. If another ANGLE boundary appears, symbolize the new exact `libGLESv2.dll` against its matching PDB before changing code; do not return to the already-advanced trace-only hypothesis without contradictory evidence.
 
 
 ## XP WebRTC
