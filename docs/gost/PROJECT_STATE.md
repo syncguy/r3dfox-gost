@@ -159,7 +159,9 @@ Current corrective candidate is implementation HEAD `b01f3461d52eec1b60aa87d12e0
 - `5934345e6c6e805a703efc1cc425b6aebfe8c0a4` adds `/Zc:threadSafeInit-` for Windows x86 ANGLE in `gfx/angle/moz.build.common`;
 - `b01f3461...` restores the normal trace-event static cache so the component build configuration handles both known sites uniformly.
 
-This candidate is **not yet build- or runtime-accepted**. The next acceptance boundary is a full XP x86 build from exact `b01f3461...`, codegen confirmation that the known ANGLE sites no longer use the TLS-backed thread-safe-static path, then physical XP WebGL execution of the exact artifact with matching hashes.
+Focused workflow run `35970854066`, job `107539996865`, artifact `10797530363` has now compiled and linked exact source `b01f3461...` successfully. Its build log proves both `Display.cpp` and `formatutils.cpp` were compiled with `MOZ_XP_COMPAT`, optimization and `/Zc:threadSafeInit-`; `lld-link` produced x86 `libGLESv2.dll` with subsystem 5.01 and Mozilla `check_binary` completed. The workflow aggregate result is RED only because the verification script was checked out from the wrong reusable-workflow SHA context and was therefore absent. This is **focused compile/link acceptance only**, not codegen or runtime acceptance.
+
+The verifier has been updated on the canonical branch to inspect both compiled owner objects and reject residual `_Init_thread_header`, `_Init_thread_footer` and `_Init_thread_epoch` evidence. The immediate acceptance boundary is a clean focused rerun of that codegen gate on exact source `b01f3461...`; only after that passes should the project spend a full XP x86 browser build, followed by physical XP WebGL execution of the exact artifact with matching hashes.
 
 ## WebRTC XP line
 
@@ -177,7 +179,7 @@ Keep the XP mechanisms distinct:
 
 For the clean release line, no evidence currently overturns the proven physical XP lifecycle of `586fe5f8...`. The newer `85863f23...` release candidate is GREEN through build/package/static gates, but the physical binaries previously assumed to belong to it are now identified as a different WebRTC/GOST implementation lineage. Immediate clean-product acceptance boundary remains physical execution of the exact `10700255591` / `10700395290` release payload with matching hashes.
 
-For the implementation XP line, the download/recent-documents blocker remains physically closed on artifact-correlated source `e13354c...`. Source `3119c849...` physically advances past the former ANGLE trace-category `libGLESv2+0x3C1CA` crash but reaches a second TLS-backed local-static failure at `libGLESv2+0x159EBB` in `GenerateCaps -> GetAllSizedInternalFormats`. Current implementation HEAD `b01f3461...` replaces the one-off trace workaround with ANGLE x86 `/Zc:threadSafeInit-`; it is a candidate only until full-build/codegen and physical-XP WebGL evidence exist.
+For the implementation XP line, the download/recent-documents blocker remains physically closed on artifact-correlated source `e13354c...`. Source `3119c849...` physically advances past the former ANGLE trace-category `libGLESv2+0x3C1CA` crash but reaches a second TLS-backed local-static failure at `libGLESv2+0x159EBB` in `GenerateCaps -> GetAllSizedInternalFormats`. Current implementation HEAD `b01f3461...` replaces the one-off trace workaround with ANGLE x86 `/Zc:threadSafeInit-`. Focused run `35970854066 / 107539996865` proves compile/link propagation of that flag into both known owner translation units, but its codegen gate did not execute because of verifier checkout infrastructure. Clean focused codegen proof, then full-build and physical-XP WebGL evidence, remain pending.
 
 For Windows XP WebRTC acceptance and remaining WebRTC boundaries, consult [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md); no WebRTC status is restated here.
 
