@@ -28,6 +28,56 @@ This is the project's main GOST TLS browser build workflow. Use results from thi
 
 It is the authoritative build line for the GOST TLS runtime/handshake track. A successful build still does not by itself prove a successful GOST handshake.
 
+## Windows XP SP3 x86 full implementation build
+
+Workflow file:
+
+`.github/workflows/gost-poc-build-xp-x32.yml`
+
+Workflow name:
+
+`GOST TLS PoC build  XP x32`
+
+Role:
+
+This is the authoritative heavy build/package/static-gate workflow for the active Windows XP SP3 x86 implementation line. Manual runs must be dispatched from `agent/winrt-source-poc`; the workflow's ordinary checkout then builds that exact dispatched implementation commit. Treat the run head/source SHA as the source-under-test and keep later documentation commits separate.
+
+The workflow contains the current XP dependency preparation, full Firefox build, package/runtime archive creation, PE/import gates, and the blocking aggregate verdict. For the active ANGLE line it runs `verify-angle-trace-xp-codegen.ps1 -Mode FullBuild` after successful `mach build`; that gate may continue for evidence collection but its recorded failure makes the final summary RED.
+
+Current experiment: run `35980235042`, job `107570122638`, exact source `f15a047e847cdca07d90396fe88d32a74cee416e`, is `in_progress` at this documentation update. Do not call it GREEN until the run and final aggregate gate complete. A successful full build still does not prove physical XP runtime or GOST TLS handshake behavior.
+
+## Focused XP ANGLE libGLESv2 smoke
+
+Workflow file:
+
+`.github/workflows/xp-angle-libglesv2-smoke.yml`
+
+Workflow name:
+
+`XP ANGLE libGLESv2 smoke`
+
+Role:
+
+This is the low-cost focused ANGLE/libGLESv2 compile, codegen and binary-inspection workflow. Its workflow/control definition is maintained on `agent/gost-tls-poc`, while the focused job explicitly checks out the XP product source from `agent/winrt-source-poc`. Therefore workflow/control SHA and product source-under-test SHA are distinct identities and must both be recorded.
+
+Current accepted focused evidence is workflow/control `741ebbca871a696f82aa857be2e6aa6ef5414738`, checked-out product `b01f3461d52eec1b60aa87d12e083f3485032fba`, run `35974426502`, job `107551429542`, artifact `10798373361`, result success. It proves the two known ANGLE owner objects have no `_Init_thread_header/footer/epoch` evidence under the selected Windows x86 build option and that the focused binary gate passes. It is not a full Firefox build and not physical XP WebGL proof.
+
+## XP clean-product release build
+
+Workflow file:
+
+`.github/workflows/xp-release-build-x32.yml`
+
+Workflow name:
+
+`XP release build x32`
+
+Role:
+
+This is the clean-product XP x86 release workflow, separate from the active GOST/implementation build. The workflow definition is controlled from `agent/gost-tls-poc`, but it explicitly checks out product source from `win-153-xp` and separately checks out XP CI scripts from `agent/winrt-source-poc`. Record all three identities independently: workflow/control SHA, clean-product source SHA, and CI-scripts SHA.
+
+Current clean-product build/static evidence is product source `85863f2355a23223bf33f55b641ccb509a2b72ac`, run `35724604122`, job `106735182867`, package `10700255591`, runtime `10700395290`, diagnostics `10700061102`, completed success. Physical acceptance of that exact clean-product payload remains separate and open; implementation-line physical results do not transfer to it.
+
 ## Experimental Windows Vista/7 thunk-rs build
 
 Workflow file:
@@ -188,7 +238,7 @@ Workflow name:
 
 Role:
 
-This is the low-cost targeted validation workflow for the current source-level WinRT removal/fallback hypothesis on experiment branch `agent/winrt-source-poc`. It is deliberately **not** a full Firefox build. Its job is to establish the narrow proof chain before spending time on a full x86 `xul.dll` build:
+Historical qualification: this workflow records the earlier low-cost WinRT source-removal experiment. Its old continuation point is not the current XP blocker or active handoff; use `PROJECT_STATE.md`, `TODO.md`, and the full XP workflow section above for the current implementation line. It is deliberately **not** a full Firefox build. Its job is to establish the narrow proof chain before spending time on a full x86 `xul.dll` build:
 
 `source isolation -> configure/export prerequisites -> compile selected WinRT-related target objects -> inspect those objects for forbidden WinRT API references`.
 
@@ -328,7 +378,7 @@ Workflow name:
 
 Role:
 
-This is a focused Windows XP x86 TLS-lifecycle reproducer for the current GPU-child static-TLS investigation. It builds a small owner DLL with compiler thread-safe function-local-static state, an explicit PE static-TLS directory and the YY-Thunks DLL entry-point contract, plus a second DLL that can re-enter the owner from `DLL_THREAD_DETACH`.
+Historical/deferred qualification: this is a focused Windows XP x86 TLS-lifecycle reproducer retained for forensic context. It is not the current ANGLE acceptance path and should be resumed only if new exact evidence specifically requires that teardown question. It builds a small owner DLL with compiler thread-safe function-local-static state, an explicit PE static-TLS directory and the YY-Thunks DLL entry-point contract, plus a second DLL that can re-enter the owner from `DLL_THREAD_DETACH`.
 
 The authoritative hosted topology control remains source `14a081882ae657115ae799f7adeca6605677d9d0`, run `35448707456`, job `105912013098`, artifact `10586477797`, result **completed / success / GREEN**. The `late-first` control observes owner detach before the later DLL callback and successfully re-enters the owner on hosted Windows; `owner-first` is the inverse-order control. That exact artifact is **not** accepted as a physical-XP runtime bundle because XP stops before the test on a staged CRT `FlsGetValue` loader import.
 
@@ -352,8 +402,8 @@ Keep these concepts separate:
 - `winrt-source-poc-x86.yml` = targeted source-level WinRT removal/fallback x86 proof gate, not a full Firefox build;
 - `cryptopro-extension-smoke.yml` = historical standalone CryptoPro updater/fallback/staging/package proof;
 - `cryptopro-mozilla-packaging-smoke.yml` = dedicated real-Firefox CryptoPro packaging integration/regression proof;
-- `agent/gost-tls-poc` = active development branch;
-- `agent/winrt-source-poc` = experimental branch for source-level WinRT removal/fallback validation;
+- `agent/gost-tls-poc` = default branch and canonical documentation/control source; it also carries the main GOST runtime development line and selected focused workflow definitions;
+- `agent/winrt-source-poc` = active Windows XP SP3 x86 implementation branch; the heavy XP x32 workflow must be dispatched from this branch when testing implementation HEAD;
 - `agent/msvcr14x-win7-smoke` = isolated experimental branch for the msvcr14x compatibility line;
 - `win-153` = protected frozen baseline branch.
 
