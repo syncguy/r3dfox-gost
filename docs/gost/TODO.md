@@ -89,18 +89,20 @@ Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job 
 
 The narrow trace-cache fix advances past predecessor fault `libGLESv2+0x0003C1CA`, but WebGL reaches a new `0xC0000005` at `libGLESv2+0x00159EBB`. Matching PDB resolves the new boundary to `rx::d3d9_gl::GenerateCaps()` / `std::_Tree::begin()` at `renderer9_utils.cpp:517`, after `gl::GetAllSizedInternalFormats()` returns an unconstructed/invalid local-static `FormatSet`. Exact-DLL disassembly shows the second MSVC TLS-backed thread-safe-local-static guard and matching `_Init_thread_header` / `_Init_thread_footer`.
 
-Current candidate implementation HEAD: `b01f3461d52eec1b60aa87d12e083f3485032fba`.
+Current browser/ANGLE remediation commit: `b01f3461d52eec1b60aa87d12e083f3485032fba`. Current implementation/CI HEAD for the next full build: `f15a047e847cdca07d90396fe88d32a74cee416e`.
 
 - `5934345e6c6e805a703efc1cc425b6aebfe8c0a4`: apply `/Zc:threadSafeInit-` to Windows x86 ANGLE;
 - `b01f3461...`: restore the normal trace-event static cache so the build flag covers both reproduced sites.
 
-Focused run `35970854066`, job `107539996865`, exact source `b01f3461...` has already proved that both known owner translation units compile with `/Zc:threadSafeInit-` and that focused x86 `libGLESv2.dll` links successfully. Its overall RED came from a missing verifier script, not from compilation.
+Focused run `35974426502`, job `107551429542`, product source `b01f3461...`, is GREEN. It proves both known owner translation units compile with `/Zc:threadSafeInit-` and both resulting objects have `Init_thread_matches=0`. Focused `libGLESv2.dll` static inspection also passes.
+
+The full XP workflow now contains the corresponding blocking gate after `mach build`; implementation HEAD is `f15a047e...`.
 
 Next acceptance sequence:
 
-1. Cleanly rerun the focused ANGLE smoke with the corrected canonical verifier and exact implementation source `b01f3461...`.
-2. Require both `Display.obj` and `formatutils.obj` to contain no `_Init_thread_header`, `_Init_thread_footer`, or `_Init_thread_epoch` evidence while retaining the original function-local statics in source.
-3. Only after focused codegen PASS, run `.github/workflows/gost-poc-build-xp-x32.yml` on exact source `b01f3461...` and require the full build/package/static XP gates to pass.
+1. Run `.github/workflows/gost-poc-build-xp-x32.yml` from exact `agent/winrt-source-poc @ f15a047e847cdca07d90396fe88d32a74cee416e`.
+2. Require the full build plus `GATE - Verify ANGLE XP local-static codegen` to pass; in full-build objects both `Display.obj` and `formatutils.obj` must have zero `_Init_thread_header`, `_Init_thread_footer`, and `_Init_thread_epoch` evidence.
+3. Require the remaining package/static XP gates and final aggregate summary to pass; do not call the run GREEN while any gate is pending or RED.
 4. On physical XP, verify exact binary hashes, use a fresh profile, trigger WebGL, and confirm execution advances beyond both former RVAs `+0x3C1CA` and `+0x159EBB`.
 5. If another ANGLE boundary appears, symbolize it against the matching PDB before changing code; do not return to the already-advanced trace-only hypothesis without contradictory evidence.
 
