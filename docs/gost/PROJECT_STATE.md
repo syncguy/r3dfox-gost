@@ -1,8 +1,8 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 
-This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`. Current Windows XP WebRTC runtime and codec status is maintained in [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md).
+This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`. [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for all Windows XP WebRTC build/runtime/codec/ICE/NAT status and remaining WebRTC boundaries; WebRTC state must not be duplicated here.
 
 ## Repository / branch policy
 
@@ -161,22 +161,7 @@ Physical closure is still pending. The exact `10759971452` runtime payload must 
 
 ## WebRTC XP line
 
-The first WebRTC-enabled source `75b4e8f052fb6fc09c723651938fde18f95af4ea`, run `35706851492`, job `106677750169`, built/package GREEN but exposed a physical XP loader blocker from direct `xul.dll -> WS2_32.dll!inet_pton`. Matching diagnostics/PDB localized both references to `nr_str_port_to_transport_addr()` in nICEr.
-
-Source-under-test `afee8c9e5ad2da729407ae06cda8d8029895ab06` applies the narrow XP-only source fallback by copying the proven IPv4/IPv6 parser into the Windows nICEr port while non-XP retains native `inet_pton`. Its canonical full-build experiment is:
-
-- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
-- run `35737946733`, job `106779925555`;
-- aggregate result **completed / success / GREEN**;
-- package artifact `10707883013`, digest `sha256:3c0c130432521825a4c5961fe5c0f2b390b6a8f70731e32d4a8440477581d995`;
-- runtime artifact `10707967905`, digest `sha256:39c55c4b6904a1f1fb5fad1c829da670a356c532e4aeb0ca08068338b7428ac2`;
-- diagnostics artifact `10707868191`, digest `sha256:c4f3951d2358c4ef530013bedb3abc8e2d7368a4bdcc1981eb866441f9d136f5`.
-
-The user physically launched this build on Windows XP and confirmed that the previous missing-entry-point dialog for `WS2_32!inet_pton` no longer appears and the browser starts. User-reported local SHA-1 identities for this test are `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c` and `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
-
-Conclusion: **the nICEr `inet_pton` XP loader blocker is physically closed for source `afee8c9e...` and the user-associated run `35737946733` binaries.** This is browser startup/runtime-boundary evidence, not a functional WebRTC PASS: `RTCPeerConnection`, `getUserMedia`, DataChannel, ICE/STUN and real-call behavior remain to be exercised separately.
-
-Later commit `1ba6150ca58ea9da341f53374f9bf5dc8d0a4366` adds `inet_pton` to the broad forbidden direct-import audit. That hardened rule is now build-proven on successor source `e13354c79ebfa206fbccc946592256d33e4ac519`: run `35810132801`, job `107019631325` completed GREEN with both the targeted core-browser import gate and the broad XP PE/direct-import audit successful. This is regression-gate evidence only; it does not add functional WebRTC runtime coverage. Parser deduplication into a neutral shared helper remains deferred until functional WebRTC runtime is established.
+[WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for Windows XP WebRTC build identity, runtime evidence, codec/media/ICE/NAT coverage, closed blockers, and remaining boundaries. Do not duplicate or maintain WebRTC status in `PROJECT_STATE.md`; update that document directly.
 
 # Build-configuration identity
 
@@ -192,7 +177,7 @@ For the clean release line, no evidence currently overturns the proven physical 
 
 For the implementation XP line, the download/recent-documents blocker is physically closed on artifact-correlated source `e13354c...`. Current implementation source `3119c849...` is GREEN through the canonical full build/package/static gates with the narrow ANGLE trace-cache remediation. The immediate runtime acceptance boundary is physical execution of exact runtime artifact `10759971452` on XP with matching hashes and the same `get.webgl.org` WebGL trigger, specifically verifying advance past the former GPU-child `libGLESv2+0x3C1CA` fault.
 
-For the WebRTC XP line, the `inet_pton` loader blocker is physically closed on `afee8c9e...`; the hardened import regression rule is build-proven on successor `e13354c...`. Actual WebRTC API and transport/media runtime testing remains the next functional evidence boundary.
+For Windows XP WebRTC acceptance and remaining WebRTC boundaries, consult [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md); no WebRTC status is restated here.
 
 Keep later XP compatibility experiments, WebRTC, packaging/localization and GOST TLS runtime as independent evidence lines.
 
