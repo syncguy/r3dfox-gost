@@ -83,21 +83,25 @@ Physical Windows XP validation of the exact successor runtime also passed with `
 
 The predecessor `0xC06D007F` / `SHELL32!SHCreateItemFromParsingName` boundary is therefore physically closed for this exact artifact-correlated source/run. `browser.download.manager.addToRecentDocs=false` is only a temporary workaround for older affected binaries and is not needed for the accepted successor.
 
-### ANGLE / WebGL GPU-child local-static boundary — physical retest pending
+### ANGLE / WebGL GPU-child TLS-backed local statics — build candidate pending
 
-Predecessor source `e13354c79ebfa206fbccc946592256d33e4ac519`, run `35810132801`, job `107019631325`, reliably reproduces a physical Windows XP GPU-child `0xC0000005` at `libGLESv2.dll+0x0003C1CA` when `https://get.webgl.org/` is allowed to create a WebGL context. The fault owner is the ANGLE trace-category function-local `static` used before renderer implementation initialization; the direct `CreateDXGIFactory1` / D3D9 graph blocker remains closed.
+Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
 
-Exact remediation source `3119c849b3930145c8e4181b8a06a692ec20514d` (`fix(xp): avoid ANGLE trace local-static TLS guard`) removes that dynamically initialized function-local `static` only under `MOZ_XP_COMPAT`, leaving non-XP behavior unchanged.
+The narrow trace-cache fix advances past predecessor fault `libGLESv2+0x0003C1CA`, but WebGL reaches a new `0xC0000005` at `libGLESv2+0x00159EBB`. Matching PDB resolves the new boundary to `rx::d3d9_gl::GenerateCaps()` / `std::_Tree::begin()` at `renderer9_utils.cpp:517`, after `gl::GetAllSizedInternalFormats()` returns an unconstructed/invalid local-static `FormatSet`. Exact-DLL disassembly shows the second MSVC TLS-backed thread-safe-local-static guard and matching `_Init_thread_header` / `_Init_thread_footer`.
 
-Canonical build evidence:
+Current candidate implementation HEAD: `b01f3461d52eec1b60aa87d12e083f3485032fba`.
 
-- workflow `GOST TLS PoC build  XP x32`;
-- run `35860139917`, job `107178068460`, **completed / success / GREEN**;
-- package artifact `10760076917`;
-- runtime artifact `10759971452`;
-- diagnostics artifact `10759359771`.
+- `5934345e6c6e805a703efc1cc425b6aebfe8c0a4`: apply `/Zc:threadSafeInit-` to Windows x86 ANGLE;
+- `b01f3461...`: restore the normal trace-event static cache so the build flag covers both reproduced sites.
 
-Next acceptance step: extract the exact runtime artifact `10759971452`, record local hashes for `r3dfox.exe`, `xul.dll` and preferably `libGLESv2.dll`, launch on physical Windows XP, open `https://get.webgl.org/`, allow WebGL context creation, and verify that execution advances past the former GPU-child `libGLESv2+0x3C1CA` boundary. A build-only GREEN result is not sufficient to close the runtime blocker.
+Next acceptance sequence:
+
+1. Run `.github/workflows/gost-poc-build-xp-x32.yml` on exact branch `agent/winrt-source-poc` / source `b01f3461...`.
+2. Require the full build/package/static XP gates to pass; do not call the candidate GREEN while the run is pending.
+3. Inspect exact produced `libGLESv2.dll` plus matching PDB/codegen and confirm the two known sites no longer contain the TLS-backed `_Init_thread_*` fast/slow path.
+4. On physical XP, verify exact binary hashes, use a fresh profile, trigger WebGL, and confirm execution advances beyond both former RVAs `+0x3C1CA` and `+0x159EBB`.
+5. If another ANGLE boundary appears, symbolize it against the matching PDB before changing code; do not return to the already-advanced trace-only hypothesis without contradictory evidence.
+
 
 ## XP WebRTC
 
