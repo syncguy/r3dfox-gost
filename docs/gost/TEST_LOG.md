@@ -8,6 +8,39 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-24 — full XP x32 build GREEN with ANGLE full-build codegen gate
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact identity:
+
+- implementation branch: `agent/winrt-source-poc`;
+- source-under-test: `f15a047e847cdca07d90396fe88d32a74cee416e`;
+- browser/ANGLE remediation commit beneath CI-only follow-ups: `b01f3461d52eec1b60aa87d12e083f3485032fba`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `35980235042`;
+- job `107570122638`;
+- aggregate result: **completed / success / GREEN**;
+- package artifact `10806218628`, digest `sha256:ecd32f1a07c25b2dd50df73665e0760b07761ae0ed23131cb082cffd428d6628`;
+- runtime artifact `10806283395`, digest `sha256:af912df8e86267c1a2b53db5124bbcb3509e2bf93d6ff749560d5488d2b47da6`;
+- diagnostics artifact `10806562241`, digest `sha256:024754c869c02e592f85a0cfccf545528258eab8f748a93c2ec2ae0925d29f40`.
+
+The full Firefox/r3dfox build completed successfully. `GATE - Verify ANGLE XP local-static codegen` also completed successfully in `FullBuild` mode against the objects emitted by that full build:
+
+- `Display.obj: Init_thread_matches=0`;
+- `formatutils.obj: Init_thread_matches=0`;
+- full-build `libGLESv2.dll` SHA-256 `30ff7dc27e949e5d952ccc1e15186aff07523d1acd5da6ec18ba51493d8075f7`.
+
+The final aggregate summary records success for the ANGLE codegen gate, browser build, package, runtime archive, package-survival checks and broad XP PE/direct-import audit. Package, runtime and diagnostics artifacts were uploaded successfully.
+
+Conclusion: the Windows x86 ANGLE `/Zc:threadSafeInit-` remediation is now accepted at both focused-object scale and full Firefox build/package/static scale for exact source `f15a047e...`. This closes the current full-build/static acceptance boundary.
+
+Evidence boundary: this GREEN does **not** establish physical Windows XP WebGL success and does not prove the predecessor TLS/epoch corruption mechanism. Physical acceptance requires exact-artifact binary correlation followed by WebGL context creation and exercised rendering on XP. Predecessor `libGLESv2` RVAs are historical fault identities and are not assumed to apply to this newly linked DLL.
+
+Status: **full XP build/package/static GREEN / physical XP WebGL test pending.**
+
+---
+
 ## 2026-09-24 — focused ANGLE /Zc:threadSafeInit- codegen gate GREEN
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
