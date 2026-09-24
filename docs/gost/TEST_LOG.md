@@ -32,11 +32,11 @@ The subsequent focused binary gate also passed. Exact focused `libGLESv2.dll` SH
 
 Conclusion: the Windows x86 ANGLE build option `/Zc:threadSafeInit-` is now directly proven at focused-object scale to eliminate the MSVC `_Init_thread_header/footer/epoch` machinery from both physically reproduced local-static owners while preserving the original source statics.
 
-Follow-up integration: the same verifier responsibility has been transferred into the full XP x32 workflow on `agent/winrt-source-poc`. Implementation commits `cee8175a...`, `d655a237...`, and `f15a047e...` add the full-build verifier, insert a blocking ANGLE codegen gate immediately after successful `mach build`, and include its outcome in the aggregate final verdict. Current implementation HEAD for the next full build is `f15a047e847cdca07d90396fe88d32a74cee416e`.
+Follow-up integration: the same verifier responsibility has been transferred into the full XP x32 workflow on `agent/winrt-source-poc`. Implementation commits `cee8175a...`, `d655a237...`, and `f15a047e...` add the full-build verifier, insert a blocking ANGLE codegen gate immediately after successful `mach build`, and include its outcome in the aggregate final verdict. Full run `35980235042`, job `107570122638`, is already dispatched from exact source-under-test `f15a047e847cdca07d90396fe88d32a74cee416e` and remains `in_progress` at this documentation update; no full-build GREEN is claimed.
 
 Evidence boundary: this GREEN is **focused compile/codegen/static evidence**, not a full Firefox build and not physical XP WebGL runtime proof.
 
-Status: **focused ANGLE codegen GREEN / full XP browser build next / physical XP WebGL retest pending.**
+Status: **focused ANGLE codegen GREEN / full XP browser run `35980235042` / job `107570122638` in progress on exact source `f15a047e...` / physical XP WebGL retest pending.**
 
 ---
 
@@ -96,7 +96,9 @@ Exact exercised build identity:
 
 A fresh Firefox profile starts and ordinary browsing works, so the earlier no-network observation with a copied older profile is not treated as a binary networking regression.
 
-Physical Windows XP WebGL execution still fails with `0xC0000005`, but the fault boundary has advanced. The predecessor source `e13354c...` failed at `libGLESv2+0x0003C1CA` in the ANGLE trace-category local-static path. The exact `3119c849...` runtime instead fails with `libGLESv2.dll` loaded at `0x0f600000`, EIP `0x0f759ebb`, therefore RVA `libGLESv2+0x00159EBB`. The faulting instruction is `mov ecx,[eax]` with `eax=0`; `EGL_Initialize+0x78` remains a stable exported stack anchor.
+Physical Windows XP WebGL execution still fails with `0xC0000005` read access, but the fault boundary has advanced. The predecessor source `e13354c...` failed at `libGLESv2+0x0003C1CA` in the ANGLE trace-category local-static path. The exact `3119c849...` runtime instead fails at `libGLESv2+0x00159EBB`; the faulting dereference sees a `NULL` pointer, and `EGL_Initialize+0x78` remains a stable exported stack anchor.
+
+Publication correction (2026-09-24): an earlier public version of this entry included raw debugger load/instruction addresses and register state. The current tip retains only the allowlisted module+RVA, access-type and pointer-state summary. The experiment conclusion is unchanged; this corrective edit does not erase earlier Git history.
 
 Matching `libGLESv2.pdb` from diagnostics artifact `10759359771` maps the fault to the inline `std::_Tree<...>::begin()` called by `rx::d3d9_gl::GenerateCaps()` at `gfx/angle/checkout/src/libANGLE/renderer/d3d/d3d9/renderer9_utils.cpp:517`. The call immediately before the failing `std::set` begin is `gl::GetAllSizedInternalFormats()` at `gfx/angle/checkout/src/libANGLE/formatutils.cpp:2006`.
 
