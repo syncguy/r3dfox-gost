@@ -213,6 +213,14 @@ No raw screenshot or certificate identity is retained. T10 closes presentation o
 
 ## Windows compatibility
 
+### ANGLE local-static full-build codegen/static acceptance — COMPLETE
+
+Exact source `f15a047e847cdca07d90396fe88d32a74cee416e`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35980235042`, job `107570122638`.
+
+The full Firefox/r3dfox XP x86 build, package/runtime creation, XP static/import gates and final aggregate summary all completed successfully. The integrated `FullBuild` ANGLE verifier reports zero `_Init_thread_header/footer/epoch` matches in both known owner objects (`Display.obj` and `formatutils.obj`). Package artifact `10806218628`, runtime artifact `10806283395`, diagnostics artifact `10806562241`.
+
+This closes the focused-to-full-build codegen/static transfer for the `/Zc:threadSafeInit-` remediation. It does not close physical XP WebGL runtime acceptance or establish the exact historical TLS/epoch corruption mechanism.
+
 ### Download completion / Windows Recent Documents XP blocker — COMPLETE
 
 Exact accepted source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35810132801`, job `107019631325`, runtime artifact `10733956483`.
