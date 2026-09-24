@@ -1,6 +1,8 @@
 # Windows XP SP3 x86 — runtime compatibility status
 
-Last updated: 2026-09-08
+> **Historical snapshot.** The detailed progression below is retained as evidence, but its “current blocker” and “next experiment” language is superseded. In particular, SharedPrefMap is not the present project boundary. Use [PROJECT_STATE.md](PROJECT_STATE.md), [TODO.md](TODO.md), [DONE.md](DONE.md), and the active [TEST_LOG.md](TEST_LOG.md) for current status. The active ANGLE full-browser experiment is run `35980235042 / 107570122638` from exact implementation source `f15a047e...`, still in progress at the 2026-09-24 documentation update.
+
+Last updated: 2026-09-24
 
 Track: Windows XP SP3 x86 runtime compatibility only. This document does not describe or prove GOST TLS / NSS / MSSPI / CryptoPro handshake behavior and does not authorize a Firefox/r3dfox 153 -> 154 base update.
 
