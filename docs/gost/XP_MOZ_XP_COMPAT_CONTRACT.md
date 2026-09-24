@@ -1,6 +1,8 @@
 # Windows XP x86 — MOZ_XP_COMPAT build contract
 
-Last updated: 2026-09-07
+> **Contract/current-status note.** The compile-time mechanism in this document remains authoritative: C/C++ `MOZ_XP_COMPAT`, Rust `--cfg moz_xp_compat`, and Mozilla configure variables are distinct mechanisms. Dated “current owner” and validation sections below are historical snapshots and are not an exhaustive current blocker list. Use [PROJECT_STATE.md](PROJECT_STATE.md), [TODO.md](TODO.md), [XP_BUILD_CONTRACT.md](XP_BUILD_CONTRACT.md), and [TEST_LOG.md](TEST_LOG.md) for current implementation/run status.
+
+Last updated: 2026-09-24
 
 Track: Windows XP SP3 x86 compatibility only. This document does not describe or prove GOST TLS runtime behavior.
 
