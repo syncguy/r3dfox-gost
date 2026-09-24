@@ -8,6 +8,38 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-24 — focused ANGLE /Zc:threadSafeInit- codegen gate GREEN
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact experiment identity:
+
+- product source checked out and built: `agent/winrt-source-poc @ b01f3461d52eec1b60aa87d12e083f3485032fba`;
+- workflow/control branch: `agent/gost-tls-poc`;
+- workflow/control SHA: `741ebbca871a696f82aa857be2e6aa6ef5414738`;
+- workflow `.github/workflows/xp-angle-libglesv2-smoke.yml` / `XP ANGLE libGLESv2 smoke`;
+- run `35974426502`;
+- job `107551429542`;
+- artifact `10798373361` (`xp-angle-libglesv2-smoke`), digest `sha256:39c88010a830bc2d4af4cb828704f0252b07bbe972d571c2f6835685f38beda4`;
+- aggregate result: **completed / success / GREEN**.
+
+The corrected codegen gate executed successfully against the exact focused build. The job reports:
+
+- `Display.cpp: /Zc:threadSafeInit-=True Init_thread_matches=0`;
+- `formatutils.cpp: /Zc:threadSafeInit-=True Init_thread_matches=0`.
+
+The subsequent focused binary gate also passed. Exact focused `libGLESv2.dll` SHA-256 is `8db4feb9db2f99eb61e3bc611abd2845a913e4b2cc1a281e1df0264ee8c46aa6`; the inspection reports `DXGI=False`, `CreateDXGIFactory=False`, `CreateDXGIFactory1=False`, `D3D9=True`.
+
+Conclusion: the Windows x86 ANGLE build option `/Zc:threadSafeInit-` is now directly proven at focused-object scale to eliminate the MSVC `_Init_thread_header/footer/epoch` machinery from both physically reproduced local-static owners while preserving the original source statics.
+
+Follow-up integration: the same verifier responsibility has been transferred into the full XP x32 workflow on `agent/winrt-source-poc`. Implementation commits `cee8175a...`, `d655a237...`, and `f15a047e...` add the full-build verifier, insert a blocking ANGLE codegen gate immediately after successful `mach build`, and include its outcome in the aggregate final verdict. Current implementation HEAD for the next full build is `f15a047e847cdca07d90396fe88d32a74cee416e`.
+
+Evidence boundary: this GREEN is **focused compile/codegen/static evidence**, not a full Firefox build and not physical XP WebGL runtime proof.
+
+Status: **focused ANGLE codegen GREEN / full XP browser build next / physical XP WebGL retest pending.**
+
+---
+
 ## 2026-09-24 — focused ANGLE /Zc:threadSafeInit- build PASS, verifier infrastructure RED
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
