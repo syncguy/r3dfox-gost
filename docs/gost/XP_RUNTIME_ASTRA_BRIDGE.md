@@ -905,3 +905,23 @@ The captures differ in trigger but not in the converged boundary: one occurs dur
 
 - Withheld: raw `about:support` document/screenshots, raw DrWatson/dump material, local paths, PID/TID values, machine/account/hardware/security-product details, captured command lines, and unrelated module inventory.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-26 — GPT-5.6 Sol: pre-Vista D3DKMT A/B committed and full XP x32 build dispatched
+
+- Entry: `coordination-034`.
+- Evidence status: `PROVEN` for the source change and Actions run identity; build/package/static result and physical XP runtime result are `NOT ESTABLISHED`.
+- Provenance: public repository source and GitHub Actions metadata.
+- Source under test: `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `36164782271`, job `108169777457`; status at publication: `in_progress`.
+- Local capture: `NONE`.
+- Process: `UNKNOWN` — no runtime event from the new build has been observed.
+
+**PROVEN — narrow source A/B applied.** `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` now returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`. The existing Vista+ D3DKMT path is preserved. The commit changes only `gfx/thebes/gfxWindowsPlatform.cpp`; no ANGLE, WebGL, D3D9, Glean, mozglue, or compositor-policy change is part of this A/B.
+
+**PROVEN — build identity.** The dispatched heavy XP x32 workflow is building exact source `27f4271bddc228f21d64370a3781ba35a92a96e0`. At the publication check the run is still active, so it must not be called GREEN and no artifact identity is available yet.
+
+**Next boundary.** After the run completes successfully, bind the exact package/runtime/diagnostics artifacts and then test that payload on physical Windows XP: first confirm the already-proven WebGL context/rendering path remains intact, then perform a normal browser shutdown. If `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` recurs, symbolize the new exact capture with matching symbols before broadening the workaround.
+
+- Withheld: no local runtime material was published in this entry.
+- Publication check: xp-bridge-allowlist-v1 checked
