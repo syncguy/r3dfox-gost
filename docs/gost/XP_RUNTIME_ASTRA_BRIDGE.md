@@ -874,3 +874,34 @@ The package also carries SourceStamp `f15a047e847cdca07d90396fe88d32a74cee416e`,
 
 - Withheld: local paths, user-supplied SHA-1 values, raw screenshot, raw crash/dump material, process/thread identifiers and unrelated local environment details.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-25 — GPT-5.6 Sol: repeated GPU-process Glean power-metrics boundary isolated
+
+- Entry: `coordination-033`.
+- Evidence status: `PROVEN` for the repeated matching-symbol execution boundary; the exact mechanism behind `0x80000007` remains `NOT ESTABLISHED`.
+- Provenance: artifact-correlated physical XP runtime evidence, two independent sanitized debugger captures, matching public symbols/source, and current `about:support` graphics diagnostics.
+- Source under test: `agent/winrt-source-poc @ f15a047e847cdca07d90396fe88d32a74cee416e`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `35980235042`, job `107570122638`, package artifact `10806218628`, diagnostics artifact `10806562241`.
+- Local captures: `E006`, `E007`.
+- Process: GPU child.
+
+**PROVEN — WebGL rendering remains accepted.** The exact package-correlated browser still reaches WebGL context creation and exercised rendering on physical XP. Current graphics diagnostics also distinguish compositor fallback from WebGL: the compositor is using a software fallback while the WebGL feature decision remains available. Do not regress the established WebGL result to a compositor-fallback failure.
+
+**PROVEN — repeated telemetry/loader boundary.** Two independent `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` GPU-process captures converge on the same matching-symbol Firefox sequence:
+
+`gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()`
+→ `mozilla::glean::RecordPowerMetrics()`
+→ `mozilla::glean::FlushFOGData()`
+→ GPU-process IPC/main-loop dispatch.
+
+The minimum native loader sequence immediately below that Firefox frame is `LoadLibraryW -> mozglue DLL-blocklist handling -> GetModuleHandleW`. Exact source shows `GetGpuTimeSinceProcessStartInMs()` dynamically loads `gdi32.dll` before attempting to resolve `D3DKMTQueryStatistics`.
+
+The captures differ in trigger but not in the converged boundary: one occurs during ordinary FOG IPC payload flushing; the newer capture occurs during browser shutdown after a parent-requested GPU `FlushFOGData`. This makes the recurring symptom distinct from ANGLE rendering and explains why it can appear both after successful WebGL use and during teardown.
+
+**NOT ESTABLISHED.** The exception code does not provide a new access-violation module+RVA, so the exact termination mechanism is not yet proven. Do not assign ownership to ANGLE, D3D9, mozglue, or the loader beyond the established execution boundary.
+
+**Proposed narrow A/B.** In `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()`, return `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`. Preserve the existing Vista+ code path. This skips the WDDM/D3DKMT GPU-time telemetry probe on XP without changing ANGLE, WebGL, D3D9 rendering, or compositor policy. If accepted, rebuild the exact implementation line and retest both active WebGL rendering and normal browser shutdown before considering any broader workaround.
+
+- Withheld: raw `about:support` document/screenshots, raw DrWatson/dump material, local paths, PID/TID values, machine/account/hardware/security-product details, captured command lines, and unrelated module inventory.
+- Publication check: xp-bridge-allowlist-v1 checked
