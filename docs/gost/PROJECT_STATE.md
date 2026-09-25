@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-24
+Last updated: 2026-09-26
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`. [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for all Windows XP WebRTC build/runtime/codec/ICE/NAT status and remaining WebRTC boundaries; WebRTC state must not be duplicated here.
 
@@ -9,7 +9,7 @@ This file is the authoritative current technical synthesis and handoff for new c
 - Repository: `syncguy/r3dfox-gost`.
 - Default branch and canonical documentation source: `agent/gost-tls-poc`.
 - Windows XP SP3 x86 implementation branch: `agent/winrt-source-poc`.
-- Current implementation-branch HEAD observed before this documentation update: `f15a047e847cdca07d90396fe88d32a74cee416e` (`ci(xp): include ANGLE codegen verdict`). Browser/ANGLE product changes remain rooted at `b01f3461d52eec1b60aa87d12e083f3485032fba`; the later commits add only XP CI verification infrastructure.
+- Current implementation-branch HEAD observed before this documentation update: `27f4271bddc228f21d64370a3781ba35a92a96e0` (`fix(xp): skip D3DKMT GPU telemetry before Vista`). The ANGLE product remediation remains rooted at `b01f3461d52eec1b60aa87d12e083f3485032fba`; `cee8175a...`, `d655a237...`, and `f15a047e...` add XP CI verification infrastructure, while `27f4271...` is the subsequent one-file product runtime A/B in `gfx/thebes/gfxWindowsPlatform.cpp`.
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
 - PR #1 historically targets `win-153`; it does not define the active work branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides otherwise.
@@ -177,7 +177,7 @@ The remaining blocker is GPU-process stability, not initial WebGL bring-up or pr
 
 Two independent physical captures of the exact `f15a...` line now converge on the same `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` boundary. Matching `xul.pdb` maps the Firefox side to `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs() -> mozilla::glean::RecordPowerMetrics() -> mozilla::glean::FlushFOGData()`. The current shutdown capture reaches it through GPU-process `FlushFOGData` IPC; the earlier intermittent capture reaches the same power-metrics path from a FOG IPC payload flush. Immediately below the Firefox frame, the native stack is in `LoadLibraryW` / mozglue DLL-blocklist / `GetModuleHandleW` loader handling. Source inspection shows `GetGpuTimeSinceProcessStartInMs()` loads `gdi32.dll` before resolving `D3DKMTQueryStatistics`.
 
-This establishes a repeatable telemetry/loader boundary distinct from ANGLE/WebGL rendering. It still does not prove the exact mechanism behind `0x80000007`. The narrow next A/B is to skip the GPU-time D3DKMT probe on pre-Vista Windows before the `LoadLibrary` call, while leaving Vista+ behavior and all ANGLE/D3D9 rendering unchanged.
+This establishes a repeatable telemetry/loader boundary distinct from ANGLE/WebGL rendering. It still does not prove the exact mechanism behind `0x80000007`. That narrow A/B is now implemented in source `27f4271bddc228f21d64370a3781ba35a92a96e0`: pre-Vista Windows returns `NS_ERROR_NOT_AVAILABLE` before the `LoadLibrary(L"gdi32.dll")` call, while Vista+ behavior and all ANGLE/D3D9 rendering remain unchanged. Full XP x32 run `36164782271`, job `108169777457`, is **in progress / provisional** against that exact source; no build verdict, artifacts, or new physical XP runtime result are established yet.
 
 ## WebRTC XP line
 
