@@ -34,14 +34,33 @@ The portable package also contains the same public source/build identity observe
 
 Hash qualification: the earlier `libGLESv2.dll` SHA-256 `30ff7dc27e949e5d952ccc1e15186aff07523d1acd5da6ec18ba51493d8075f7` belongs to the verifier's diagnostic copy captured immediately after `mach build`, before the later full-workflow PE-retarget/package stages. The final portable `libGLESv2.dll` is the retargeted packaged file above. The two hashes therefore describe different workflow stages rather than contradictory binaries.
 
+Additional `about:support` evidence from the same physical console-session build shows:
+
+- compositor path: Software WebRender fallback;
+- GPU process: active;
+- WebGL feature decision: available;
+- hardware-compositing / WebRender initialization has separately fallen back, so compositor fallback and WebGL availability must not be conflated;
+- the graphics failure history contains repeated abnormal compositor/IPC shutdown records, consistent with the separately observed GPU-process instability.
+
+The new shutdown DrWatson capture and the earlier intermittent capture both report `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` in the same exact artifact-correlated GPU process line. Matching `xul.pdb` symbolization establishes a repeatable Firefox boundary:
+
+`gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()`
+→ `mozilla::glean::RecordPowerMetrics()`
+→ `mozilla::glean::FlushFOGData()`
+→ GPU-process IPC / main-loop dispatch.
+
+Immediately below the first Firefox frame, the native stack is inside `LoadLibraryW` / mozglue DLL-blocklist handling / `GetModuleHandleW` / the loader critical-section path. Exact source `gfx/thebes/gfxWindowsPlatform.cpp` shows that `GetGpuTimeSinceProcessStartInMs()` dynamically loads `gdi32.dll` before resolving `D3DKMTQueryStatistics`. The current shutdown capture reaches this path through a parent-requested GPU `FlushFOGData`; the earlier intermittent capture reaches the same `RecordPowerMetrics` path through a FOG IPC payload flush. This explains why the visible symptom can occur both during use and during browser shutdown without implicating the WebGL renderer itself.
+
+Root-cause qualification: `0x80000007` is not a new access-violation site, so the exact mechanism of the process termination is still not proven. However, the repeated `FlushFOGData -> RecordPowerMetrics -> GetGpuTimeSinceProcessStartInMs -> LoadLibrary(gdi32.dll)` boundary is now established independently of ANGLE rendering.
+
 Evidence boundary:
 
 - **PROVEN:** exact artifact-correlated `f15a...` physical XP console session, GPU-child role, WebGL context creation and exercised rendering.
-- **NOT YET PROVEN:** stable repeated WebGL operation; root cause and exact faulting instruction/module of the intermittent GPU-child termination.
+- **NOT YET PROVEN:** stable repeated GPU-process lifetime; exact mechanism behind the `0x80000007` termination while the GPU process is in the Glean GPU-time/power-metrics loader path.
 
-Next evidence should capture graphics feature/renderer diagnostics from a successful WebGL session and obtain a discriminating failure using matching symbols. Firefox graphics diagnostics / targeted browser logging and a debugger exception capture are higher priority than broad Procmon I/O tracing for this in-process GPU-child failure.
+Next experiment should be a narrow source-level A/B around `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()`: on pre-Vista Windows, return `NS_ERROR_NOT_AVAILABLE` before `LoadLibrary(L"gdi32.dll")`, preserving the existing Vista+ path. This avoids the WDDM/D3DKMT telemetry probe on XP without changing ANGLE, WebGL, D3D9 rendering, or compositor policy. Rebuild/test only after that one-owner change; if the `0x80000007` symptom persists, capture the new exact boundary with matching symbols.
 
-Status: **artifact-correlated physical XP WebGL context + rendering PASS observed / intermittent GPU-child stability failure open.**
+Status: **artifact-correlated physical XP WebGL context + rendering PASS observed / repeated GPU-process Glean power-metrics loader boundary established / termination mechanism still open.**
 
 ---
 
