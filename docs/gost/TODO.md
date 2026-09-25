@@ -77,7 +77,7 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
 
-### ANGLE / WebGL GPU-child — rendering reached; intermittent stability failure open
+### GPU process — WebGL rendering reached; Glean GPU-time telemetry boundary open
 
 Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
 
@@ -94,15 +94,17 @@ The full XP workflow contains the corresponding blocking gate after `mach build`
 
 Current physical result:
 
-- console-session XP test on SourceStamp `f15a047e...` reaches WebGL context creation and visible rendering on `get.webgl.org`;
-- the GPU child still terminates intermittently after rendering;
-- the available Watson capture reports `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` and does not provide a new `0xC0000005` owner/fault site.
+- console-session XP test on SourceStamp `f15a047e...` reaches artifact-correlated WebGL context creation and visible rendering;
+- `about:support` confirms Software WebRender compositor fallback, an active GPU process, and WebGL available as a separate feature decision;
+- two independent `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` captures converge on `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs() -> glean::RecordPowerMetrics() -> glean::FlushFOGData()`, with the native stack entering `LoadLibraryW` / mozglue loader handling;
+- one capture occurs during ordinary FOG IPC flushing and the newer capture occurs on browser shutdown through GPU `FlushFOGData`, so the recurring symptom is no longer assigned to ANGLE rendering.
 
 Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`, and final packaged `libGLESv2.dll` match package artifact `10806218628` byte-for-byte. The remaining acceptance sequence is:
 
-1. Capture `about:support` Graphics/Decision Log from a successful WebGL session so the actual renderer/backend and feature decisions are recorded.
-2. Reproduce the intermittent GPU-child termination with a discriminating exception capture and matching symbols from diagnostics artifact `10806562241`. Prefer WinDbg/Watson plus targeted Firefox graphics logging; use Procmon only if the evidence suggests an external DLL/file/registry/driver-loading boundary.
-3. If a new code boundary is found, symbolize that exact new binary/PDB pair before changing source. Do not reuse predecessor RVAs `+0x3C1CA` or `+0x159EBB` as numeric breakpoints for the new DLL and do not reopen the trace-only hypothesis without contradictory evidence.
+1. Implement one narrow A/B in `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()`: if `!IsVistaOrLater()`, return `NS_ERROR_NOT_AVAILABLE` before `LoadLibrary(L"gdi32.dll")`. Do not change ANGLE/WebGL/D3D9 code in this experiment.
+2. Build the exact implementation source with the existing XP gates, then on physical XP repeat both an active WebGL session and a normal browser shutdown.
+3. If `0x80000007` still occurs, symbolize the new exact capture against matching PDBs before any broader workaround. Procmon remains secondary unless the evidence moves to an external DLL/file/registry/driver-loading boundary.
+4. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` as breakpoints for this telemetry/shutdown line and do not reopen the already-closed local-static hypothesis without contradictory evidence.
 
 
 ## XP WebRTC
