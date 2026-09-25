@@ -8,6 +8,33 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-25 — physical XP WebGL rendering reached on f15a, intermittent GPU-child failure remains
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Physical evidence:
+
+- physical Windows XP SP3 x86, console session rather than RDP;
+- browser/GPU-child memory contains SourceStamp `f15a047e847cdca07d90396fe88d32a74cee416e` and BuildID `20260924094702`;
+- the exercised GPU child is identified by its Firefox child-process command line as role `gpu`;
+- `libEGL.dll`, `libGLESv2.dll`, system `d3d9.dll`, and the pinned `d3dcompiler_47.dll` are loaded in that GPU child;
+- on `get.webgl.org`, the page reports WebGL support and visibly renders the rotating/wireframe cube.
+
+Conclusion from the positive path: the `f15a...` browser reaches successful WebGL context creation and exercised rendering on physical XP. This physically advances beyond both predecessor ANGLE local-static failure boundaries that prevented useful WebGL initialization/rendering on earlier builds.
+
+Stability is **not** accepted yet. The GPU child still fails intermittently after WebGL has rendered. A DrWatson capture was obtained, but the capture's top-level exception is `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER`, with the recorded state in `ntdll!KiFastSystemCallRet`; the capture contains no `0xC0000005` fault location for the intermittent failure. Therefore this Watson record is not accepted as localization of a new ANGLE crash site and must not be used to assign ownership to `libGLESv2`, D3D9, mozglue, or another component.
+
+Evidence boundary:
+
+- **PROVEN:** physical XP console session, exact source stamp `f15a...`, GPU-child role, WebGL context/rendering reached.
+- **NOT YET PROVEN:** byte-for-byte local-binary match to run `35980235042` artifacts; stable repeated WebGL operation; root cause and exact faulting instruction/module of the intermittent GPU-child termination.
+
+Next evidence should first bind the local `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` to run `35980235042` package/runtime artifacts, then capture a discriminating failure using matching symbols. Firefox graphics diagnostics / targeted browser logging and a debugger exception capture are higher priority than broad Procmon I/O tracing for this in-process GPU-child failure.
+
+Status: **physical XP WebGL context + rendering PASS observed / intermittent GPU-child stability failure open.**
+
+---
+
 ## 2026-09-24 — full XP x32 build GREEN with ANGLE full-build codegen gate
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
