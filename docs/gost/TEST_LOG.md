@@ -8,6 +8,32 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-26 — pre-Vista D3DKMT telemetry guard committed; full XP x32 A/B build in progress
+
+Track: Windows XP SP3 x86 compatibility / GPU-process shutdown telemetry. Independent of GOST TLS and WebRTC functional evidence.
+
+Source change:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0` (`fix(xp): skip D3DKMT GPU telemetry before Vista`);
+- only `gfx/thebes/gfxWindowsPlatform.cpp` changed from the prior implementation HEAD;
+- `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` now returns `NS_ERROR_NOT_AVAILABLE` when `!IsVistaOrLater()` before `LoadLibrary(L"gdi32.dll")`;
+- the existing Vista+ D3DKMT path and the established ANGLE/WebGL/D3D9 remediation are unchanged.
+
+Dispatched full-build A/B:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36164782271`;
+- job `108169777457`;
+- exact run head/source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0`;
+- status at the documentation check: **in progress / provisional**; checkout is active and no build verdict or artifacts exist yet.
+
+No new physical XP runtime event has been observed from this source. The acceptance test remains: after a successful build, bind the exact produced payload and symbols, verify that the previously proven WebGL context/rendering path still works, then verify normal browser shutdown. If `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` recurs, localize the new exact capture with matching symbols before any broader workaround.
+
+Status: **source A/B implemented / full XP x32 build in progress / build GREEN and physical runtime result NOT ESTABLISHED**.
+
+---
+
 ## 2026-09-25 — physical XP WebGL rendering reached on f15a, intermittent GPU-child failure remains
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / WebGL runtime. Independent of GOST TLS and WebRTC functional evidence.
