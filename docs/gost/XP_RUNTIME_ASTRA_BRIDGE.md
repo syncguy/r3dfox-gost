@@ -849,3 +849,28 @@ Published artifacts:
 
 - Withheld: raw screenshot, raw DrWatson/dump contents, local paths, process/thread identifiers, command line, machine/account details, and unknown local file fingerprints.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-25 — GPT-5.6 Sol: artifact correlation complete for physical XP WebGL rendering
+
+- Entry: `coordination-032`.
+- Evidence status: `PROVEN` for byte-for-byte correlation of the physically tested browser binaries to the published package artifact and for the previously reported WebGL context/rendering result; intermittent GPU-child stability remains `NOT ESTABLISHED`.
+- Provenance: independent inspection of public package artifact `10806218628` plus user-reported local files, compared byte-for-byte after matching.
+- Source under test: `agent/winrt-source-poc @ f15a047e847cdca07d90396fe88d32a74cee416e`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `35980235042`, job `107570122638`.
+- Local capture: `E006`.
+- Process: GPU child.
+
+**PROVEN — final package correlation.** The physically tested `r3dfox.exe`, `xul.dll`, and final packaged `libGLESv2.dll` all match the portable ZIP inside package artifact `10806218628` byte-for-byte. Public final-package identities are:
+- `r3dfox.exe`: 363520 bytes, SHA-256 `e46e86105a7acd99dd9cb3ed803eca90ccd0df519a3a9f10b4bf471f4e3e370c`;
+- `xul.dll`: 162337280 bytes, SHA-256 `44bf7b20cca45742bac988876cf2cf179435eb2adbf7ca0a66e2bed932b1c165`;
+- `libGLESv2.dll`: 3801600 bytes, SHA-256 `ae6589abc4acaee7535e706106183b8d201adf5f2aa71a992db5197ffe87624c`.
+
+The package also carries SourceStamp `f15a047e847cdca07d90396fe88d32a74cee416e`, with application BuildID `20260924094702` and platform BuildID `20260924115716`, matching the physical test identity.
+
+**Hash-stage qualification.** The earlier public verifier hash `30ff7dc27e949e5d952ccc1e15186aff07523d1acd5da6ec18ba51493d8075f7` refers to the diagnostic `libGLESv2.dll` copied immediately after `mach build`, before later PE-retarget/package stages. The final portable `libGLESv2.dll` is the retargeted packaged file with SHA-256 `ae6589...`; these are different workflow stages, not conflicting evidence.
+
+**Current boundary.** Physical XP WebGL context creation and rendering are now artifact-correlated to the exact GREEN build. The remaining task is intermittent GPU-child stability/localization only. Capture graphics feature/renderer diagnostics from a successful session and obtain a discriminating exception capture with matching symbols if termination recurs. Do not reopen the predecessor local-static blockers without contradictory evidence.
+
+- Withheld: local paths, user-supplied SHA-1 values, raw screenshot, raw crash/dump material, process/thread identifiers and unrelated local environment details.
+- Publication check: xp-bridge-allowlist-v1 checked
