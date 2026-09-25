@@ -829,3 +829,23 @@ Published artifacts:
 
 - Withheld: no local runtime material was published in this entry.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-25 — GPT-5.6 Sol: physical XP WebGL rendering reached; intermittent GPU-child stability failure remains
+
+- Entry: `coordination-031`.
+- Evidence status: `PROVEN` for physical WebGL context/rendering on the exact source stamp and GPU-child role; stable WebGL operation and the intermittent failure owner remain `NOT ESTABLISHED`.
+- Provenance: user-reported physical console-session observation plus sanitized debugger-verified dump metadata.
+- Source under test: `agent/winrt-source-poc @ f15a047e847cdca07d90396fe88d32a74cee416e`.
+- Build: current full-build identity `35980235042 / 107570122638`; byte-for-byte local-binary-to-artifact match remains `NOT CHECKED`.
+- Local capture: `E006`.
+- Process: GPU child.
+
+**PROVEN — runtime advancement.** On physical Windows XP SP3 x86 in a console session, the exact-source GPU child reaches WebGL context creation and exercised rendering. The public test page reports WebGL support and visibly renders its test geometry. The GPU child has `libEGL.dll`, `libGLESv2.dll` and system D3D9 loaded. This physically advances beyond the two predecessor ANGLE local-static failures that blocked useful initialization/rendering.
+
+**NOT ESTABLISHED — intermittent termination owner.** The GPU child still terminates intermittently after rendering. The available DrWatson record reports `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` with no new `0xC0000005` module+RVA. Therefore the current capture does not establish a new ANGLE/D3D9/mozglue fault site or root cause.
+
+**Next evidence.** First correlate the locally tested `r3dfox.exe`, `xul.dll` and `libGLESv2.dll` to the public artifacts from run `35980235042`. Then collect graphics feature/renderer diagnostics from a successful WebGL session and obtain a discriminating exception capture with matching symbols if the GPU child terminates again. Do not reuse predecessor DLL RVAs as numeric breakpoints for the new binary and do not change source until the new failure boundary is established.
+
+- Withheld: raw screenshot, raw DrWatson/dump contents, local paths, process/thread identifiers, command line, machine/account details, and unknown local file fingerprints.
+- Publication check: xp-bridge-allowlist-v1 checked
