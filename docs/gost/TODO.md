@@ -98,12 +98,11 @@ Current physical result:
 - the GPU child still terminates intermittently after rendering;
 - the available Watson capture reports `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` and does not provide a new `0xC0000005` owner/fault site.
 
-Next acceptance sequence:
+Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`, and final packaged `libGLESv2.dll` match package artifact `10806218628` byte-for-byte. The remaining acceptance sequence is:
 
-1. Hash the locally tested `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` and correlate them to run `35980235042` package/runtime artifact `10806218628` / `10806283395`.
-2. Capture `about:support` Graphics/Decision Log from a successful WebGL session so the actual renderer/backend and feature decisions are recorded.
-3. Reproduce the intermittent GPU-child termination with a discriminating exception capture and matching symbols from diagnostics artifact `10806562241`. Prefer WinDbg/Watson plus targeted Firefox graphics logging; use Procmon only if the evidence suggests an external DLL/file/registry/driver-loading boundary.
-4. If a new code boundary is found, symbolize that exact new binary/PDB pair before changing source. Do not reuse predecessor RVAs `+0x3C1CA` or `+0x159EBB` as numeric breakpoints for the new DLL and do not reopen the trace-only hypothesis without contradictory evidence.
+1. Capture `about:support` Graphics/Decision Log from a successful WebGL session so the actual renderer/backend and feature decisions are recorded.
+2. Reproduce the intermittent GPU-child termination with a discriminating exception capture and matching symbols from diagnostics artifact `10806562241`. Prefer WinDbg/Watson plus targeted Firefox graphics logging; use Procmon only if the evidence suggests an external DLL/file/registry/driver-loading boundary.
+3. If a new code boundary is found, symbolize that exact new binary/PDB pair before changing source. Do not reuse predecessor RVAs `+0x3C1CA` or `+0x159EBB` as numeric breakpoints for the new DLL and do not reopen the trace-only hypothesis without contradictory evidence.
 
 
 ## XP WebRTC
