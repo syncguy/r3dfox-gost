@@ -24,14 +24,24 @@ Conclusion from the positive path: the `f15a...` browser reaches successful WebG
 
 Stability is **not** accepted yet. The GPU child still fails intermittently after WebGL has rendered. A DrWatson capture was obtained, but the capture's top-level exception is `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER`, with the recorded state in `ntdll!KiFastSystemCallRet`; the capture contains no `0xC0000005` fault location for the intermittent failure. Therefore this Watson record is not accepted as localization of a new ANGLE crash site and must not be used to assign ownership to `libGLESv2`, D3D9, mozglue, or another component.
 
+Artifact correlation is now **PROVEN** against package artifact `10806218628`, specifically its final portable ZIP payload. The physically tested files match the published package byte-for-byte:
+
+- `r3dfox.exe`: 363520 bytes, SHA-256 `e46e86105a7acd99dd9cb3ed803eca90ccd0df519a3a9f10b4bf471f4e3e370c`;
+- `xul.dll`: 162337280 bytes, SHA-256 `44bf7b20cca45742bac988876cf2cf179435eb2adbf7ca0a66e2bed932b1c165`;
+- final packaged `libGLESv2.dll`: 3801600 bytes, SHA-256 `ae6589abc4acaee7535e706106183b8d201adf5f2aa71a992db5197ffe87624c`.
+
+The portable package also contains the same public source/build identity observed locally: `application.ini BuildID=20260924094702`, `platform.ini BuildID=20260924115716`, and SourceStamp `f15a047e847cdca07d90396fe88d32a74cee416e` in both files.
+
+Hash qualification: the earlier `libGLESv2.dll` SHA-256 `30ff7dc27e949e5d952ccc1e15186aff07523d1acd5da6ec18ba51493d8075f7` belongs to the verifier's diagnostic copy captured immediately after `mach build`, before the later full-workflow PE-retarget/package stages. The final portable `libGLESv2.dll` is the retargeted packaged file above. The two hashes therefore describe different workflow stages rather than contradictory binaries.
+
 Evidence boundary:
 
-- **PROVEN:** physical XP console session, exact source stamp `f15a...`, GPU-child role, WebGL context/rendering reached.
-- **NOT YET PROVEN:** byte-for-byte local-binary match to run `35980235042` artifacts; stable repeated WebGL operation; root cause and exact faulting instruction/module of the intermittent GPU-child termination.
+- **PROVEN:** exact artifact-correlated `f15a...` physical XP console session, GPU-child role, WebGL context creation and exercised rendering.
+- **NOT YET PROVEN:** stable repeated WebGL operation; root cause and exact faulting instruction/module of the intermittent GPU-child termination.
 
-Next evidence should first bind the local `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` to run `35980235042` package/runtime artifacts, then capture a discriminating failure using matching symbols. Firefox graphics diagnostics / targeted browser logging and a debugger exception capture are higher priority than broad Procmon I/O tracing for this in-process GPU-child failure.
+Next evidence should capture graphics feature/renderer diagnostics from a successful WebGL session and obtain a discriminating failure using matching symbols. Firefox graphics diagnostics / targeted browser logging and a debugger exception capture are higher priority than broad Procmon I/O tracing for this in-process GPU-child failure.
 
-Status: **physical XP WebGL context + rendering PASS observed / intermittent GPU-child stability failure open.**
+Status: **artifact-correlated physical XP WebGL context + rendering PASS observed / intermittent GPU-child stability failure open.**
 
 ---
 
