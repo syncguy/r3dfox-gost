@@ -77,7 +77,7 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
 
-### ANGLE / WebGL GPU-child TLS-backed local statics — full-build/static GREEN; physical XP pending
+### ANGLE / WebGL GPU-child — rendering reached; intermittent stability failure open
 
 Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
 
@@ -92,12 +92,18 @@ Focused run `35974426502`, job `107551429542`, product source `b01f3461...`, is 
 
 The full XP workflow contains the corresponding blocking gate after `mach build`; implementation HEAD is `f15a047e...`. Full run `35980235042`, job `107570122638`, is completed / success / GREEN. Package artifact `10806218628`, runtime artifact `10806283395`, and diagnostics artifact `10806562241` were published. The full-build verifier reports zero `_Init_thread_*` matches in both known owner objects.
 
+Current physical result:
+
+- console-session XP test on SourceStamp `f15a047e...` reaches WebGL context creation and visible rendering on `get.webgl.org`;
+- the GPU child still terminates intermittently after rendering;
+- the available Watson capture reports `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` and does not provide a new `0xC0000005` owner/fault site.
+
 Next acceptance sequence:
 
-1. Use the exact outputs of GREEN run `35980235042 / 107570122638`, source `f15a047e847cdca07d90396fe88d32a74cee416e`; bind the physical browser binaries to package/runtime artifact `10806218628` / `10806283395` and matching symbols from diagnostics artifact `10806562241`.
-2. On physical XP, use a fresh profile, create a WebGL context and exercise rendering. Successful context creation plus rendering without the corresponding GPU-child failure is the acceptance criterion.
-3. The predecessor RVAs `+0x3C1CA` and `+0x159EBB` identify older DLL failures and must not be reused as numeric acceptance breakpoints for the newly linked DLL.
-4. If another ANGLE boundary appears, symbolize the new exact `libGLESv2.dll` against its matching PDB before changing code; do not return to the already-advanced trace-only hypothesis without contradictory evidence.
+1. Hash the locally tested `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` and correlate them to run `35980235042` package/runtime artifact `10806218628` / `10806283395`.
+2. Capture `about:support` Graphics/Decision Log from a successful WebGL session so the actual renderer/backend and feature decisions are recorded.
+3. Reproduce the intermittent GPU-child termination with a discriminating exception capture and matching symbols from diagnostics artifact `10806562241`. Prefer WinDbg/Watson plus targeted Firefox graphics logging; use Procmon only if the evidence suggests an external DLL/file/registry/driver-loading boundary.
+4. If a new code boundary is found, symbolize that exact new binary/PDB pair before changing source. Do not reuse predecessor RVAs `+0x3C1CA` or `+0x159EBB` as numeric breakpoints for the new DLL and do not reopen the trace-only hypothesis without contradictory evidence.
 
 
 ## XP WebRTC
