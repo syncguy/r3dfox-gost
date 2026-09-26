@@ -77,42 +77,27 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
 
-### GPU process — graphics-triggered teardown still reproduces 0x80000007
+### GPU process — libGLESv2 XP static-TLS detach remediation awaiting build/runtime acceptance
 
-Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
+Exact artifact-correlated source `27f4271bddc228f21d64370a3781ba35a92a96e0`, run `36164782271`, job `108169777457`, package `10883654763`, diagnostics `10884079570` now has a stronger live-debug boundary than the earlier Watson-only `0x80000007` capture.
 
-The narrow trace-cache fix advances past predecessor fault `libGLESv2+0x0003C1CA`, but WebGL reaches a new `0xC0000005` at `libGLESv2+0x00159EBB`. Matching PDB resolves the new boundary to `rx::d3d9_gl::GenerateCaps()` / `std::_Tree::begin()` at `renderer9_utils.cpp:517`, after `gl::GetAllSizedInternalFormats()` returns an unconstructed/invalid local-static `FormatSet`. Exact-DLL disassembly shows the second MSVC TLS-backed thread-safe-local-static guard and matching `_Init_thread_header` / `_Init_thread_footer`.
+WinDbg with child-process debugging and matching `libGLESv2.pdb` caught an unhandled second-chance `0xC0000005` in `libGLESv2!DllMain` with `fdwReason=DLL_THREAD_DETACH`. The owner path is `egl::DeallocateCurrentThread() -> SafeDelete(gCurrentThread)`; the active TLS block contains invalid `thread_local gCurrentThread=0x80000000`. YY-Thunks TLS-remediation state is linked into the DLL, but runtime shows `g_TlsMode=None`, while exact PE inspection maps `AddressOfEntryPoint` to ordinary `_DllMainCRTStartup`, not the YY TLS-aware wrapper.
 
-Current browser/ANGLE remediation commit: `b01f3461d52eec1b60aa87d12e083f3485032fba`. Current implementation/CI source-under-test for the dispatched full build: `f15a047e847cdca07d90396fe88d32a74cee416e`.
+Narrow remediation is committed on `agent/winrt-source-poc`:
 
-- `5934345e6c6e805a703efc1cc425b6aebfe8c0a4`: apply `/Zc:threadSafeInit-` to Windows x86 ANGLE;
-- `b01f3461...`: restore the normal trace-event static cache so the build flag covers both reproduced sites.
+- `482bc4417601fc96f2ab135f377f64e03945cd27`: Windows x86 `libGLESv2` uses `DllMainCRTStartupForYY_Thunks` with the same original-CRT alternate contract already used for xul;
+- `e8bb142248ccbf03b24f6a7a8cddf510ef54986e`: source gate covers xul + libGLESv2 contracts;
+- `3bb7c0d17112b0ec65cb144f5291ee03431c1550`: final packaged-runtime libGLESv2 contract gate;
+- `ad96945f101cedc25b9ed40df25bbed25c045833`: final aggregate treats that gate as blocking.
 
-Focused run `35974426502`, job `107551429542`, product source `b01f3461...`, is GREEN. It proves both known owner translation units compile with `/Zc:threadSafeInit-` and both resulting objects have `Init_thread_matches=0`. Focused `libGLESv2.dll` static inspection also passes.
+Remaining sequence:
 
-The full XP workflow contains the corresponding blocking gate after `mach build`; implementation HEAD is `f15a047e...`. Full run `35980235042`, job `107570122638`, is completed / success / GREEN. Package artifact `10806218628`, runtime artifact `10806283395`, and diagnostics artifact `10806562241` were published. The full-build verifier reports zero `_Init_thread_*` matches in both known owner objects.
+1. Run `.github/workflows/gost-poc-build-xp-x32.yml` from exact branch `agent/winrt-source-poc` at `ad96945f101cedc25b9ed40df25bbed25c045833`.
+2. Require completed/success plus the new final-binary gate showing `libGLESv2.dll ... contract=true`. Build success is not runtime proof.
+3. On the resulting exact physical-test artifact, exercise the WebGL path and browser/GPU-child teardown. Acceptance requires the reproduced `DLL_THREAD_DETACH` second-chance AV to be absent.
+4. Preserve the established `/Zc:threadSafeInit-` ANGLE remediation and pre-Vista D3DKMT guard. Do not reopen predecessor local-static or telemetry blockers without contradictory exact-build evidence.
+5. Keep the earlier `0x80000007` captures as historical top-level symptoms; do not claim they were all caused by this AV unless new first-chance evidence proves that linkage.
 
-Current physical result:
-
-- console-session XP test on SourceStamp `f15a047e...` reaches artifact-correlated WebGL context creation and visible rendering;
-- `about:support` confirms Software WebRender compositor fallback, an active GPU process, and WebGL available as a separate feature decision;
-- two independent `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` captures converge on `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs() -> glean::RecordPowerMetrics() -> glean::FlushFOGData()`, with the native stack entering `LoadLibraryW` / mozglue loader handling;
-- one capture occurs during ordinary FOG IPC flushing and the newer capture occurs on browser shutdown through GPU `FlushFOGData`, so the recurring symptom is no longer assigned to ANGLE rendering.
-
-Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`, and final packaged `libGLESv2.dll` match package artifact `10806218628` byte-for-byte.
-
-The narrow telemetry A/B is implemented at `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`: `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`, without changing ANGLE/WebGL/D3D9 code. Full XP x32 run `36164782271`, job `108169777457`, is **completed / success / GREEN** against that exact source. Published artifacts: package `10883654763`, runtime `10883894624`, diagnostics `10884079570`.
-
-The exact `27f4271...` package retains an artifact-correlated physical Windows XP RDP lifecycle PASS for ordinary startup, profile creation, package/policy extension provisioning, browsing, and a normal shutdown that does not activate the graphics reproduction. A contradictory exact-build test now shows that after opening the WebGL test page and then closing the browser, the GPU child again produces `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER`.
-
-Matching-symbol analysis advances past the predecessor telemetry boundary: this new capture has no `GetGpuTimeSinceProcessStartInMs -> RecordPowerMetrics -> FlushFOGData` or `LoadLibraryW` stack. The exception-thread Firefox frame is in `mozilla::widget::WinUtils::WaitForMessage()`; exact disassembly shows the return address follows `USER32!MsgWaitForMultipleObjectsEx`. This is the normal GPU-child main event loop wait and is not, by itself, proof that USER32 or `WaitForMessage` caused the exception.
-
-The remaining acceptance sequence is:
-
-1. Reproduce the graphics-triggered exit under WinDbg with child-process debugging enabled and first-chance handling for `0x80000007`; capture the first exception record/context and all thread stacks against matching symbols before changing source again.
-2. Preserve the pre-Vista D3DKMT guard. It removed the predecessor Glean/loader boundary from the exact new build and there is no evidence to revert it.
-3. When console access is available, separately repeat the active WebGL rendering regression on exact `27f4271...` under the real graphics driver path.
-4. Keep ordinary RDP lifecycle PASS, graphics-triggered GPU teardown, and console WebGL acceptance as separate evidence scopes. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` without contradictory exact-DLL evidence.
 
 
 ## XP WebRTC
