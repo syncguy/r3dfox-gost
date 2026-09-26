@@ -8,6 +8,44 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-26 — graphics-triggered GPU-child 0x80000007 persists on 27f4271; old D3DKMT boundary absent
+
+Track: Windows XP SP3 x86 compatibility / GPU-process teardown. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact identity remains:
+
+- source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0`;
+- full build run `36164782271`, job `108169777457`;
+- package artifact `10883654763`;
+- the physically exercised binaries are already independently hash-correlated to that package;
+- matching `xul.pdb` from diagnostics artifact `10884079570` matches the packaged `xul.dll` CodeView identity.
+
+New physical reproduction under RDP:
+
+- ordinary browser startup/profile/policy/browsing/shutdown can complete normally;
+- after exercising the graphics path by opening the WebGL test page and then closing the browser, DrWatson again records `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` in the exact new-build GPU child;
+- the dump identifies the process role as GPU child and is consistent with teardown after the parent begins exiting;
+- `libEGL.dll`, `libGLESv2.dll`, and system `d3d9.dll` are loaded in the captured GPU child.
+
+Matching-symbol analysis materially changes the boundary from the predecessor capture:
+
+- the exception-thread Firefox return address maps to `mozilla::widget::WinUtils::WaitForMessage()`;
+- exact packaged-`xul.dll` disassembly shows that return address is immediately after the imported `USER32!MsgWaitForMultipleObjectsEx` call; Watson's nearby export label `USER32!GetLastInputInfo+...` is therefore not accepted as the actual API owner;
+- the upper Firefox chain is the ordinary child main event loop: `nsAppShell::ProcessNextNativeEvent -> nsBaseAppShell::OnProcessNextEvent -> nsThread::ProcessNextEvent -> NS_ProcessNextEvent -> MessagePump::Run -> MessageLoop -> XRE_RunAppShell -> XRE_InitChildProcess`;
+- across the xul frames present in this Watson capture there are no matching-symbol frames for `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()`, `mozilla::glean::RecordPowerMetrics()`, or `mozilla::glean::FlushFOGData()`;
+- the prior `LoadLibraryW / GetModuleHandleW` telemetry-loader sequence is absent from this capture;
+- exact packaged code contains the pre-Vista guard and returns `NS_ERROR_NOT_AVAILABLE` before the `gdi32.dll` / D3DKMT probe on XP.
+
+Conclusion: the pre-Vista D3DKMT guard remains a valid advancement and the predecessor Glean/D3DKMT loader boundary is not reproduced. However, the top-level `0x80000007` symptom still reproduces after graphics-path activation during GPU-child teardown. The current dump does **not** establish `WinUtils::WaitForMessage`, USER32, ANGLE, or D3D9 as the root cause; the exception surfaces while the GPU main thread is parked in its normal Windows message wait.
+
+This contradicts only the earlier broad wording that RDP shutdown acceptance was closed for all exercised paths. The narrower ordinary-RDP lifecycle PASS remains valid, while graphics-triggered GPU-child teardown is reopened.
+
+Next diagnostic: capture the exact reproduction under WinDbg with child-process debugging and first-chance handling for `0x80000007`, preserving matching PDBs. Record the first-chance exception/context and all thread stacks before considering another source change.
+
+Status: **ordinary RDP lifecycle PASS retained / graphics-triggered GPU-child teardown OPEN / old D3DKMT telemetry boundary advanced past / no new source owner proven**.
+
+---
+
 ## 2026-09-26 — artifact-correlated physical XP RDP lifecycle PASS on 27f4271
 
 Track: Windows XP SP3 x86 compatibility / GPU telemetry A/B runtime. Independent of GOST TLS and WebRTC functional evidence.
