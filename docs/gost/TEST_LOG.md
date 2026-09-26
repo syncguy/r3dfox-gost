@@ -8,7 +8,7 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
-## 2026-09-26 — pre-Vista D3DKMT telemetry guard committed; full XP x32 A/B build in progress
+## 2026-09-26 — pre-Vista D3DKMT telemetry guard full XP x32 build GREEN
 
 Track: Windows XP SP3 x86 compatibility / GPU-process shutdown telemetry. Independent of GOST TLS and WebRTC functional evidence.
 
@@ -17,20 +17,26 @@ Source change:
 - branch `agent/winrt-source-poc`;
 - source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0` (`fix(xp): skip D3DKMT GPU telemetry before Vista`);
 - only `gfx/thebes/gfxWindowsPlatform.cpp` changed from the prior implementation HEAD;
-- `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` now returns `NS_ERROR_NOT_AVAILABLE` when `!IsVistaOrLater()` before `LoadLibrary(L"gdi32.dll")`;
+- `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` when `!IsVistaOrLater()` before `LoadLibrary(L"gdi32.dll")`;
 - the existing Vista+ D3DKMT path and the established ANGLE/WebGL/D3D9 remediation are unchanged.
 
-Dispatched full-build A/B:
+Full-build evidence:
 
 - workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
 - run `36164782271`;
 - job `108169777457`;
 - exact run head/source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0`;
-- status at the documentation check: **in progress / provisional**; checkout is active and no build verdict or artifacts exist yet.
+- result **completed / success / GREEN**;
+- full browser build, ANGLE local-static codegen gate, XP PE/import gates, packaging, runtime archive creation, artifact uploads, and blocking aggregate summary all completed successfully;
+- package artifact `10883654763`, digest `sha256:00811e502d032cfc7798a22028c27de8950fcdf4c0b2f3323d089be86f8906d2`;
+- runtime artifact `10883894624`, digest `sha256:2393524a74445ed5bf24ef13558aeca35bc2c7ebbf2e4945f123cb93943b8e83`;
+- diagnostics artifact `10884079570`, digest `sha256:fbd2f1842e94a6c3b44a258417884e6a5b753fd71fbf5c424fd2ef87342ef6eb`.
 
-No new physical XP runtime event has been observed from this source. The acceptance test remains: after a successful build, bind the exact produced payload and symbols, verify that the previously proven WebGL context/rendering path still works, then verify normal browser shutdown. If `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` recurs, localize the new exact capture with matching symbols before any broader workaround.
+This closes the **build/package/static** acceptance boundary for the pre-Vista D3DKMT telemetry A/B. It does not establish physical Windows XP runtime success and does not prove that the prior `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` shutdown symptom is fixed.
 
-Status: **source A/B implemented / full XP x32 build in progress / build GREEN and physical runtime result NOT ESTABLISHED**.
+The next acceptance boundary is physical XP execution of the exact new payload: confirm the previously proven WebGL context/rendering path remains intact, then perform a normal browser shutdown. If `0x80000007` recurs, localize the new exact capture with matching symbols before any broader workaround.
+
+Status: **build/package/static GREEN / physical XP runtime result NOT ESTABLISHED**.
 
 ---
 
