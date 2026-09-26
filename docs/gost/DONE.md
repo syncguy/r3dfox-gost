@@ -221,6 +221,13 @@ The full Firefox/r3dfox XP x86 build, package/runtime creation, XP static/import
 
 This closes the focused-to-full-build codegen/static transfer for the `/Zc:threadSafeInit-` remediation. It does not close physical XP WebGL runtime acceptance or establish the exact historical TLS/epoch corruption mechanism.
 
+
+### Artifact-correlated physical XP console WebGL rendering — COMPLETE at rendering scope
+
+Exact source `f15a047e847cdca07d90396fe88d32a74cee416e`, full workflow run `35980235042`, job `107570122638`, package artifact `10806218628`. The physically exercised console-session payload is artifact-correlated to the published package, and `get.webgl.org` successfully creates the WebGL context and visibly renders the test cube on Windows XP SP3 x86.
+
+This milestone closes WebGL context creation and exercised rendering only. It does not close GPU-process lifetime/teardown stability; later exact-build captures establish a separate graphics-triggered teardown investigation.
+
 ### Download completion / Windows Recent Documents XP blocker — COMPLETE
 
 Exact accepted source `e13354c79ebfa206fbccc946592256d33e4ac519`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35810132801`, job `107019631325`, runtime artifact `10733956483`.
