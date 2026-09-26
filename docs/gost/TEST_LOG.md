@@ -8,6 +8,35 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-26 — artifact-correlated physical XP RDP lifecycle PASS on 27f4271
+
+Track: Windows XP SP3 x86 compatibility / GPU telemetry A/B runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact identity remains:
+
+- source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0`;
+- full build run `36164782271`, job `108169777457`;
+- package artifact `10883654763`;
+- physically exercised `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` are already independently hash-correlated to that package.
+
+Physical Windows XP SP3 x86 result under RDP:
+
+- browser starts normally;
+- a completely new browser profile is created successfully;
+- package-supplied mandatory extensions are provisioned successfully;
+- the policy-driven extension installation completes successfully;
+- ordinary site browsing works;
+- browser shutdown completes normally;
+- no exception is produced during the exercised shutdown/lifecycle.
+
+Conclusion: the exact `27f4271...` payload has an **artifact-correlated physical XP RDP lifecycle PASS**, including clean startup, profile creation, extension/policy provisioning, browsing, and normal shutdown. The prior `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` shutdown symptom is **not reproduced in this RDP lifecycle test**.
+
+Scope limit: the active display path is still RDP, so this result does **not** establish WebGL or console graphics acceptance for the new payload. The predecessor `f15a...` console run remains the latest accepted physical WebGL rendering evidence. A console-session WebGL regression on exact `27f4271...` remains pending.
+
+Status: **artifact-correlated physical XP RDP lifecycle PASS / shutdown PASS under RDP / prior telemetry exception not reproduced / WebGL NOT TESTED / console graphics acceptance OPEN**.
+
+---
+
 ## 2026-09-26 — artifact-correlated physical XP startup PASS over RDP on 27f4271
 
 Track: Windows XP SP3 x86 compatibility / GPU telemetry A/B runtime. Independent of GOST TLS and WebRTC functional evidence.
