@@ -77,7 +77,7 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
 
-### GPU process — WebGL rendering reached; Glean GPU-time telemetry boundary open
+### GPU process — RDP lifecycle/shutdown PASS; console WebGL regression open
 
 Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
 
@@ -103,13 +103,13 @@ Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`,
 
 The narrow telemetry A/B is implemented at `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`: `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`, without changing ANGLE/WebGL/D3D9 code. Full XP x32 run `36164782271`, job `108169777457`, is **completed / success / GREEN** against that exact source. Published artifacts: package `10883654763`, runtime `10883894624`, diagnostics `10884079570`.
 
-The exact `27f4271...` package has now started successfully on physical Windows XP in an RDP session, and the exercised `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` are hash-correlated to package artifact `10883654763`. This closes physical startup provenance for the new A/B source, but not graphics or shutdown acceptance.
+The exact `27f4271...` package now has an artifact-correlated physical Windows XP RDP lifecycle PASS: startup, new-profile creation, package/policy extension provisioning, ordinary browsing, and normal shutdown all succeed, and the prior shutdown exception was not reproduced. This closes the current RDP lifecycle/shutdown acceptance for the telemetry A/B source.
 
 The remaining acceptance sequence is:
 
-1. While only RDP access is available, perform a normal browser shutdown on the exact `27f4271...` payload and record whether the prior telemetry/shutdown symptom recurs. Treat this as telemetry/lifecycle evidence only, not as WebGL acceptance.
-2. When console access is available, repeat the active WebGL rendering test on the exact new payload under the real graphics driver path.
-3. If `0x80000007` still occurs in either lifecycle test, symbolize the new exact capture against matching PDBs before any broader workaround. Procmon remains secondary unless the evidence moves to an external DLL/file/registry/driver-loading boundary.
+1. When console access is available, repeat the active WebGL rendering test on the exact `27f4271...` payload under the real graphics driver path.
+2. Keep the RDP lifecycle/shutdown PASS and console WebGL acceptance as separate evidence scopes; do not infer graphics success from the remote-display session.
+3. If `0x80000007` reappears on the exact new payload in a later lifecycle test, symbolize that exact capture against matching PDBs before any broader workaround.
 4. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` as breakpoints for this telemetry/shutdown line and do not reopen the already-closed local-static hypothesis without contradictory evidence.
 
 
