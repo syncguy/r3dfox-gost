@@ -44,7 +44,7 @@ This is the authoritative heavy build/package/static-gate workflow for the activ
 
 The workflow contains the current XP dependency preparation, full Firefox build, package/runtime archive creation, PE/import gates, and the blocking aggregate verdict. For the active ANGLE line it runs `verify-angle-trace-xp-codegen.ps1 -Mode FullBuild` after successful `mach build`; that gate may continue for evidence collection but its recorded failure makes the final summary RED.
 
-Current accepted full-build evidence: run `36164782271`, job `108169777457`, exact source `27f4271bddc228f21d64370a3781ba35a92a96e0`, completed / success / GREEN. The full browser build, ANGLE `FullBuild` codegen gate, XP PE/import gates, package/runtime creation, artifact uploads and final aggregate summary all passed; package `10883654763`, runtime `10883894624`, diagnostics `10884079570` were published. This is build/package/static evidence only; it does not prove physical XP runtime closure of the GPU telemetry/shutdown boundary or any GOST TLS handshake behavior.
+Current accepted full-build evidence remains run `36164782271`, job `108169777457`, exact source `27f4271bddc228f21d64370a3781ba35a92a96e0`, completed / success / GREEN. The full browser build, ANGLE `FullBuild` codegen gate, XP PE/import gates, package/runtime creation, artifact uploads and final aggregate summary all passed; package `10883654763`, runtime `10883894624`, diagnostics `10884079570` were published. Current implementation candidate `ad96945f101cedc25b9ed40df25bbed25c045833` adds a blocking final-runtime `libGLESv2.dll` YY TLS entry-point contract check: after the non-blocking DLL inventory, the exact `libGLESv2.dll` line must report `contract=true`, and the aggregate summary treats that gate as RED on failure. No completed run for that candidate is accepted yet. None of these build results prove physical XP teardown closure or any GOST TLS handshake behavior.
 
 ## Focused XP ANGLE libGLESv2 smoke
 
@@ -74,7 +74,7 @@ Workflow name:
 
 Role:
 
-This is the clean-product XP x86 release workflow, separate from the active GOST/implementation build. The workflow definition is controlled from `agent/gost-tls-poc`, but it explicitly checks out product source from `win-153-xp` and separately checks out XP CI scripts from `agent/winrt-source-poc`. Record all three identities independently: workflow/control SHA, clean-product source SHA, and CI-scripts SHA.
+This is the clean-product XP x86 release workflow, separate from the active GOST/implementation build. The workflow definition is controlled from `agent/gost-tls-poc`, and it explicitly checks out product source from `win-153-xp`. To prevent moving implementation-only gates from breaking the frozen clean product, the XP CI scripts checkout is pinned to `75b4e8f052fb6fc09c723651938fde18f95af4ea`, the exact scripts revision used by successful release run `35724604122 / 106735182867`. Record workflow/control SHA, clean-product source SHA, and pinned CI-scripts SHA independently.
 
 Current clean-product build/static evidence is product source `85863f2355a23223bf33f55b641ccb509a2b72ac`, run `35724604122`, job `106735182867`, package `10700255591`, runtime `10700395290`, diagnostics `10700061102`, completed success. Physical acceptance of that exact clean-product payload remains separate and open; implementation-line physical results do not transfer to it.
 
