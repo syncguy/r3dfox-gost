@@ -103,11 +103,13 @@ Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`,
 
 The narrow telemetry A/B is implemented at `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`: `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`, without changing ANGLE/WebGL/D3D9 code. Full XP x32 run `36164782271`, job `108169777457`, is **completed / success / GREEN** against that exact source. Published artifacts: package `10883654763`, runtime `10883894624`, diagnostics `10884079570`.
 
+The exact `27f4271...` package has now started successfully on physical Windows XP in an RDP session, and the exercised `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` are hash-correlated to package artifact `10883654763`. This closes physical startup provenance for the new A/B source, but not graphics or shutdown acceptance.
+
 The remaining acceptance sequence is:
 
-1. Test the exact new payload on physical XP: repeat an active WebGL rendering session and then normal browser shutdown.
-2. Correlate the physically exercised binaries to the named package/runtime artifact before promoting the runtime result.
-3. If `0x80000007` still occurs, symbolize the new exact capture against matching PDBs before any broader workaround. Procmon remains secondary unless the evidence moves to an external DLL/file/registry/driver-loading boundary.
+1. While only RDP access is available, perform a normal browser shutdown on the exact `27f4271...` payload and record whether the prior telemetry/shutdown symptom recurs. Treat this as telemetry/lifecycle evidence only, not as WebGL acceptance.
+2. When console access is available, repeat the active WebGL rendering test on the exact new payload under the real graphics driver path.
+3. If `0x80000007` still occurs in either lifecycle test, symbolize the new exact capture against matching PDBs before any broader workaround. Procmon remains secondary unless the evidence moves to an external DLL/file/registry/driver-loading boundary.
 4. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` as breakpoints for this telemetry/shutdown line and do not reopen the already-closed local-static hypothesis without contradictory evidence.
 
 
