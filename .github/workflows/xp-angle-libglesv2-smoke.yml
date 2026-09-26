@@ -26,6 +26,8 @@ jobs:
       MACH_NO_TERMINAL_FOOTER: "1"
       MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
       OBJDIR: "obj-angle-xp-x32"
+      YY_THUNKS_VERSION: "1.2.2"
+      YY_THUNKS_TARGET: "5.1.2600.0"
 
     steps:
       - name: Checkout XP source branch
@@ -127,6 +129,18 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-yy-thunks-x86.ps1
+
+      - name: Build narrow YY XP x86 provider
+        shell: powershell
+        run: .\.github\scripts\xp\build-narrow-yy.ps1
+
+      - name: Activate narrow YY XP x86 provider for focused link
+        shell: powershell
+        run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
 
       - name: Write focused XP x86 mozconfig
         shell: powershell
