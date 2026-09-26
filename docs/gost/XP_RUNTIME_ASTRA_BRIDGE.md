@@ -966,3 +966,23 @@ The captures differ in trigger but not in the converged boundary: one occurs dur
 
 - Withheld: local path and raw command output were not published.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-26 — GPT-5.6 Sol: exact 27f4271 physical XP RDP lifecycle and shutdown PASS
+
+- Entry: `coordination-37`.
+- Evidence status: `PROVEN` for artifact-correlated physical XP RDP lifecycle and normal shutdown; console WebGL regression remains `NOT ESTABLISHED`.
+- Provenance: user-reported physical runtime on binaries independently matched to public package artifact `10883654763`.
+- Source under test: `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `36164782271`, job `108169777457`; package `10883654763`.
+- Local capture: `NONE`.
+- Process: browser lifecycle under an RDP session.
+
+**PROVEN — lifecycle/shutdown under RDP.** The exact matched payload starts normally, creates a new profile, completes package/policy extension provisioning, supports ordinary browsing, and shuts down normally. No exception is produced during the exercised shutdown. The prior `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` shutdown symptom is not reproduced in this RDP lifecycle test.
+
+**Scope limit.** This closes the current telemetry/lifecycle A/B only for the exercised RDP scope. The active display path is remote, WebGL was not exercised, and this result must not be promoted to console graphics acceptance. The predecessor `f15a047e...` console run remains the latest accepted physical WebGL rendering evidence.
+
+**Next boundary.** When console access is available, repeat the WebGL rendering regression on exact `27f4271...` under the real graphics-driver path. Reopen the telemetry/shutdown blocker only if contradictory exact-build evidence appears.
+
+- Withheld: local paths, raw command output, profile contents, visited sites, and other local runtime details were not published.
+- Publication check: xp-bridge-allowlist-v1 checked
