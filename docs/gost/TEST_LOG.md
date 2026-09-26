@@ -8,6 +8,41 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-26 — WinDbg proves libGLESv2 DLL_THREAD_DETACH AV from missing YY TLS entry-point contract
+
+Track: Windows XP SP3 x86 compatibility / ANGLE static TLS lifecycle. Independent of GOST TLS and WebRTC functional evidence.
+
+Exact tested payload remains source `27f4271bddc228f21d64370a3781ba35a92a96e0`, full build run `36164782271`, job `108169777457`, package artifact `10883654763`, diagnostics artifact `10884079570`. The live debugger used the matching `libGLESv2.pdb` for the exact packaged `libGLESv2.dll`.
+
+A graphics-triggered reproduction under WinDbg with child-process debugging produced a first-chance and then unhandled second-chance `0xC0000005` in `libGLESv2!DllMain`. The `DllMain` arguments are physically observed as `fdwReason=3` / `DLL_THREAD_DETACH`. Matching source and PDB map this path to `egl::DeallocateCurrentThread()`, which executes `SafeDelete(gCurrentThread)` for the Windows `thread_local Thread *gCurrentThread`.
+
+Live TLS evidence on the faulting thread:
+
+- the TEB TLS vector is valid and `libGLESv2!_tls_index == 0`;
+- TLS slot 0 points to the module TLS block;
+- `egl::gCurrentThread` at TLS offset `+0x8` contains invalid value `0x80000000`;
+- adjacent bytes contain allocator poison patterns, showing that the TLS contents are not a valid live ANGLE thread state;
+- the failing instruction dereferences `gCurrentThread` and reads from `0x80000000`.
+
+YY-Thunks TLS-remediation symbols are present in the same exact DLL, including `g_TlsHeader`, `g_TlsMode`, and `_tls_index_old`, but the observed runtime state is `g_TlsMode=None`, `_tls_index_old=0`, `_tls_index=0`. Independent PE inspection of the exact packaged DLL proves `AddressOfEntryPoint=RVA 0x002B9490`, which maps with the matching PDB to ordinary `_DllMainCRTStartup`, not `DllMainCRTStartupForYY_Thunks`.
+
+Conclusion: the current physical owner is the `libGLESv2.dll` XP static-TLS lifecycle contract. The DLL contains C++ `thread_local` state and YY-Thunks TLS-remediation code, but its PE entry point bypasses the YY TLS-aware wrapper. The resulting `DLL_THREAD_DETACH` reaches ANGLE with invalid TLS state and produces the second-chance AV. This is a stronger and more specific boundary than the earlier top-level `0x80000007` Watson capture; it does not prove that every earlier `0x80000007` instance had the same initiating mechanism.
+
+Narrow build remediation is now committed on `agent/winrt-source-poc`:
+
+- product commit `482bc4417601fc96f2ab135f377f64e03945cd27`: add the already-proven YY DLL entry-point contract to Windows x86 `gfx/angle/targets/libGLESv2/moz.build`;
+- source-gate commit `e8bb142248ccbf03b24f6a7a8cddf510ef54986e`;
+- final-binary gate workflow commit `3bb7c0d17112b0ec65cb144f5291ee03431c1550`;
+- aggregate blocking-gate commit / current implementation HEAD `ad96945f101cedc25b9ed40df25bbed25c045833`.
+
+The remediation does not change ANGLE runtime logic, the existing `/Zc:threadSafeInit-` fix, D3D9/WebGL policy, or the pre-Vista D3DKMT guard. It changes only the Windows x86 `libGLESv2.dll` linker entry-point contract and CI verification.
+
+Next acceptance: run the full XP x32 workflow from `agent/winrt-source-poc @ ad96945f101cedc25b9ed40df25bbed25c045833`. Build acceptance requires the new final-binary gate to report `libGLESv2.dll ... contract=true`. Physical acceptance then requires the exact artifact to exercise WebGL and exit without the reproduced `DLL_THREAD_DETACH` second-chance AV.
+
+Status: **root-cause owner PROVEN for the captured AV / narrow source remediation committed / CI NOT YET RUN / physical fix NOT YET PROVEN**.
+
+---
+
 ## 2026-09-26 — graphics-triggered GPU-child 0x80000007 persists on 27f4271; old D3DKMT boundary absent
 
 Track: Windows XP SP3 x86 compatibility / GPU-process teardown. Independent of GOST TLS and WebRTC functional evidence.
