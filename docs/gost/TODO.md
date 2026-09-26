@@ -77,7 +77,7 @@ Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
 
-### GPU process — RDP lifecycle/shutdown PASS; console WebGL regression open
+### GPU process — graphics-triggered teardown still reproduces 0x80000007
 
 Exact source `3119c849b3930145c8e4181b8a06a692ec20514d`, run `35860139917`, job `107178068460`, runtime artifact `10759971452` has now been physically tested on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` hashes.
 
@@ -103,14 +103,16 @@ Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`,
 
 The narrow telemetry A/B is implemented at `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`: `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`, without changing ANGLE/WebGL/D3D9 code. Full XP x32 run `36164782271`, job `108169777457`, is **completed / success / GREEN** against that exact source. Published artifacts: package `10883654763`, runtime `10883894624`, diagnostics `10884079570`.
 
-The exact `27f4271...` package now has an artifact-correlated physical Windows XP RDP lifecycle PASS: startup, new-profile creation, package/policy extension provisioning, ordinary browsing, and normal shutdown all succeed, and the prior shutdown exception was not reproduced. This closes the current RDP lifecycle/shutdown acceptance for the telemetry A/B source.
+The exact `27f4271...` package retains an artifact-correlated physical Windows XP RDP lifecycle PASS for ordinary startup, profile creation, package/policy extension provisioning, browsing, and a normal shutdown that does not activate the graphics reproduction. A contradictory exact-build test now shows that after opening the WebGL test page and then closing the browser, the GPU child again produces `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER`.
+
+Matching-symbol analysis advances past the predecessor telemetry boundary: this new capture has no `GetGpuTimeSinceProcessStartInMs -> RecordPowerMetrics -> FlushFOGData` or `LoadLibraryW` stack. The exception-thread Firefox frame is in `mozilla::widget::WinUtils::WaitForMessage()`; exact disassembly shows the return address follows `USER32!MsgWaitForMultipleObjectsEx`. This is the normal GPU-child main event loop wait and is not, by itself, proof that USER32 or `WaitForMessage` caused the exception.
 
 The remaining acceptance sequence is:
 
-1. When console access is available, repeat the active WebGL rendering test on the exact `27f4271...` payload under the real graphics driver path.
-2. Keep the RDP lifecycle/shutdown PASS and console WebGL acceptance as separate evidence scopes; do not infer graphics success from the remote-display session.
-3. If `0x80000007` reappears on the exact new payload in a later lifecycle test, symbolize that exact capture against matching PDBs before any broader workaround.
-4. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` as breakpoints for this telemetry/shutdown line and do not reopen the already-closed local-static hypothesis without contradictory evidence.
+1. Reproduce the graphics-triggered exit under WinDbg with child-process debugging enabled and first-chance handling for `0x80000007`; capture the first exception record/context and all thread stacks against matching symbols before changing source again.
+2. Preserve the pre-Vista D3DKMT guard. It removed the predecessor Glean/loader boundary from the exact new build and there is no evidence to revert it.
+3. When console access is available, separately repeat the active WebGL rendering regression on exact `27f4271...` under the real graphics driver path.
+4. Keep ordinary RDP lifecycle PASS, graphics-triggered GPU teardown, and console WebGL acceptance as separate evidence scopes. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` without contradictory exact-DLL evidence.
 
 
 ## XP WebRTC
