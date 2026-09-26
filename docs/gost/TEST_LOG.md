@@ -18,13 +18,11 @@ A graphics-triggered reproduction under WinDbg with child-process debugging prod
 
 Live TLS evidence on the faulting thread:
 
-- the TEB TLS vector is valid and `libGLESv2!_tls_index == 0`;
-- TLS slot 0 points to the module TLS block;
-- `egl::gCurrentThread` at TLS offset `+0x8` contains invalid value `0x80000000`;
-- adjacent bytes contain allocator poison patterns, showing that the TLS contents are not a valid live ANGLE thread state;
-- the failing instruction dereferences `gCurrentThread` and reads from `0x80000000`.
+- the TEB TLS vector and the module TLS slot are present;
+- `egl::gCurrentThread` is NONNULL but invalid for the observed dereference;
+- the failing instruction performs a read through `gCurrentThread` and raises the second-chance access violation.
 
-YY-Thunks TLS-remediation symbols are present in the same exact DLL, including `g_TlsHeader`, `g_TlsMode`, and `_tls_index_old`, but the observed runtime state is `g_TlsMode=None`, `_tls_index_old=0`, `_tls_index=0`. Independent PE inspection of the exact packaged DLL proves `AddressOfEntryPoint=RVA 0x002B9490`, which maps with the matching PDB to ordinary `_DllMainCRTStartup`, not `DllMainCRTStartupForYY_Thunks`.
+YY-Thunks TLS-remediation symbols are present in the same exact DLL, including `g_TlsHeader`, `g_TlsMode`, and `_tls_index_old`, while the observed symbolic mode remains `g_TlsMode=None`. Independent PE inspection of the exact packaged DLL maps its entry point with the matching PDB to ordinary `_DllMainCRTStartup`, not `DllMainCRTStartupForYY_Thunks`. Debugger-derived numeric pointer/memory values are withheld from the public record.
 
 Conclusion: the current physical owner is the `libGLESv2.dll` XP static-TLS lifecycle contract. The DLL contains C++ `thread_local` state and YY-Thunks TLS-remediation code, but its PE entry point bypasses the YY TLS-aware wrapper. The resulting `DLL_THREAD_DETACH` reaches ANGLE with invalid TLS state and produces the second-chance AV. This is a stronger and more specific boundary than the earlier top-level `0x80000007` Watson capture; it does not prove that every earlier `0x80000007` instance had the same initiating mechanism.
 
