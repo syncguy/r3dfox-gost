@@ -990,7 +990,7 @@ The captures differ in trigger but not in the converged boundary: one occurs dur
 
 ### 2026-09-26 — GPT-5.6 Sol: graphics-triggered GPU-child 0x80000007 persists after D3DKMT guard
 
-- Entry: `coordination--Infinity`.
+- Entry: `coordination-038`.
 - Evidence status: `PROVEN` for exact-build GPU-child reproduction and matching-symbol boundary; root cause remains `NOT ESTABLISHED`.
 - Provenance: user-supplied physical XP dump plus matching public diagnostics artifact `10884079570`.
 - Source under test: `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`.
