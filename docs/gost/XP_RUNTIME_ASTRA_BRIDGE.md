@@ -925,3 +925,24 @@ The captures differ in trigger but not in the converged boundary: one occurs dur
 
 - Withheld: no local runtime material was published in this entry.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-26 — GPT-5.6 Sol: pre-Vista D3DKMT A/B full XP x32 build GREEN
+
+- Entry: `coordination-035`.
+- Evidence status: `PROVEN` for build/package/static success on the exact A/B source; physical XP runtime closure remains `NOT ESTABLISHED`.
+- Provenance: public GitHub Actions run/job/artifact metadata.
+- Source under test: `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `36164782271`, job `108169777457`, completed / success.
+- Artifacts: package `10883654763`; runtime `10883894624`; diagnostics `10884079570`.
+- Local capture: `NONE`.
+- Process: `UNKNOWN` — no physical runtime event from this new payload has yet been recorded.
+
+**PROVEN — build/package/static GREEN.** The exact A/B source completed the full browser build and all blocking XP gates, including ANGLE local-static codegen verification, PE/import audit, package/runtime creation, artifact uploads, and the aggregate summary. Artifact archive digests are recorded in the canonical experiment log.
+
+**NOT ESTABLISHED — runtime closure.** This successful build does not prove that the prior `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER` GPU telemetry/shutdown symptom is fixed. The previously accepted physical WebGL result belongs to the predecessor `f15a047e...` package and must not be transferred automatically to this new payload.
+
+**Next boundary.** Test the exact new package/runtime payload on physical Windows XP. First confirm WebGL context creation and visible rendering remain intact; then perform normal browser shutdown. Correlate the exercised binaries to the named artifact. If `0x80000007` recurs, symbolize that exact new capture with matching symbols before changing source again.
+
+- Withheld: no local runtime material was published in this entry.
+- Publication check: xp-bridge-allowlist-v1 checked
