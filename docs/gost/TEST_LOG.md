@@ -8,6 +8,33 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-26 — artifact-correlated physical XP startup PASS over RDP on 27f4271
+
+Track: Windows XP SP3 x86 compatibility / GPU telemetry A/B runtime. Independent of GOST TLS and WebRTC functional evidence.
+
+Physical runtime evidence:
+
+- source-under-test `27f4271bddc228f21d64370a3781ba35a92a96e0`;
+- full build run `36164782271`, job `108169777457`, package artifact `10883654763`;
+- physical Windows XP SP3 x86 startup succeeds in an RDP session;
+- the active display path is the remote/RDP display path, so this session is not accepted as a console GPU/WebGL rendering test;
+- WebGL was not exercised in this session;
+- normal shutdown behavior for this exact payload is not established by the supplied observation.
+
+Artifact correlation is **PROVEN** against `r3dfox-v153.0.3.win32.zip` inside package artifact `10883654763`. Independent artifact inspection matches the physically exercised identities exactly:
+
+- `r3dfox.exe`: 363520 bytes, SHA-1 `e7fd4ab6a6c069d551ecd9893c15e15989891065`, SHA-256 `09f3b8b403a386d9e6ba7928969456807c7150fcef5fc0dbcd89078eb06bacfc`;
+- `xul.dll`: 162337280 bytes, SHA-1 `bbac9391ac9c82ecb21b411ea91343937a6644a4`, SHA-256 `9b245fecc4dce62414bf2a066578b39f9b37e65e7dbdb34bc39dd8cc96ac1248`;
+- `libGLESv2.dll`: 3801600 bytes, SHA-1 `1e0a410ad7e6fee93d123908a1bdb645490f95e8`, SHA-256 `cde068d864b178bed563d8cf0e11e44d5b7e3a131ca7b7f3f55e149e593bca38`;
+- `application.ini`: BuildID `20260925173211`, SourceStamp `27f4271bddc228f21d64370a3781ba35a92a96e0`;
+- `platform.ini`: BuildID `20260925194629`, SourceStamp `27f4271bddc228f21d64370a3781ba35a92a96e0`.
+
+Conclusion: exact new package startup on physical XP is **PASS under RDP** and provenance is closed. This does not replace the pending console graphics acceptance: the predecessor `f15a...` console WebGL result remains the latest accepted physical WebGL rendering evidence. The telemetry/shutdown A/B also remains open until normal shutdown of the exact `27f4271...` payload is observed without the prior symptom, preferably followed by console/WebGL regression when console access is available.
+
+Status: **artifact-correlated physical XP startup PASS under RDP / WebGL NOT TESTED / console graphics acceptance OPEN / shutdown acceptance OPEN**.
+
+---
+
 ## 2026-09-26 — pre-Vista D3DKMT telemetry guard full XP x32 build GREEN
 
 Track: Windows XP SP3 x86 compatibility / GPU-process shutdown telemetry. Independent of GOST TLS and WebRTC functional evidence.
