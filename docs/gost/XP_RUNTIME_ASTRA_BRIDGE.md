@@ -986,3 +986,24 @@ The captures differ in trigger but not in the converged boundary: one occurs dur
 
 - Withheld: local paths, raw command output, profile contents, visited sites, and other local runtime details were not published.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-26 — GPT-5.6 Sol: graphics-triggered GPU-child 0x80000007 persists after D3DKMT guard
+
+- Entry: `coordination--Infinity`.
+- Evidence status: `PROVEN` for exact-build GPU-child reproduction and matching-symbol boundary; root cause remains `NOT ESTABLISHED`.
+- Provenance: user-supplied physical XP dump plus matching public diagnostics artifact `10884079570`.
+- Source under test: `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`.
+- Build: run `36164782271`, job `108169777457`; package `10883654763`, diagnostics `10884079570`.
+- Process: GPU child during graphics-triggered browser teardown.
+
+**PROVEN — symptom persists in a narrower form.** Ordinary RDP lifecycle/shutdown remains accepted for the exact package, but after the WebGL test path is exercised and the browser is then closed, the GPU child again reports `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER`.
+
+**PROVEN — predecessor telemetry boundary is absent.** Matching `xul.pdb` maps the exception-thread Firefox frame to `mozilla::widget::WinUtils::WaitForMessage()`, with the upper stack in the normal GPU child app/message loop. Exact packaged-code disassembly shows the return site immediately follows the imported `USER32!MsgWaitForMultipleObjectsEx` call. No matching xul frame in this capture belongs to `GetGpuTimeSinceProcessStartInMs`, `RecordPowerMetrics`, or `FlushFOGData`, and the predecessor `LoadLibraryW / GetModuleHandleW` telemetry-loader stack is absent.
+
+**NOT ESTABLISHED.** The current stack shows where the GPU main thread was parked when the debugger-wake exception surfaced; it does not prove `WinUtils::WaitForMessage`, USER32, ANGLE, or D3D9 caused the underlying condition. The pre-Vista D3DKMT guard remains accepted and should not be reverted.
+
+**Next boundary.** Reproduce under WinDbg with child-process debugging and first-chance handling for `0x80000007`; capture the first exception record/context and all thread stacks with matching symbols before any new source remediation. Console WebGL regression remains a separate pending acceptance test.
+
+- Withheld: raw dump/log, local paths, command line, PID/TID values, profile/site details, and unrelated module inventory.
+- Publication check: xp-bridge-allowlist-v1 checked
