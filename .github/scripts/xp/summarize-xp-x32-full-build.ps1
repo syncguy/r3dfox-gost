@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $checks = @(
   @{ Name='dpi-source-guard'; Outcome=$env:DPI_SOURCE_GUARD_OUTCOME },
   @{ Name='angle-local-static-codegen'; Outcome=$env:ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME },
+  @{ Name='libglesv2-yy-entrypoint'; Outcome=$env:LIBGLESV2_YY_ENTRYPOINT_OUTCOME },
   @{ Name='battery-power-import'; Outcome=$env:BATTERY_POWER_IMPORT_OUTCOME },
   @{ Name='source-remediation-quartet'; Outcome=$env:SOURCE_REMEDIATION_QUARTET_OUTCOME },
   @{ Name='advapi32-compat-import'; Outcome=$env:ADVAPI32_COMPAT_IMPORT_OUTCOME },
@@ -55,6 +56,7 @@ if ($env:GITHUB_SHA -and $env:GITHUB_SHA -ne $sourceSha) {
 "- WSASendMsg is source late-bound and WSCGetProviderInfo LSP-category diagnostics are compiled out under MOZ_XP_COMPAT; all four WS2_32 names are forbidden as ordinary final imports." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- xul IPHLPAPI legacy MTU diagnostic: $env:XUL_IPHLPAPI_IMPORT_DIAG_OUTCOME (non-blocking; see diagnostics/xul-iphlpapi-xp-imports.txt)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- YY DLL entry-point inventory: $env:YY_DLL_ENTRYPOINT_DIAG_OUTCOME (non-blocking; see diagnostics/yy-dll-entrypoint-audit.txt and diagnostics/yy-dll-entrypoint-missing-contract.txt)." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+"- libGLESv2 YY TLS entry-point gate: $env:LIBGLESV2_YY_ENTRYPOINT_OUTCOME; final packaged-runtime libGLESv2.dll must report contract=true in the YY DLL entry-point audit." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- mozglue SetProcessDPIAware import-mode gate: $env:DPI_IMPORT_MODE_OUTCOME." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
