@@ -177,7 +177,7 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
 
-      - name: GATE - Verify committed xul.dll YY TLS entry-point contract
+      - name: GATE - Verify committed xul.dll and libGLESv2.dll YY TLS entry-point contracts
         shell: powershell
         run: .\.github\scripts\xp\verify-xul-yy-entrypoint-contract.ps1
 
@@ -465,6 +465,20 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\inventory-yy-dll-entrypoint-coverage.ps1
 
+      - name: GATE - Require libGLESv2.dll YY TLS entry-point contract
+        id: libglesv2-yy-entrypoint-gate
+        if: always() && steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $report = 'diagnostics\yy-dll-entrypoint-audit.txt'
+          if (-not (Test-Path $report)) { throw "YY DLL entry-point audit missing: $report" }
+          $line = Get-Content $report | Where-Object { $_ -like 'dll=libGLESv2.dll|*' } | Select-Object -First 1
+          if (-not $line) { throw 'libGLESv2.dll missing from YY DLL entry-point audit' }
+          Write-Host $line
+          if ($line -notmatch '\|contract=true\|') { throw 'libGLESv2.dll does not carry the YY TLS entry-point contract' }
+
       - name: Upload XP x32 full-build package
         if: always() && steps.package-release.outcome == 'success'
         uses: actions/upload-artifact@v4
@@ -535,4 +549,5 @@ jobs:
           RUNTIME_ARCHIVE_OUTCOME: ${{ steps.runtime-archive.outcome }}
           XUL_IPHLPAPI_IMPORT_DIAG_OUTCOME: ${{ steps.xul-iphlpapi-import-diag.outcome }}
           YY_DLL_ENTRYPOINT_DIAG_OUTCOME: ${{ steps.yy-dll-entrypoint-diag.outcome }}
+          LIBGLESV2_YY_ENTRYPOINT_OUTCOME: ${{ steps.libglesv2-yy-entrypoint-gate.outcome }}
         run: .\.github\scripts\xp\summarize-xp-x32-full-build.ps1
