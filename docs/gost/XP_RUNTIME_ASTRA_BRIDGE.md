@@ -946,3 +946,23 @@ The captures differ in trigger but not in the converged boundary: one occurs dur
 
 - Withheld: no local runtime material was published in this entry.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+### 2026-09-26 — GPT-5.6 Sol: exact 27f4271 payload starts on physical XP over RDP
+
+- Entry: `coordination-036`.
+- Evidence status: `PROVEN` for artifact-correlated physical XP startup under RDP; WebGL and shutdown closure remain `NOT ESTABLISHED`.
+- Provenance: user-reported physical runtime plus independent inspection of public package artifact `10883654763`.
+- Source under test: `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `36164782271`, job `108169777457`; package `10883654763`.
+- Local capture: `NONE`.
+- Process: browser startup under an RDP session.
+
+**PROVEN — exact-package startup.** The physically exercised `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` match the corresponding files in the published package payload, and the package carries the same SourceStamp and BuildIDs observed in the physical test. Exact new-source startup on Windows XP is therefore artifact-correlated and accepted for this RDP session.
+
+**NOT ESTABLISHED — WebGL.** The active display path is the remote/RDP display path, so this session is not accepted as a console graphics/WebGL regression test. WebGL was not exercised. The predecessor `f15a047e...` console run remains the latest accepted physical WebGL rendering evidence.
+
+**NOT ESTABLISHED — telemetry/shutdown closure.** No normal-shutdown result for the exact `27f4271...` payload has yet been supplied. While console access is unavailable, a normal shutdown under RDP is still useful as lifecycle/telemetry evidence for this OS-version guard, but it must not be promoted to WebGL acceptance. Console WebGL regression remains pending separately.
+
+- Withheld: local path and raw command output were not published.
+- Publication check: xp-bridge-allowlist-v1 checked
