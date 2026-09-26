@@ -101,12 +101,12 @@ Current physical result:
 
 Artifact correlation is complete: the physically tested `r3dfox.exe`, `xul.dll`, and final packaged `libGLESv2.dll` match package artifact `10806218628` byte-for-byte.
 
-The narrow telemetry A/B is now implemented at `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`: `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`, without changing ANGLE/WebGL/D3D9 code. Full XP x32 run `36164782271`, job `108169777457`, is **in progress / provisional** against that exact source.
+The narrow telemetry A/B is implemented at `agent/winrt-source-poc @ 27f4271bddc228f21d64370a3781ba35a92a96e0`: `gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs()` returns `NS_ERROR_NOT_AVAILABLE` on pre-Vista Windows before `LoadLibrary(L"gdi32.dll")`, without changing ANGLE/WebGL/D3D9 code. Full XP x32 run `36164782271`, job `108169777457`, is **completed / success / GREEN** against that exact source. Published artifacts: package `10883654763`, runtime `10883894624`, diagnostics `10884079570`.
 
 The remaining acceptance sequence is:
 
-1. Wait for the exact full build to finish and record its final build/package/static verdict plus artifact identities; do not call it GREEN while it is running.
-2. If the build succeeds, test that exact payload on physical XP: repeat an active WebGL rendering session and then normal browser shutdown.
+1. Test the exact new payload on physical XP: repeat an active WebGL rendering session and then normal browser shutdown.
+2. Correlate the physically exercised binaries to the named package/runtime artifact before promoting the runtime result.
 3. If `0x80000007` still occurs, symbolize the new exact capture against matching PDBs before any broader workaround. Procmon remains secondary unless the evidence moves to an external DLL/file/registry/driver-loading boundary.
 4. Do not reuse predecessor ANGLE RVAs `+0x3C1CA` or `+0x159EBB` as breakpoints for this telemetry/shutdown line and do not reopen the already-closed local-static hypothesis without contradictory evidence.
 
