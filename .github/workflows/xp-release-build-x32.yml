@@ -45,7 +45,7 @@ jobs:
       - name: Checkout XP CI scripts
         uses: actions/checkout@v4
         with:
-          ref: agent/winrt-source-poc
+          ref: 75b4e8f052fb6fc09c723651938fde18f95af4ea
           path: .xp-ci-source
           sparse-checkout: |
             .github/scripts/xp
@@ -70,14 +70,14 @@ jobs:
             "workflow_sha=$env:GITHUB_SHA"
             "source_ref=win-153-xp"
             "source_sha=$sourceSha"
-            "ci_scripts_ref=agent/winrt-source-poc"
+            "ci_scripts_ref=agent/winrt-source-poc@75b4e8f052fb6fc09c723651938fde18f95af4ea"
             "ci_scripts_sha=$scriptsSha"
           ) | Set-Content -Encoding utf8 diagnostics\xp-release-build-identity.txt
 
           "XP_SOURCE_SHA=$sourceSha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "XP_CI_SCRIPTS_SHA=$scriptsSha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "XP release source: win-153-xp @ $sourceSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "XP CI scripts: agent/winrt-source-poc @ $scriptsSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "XP CI scripts: pinned agent/winrt-source-poc @ $scriptsSha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: GATE - SpiderMonkey style check
         shell: powershell
@@ -513,7 +513,7 @@ jobs:
         env:
           XP_BUILD_SUMMARY_TITLE: XP release build x32
           XP_SOURCE_REF: win-153-xp
-          XP_CI_SCRIPTS_REF: agent/winrt-source-poc
+          XP_CI_SCRIPTS_REF: agent/winrt-source-poc@75b4e8f052fb6fc09c723651938fde18f95af4ea
           DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
           BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
           SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
