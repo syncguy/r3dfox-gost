@@ -81,7 +81,7 @@ Closed on artifact-correlated source `e13354c...`, run `35810132801 / 1070196313
 
 Exact artifact-correlated source `27f4271bddc228f21d64370a3781ba35a92a96e0`, run `36164782271`, job `108169777457`, package `10883654763`, diagnostics `10884079570` now has a stronger live-debug boundary than the earlier Watson-only `0x80000007` capture.
 
-WinDbg with child-process debugging and matching `libGLESv2.pdb` caught an unhandled second-chance `0xC0000005` in `libGLESv2!DllMain` with `fdwReason=DLL_THREAD_DETACH`. The owner path is `egl::DeallocateCurrentThread() -> SafeDelete(gCurrentThread)`; the active TLS block contains invalid `thread_local gCurrentThread=0x80000000`. YY-Thunks TLS-remediation state is linked into the DLL, but runtime shows `g_TlsMode=None`, while exact PE inspection maps `AddressOfEntryPoint` to ordinary `_DllMainCRTStartup`, not the YY TLS-aware wrapper.
+WinDbg with child-process debugging and matching `libGLESv2.pdb` caught an unhandled second-chance `0xC0000005` in `libGLESv2!DllMain` with `fdwReason=DLL_THREAD_DETACH`. The owner path is `egl::DeallocateCurrentThread() -> SafeDelete(gCurrentThread)`; `thread_local gCurrentThread` is NONNULL but invalid for the observed read dereference. YY-Thunks TLS-remediation state is linked into the DLL, runtime shows symbolic mode `g_TlsMode=None`, and exact PE inspection maps the DLL entry point to ordinary `_DllMainCRTStartup`, not the YY TLS-aware wrapper. Debugger-derived numeric pointer/memory content is withheld from the public record.
 
 Narrow remediation is committed on `agent/winrt-source-poc`:
 
