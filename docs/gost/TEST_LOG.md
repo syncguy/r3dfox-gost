@@ -8,6 +8,24 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-27 — RDP get.webgl.org exercise completes with clean browser shutdown; WebGL remains disabled by RDP path
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / libGLESv2 runtime follow-up. Independent of GOST TLS runtime and WebRTC functional evidence.
+
+Exact product identity remains source-under-test `ad96945f101cedc25b9ed40df25bbed25c045833`, full build run `36294912858`, job `108551864059`, package artifact `10925293352`; the exercised `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll` were already artifact-correlated in the preceding entry.
+
+A physical Windows XP SP3 x86 RDP session opened `https://get.webgl.org/` while MOZ network/IPC logging was active. The log contains HTTP activity for `get.webgl.org:443`, a live GPU child throughout the exercised interval, and orderly parent network shutdown including `xpcom-shutdown`, connection-manager shutdown and socket-transport shutdown. No fatal/crash/exception marker is present in the supplied MOZ log, and the user reports no visible error dialog during startup, page exercise, or browser close.
+
+The accompanying `about:support` capture explains the graphics limitation of this run: software WebRender is active, the display driver is the RDP display path, and both WebGL 1 and WebGL 2 report disabled. Therefore this experiment does not instantiate or prove the console WebGL rendering path and cannot by itself prove absence of the previously captured `libGLESv2!DllMain / DLL_THREAD_DETACH` failure under a real WebGL context.
+
+Environment note: the capture shows the project-recognized gfx crash override as `SET_VALUE_WITHHELD`; no conclusion here depends on its exact value.
+
+Conclusion: **artifact-correlated RDP page-exercise + clean shutdown PASS**, with the previous visible error symptom not reproduced. The remaining physical acceptance boundary is still console-capable WebGL creation/rendering followed by GPU-child/browser teardown.
+
+Status: **RDP get.webgl.org navigation PASS / clean shutdown PASS / WebGL disabled by RDP path / console WebGL teardown acceptance OPEN**.
+
+---
+
 ## 2026-09-27 — artifact-correlated physical XP RDP startup advances past prior visible failure
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / libGLESv2 static-TLS lifecycle. Independent of GOST TLS runtime and WebRTC functional evidence.
