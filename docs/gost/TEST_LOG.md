@@ -8,6 +8,30 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-27 — artifact-correlated physical XP RDP startup advances past prior visible failure
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / libGLESv2 static-TLS lifecycle. Independent of GOST TLS runtime and WebRTC functional evidence.
+
+Physical Windows XP SP3 x86 execution was performed from the exact full-build package artifact `10925293352` produced by run `36294912858`, job `108551864059`, source-under-test `ad96945f101cedc25b9ed40df25bbed25c045833`.
+
+The physically exercised binaries were independently correlated against the package contents:
+
+- `r3dfox.exe` SHA-1 `5782f259de42100eeb381ad24f3ff74d168f2784`;
+- `xul.dll` SHA-1 `f9ed3373bcd84c5bf3924406a19710cce08d8b5c`;
+- `libGLESv2.dll` SHA-1 `8a2b7558af0b7fdbcc741b4fed6f71fedf44c16f`.
+
+Observed result under an RDP session:
+
+- browser startup succeeds on physical Windows XP;
+- the previously seen visible error dialogs are not reproduced in the exercised session;
+- no WebGL rendering assertion is made because the active RDP display path does not provide an accepted console WebGL observation.
+
+Conclusion: the exact `ad96945f...` payload has an **artifact-correlated physical XP RDP startup advancement** and does not reproduce the prior visible failure symptom during the exercised session. This is meaningful runtime evidence beyond CI/static qualification, but it is not yet the targeted WebGL+GPU-child teardown acceptance. Final acceptance of the libGLESv2 TLS-lifecycle remediation still requires exercising the WebGL path and observing teardown without the previously captured `DLL_THREAD_DETACH` access violation.
+
+Status: **physical XP startup PASS under RDP / prior visible error symptom not reproduced / WebGL NOT TESTED / targeted teardown acceptance still OPEN**.
+
+---
+
 ## 2026-09-27 — full XP x32 candidate GREEN; final libGLESv2 YY TLS contract verified
 
 Track: Windows XP SP3 x86 compatibility / full implementation build / ANGLE static-TLS lifecycle. Independent of GOST TLS runtime and WebRTC functional evidence.
