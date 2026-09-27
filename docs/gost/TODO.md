@@ -90,9 +90,11 @@ Narrow remediation is committed on `agent/winrt-source-poc`:
 - `3bb7c0d17112b0ec65cb144f5291ee03431c1550`: final packaged-runtime libGLESv2 contract gate;
 - `ad96945f101cedc25b9ed40df25bbed25c045833`: final aggregate treats that gate as blocking.
 
+Focused preflight is complete: corrected run `36257921234`, job `108448117969`, exact product source `ad96945f101cedc25b9ed40df25bbed25c045833`, is completed/success. The focused link resolves the YY TLS-aware entry point through the proven narrow provider; codegen and focused binary inspection pass. Failed predecessor run `36255787912 / 108442196461` is an infrastructure failure from the missing YY provider in the short workflow.
+
 Remaining sequence:
 
-1. Run `.github/workflows/gost-poc-build-xp-x32.yml` from exact branch `agent/winrt-source-poc` at `ad96945f101cedc25b9ed40df25bbed25c045833`.
+1. Continue the already-running full workflow run `36294912858`, job `108551864059`, exact source `ad96945f101cedc25b9ed40df25bbed25c045833`. Current state at this update is `in_progress`; source-contract gate passed and browser compilation is active.
 2. Require completed/success plus the new final-binary gate showing `libGLESv2.dll ... contract=true`. Build success is not runtime proof.
 3. On the resulting exact physical-test artifact, exercise the WebGL path and browser/GPU-child teardown. Acceptance requires the reproduced `DLL_THREAD_DETACH` second-chance AV to be absent.
 4. Preserve the established `/Zc:threadSafeInit-` ANGLE remediation and pre-Vista D3DKMT guard. Do not reopen predecessor local-static or telemetry blockers without contradictory exact-build evidence.
