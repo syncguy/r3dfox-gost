@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`. [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for all Windows XP WebRTC build/runtime/codec/ICE/NAT status and remaining WebRTC boundaries; WebRTC state must not be duplicated here.
 
@@ -199,7 +199,11 @@ For the implementation XP line, the download/recent-documents blocker remains ph
 
 A later live WinDbg reproduction on the exact artifact-correlated `27f4271...` payload materially advances the graphics-triggered teardown boundary. Matching `libGLESv2.pdb` captures an unhandled second-chance `0xC0000005` in `libGLESv2!DllMain` with `fdwReason=DLL_THREAD_DETACH`. The faulting path is `egl::DeallocateCurrentThread() -> SafeDelete(gCurrentThread)`; the module TLS slot is present, while `thread_local gCurrentThread` is NONNULL but invalid for the observed read dereference. Debugger-derived numeric pointer/memory content is withheld from the public record. The same DLL contains YY-Thunks TLS-remediation state, yet runtime shows `g_TlsMode=None`, and independent PE inspection proves its entry point maps to ordinary `_DllMainCRTStartup` rather than `DllMainCRTStartupForYY_Thunks`.
 
-This establishes a specific current owner for the captured AV: the Windows XP static-TLS lifecycle contract of dynamically loaded `libGLESv2.dll`. It does not retroactively prove that every earlier `0x80000007` capture had the same initiating event. Narrow remediation is committed at `482bc441...` by applying the already-used xul YY DLL entry-point contract only to Windows x86 `libGLESv2`; implementation HEAD `ad96945f...` additionally makes source verification and final packaged-runtime `contract=true` verification blocking. CI and physical runtime acceptance for this remediation are still pending.
+This establishes a specific current owner for the captured AV: the Windows XP static-TLS lifecycle contract of dynamically loaded `libGLESv2.dll`. It does not retroactively prove that every earlier `0x80000007` capture had the same initiating event. Narrow remediation is committed at `482bc441...` by applying the already-used xul YY DLL entry-point contract only to Windows x86 `libGLESv2`; implementation HEAD `ad96945f...` additionally makes source verification and final packaged-runtime `contract=true` verification blocking.
+
+Focused qualification is now complete: corrected `XP ANGLE libGLESv2 smoke` run `36257921234`, job `108448117969`, checks out exact product source `ad96945f101cedc25b9ed40df25bbed25c045833` and is **completed / success / GREEN**. The focused link resolves `DllMainCRTStartupForYY_Thunks` through the proven narrow YY provider, the ANGLE trace-codegen gate passes, and focused binary inspection preserves D3D9 while reporting no DXGI/CreateDXGIFactory imports. Predecessor focused run `36255787912 / 108442196461` is classified as workflow-infrastructure RED because the short workflow had not yet activated the YY provider.
+
+Full implementation acceptance is now active, not complete: run `36294912858`, job `108551864059`, exact source `ad96945f...`, is **in_progress**. The committed xul/libGLESv2 source-contract gate has passed and the browser build is currently running. Full ANGLE codegen, final packaged-runtime `libGLESv2.dll contract=true`, packaging/artifacts and aggregate verdict remain pending. Physical XP WebGL+teardown acceptance remains separate after a completed accepted artifact exists.
 
 For Windows XP WebRTC acceptance and remaining WebRTC boundaries, consult [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md); no WebRTC status is restated here.
 
