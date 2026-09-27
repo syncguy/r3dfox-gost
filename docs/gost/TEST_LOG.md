@@ -8,6 +8,47 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-27 — corrected focused libGLESv2 YY entry-point preflight GREEN; full candidate build active
+
+Track: Windows XP SP3 x86 compatibility / ANGLE / libGLESv2 static-TLS lifecycle. Independent of GOST TLS runtime and WebRTC functional evidence.
+
+The first focused attempt for the new Windows x86 `libGLESv2.dll` YY TLS entry-point contract was run `36255787912`, job `108442196461`, against product source `482bc4417601fc96f2ab135f377f64e03945cd27`. The new `DllMainCRTStartupForYY_Thunks` linker entry was present, but the focused workflow did not yet activate the YY provider used by the full XP build, so the focused link failed with unresolved `_DllMainCRTStartupForYY_Thunks`. This is classified as focused-workflow infrastructure failure, not rejection of the product remediation.
+
+Workflow/control commit `1129e3a054a1fd8a6a86b6c6f6e3d59d67da25ae` adds the proven YY-Thunks 1.2.2 / XP x86 preparation, narrow-provider build and activation steps to `.github/workflows/xp-angle-libglesv2-smoke.yml`.
+
+Corrected focused evidence:
+
+- workflow `XP ANGLE libGLESv2 smoke`;
+- run `36257921234`;
+- job `108448117969`;
+- workflow/control SHA `1129e3a054a1fd8a6a86b6c6f6e3d59d67da25ae`;
+- checked-out product source-under-test `ad96945f101cedc25b9ed40df25bbed25c045833`;
+- artifact `10911892631`, digest `sha256:0ac161f5360eeb7bf9541476e9869a26a1000465503175084da6bbb89143f453`;
+- aggregate result **completed / success / GREEN**;
+- `Build libGLESv2 only`: success;
+- ANGLE XP trace-codegen gate: success;
+- focused binary-inspection gate: success;
+- final focused link contains both `-ENTRY:DllMainCRTStartupForYY_Thunks` and the original-CRT alternate contract;
+- focused binary inspection reports `DXGI=False`, `CreateDXGIFactory=False`, `CreateDXGIFactory1=False`, `D3D9=True`;
+- focused `libGLESv2.dll` SHA-256 `3d1dfbb9bef6f9ddffb6ca3da5a666c81c2302f93677a4db003a260d67ce4e12`.
+
+Conclusion: the immediate focused-link risk introduced by the new YY TLS-aware PE entry-point contract is closed. This is focused compile/link/codegen/binary evidence only; it does not prove the full packaged browser or physical XP teardown behavior.
+
+Full candidate run is already active:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36294912858`;
+- job `108551864059`;
+- exact source-under-test `ad96945f101cedc25b9ed40df25bbed25c045833`;
+- current status at this documentation update: **in_progress**;
+- committed xul/libGLESv2 source-contract gate: success;
+- browser build step: in progress;
+- ANGLE full-build codegen gate, final packaged-runtime `libGLESv2.dll contract=true` gate, package/runtime artifacts and aggregate verdict: pending.
+
+Status: **focused YY-entrypoint preflight GREEN / full candidate run in progress / physical XP fix not yet proven**.
+
+---
+
 ## 2026-09-26 — WinDbg proves libGLESv2 DLL_THREAD_DETACH AV from missing YY TLS entry-point contract
 
 Track: Windows XP SP3 x86 compatibility / ANGLE static TLS lifecycle. Independent of GOST TLS and WebRTC functional evidence.
