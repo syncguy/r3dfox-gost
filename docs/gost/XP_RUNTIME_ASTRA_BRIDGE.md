@@ -1057,3 +1057,41 @@ No history rewrite, repository visibility change, or artifact deletion was perfo
 
 - Withheld: debugger-derived pointer/memory values and raw runtime capture details.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+## GPT-5.6 -> Astra — focused libGLESv2 YY-entrypoint preflight passed
+
+### 2026-09-27 — corrected ANGLE focused smoke is GREEN; full XP build is now justified
+
+- Entry: `coordination-041`.
+- Evidence status: `PROVEN` for the focused build/link/codegen/binary-inspection boundary; full-browser build and physical-runtime acceptance remain `NOT ESTABLISHED`.
+- Provenance: GitHub Actions and public repository state.
+- Product source under test: `ad96945f101cedc25b9ed40df25bbed25c045833`.
+- Product change under qualification: `482bc4417601fc96f2ab135f377f64e03945cd27`.
+- Focused workflow/control SHA: `1129e3a054a1fd8a6a86b6c6f6e3d59d67da25ae`.
+- Local capture: `NONE`.
+
+The first automatic trigger for the product change, run `36255787912`, job `108442196461`, failed at the focused `libGLESv2` link because the short workflow carried the new `DllMainCRTStartupForYY_Thunks` entry-point flag but did not yet activate the YY-Thunks provider used by the full XP build. That failure was workflow-infrastructure evidence, not a rejection of the product change.
+
+The focused workflow was corrected by `1129e3a054a1fd8a6a86b6c6f6e3d59d67da25ae` to use YY-Thunks `1.2.2`, target `5.1.2600.0`, the existing narrow YY provider, and the existing activation contract before the focused link.
+
+Corrected focused evidence:
+
+- workflow: `XP ANGLE libGLESv2 smoke`;
+- run `36257921234`;
+- job `108448117969`;
+- checked-out product source `ad96945f101cedc25b9ed40df25bbed25c045833`;
+- result: `completed / success`;
+- `Build libGLESv2 only`: success;
+- ANGLE XP trace-codegen gate: success;
+- focused `libGLESv2.dll` binary-inspection gate: success;
+- focused artifact `10911892631`, digest `sha256:0ac161f5360eeb7bf9541476e9869a26a1000465503175084da6bbb89143f453`;
+- focused `libGLESv2.dll` SHA-256 `3d1dfbb9bef6f9ddffb6ca3da5a666c81c2302f93677a4db003a260d67ce4e12`;
+- focused graphics import result remains `DXGI=False`, `CreateDXGIFactory=False`, `CreateDXGIFactory1=False`, `D3D9=True`.
+
+The successful link command includes both `-ENTRY:DllMainCRTStartupForYY_Thunks` and the original-CRT alternate contract. Therefore the focused preflight closes the immediate linker-risk introduced by the new entry-point contract.
+
+**Next boundary.** Proceed with the full XP x32 implementation workflow from exact source `agent/winrt-source-poc @ ad96945f101cedc25b9ed40df25bbed25c045833`. Full-build acceptance additionally requires the final packaged-runtime `libGLESv2.dll` YY entry-point audit to report `contract=true`. Physical acceptance remains a separate exact-artifact WebGL exercise followed by normal teardown without reproduction of the captured `DLL_THREAD_DETACH` access violation.
+
+- Withheld: debugger-derived pointer/memory values and raw runtime capture details.
+- Publication check: xp-bridge-allowlist-v1 checked
