@@ -94,9 +94,9 @@ Focused preflight is complete: corrected run `36257921234`, job `108448117969`, 
 
 Remaining sequence:
 
-1. Continue the already-running full workflow run `36294912858`, job `108551864059`, exact source `ad96945f101cedc25b9ed40df25bbed25c045833`. Current state at this update is `in_progress`; source-contract gate passed and browser compilation is active.
-2. Require completed/success plus the new final-binary gate showing `libGLESv2.dll ... contract=true`. Build success is not runtime proof.
-3. On the resulting exact physical-test artifact, exercise the WebGL path and browser/GPU-child teardown. Acceptance requires the reproduced `DLL_THREAD_DETACH` second-chance AV to be absent.
+1. Full build/static qualification is complete: run `36294912858`, job `108551864059`, exact source `ad96945f101cedc25b9ed40df25bbed25c045833`, completed/success, with final `libGLESv2.dll contract=true`. Package `10925293352`, runtime `10925462253`, and diagnostics `10925258640` are the accepted CI artifacts for this candidate.
+2. On the exact physical-test artifact, exercise the WebGL path and browser/GPU-child teardown. Acceptance requires the reproduced `DLL_THREAD_DETACH` second-chance AV to be absent. Build success is not runtime proof.
+3. Audit the current final-runtime YY DLL inventory (`strong candidates=16`, `contracts=4`, `missing-contract candidates=12`) before changing any additional DLL. Distinguish real compiler TLS / PE TLS / load-lifecycle requirements from resolver-only false positives; do not apply the YY entry point globally.
 4. Preserve the established `/Zc:threadSafeInit-` ANGLE remediation and pre-Vista D3DKMT guard. Do not reopen predecessor local-static or telemetry blockers without contradictory exact-build evidence.
 5. Keep the earlier `0x80000007` captures as historical top-level symptoms; do not claim they were all caused by this AV unless new first-chance evidence proves that linkage.
 
