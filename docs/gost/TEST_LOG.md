@@ -8,6 +8,29 @@ For each completed experiment, record the exact date, branch and source-under-te
 
 ---
 
+## 2026-09-27 — full XP x32 candidate GREEN; final libGLESv2 YY TLS contract verified
+
+Track: Windows XP SP3 x86 compatibility / full implementation build / ANGLE static-TLS lifecycle. Independent of GOST TLS runtime and WebRTC functional evidence.
+
+Exact full-build evidence:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36294912858`;
+- job `108551864059`;
+- source-under-test `ad96945f101cedc25b9ed40df25bbed25c045833`;
+- result **completed / success / GREEN**;
+- package artifact `10925293352`, digest `sha256:81b57739dc8202b24fb4b3e65e0a13ef1031f3b373861bc2534cf8181b68eb85`;
+- runtime artifact `10925462253`, digest `sha256:4bfc6052d6abe6af34792da47ceee088edb1b192ccfbf77ee19652ea9cb24e33`;
+- diagnostics artifact `10925258640`, digest `sha256:3cbb8b5efc823b8b88ca7c5da7d71a039e6d8bd280115fa375d74b513afab4ef`.
+
+All relevant blocking build/static gates completed successfully, including the full browser build, ANGLE XP local-static codegen gate, XP PE/import audit, package/runtime creation, and aggregate summary. The final runtime-closure YY audit reports for `libGLESv2.dll`: `entry_wrapper=true`, `yy_first_tls_callback=true`, `contract=true`, classification `YY_CANDIDATE_CONTRACT_PRESENT`. This closes the full-build/static acceptance boundary for the targeted `libGLESv2` YY TLS entry-point remediation.
+
+The same diagnostic inventory reports `strong candidates=16`, `contracts=4`, `missing-contract candidates=12`. These 12 entries are follow-up candidates only; the workflow explicitly treats them as diagnostic rather than proof of a physical XP failure or proof that each DLL requires the YY TLS-aware entry point. They require compiler-TLS/PE-entry/load-lifecycle analysis before any additional target is changed.
+
+Status: **full build/static qualification GREEN / targeted final libGLESv2 contract proven / physical XP WebGL+teardown acceptance still pending**. Build success and static PE evidence do not prove runtime closure.
+
+---
+
 ## 2026-09-27 — corrected focused libGLESv2 YY entry-point preflight GREEN; full candidate build active
 
 Track: Windows XP SP3 x86 compatibility / ANGLE / libGLESv2 static-TLS lifecycle. Independent of GOST TLS runtime and WebRTC functional evidence.
