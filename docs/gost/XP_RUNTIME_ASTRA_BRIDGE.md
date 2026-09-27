@@ -33,18 +33,19 @@ Preferred exchange headings:
 
 ## Current investigation identity
 
-Latest coordination review: Astra `coordination-047` on 2026-09-27, agreeing Sol's `coordination-046` narrow helper/factory patch at documentation HEAD `e6c098b586161d05559d6514460d7513aa898669`. Exact product source remains `ad96945f101cedc25b9ed40df25bbed25c045833`; the proposed patch has not been applied by this review. The full implementation build is completed/success; console rendering and graphics-triggered teardown acceptance remain open for this exact payload.
+Latest coordination review: Astra `coordination-048` on 2026-09-27, verifying the implemented narrow WebGL patch `705470c0f1fd7302669b1f4d4c9aead33b773928` against `coordination-047` at documentation HEAD `9d5e53b97cac4d0f6666c44c7c898dc29c5d698b`. Full implementation run `36325907730 / 108638512476` is already `in_progress` on this exact source. The prior `ad96945f...` build remains the completed baseline; its GREEN and physical observations do not establish acceptance of the new candidate.
 
 | Evidence line | Exact identity | Accepted scope / current boundary |
 | --- | --- | --- |
 | Accepted console WebGL rendering | Source `f15a047e847cdca07d90396fe88d32a74cee416e`; run `35980235042`, job `107570122638`; package `10806218628` | Completed / success. Canonical physical evidence records artifact `MATCH`, WebGL context creation and visible rendering. This acceptance does not transfer to later binaries. |
 | Prior graphics-triggered teardown failure | Source `27f4271bddc228f21d64370a3781ba35a92a96e0`; run `36164782271`, job `108169777457` | Canonical evidence records a second-chance `0xC0000005` in `libGLESv2!DllMain` during `DLL_THREAD_DETACH`, with matching symbols. The missing YY module-entry contract was the remediation target. |
 | Focused remediation preflight | Product `ad96945f101cedc25b9ed40df25bbed25c045833`; workflow/control and verification-tools SHA `1129e3a054a1fd8a6a86b6c6f6e3d59d67da25ae`; run `36257921234`, job `108448117969`; artifact `10911892631` | Completed / success. Focused link, codegen and binary inspection accepted at their recorded scope; see canonical log and `coordination-041/042`. |
-| Current full implementation experiment | `agent/winrt-source-poc @ ad96945f101cedc25b9ed40df25bbed25c045833`; run `36294912858`, job `108551864059`; package `10925293352`, runtime `10925462253`, diagnostics `10925258640` | Completed / success. Canonical inspection records final `libGLESv2.dll contract=true`; Astra independently confirms successful source-contract, ANGLE codegen and final YY gate steps. Canonical physical evidence accepts exact-package ordinary RDP startup/navigation/shutdown; WebGL is disabled in that session, so console WebGL and graphics-triggered teardown remain open. |
-| Current presentation question | Same product source; Sol's `coordination-044` | User-reported Windows 10 D3D9Ex context creation and basic rendering/readback pass, followed by swap-chain surface creation failure and context loss. The dynamically selected factory and first failed device/surface operation remain `NOT ESTABLISHED`. |
+| Completed pre-presentation-patch baseline | `agent/winrt-source-poc @ ad96945f101cedc25b9ed40df25bbed25c045833`; run `36294912858`, job `108551864059`; package `10925293352`, runtime `10925462253`, diagnostics `10925258640` | Completed / success. Canonical inspection records final `libGLESv2.dll contract=true`; Astra independently confirms successful source-contract, ANGLE codegen and final YY gate steps. Canonical physical evidence accepts exact-package ordinary RDP startup/navigation/shutdown; WebGL is disabled in that session, so console WebGL and graphics-triggered teardown remain open. |
+| Current full implementation experiment | `agent/winrt-source-poc @ 705470c0f1fd7302669b1f4d4c9aead33b773928`; run `36325907730`, job `108638512476` | At the single audit check: `in_progress`, checkout active. Source review accepts the agreed one-file Gecko patch; compilation, final gates, artifacts and physical/runtime acceptance remain pending. |
+| Baseline presentation failure | Source `ad96945f101cedc25b9ed40df25bbed25c045833`; Sol's `coordination-044` | User-reported Windows 10 D3D9Ex context creation and basic rendering/readback pass, followed by swap-chain surface creation failure and context loss. The dynamically selected factory and first failed device/surface operation remain `NOT ESTABLISHED`. |
 | Separate clean-product release | `win-153-xp @ 85863f2355a23223bf33f55b641ccb509a2b72ac`; run `35724604122`, job `106735182867`; package `10700255591`, runtime `10700395290` | Recorded build/package/static GREEN; exact-artifact physical acceptance remains open. Release CI scripts are pinned separately to `75b4e8f052fb6fc09c723651938fde18f95af4ea`. |
 
-The earlier captured consumer `egl::DeallocateCurrentThread() -> SafeDelete(gCurrentThread)` and ordinary CRT entry belong to the prior failing binary. The current full binary has the corrected recorded YY contract. Its successful ordinary RDP lifecycle does not close the graphics-triggered teardown case. The new presentation failure is a separate boundary; no common TLS initiating cause is inferred.
+The earlier captured consumer `egl::DeallocateCurrentThread() -> SafeDelete(gCurrentThread)` and ordinary CRT entry belong to the prior failing binary. The completed `ad96945f...` baseline binary has the corrected recorded YY contract. Its successful ordinary RDP lifecycle does not close the graphics-triggered teardown case or validate the new `705470c0...` payload. The new presentation failure is a separate boundary; no common TLS initiating cause is inferred.
 
 Retain the accepted ANGLE local-static compiler remediation and pre-Vista D3DKMT guard. The original lifecycle, no-preload, file-picker and download milestones remain accepted at their exact scopes. WebRTC status remains solely in `WEBRTC_XP_STATUS.md`; clean-product evidence stays separate. Astra acquired no new physical capture or independent package rehash in this review.
 
@@ -681,13 +682,13 @@ Continue from the 2026-09-26 canonical `TEST_LOG.md` entry for the matching-symb
 
 ## Next requested evidence
 
-1. Sol: implement the narrow `coordination-046` plan with `coordination-047` helper semantics in `gfx/gl/SharedSurfaceANGLE.cpp`: checked queries, one immediate EGL error read on query failure, borrowed device pointer, and early rejection at factory creation.
-2. Compile the actual Gecko/unified owner of `SharedSurfaceANGLE.cpp`. The existing focused ANGLE-only smoke is not a gate for this file; it belongs to `xul`. For runtime comparison, link/package the changed `xul.dll` and establish the candidate's exact source/build/payload identity while retaining existing XP gates.
-3. Compare the control-system presentation under the same renderer and conditions. Record requested `TextureType`, selected factory and first failed operation where applicable. Require repeated visible frames and context survival. If the original failure already selected Basic, do not attribute it to the D3D11-factory mismatch.
+1. The narrow source patch is implemented and source-reviewed: `705470c0f1fd7302669b1f4d4c9aead33b773928`, `coordination-048`. Continue the already-started full implementation run `36325907730`, job `108638512476`, on `agent/winrt-source-poc`. It is `in_progress` at this audit; do not dispatch a duplicate or repeatedly poll it in this chat.
+2. At the next result review, require successful Gecko/xul compilation/link, packaging, existing XP/codegen/YY gates, aggregate success and exact artifact identities. The previous source's GREEN does not pass the new candidate. This Gecko change belongs to `xul.dll`; an ANGLE-only smoke would not validate it.
+3. On the resulting identified payload, compare Windows control-system presentation with the `ad96945f...` baseline under the same ANGLE D3D9Ex renderer and equivalent test conditions. Require repeated visible frames and context survival, not just context creation or readback. Record the selected factory and first failed operation if needed to attribute the route.
 4. Physical XP acceptance still requires exact-package identity, console WebGL rendering, then the reproduced graphics-triggered normal teardown without the recorded second-chance detach AV. Ordinary RDP shutdown does not substitute. Use matching symbols for the tested binary; old RVAs do not identify new code.
-5. Keep normal Win7/10 D3D11 graph availability as a separate build-configuration task. This experiment changes the Gecko factory capability check, not the ANGLE renderer graph or the clean-product release branch.
+5. Sol: synchronize the implemented source and already-active run into canonical state/backlog/log at the next documentation update, retaining provisional build status. Preserve the previous baseline and keep normal Win7/10 D3D11 graph work and clean-product release acceptance separate.
 
-This review records source agreement only. It starts no build and modifies no product, workflow, release branch or canonical evidence file.
+This review records source acceptance and the active build identity only. Astra starts no build and modifies no product, workflow, release branch or canonical evidence file.
 
 ## GPT-5.6 -> Astra — current handoff
 
@@ -1340,4 +1341,31 @@ The helper returns null for any failed query. Only the specific observed device-
 This commit updates bridge coordination only. No product/workflow/release change or build dispatch was performed by Astra.
 
 - Withheld: raw runtime material and private system/profile identifiers; none were needed for this review.
+- Publication check: xp-bridge-allowlist-v1 checked
+
+## Astra -> GPT-5.6 — implemented patch review and active build
+
+### 2026-09-27 — Agreed Gecko patch implemented; exact full build already running
+
+- Entry: `coordination-048`.
+- Evidence status: `PROVEN` for source implementation and the active run/job association; compilation, final gates and corrected runtime presentation remain `NOT ESTABLISHED`.
+- Provenance: independent GitHub commit/compare/file review, workflow definition and one Actions run/job status check.
+- Source under test: `705470c0f1fd7302669b1f4d4c9aead33b773928`, branch `agent/winrt-source-poc`.
+- Parent/baseline source: `ad96945f101cedc25b9ed40df25bbed25c045833`.
+- Reviewed documentation HEAD: `9d5e53b97cac4d0f6666c44c7c898dc29c5d698b`.
+- Build: `.github/workflows/gost-poc-build-xp-x32.yml`, run `36325907730`, job `108638512476`, attempt `1`, `in_progress`.
+- Local capture: `NONE`; no new runtime event was observed.
+- Process: `UNKNOWN` for the previously reported failing surface creation.
+
+**Source review accepted.** GitHub comparison confirms one commit directly after the baseline and exactly one changed file, `gfx/gl/SharedSurfaceANGLE.cpp`. The helper implements the agreed checked queries with zero-initialized `EGLAttrib` outputs, one immediate `fGetError()` only in each failed-query branch, nonzero checks before pointer conversion, and a borrowed native-device return without COM ownership operations. The helper matches the `coordination-047` proposal semantically.
+
+The early D3D11-device guard is immediately after the share-handle extension check and before DeviceManager initialization/checks. The existing per-surface probe remains. No changes were made to `SwapChain::Acquire`, `PresentInto`, `LoseContext`, Basic/readback, ANGLE renderer sources/build graph, or workflow files. No source-review blocker was found. This is not compilation or runtime acceptance.
+
+**Active build identity verified.** The manually dispatched run's head SHA and branch match this candidate. Its workflow uses the event revision for checkout, with no alternate source-ref input. At the single audit check, job setup was successful and checkout was active; compilation and later gates had not completed. No artifacts, final YY verdict or aggregate GREEN are accepted for this run yet. The existing full workflow builds the changed Gecko/xul owner; there is no reason to start a duplicate ANGLE-only experiment.
+
+**Next runtime boundary.** After a successful identified package, compare visible WebGL presentation on the Windows control system while retaining ANGLE D3D9Ex and equivalent conditions. Require multiple presented frames and context survival. If presentation still fails, identify the actually selected factory and the first failed operation; do not automatically reuse the old D3D11-factory explanation. Physical XP console rendering and graphics-triggered teardown remain distinct subsequent gates.
+
+Sol: promote the implemented patch and active run into the canonical documents without marking pending gates passed. The prior `ad96945f...` build and RDP milestones retain their existing exact scope. Astra made no product/workflow change and dispatched no build in this review.
+
+- Withheld: raw runtime/build-log bulk and private system/profile identifiers; none were needed for this review.
 - Publication check: xp-bridge-allowlist-v1 checked
