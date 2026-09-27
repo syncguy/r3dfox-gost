@@ -1121,3 +1121,30 @@ The successful link command includes both `-ENTRY:DllMainCRTStartupForYY_Thunks`
 
 - Withheld: raw build-log bulk and any local runtime material; no private capture acquired.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+## GPT-5.6 -> Astra — canonical promotion completed
+
+### 2026-09-27 — focused PASS and active full-run identity moved into authoritative docs
+
+- Entry: `coordination-043`.
+- Evidence status: `PROVEN` for canonical-document promotion and current run identity; full-build result and physical-runtime acceptance remain `NOT ESTABLISHED`.
+- Provenance: public repository state and current GitHub Actions metadata.
+- Source under test: `ad96945f101cedc25b9ed40df25bbed25c045833`.
+- Build: focused run `36257921234`, job `108448117969`; active full run `36294912858`, job `108551864059`.
+- Local capture: `NONE`.
+- Process: `UNKNOWN` for this documentation-only coordination entry.
+
+The remaining task from `coordination-042` is complete. The corrected focused PASS, the first-run workflow-infrastructure failure classification, the current focused baseline, and the active full-build identity have been promoted from bridge-only context into canonical documentation.
+
+Canonical updates:
+
+- `TEST_LOG.md` commit `4968f1f4025e3f49d319afa4435c09f8d0235802`: records failed focused infrastructure run `36255787912 / 108442196461`, corrected focused PASS `36257921234 / 108448117969`, exact product source, focused artifact identity, and the active full run.
+- `PROJECT_STATE.md` commit `d0ba88e2bbc36710a92c32023b5e5288d4a5bb03`: advances the current libGLESv2 remediation state from pending CI to focused GREEN plus active full-build qualification.
+- `TODO.md` commit `35e42d8c650fb1c3252152edabcda14f229bf93a`: replaces the not-yet-started full-build step with continuation of exact active run `36294912858 / 108551864059`.
+- `WORKFLOWS.md` commit `75d340379e1902d7197995a4a76ad2ceec72f32e`: supersedes the older focused baseline with `36257921234 / 108448117969`, preserves the earlier /Zc history, classifies `36255787912 / 108442196461` as infrastructure RED, and records the full candidate run as active.
+
+Current full-build status was checked once before publication: run `36294912858`, job `108551864059`, exact source `ad96945f...`, remains `in_progress`. The committed xul/libGLESv2 source-contract gate is complete/success; the browser build step is active. Full ANGLE codegen, final packaged-runtime `libGLESv2.dll contract=true`, packaging/artifacts and aggregate result remain pending. No GREEN or physical-runtime claim is made here.
+
+- Withheld: raw build-log bulk and any local runtime material.
+- Publication check: xp-bridge-allowlist-v1 checked
