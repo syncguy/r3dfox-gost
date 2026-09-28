@@ -32,6 +32,14 @@ Until a newer physically proven result explicitly supersedes this reference, eve
 9. **Propagate XP compatibility into Rust explicitly.** The canonical full XP x32 workflow must define job-global `RUSTFLAGS: "--cfg moz_xp_compat"` so Rust `#[cfg(moz_xp_compat)]` branches participate in the same XP build identity as the C/C++ `MOZ_XP_COMPAT` mode. Do not assume CFLAGS/CXXFLAGS define a Rust cfg. Normal non-XP workflows must not inherit this flag accidentally.
 10. **Keep vendored Rust checksums synchronized.** Before changing Rust source inside a vendored crate, check whether that crate contains `.cargo-checksum.json`. If it does, after the final source edit recompute SHA-256 over the exact bytes of every modified file and update the corresponding `files[...]` entry before starting CI or a full build. Do not disable Cargo checksum validation, delete the file entry, or change the `package` checksum merely to silence a mismatch. A vendored Rust source patch with a stale checksum is incomplete.
 
+### Documented optional-loader exception — ANGLE modern D3DCompiler
+
+The root `d3dcompiler_47.dll` shipped by the XP implementation package is a narrow exception to the normal PE-floor rule because it is an **optional dynamically loaded primary**, not a required XP-loadable dependency. Preserve the normal build-produced/SDK-derived DLL byte-for-byte, do not retarget its subsystem, and keep its exact identity/import inventory as evidence. No required XP executable or DLL may hard-import `d3dcompiler_47.dll`.
+
+The required XP-compatible compiler path is the pinned Firefox 52.9.0 ESR `D3DCompiler_43.dll` staged unchanged as `d3dcompiler_old.dll` under ANGLE's existing fallback name. That legacy DLL remains under the strict XP contract: x86, original subsystem 5.0, exact pinned hash, required exports, and no forbidden post-XP dependency/import family. Both compiler DLLs must remain byte-identical across global PE-retarget and packaging stages.
+
+This exception does not make a failed modern-compiler load a runtime PASS. The final package still requires physical XP WebGL and shutdown acceptance, and the modern Windows control path remains separate evidence.
+
 Detailed Rust wiring, the `third_party/rust/mtu` case, and validation status are in `XP_RUST_COMPATIBILITY.md`.
 
 ## Adopted source-built `bcrypt.dll` remediation — SINGLE-DLL / PHYSICALLY PROVEN
