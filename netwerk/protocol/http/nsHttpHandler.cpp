@@ -1201,6 +1201,10 @@ void nsHttpHandler::InitUserAgentComponents() {
   // Gather OS/CPU.
 #if defined(XP_WIN)
   OSVERSIONINFO info = {sizeof(OSVERSIONINFO)};
+#  ifdef MOZ_XP_COMPAT
+  info.dwMajorVersion = 10;
+  info.dwMinorVersion = 0;
+#  else
   if (!GetVersionEx(&info) || info.dwMajorVersion >= 10) {
     // Cap the reported Windows version to 10.0. This way, Microsoft doesn't
     // get to change Web compat-sensitive values without our veto. The
@@ -1212,6 +1216,7 @@ void nsHttpHandler::InitUserAgentComponents() {
     info.dwMajorVersion = 10;
     info.dwMinorVersion = 0;
   }
+#  endif
 
   const char* format;
 #  if defined _M_X64 || defined _M_AMD64
