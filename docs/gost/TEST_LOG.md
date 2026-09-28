@@ -802,3 +802,18 @@ The broad audit failure is a gate-policy false positive, not a newly established
 Implementation candidate `bbcdbb4a73ddbb168a1c141e371efeaac4c7655d` narrows only this rule: `_except_handler4_common` is no longer globally forbidden by bare symbol name; required PEs are rejected when the direct-import parser observes the specific edge `msvcrt.dll!_except_handler4_common`. The existing optional root `d3dcompiler_47.dll` exception, all other forbidden DLL/API rules, required-PE hard-import rejection for `d3dcompiler_47.dll`, and strict `d3dcompiler_old.dll` contract remain unchanged.
 
 Status: **D3DCompiler full package/static gates PASS on 8bb4ef8 / broad audit policy false-positive PROVEN / provider-scoped audit fix committed at bbcdbb4 / rerun pending / no new physical-runtime claim**.
+
+
+---
+
+## 2026-09-28 — speculative `_except_handler4_common` broad-audit guard removed
+
+Follow-up to the immediately preceding D3DCompiler audit-policy entry.
+
+The project does not retain a standalone broad-audit rule for `_except_handler4_common`. The physical XP evidence belongs to the specific historical `d3dcompiler_47.dll` loader failure and the corresponding dependency edge observed in that binary; the product fix is the existing ANGLE fallback to pinned XP-compatible `d3dcompiler_old.dll`.
+
+Because root `d3dcompiler_47.dll` is intentionally classified as an optional dynamically loaded modern primary and excluded from the required-XP import contract, extending that historical symbol into a new generic guard for unrelated required PEs had no current owner and violated the project's narrow-remediation discipline. The temporary provider-scoped follow-up rule was therefore removed as well.
+
+Implementation commit `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` restores the broad audit parser to its simpler previous structure and removes `_except_handler4_common` from the special forbidden policy entirely. All pre-existing forbidden DLL/API checks, required-PE rejection of hard imports on optional `d3dcompiler_47.dll`, and the optional-root compiler exception remain unchanged.
+
+Status: **special `_except_handler4_common` audit policy REMOVED / historical D3DCompiler evidence retained at its exact scope / no runtime claim changed**.
