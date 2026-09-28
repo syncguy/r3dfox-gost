@@ -56,7 +56,7 @@ The active implementation branch currently uses the following scripts under `.gi
 ### PE retargeting and import gates
 
 - `retarget-dist-bin-pe-subsystem.ps1` — retargets eligible x86 `dist/bin` PE subsystem headers to the configured XP floor while explicitly preserving vendor `d3dcompiler_47.dll` and `d3dcompiler_old.dll` byte-for-byte; this is header work only, not compatibility proof.
-- `audit-xp-x32-pe-floor-direct-imports.ps1` — broad all-PE x86/subsystem/direct-import audit with the current forbidden DLL/API policy, the narrow private-DWrite exception, and one documented optional modern-compiler exception for root `d3dcompiler_47.dll`; required XP PEs still must not hard-import that optional compiler. The `_except_handler4_common` check is provider-scoped: the incompatible direct edge from `msvcrt.dll` is rejected, while imports satisfied by the separately gated app-local `ucrtbase.dll` are not rejected by bare symbol name.
+- `audit-xp-x32-pe-floor-direct-imports.ps1` — broad all-PE x86/subsystem/direct-import audit with the established forbidden DLL/API policy, the narrow private-DWrite exception, and one documented optional modern-compiler exception for root `d3dcompiler_47.dll`; required XP PEs still must not hard-import that optional compiler. Historical `_except_handler4_common` evidence remains scoped to the D3DCompiler investigation and is not promoted into a generic broad-audit rule.
 - `reject-core-browser-xp-direct-imports.ps1` — targeted direct-import gate for the core browser PE set.
 - `verify-xul-battery-user32-imports.ps1` — rejects Vista-only battery USER32 imports from final `xul.dll`.
 - `verify-xul-source-remediation-quartet.ps1` — verifies the source-remediated restart/named-pipe API quartet is absent from final imports.
