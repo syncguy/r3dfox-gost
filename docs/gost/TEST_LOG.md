@@ -817,3 +817,18 @@ Because root `d3dcompiler_47.dll` is intentionally classified as an optional dyn
 Implementation commit `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` restores the broad audit parser to its simpler previous structure and removes `_except_handler4_common` from the special forbidden policy entirely. All pre-existing forbidden DLL/API checks, required-PE rejection of hard imports on optional `d3dcompiler_47.dll`, and the optional-root compiler exception remain unchanged.
 
 Status: **special `_except_handler4_common` audit policy REMOVED / historical D3DCompiler evidence retained at its exact scope / no runtime claim changed**.
+
+
+---
+
+## 2026-09-28 — XP-compatible build freezes reported Windows web identity at 10.0
+
+Track: Windows XP SP3 x86 compatibility / web-visible OS identity. Independent of GOST TLS runtime and D3DCompiler packaging evidence.
+
+Implementation commit `94ff24222ce2b05c2f89185778f062120a332881` changes only `netwerk/protocol/http/nsHttpHandler.cpp`. Under the existing C/C++ `MOZ_XP_COMPAT` define, `InitUserAgentComponents()` no longer calls `GetVersionEx` to populate the Windows OS token and instead sets `dwMajorVersion=10`, `dwMinorVersion=0` before formatting `mOscpu`. Non-`MOZ_XP_COMPAT` Windows behavior is unchanged.
+
+Expected web-visible result for the XP-compatible build is `Windows NT 10.0` in the HTTP User-Agent OS token and `navigator.oscpu`; `navigator.platform` remains the normal Windows x86 value `Win32`. The existing r3dfox product token is not changed by this commit. This is a build-mode policy rather than a physical-XP-only runtime branch, so the same XP-compatible binary reports Windows NT 10.0 when run on later Windows versions as well.
+
+Current full run `36422520907 / 108928478106` is source-under-test `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` and predates this commit; it cannot validate the web-identity change. Runtime acceptance requires a later exact build from `94ff242...` or descendant, with no manual `general.useragent.override`, checking `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, `navigator.appVersion`, and the actual outgoing HTTP `User-Agent`.
+
+Status: **source implementation committed / build and physical runtime evidence pending**.
