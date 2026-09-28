@@ -644,3 +644,26 @@ Conclusion: the source `705470c0...` fix is a real Windows 10 presentation-path 
 Source-level next boundary: if XP has already selected `SurfaceFactory_Basic`, then `SharedSurface_Basic::Create()` can fail only when `MozFramebuffer::Create(...)` returns null. If a typed factory is still selected, that route must be identified first. Do not assume the Basic/FBO failure until factory selection is measured.
 
 Status: **artifact-correlated physical Windows XP WebGL presentation FAIL / exact failure boundary `SwapChain::Acquire() -> nullptr` PROVEN / selected factory and first failed operation OPEN.**
+
+
+---
+
+## 2026-09-28 — XP WebGL Basic-surface failure narrowed to zero GL object names
+
+Track: Windows XP SP3 x86 compatibility / WebGL presentation path. Independent of GOST TLS and WebRTC evidence.
+
+Exact runtime remains source `705470c0f1fd7302669b1f4d4c9aead33b773928`, run `36325907730`, job `108638512476`, package artifact `10936509397`, with artifact-correlated SHA-1 values already recorded for `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll`.
+
+The supplied `about:support` capture on physical Windows XP reports Software WebRender, active GPU process, NVIDIA GeForce GT 240 / XPDM-era driver, and `WEBGL default available`. The Graphics failure log contains:
+- `RcANGLE(no compositor device for EGLDisplay)`;
+- fallback from hardware WebRender to Software WebRender;
+- `RcANGLE(no compositor device for EGLDisplay)(Create)`;
+- `MozFramebuffer::CreateImpl(size:Size(140,150), samples:0, depthAndStencil:false, colorTarget:0xde1, colorName:0): Incomplete: 0x0`.
+
+The `140x150`, `samples=0`, `depthAndStencil=false` tuple matches the WebGL presentation shared-surface allocation rather than the default WebGL framebuffer. This establishes that the presentation path has reached the existing `SurfaceFactory_Basic` route after the D3D11 share-handle route is unavailable.
+
+The first concrete failure is now below `SharedSurface_Basic::Create()`: `MozFramebuffer::Create()` reaches `CreateImpl()` with `colorName=0`. In source, that value comes directly from `gl->CreateTexture() -> fGenTextures()`. The local GL error scope did not report an error before `CreateImpl()`, and framebuffer status is also logged as `0x0`. A leading hypothesis is that the GL/EGL context is not actually current when the Basic presentation framebuffer is allocated, despite the unforced `MakeCurrent()` call; this is not yet proven.
+
+Next low-cost A/B: disable `webgl.use-canvas-render-thread`, restart the browser, and repeat the exact WebGL page. If the zero-object-name failure disappears, investigate thread/context-current ownership and TLS-current caching before source modification. Otherwise instrument `MozFramebuffer::Create()` to record `MakeCurrent()` result, `IsCurrentImpl()`, generated texture/framebuffer names, and the first GL/EGL error.
+
+Status: **SurfaceFactory_Basic route PROVEN / `glGenTextures -> colorName=0` boundary PROVEN / reason for zero object name OPEN.**
