@@ -24,30 +24,22 @@ function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot, [bool]$allo
   $delayDlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
   $delayApis = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
   $mode = 'none'
-  $currentDll = $null
-  $importsExceptHandler4CommonFromMsvcrt = $false
   foreach ($line in $importsRaw) {
-    if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; $currentDll = $null; continue }
-    if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; $currentDll = $null; continue }
+    if ($line -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
+    if ($line -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
     if ($line -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
-      $currentDll = $matches[1]
-      if ($mode -eq 'direct') { [void]$dlls.Add($currentDll) }
-      elseif ($mode -eq 'delay') { [void]$delayDlls.Add($currentDll) }
+      if ($mode -eq 'direct') { [void]$dlls.Add($matches[1]) }
+      elseif ($mode -eq 'delay') { [void]$delayDlls.Add($matches[1]) }
       continue
     }
     $entry = $line.Trim()
     if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
       $api = Normalize-Api $matches[1]
-      if ($mode -eq 'direct') {
-        [void]$apis.Add($api)
-        if ($currentDll -ieq 'msvcrt.dll' -and $api -ieq '_except_handler4_common') {
-          $importsExceptHandler4CommonFromMsvcrt = $true
-        }
-      }
+      if ($mode -eq 'direct') { [void]$apis.Add($api) }
       elseif ($mode -eq 'delay') { [void]$delayApis.Add($api) }
     }
   }
-  return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis; Subsystem=$version; ImportsExceptHandler4CommonFromMsvcrt=$importsExceptHandler4CommonFromMsvcrt }
+  return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis; Subsystem=$version }
 }
 
 $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-import-audit'
@@ -84,8 +76,6 @@ foreach ($target in $targets) {
   if ($isOptionalModernD3dCompiler) {
     $hash = (Get-FileHash -Algorithm SHA256 $target.FullName).Hash.ToLowerInvariant()
     $optionalModernD3dCompilerRows.Add("$($target.FullName)|sha256=$hash|subsystem=$($imports.Subsystem)|role=optional-loadlibrary-fallback-primary")
-  } elseif ($imports.ImportsExceptHandler4CommonFromMsvcrt) {
-    $hits.Add("$($target.FullName)|API|msvcrt.dll!_except_handler4_common|reason=required-pe-imports-vista-only-msvcrt-entrypoint")
   }
   foreach ($dll in @($imports.Dlls | Sort-Object)) {
     $rows.Add("$($target.FullName)|DLL|$dll")
