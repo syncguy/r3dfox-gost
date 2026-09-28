@@ -137,3 +137,5 @@ The reproduced stock-Russian-langpack Page Info/WebGL failure is closed by the s
 - Do not call an in-progress run GREEN.
 - Match runtime binaries/PDBs to the exact artifact before using crash or PASS evidence.
 - Prefer source-level fallback, then correct build configuration, then legacy Windows API path, then a narrow provider/thunk; broad workarounds are last resort.
+
+- Replace the obsolete full-build D3DCompiler experiment: keep the normal build-produced `d3dcompiler_47.dll` unmodified, exclude it from the global PE subsystem retarget, stage the proven `D3DCompiler_43.dll` as `d3dcompiler_old.dll`, add exact-hash/package gates, then run a new full XP build and physical WebGL/shutdown acceptance.
