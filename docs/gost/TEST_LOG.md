@@ -608,3 +608,39 @@ The Windows 10 runtime is now independently artifact-correlated against package 
 Physical Windows XP acceptance remains separate. Required next evidence is a real WebGL render on XP (preferably console; RDP may additionally be tested with the WebGL blocklist/force prefs controlled), followed by graphics-triggered normal shutdown without recurrence of the prior `libGLESv2!DllMain` `DLL_THREAD_DETACH` second-chance AV.
 
 Status: **full build/package/static GREEN / artifact-correlated Windows 10 visible WebGL presentation PASS / physical XP WebGL + teardown acceptance pending.**
+
+
+---
+
+## 2026-09-28 — Exact-package physical Windows XP WebGL presentation FAIL after Win10 fallback PASS
+
+Track: Windows XP SP3 x86 compatibility / WebGL presentation path. Independent of GOST TLS and WebRTC evidence.
+
+Exact tested identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `705470c0f1fd7302669b1f4d4c9aead33b773928`;
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36325907730`;
+- job `108638512476`;
+- package artifact `10936509397`;
+- `r3dfox.exe` SHA-1 `e4a77e076f0355bd7ed10b7e355310103e640cc2`;
+- `xul.dll` SHA-1 `553dd042bd47d9db9a8bb2d1656ad2b0de6948f9`;
+- `libGLESv2.dll` SHA-1 `0095e2aa591f1d94a8de86191a3ebe15b6fe08e5`.
+
+These SHA-1 values exactly match the corresponding files independently extracted from package artifact `10936509397`, so the physical XP result is byte-for-byte artifact-correlated to source `705470c0...`.
+
+Physical XP result: `get.webgl.org` does **not** render the cube. The page reports WebGL support but the canvas remains blank. Developer console output includes:
+
+- `TypeError: WebGLRenderingContext.deleteShader: Argument 1 does not implement interface WebGLShader.`;
+- a subsequent page-script error because `program` is null;
+- `WebGL warning: <Present>: Swap chain surface creation failed.`;
+- `WebGL context was lost.`.
+
+The screenshot supplied with the test visibly shows the blank WebGL area and the above presentation/context-loss warnings.
+
+Conclusion: the source `705470c0...` fix is a real Windows 10 presentation-path correction but is **not sufficient on physical Windows XP**. The exact XP payload still reaches `WebGLContext::PresentInto()`, `SwapChain::Acquire()` returns null, and Firefox loses the context. The exact selected `SurfaceFactory` and first failing allocation/query have not yet been captured, so the XP owner below `SwapChain::Acquire()` remains `NOT ESTABLISHED`.
+
+Source-level next boundary: if XP has already selected `SurfaceFactory_Basic`, then `SharedSurface_Basic::Create()` can fail only when `MozFramebuffer::Create(...)` returns null. If a typed factory is still selected, that route must be identified first. Do not assume the Basic/FBO failure until factory selection is measured.
+
+Status: **artifact-correlated physical Windows XP WebGL presentation FAIL / exact failure boundary `SwapChain::Acquire() -> nullptr` PROVEN / selected factory and first failed operation OPEN.**
