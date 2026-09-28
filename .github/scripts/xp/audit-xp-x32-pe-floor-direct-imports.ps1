@@ -5,7 +5,7 @@ function Normalize-Api([string]$name) {
   return $name
 }
 
-function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot) {
+function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot, [bool]$allowPostXpSubsystem) {
   $safe = ($binary.FullName.Substring((Resolve-Path (Join-Path $env:OBJDIR 'dist\bin')).Path.Length).TrimStart('\') -replace '[^A-Za-z0-9_.-]', '_')
   $headers = @(& dumpbin.exe /nologo /headers $binary.FullName 2>&1)
   if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $($binary.FullName)" }
@@ -15,7 +15,7 @@ function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot) {
   $versionLine = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
   if (-not $versionLine -or $versionLine -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') { throw "Cannot parse subsystem version: $($binary.FullName)" }
   $version = [version]("$([int]$matches[1]).$([int]$matches[2])")
-  if ($version -gt [version]'5.1') { throw "$($binary.FullName) subsystem $version is newer than XP x86 5.01" }
+  if (-not $allowPostXpSubsystem -and $version -gt [version]'5.1') { throw "$($binary.FullName) subsystem $version is newer than XP x86 5.01" }
   $importsRaw = @(& dumpbin.exe /nologo /imports $binary.FullName 2>&1)
   if ($LASTEXITCODE -ne 0) { throw "dumpbin /imports failed: $($binary.FullName)" }
   $importsRaw | Set-Content -Encoding utf8 (Join-Path $diagRoot "$safe-imports.txt")
@@ -39,7 +39,7 @@ function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot) {
       elseif ($mode -eq 'delay') { [void]$delayApis.Add($api) }
     }
   }
-  return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis }
+  return @{ Dlls=$dlls; Apis=$apis; DelayDlls=$delayDlls; DelayApis=$delayApis; Subsystem=$version }
 }
 
 $diagRoot = Join-Path $env:GITHUB_WORKSPACE 'xp-x32-import-audit'
@@ -60,17 +60,30 @@ $forbiddenApis = @(
   'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
   'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
   'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','inet_pton','WSASendMsg','WSCGetProviderInfo',
-  'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+  'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime','_except_handler4_common'
 )
 $hits = [System.Collections.Generic.List[string]]::new()
 $rows = [System.Collections.Generic.List[string]]::new()
 $delayRows = [System.Collections.Generic.List[string]]::new()
+$optionalModernD3dCompilerCount = 0
+$optionalModernD3dCompilerRows = [System.Collections.Generic.List[string]]::new()
 foreach ($target in $targets) {
   $relativeTarget = $target.FullName.Substring($binResolved.Length).TrimStart('\') -replace '\\','/'
   $isPrivateDwrite = $relativeTarget -ieq 'xpcompat/dwrite/DWrite.dll'
-  $imports = Read-Binary $target $diagRoot
+  $isOptionalModernD3dCompiler = $relativeTarget -ieq 'd3dcompiler_47.dll'
+  if ($isOptionalModernD3dCompiler) { $optionalModernD3dCompilerCount++ }
+  $imports = Read-Binary $target $diagRoot $isOptionalModernD3dCompiler
+  if ($isOptionalModernD3dCompiler) {
+    $hash = (Get-FileHash -Algorithm SHA256 $target.FullName).Hash.ToLowerInvariant()
+    $optionalModernD3dCompilerRows.Add("$($target.FullName)|sha256=$hash|subsystem=$($imports.Subsystem)|role=optional-loadlibrary-fallback-primary")
+  }
   foreach ($dll in @($imports.Dlls | Sort-Object)) {
     $rows.Add("$($target.FullName)|DLL|$dll")
+    if (-not $isOptionalModernD3dCompiler -and $dll -ieq 'd3dcompiler_47.dll') {
+      $hits.Add("$($target.FullName)|DLL|$dll|reason=required-pe-must-not-hard-import-optional-modern-compiler")
+      continue
+    }
+    if ($isOptionalModernD3dCompiler) { continue }
     $privateDwriteApiSet = $isPrivateDwrite -and $privateDwriteApiSets.Contains($dll)
     if ($privateDwriteApiSet) { continue }
     foreach ($pattern in $forbiddenDllPatterns) {
@@ -79,11 +92,17 @@ foreach ($target in $targets) {
   }
   foreach ($api in @($imports.Apis | Sort-Object)) {
     $rows.Add("$($target.FullName)|API|$api")
-    if (-not $isPrivateDwrite -and $forbiddenApis -contains $api) { $hits.Add("$($target.FullName)|API|$api") }
+    if (-not $isPrivateDwrite -and -not $isOptionalModernD3dCompiler -and $forbiddenApis -contains $api) {
+      $hits.Add("$($target.FullName)|API|$api")
+    }
   }
   foreach ($dll in @($imports.DelayDlls | Sort-Object)) { $delayRows.Add("$($target.FullName)|DLL|$dll") }
   foreach ($api in @($imports.DelayApis | Sort-Object)) { $delayRows.Add("$($target.FullName)|API|$api") }
 }
+if ($optionalModernD3dCompilerCount -ne 1) {
+  throw "Expected exactly one root d3dcompiler_47.dll optional compiler; found $optionalModernD3dCompilerCount"
+}
+$optionalModernD3dCompilerRows | Set-Content -Encoding utf8 diagnostics\d3dcompiler47-optional-role.txt
 $rows | Set-Content -Encoding utf8 xp-x32-direct-imports.txt
 $delayRows | Set-Content -Encoding utf8 xp-x32-delay-imports.txt
 $hits | Sort-Object -Unique | Set-Content -Encoding utf8 xp-x32-forbidden-direct-imports.txt
