@@ -2,8 +2,17 @@ $ErrorActionPreference = 'Stop'
 
 $bin = Join-Path $env:OBJDIR 'dist\bin'
 $rows = [System.Collections.Generic.List[string]]::new()
+$protectedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($name in @('d3dcompiler_47.dll','d3dcompiler_old.dll')) {
+  [void]$protectedNames.Add($name)
+}
+
 $targets = @(Get-ChildItem -LiteralPath $bin -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll') })
 foreach ($target in $targets) {
+  if ($protectedNames.Contains($target.Name)) {
+    continue
+  }
+
   $headers = @(& dumpbin.exe /nologo /headers $target.FullName 2>&1)
   if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed: $($target.FullName)" }
   $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+ machine ' } | Select-Object -First 1
