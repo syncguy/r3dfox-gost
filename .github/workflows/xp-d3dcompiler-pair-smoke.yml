@@ -1,0 +1,72 @@
+name: "XP D3DCompiler pair smoke"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - .github/workflows/xp-d3dcompiler-pair-smoke.yml
+      - .github/scripts/xp/prepare-firefox52-d3dcompiler-pair.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Firefox 52 ESR D3DCompiler 43/47 pair smoke
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Show local MSVC / Windows SDK tools
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          where.exe cl
+          where.exe link
+          where.exe dumpbin
+          "WindowsSdkDir=$env:WindowsSdkDir"
+          "WindowsSDKVersion=$env:WindowsSDKVersion"
+
+      - name: Acquire and verify Firefox 52 ESR D3DCompiler pair
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-firefox52-d3dcompiler-pair.ps1
+
+      - name: Upload verified D3DCompiler pair
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-52.9.0esr-d3dcompiler-pair
+          if-no-files-found: error
+          compression-level: 0
+          path: d3dcompiler-pair/**
+
+      - name: Upload D3DCompiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-52.9.0esr-d3dcompiler-pair-diagnostics
+          if-no-files-found: warn
+          path: d3dcompiler-pair-diagnostics/**
+
+      - name: Summarize smoke
+        if: success()
+        shell: powershell
+        run: |
+          "## XP D3DCompiler pair smoke: PASS" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-under-test: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source archive: Firefox 52.9.0 ESR win32 SDK." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- D3DCompiler_43.dll: exact hash, PE/export checks, D3DCompile ps_3_0 smoke PASS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- d3dcompiler_47.dll: exact hash, PE/export checks, D3DCompile ps_3_0 smoke PASS." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- d3dcompiler_old.dll is a byte-identical alias of D3DCompiler_43.dll." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
