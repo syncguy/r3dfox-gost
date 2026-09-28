@@ -35,7 +35,6 @@ function Read-Binary([System.IO.FileInfo]$binary, [string]$diagRoot, [bool]$allo
       elseif ($mode -eq 'delay') { [void]$delayDlls.Add($currentDll) }
       continue
     }
-    }
     $entry = $line.Trim()
     if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
       $api = Normalize-Api $matches[1]
