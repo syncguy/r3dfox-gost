@@ -776,3 +776,29 @@ Verified pair:
 Both DLLs passed the focused functional probe using `D3DCompile` on a minimal `ps_3_0` shader.
 
 This smoke establishes a reproducible source and exact binary identities for both the XP-compatible legacy compiler and the unmodified Firefox 52 ESR D3DCompiler 47 reference.
+
+
+---
+
+## 2026-09-28 — D3DCompiler full package gates PASS; broad import audit false-positive isolated to provider-blind `_except_handler4_common` rule
+
+Track: Windows XP SP3 x86 compatibility / D3DCompiler packaging / final PE-import audit. Independent of GOST TLS runtime.
+
+Exact full-build evidence:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36390265057`;
+- job `108824318489`;
+- source-under-test `8bb4ef8fed2362030a27e67058be87e12be61bba`;
+- package artifact `10962792058`, digest `sha256:a037410334fb59f4c0371ea118b871df0d277967ef1bf1df6270784fafd7df59`;
+- runtime artifact `10962781974`, digest `sha256:5ea89f3722a8393985f2b2df322f005beb383ce832a1d5868abce8c9b64f6f3a`;
+- diagnostics artifact `10962284979`, digest `sha256:2d6692c671bc4fe68552b044e03c4cea0e8cb8a9fda70641ad4daa8dbc209c8c`;
+- final result: completed / failure because aggregate summary received `BROAD_IMPORT_AUDIT_OUTCOME=failure`.
+
+All new D3DCompiler packaging gates passed on this exact build: the pair remained unchanged through PE retargeting, the pinned `d3dcompiler_old.dll` survived portable packaging, the build-produced optional `d3dcompiler_47.dll` survived unchanged, the packaged pair passed the direct `vs_3_0` + `ps_3_0` compile probe, and the CRT/private-DWrite/bcrypt package gates also passed.
+
+The broad audit failure is a gate-policy false positive, not a newly established runtime incompatibility. Its output contains 23 hits and every hit is the bare API name `_except_handler4_common`. Re-reading the per-PE `dumpbin /imports` diagnostics shows that all 23 required PEs import that symbol from the pinned app-local `ucrtbase.dll`, not from system `msvcrt.dll`. The original physical XP evidence that motivated this check concerned an older packaged `d3dcompiler_47.dll` importing `msvcrt.dll!_except_handler4_common`; that provider edge is incompatible with XP, whereas the project-supplied msvcr14x `ucrtbase.dll` is a separately gated XP runtime provider.
+
+Implementation candidate `bbcdbb4a73ddbb168a1c141e371efeaac4c7655d` narrows only this rule: `_except_handler4_common` is no longer globally forbidden by bare symbol name; required PEs are rejected when the direct-import parser observes the specific edge `msvcrt.dll!_except_handler4_common`. The existing optional root `d3dcompiler_47.dll` exception, all other forbidden DLL/API rules, required-PE hard-import rejection for `d3dcompiler_47.dll`, and strict `d3dcompiler_old.dll` contract remain unchanged.
+
+Status: **D3DCompiler full package/static gates PASS on 8bb4ef8 / broad audit policy false-positive PROVEN / provider-scoped audit fix committed at bbcdbb4 / rerun pending / no new physical-runtime claim**.
