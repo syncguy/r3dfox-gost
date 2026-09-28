@@ -236,6 +236,12 @@ Keep later XP compatibility experiments, WebRTC, packaging/localization and GOST
 - A PDB may symbolize only its matching binary from the same build.
 - Runtime claims stay bound to exact source SHA + Actions run/job + exact artifact/binary identity.
 
+### XP-compatible web identity
+
+Implementation commit `94ff24222ce2b05c2f89185778f062120a332881` adds the previously deferred `MOZ_XP_COMPAT` branch in `nsHttpHandler.cpp`: XP-compatible builds format the Windows OS/CPU component as `Windows NT 10.0` instead of exposing the physical XP `5.1` result from `GetVersionEx`. This drives the normal HTTP User-Agent service and `navigator.oscpu`; `navigator.platform` remains `Win32`. The change is compile-time build policy, not a physical-XP-only runtime branch, and does not remove the separate `r3dfox/153.0.3` product token.
+
+The already-running full workflow `36422520907 / 108928478106` is bound to predecessor source `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` and therefore does not contain this change. A later full build from `94ff242...` or descendant is required before any runtime claim.
+
 ### D3DCompiler packaging state
 
 Focused run `36385541515 / 108810027817` proved the Firefox 52.9.0 ESR SDK as a reproducible source for both `D3DCompiler_43.dll` and the unmodified `d3dcompiler_47.dll`. The legacy 43 binary is the proven physical-XP WebGL fallback when staged as `d3dcompiler_old.dll`; the 47 reference remains subsystem 6.0 and should not be retargeted to XP.
