@@ -735,3 +735,20 @@ This A/B is strong evidence that the XP WebGL blocker was the unusable packaged 
 Historical Mozilla evidence independently matches this result: Firefox's XP-era builds retained `D3DCompiler_43.dll` specifically for Windows XP WebGL, while D3DCompiler 47 was known to depend on Vista-only `_except_handler4_common`.
 
 Acceptance boundary: **physical XP visible WebGL render PASS with base artifact plus injected legacy compiler fallback**. Browser shutdown after this exact graphics workload is not yet recorded here, so the prior graphics-triggered `libGLESv2!DllMain` teardown boundary remains open until explicitly retested.
+
+
+---
+
+## 2026-09-28 — Physical XP WebGL PASS confirmed with default WebGL prefs
+
+Follow-up acceptance on the same physical Windows XP system and same base browser source `705470c0f1fd7302669b1f4d4c9aead33b773928`, with the same injected legacy compiler fallback `D3DCompiler_old.dll` derived from Firefox 52.9.0 32-bit `D3DCompiler_43.dll`.
+
+The user restored all tested `webgl.*` preferences to their defaults, fully restarted the browser, verified the WebGL prefs were default-valued, and repeated `get.webgl.org`. The rotating cube remained visibly functional.
+
+Therefore none of the temporary preference overrides used during diagnosis (`webgl.force-enabled`, `webgl.ignore-blocklist`, or `webgl.use-canvas-render-thread=false`) is required for the observed XP WebGL PASS.
+
+The supplied screenshot confirms visible rendering after the clean-config restart.
+
+The user's binary comparison between the packaged r3dfox `d3dcompiler_47.dll` and a current Yandex Browser `d3dcompiler_47.dll` shows only two differing bytes at file offsets `0x150` and `0x152`: r3dfox has `05 01`, Yandex has `06 00`. This is consistent with the already-observed r3dfox DLL reporting PE subsystem version 5.1 versus the Yandex DLL retaining subsystem version 6.0. That header-only compatibility difference does not address the XP loader failure caused by the DLL's runtime import contract.
+
+Final current XP WebGL conclusion: **default WebGL prefs + existing ANGLE Basic fallback + XP-compatible D3DCompiler 43 under the existing `d3dcompiler_old.dll` fallback name = visible WebGL PASS on physical XP.**
