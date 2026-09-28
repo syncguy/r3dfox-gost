@@ -235,3 +235,9 @@ Keep later XP compatibility experiments, WebRTC, packaging/localization and GOST
 - Documentation HEADs never replace source-under-test SHA.
 - A PDB may symbolize only its matching binary from the same build.
 - Runtime claims stay bound to exact source SHA + Actions run/job + exact artifact/binary identity.
+
+### D3DCompiler packaging state
+
+Focused run `36385541515 / 108810027817` proved the Firefox 52.9.0 ESR SDK as a reproducible source for both `D3DCompiler_43.dll` and the unmodified `d3dcompiler_47.dll`. The legacy 43 binary is the proven physical-XP WebGL fallback when staged as `d3dcompiler_old.dll`; the 47 reference remains subsystem 6.0 and should not be retargeted to XP.
+
+The current full XP workflow still contains the obsolete experiment that replaces the build-produced `d3dcompiler_47.dll` with the Firefox-52 copy and then retargets its PE subsystem to 5.01. That experiment must be removed/reworked before the next full build.
