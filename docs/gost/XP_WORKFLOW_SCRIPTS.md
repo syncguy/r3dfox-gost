@@ -38,8 +38,7 @@ The active implementation branch currently uses the following scripts under `.gi
 - `stage-proven-xp-bcrypt.ps1` — stages exact proven `bcrypt.dll` into `dist/bin` and records its identity.
 - `verify-packaged-msvcr14x-crt.ps1` — verifies `ucrtbase.dll` and `msvcp140.dll` identities inside the produced portable package and selects the verified portable archive.
 - `verify-packaged-proven-bcrypt.ps1` — verifies exact `bcrypt.dll` identity after portable packaging.
-- `prepare-legacy-d3dcompiler47.ps1` — prepares the pinned legacy Firefox XP-compatible `D3DCompiler_47` input.
-- `verify-retargeted-legacy-d3dcompiler47.ps1` — verifies legacy D3DCompiler identity, PE subsystem, and forbidden imports after retargeting.
+- `d3dcompiler-xp-fallback.ps1` — owns the XP ANGLE compiler-fallback packaging contract: pins Firefox 52.9.0 ESR `D3DCompiler_43.dll`, stages it unchanged as `d3dcompiler_old.dll`, records the build-produced modern `d3dcompiler_47.dll`, verifies both remain byte-identical across PE retargeting and portable packaging, and runs final `vs_3_0` + `ps_3_0` `D3DCompile` probes on the packaged pair.
 
 ### YY-Thunks integration and diagnostics
 
@@ -56,8 +55,8 @@ The active implementation branch currently uses the following scripts under `.gi
 
 ### PE retargeting and import gates
 
-- `retarget-dist-bin-pe-subsystem.ps1` — retargets eligible x86 `dist/bin` PE subsystem headers to the configured XP floor; this is header work only, not compatibility proof.
-- `audit-xp-x32-pe-floor-direct-imports.ps1` — broad all-PE x86/subsystem/direct-import audit with the current forbidden DLL/API policy and the narrow private-DWrite exception.
+- `retarget-dist-bin-pe-subsystem.ps1` — retargets eligible x86 `dist/bin` PE subsystem headers to the configured XP floor while explicitly preserving vendor `d3dcompiler_47.dll` and `d3dcompiler_old.dll` byte-for-byte; this is header work only, not compatibility proof.
+- `audit-xp-x32-pe-floor-direct-imports.ps1` — broad all-PE x86/subsystem/direct-import audit with the current forbidden DLL/API policy, the narrow private-DWrite exception, and one documented optional modern-compiler exception for root `d3dcompiler_47.dll`; required XP PEs still must not hard-import that optional compiler, and `_except_handler4_common` is forbidden for the required XP closure.
 - `reject-core-browser-xp-direct-imports.ps1` — targeted direct-import gate for the core browser PE set.
 - `verify-xul-battery-user32-imports.ps1` — rejects Vista-only battery USER32 imports from final `xul.dll`.
 - `verify-xul-source-remediation-quartet.ps1` — verifies the source-remediated restart/named-pipe API quartet is absent from final imports.
