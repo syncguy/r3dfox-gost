@@ -667,3 +667,18 @@ The first concrete failure is now below `SharedSurface_Basic::Create()`: `MozFra
 Next low-cost A/B: disable `webgl.use-canvas-render-thread`, restart the browser, and repeat the exact WebGL page. If the zero-object-name failure disappears, investigate thread/context-current ownership and TLS-current caching before source modification. Otherwise instrument `MozFramebuffer::Create()` to record `MakeCurrent()` result, `IsCurrentImpl()`, generated texture/framebuffer names, and the first GL/EGL error.
 
 Status: **SurfaceFactory_Basic route PROVEN / `glGenTextures -> colorName=0` boundary PROVEN / reason for zero object name OPEN.**
+
+
+---
+
+## 2026-09-28 — XP WebGL canvas-render-thread A/B negative; d3dcompiler_47 static compatibility checked
+
+Exact runtime remains source `705470c0f1fd7302669b1f4d4c9aead33b773928`, run `36325907730`, job `108638512476`, package `10936509397`.
+
+A/B result: setting `webgl.use-canvas-render-thread=false` and fully restarting the browser does not change the failure. `get.webgl.org` still ends with `<Present>: Swap chain surface creation failed.` and context loss; Graphics failure log still reports `MozFramebuffer::CreateImpl(... colorName:0): Incomplete: 0x0`. Therefore simply moving WebGL work off the canvas render thread does not resolve the zero-object-name boundary.
+
+A follow-up static inspection of the exact packaged `d3dcompiler_47.dll` from artifact `10936509397` shows SHA-1 `60fd000169306c8c7f33f7df175cc5c3a6562ab5`, PE32/i386, subsystem version 5.1, and direct imports limited to XP-era KERNEL32/ADVAPI32/RPCRT4/MSVCRT entry points in the inspected import table. ANGLE's `HLSLCompiler::ensureInitialized()` dynamically loads the configured D3D compiler DLL with `LoadLibraryA`, resolves `D3DCompile` and `D3DDisassemble`, and falls back to `d3dcompiler_old.dll` only if the default compiler DLL cannot be loaded. The package contains `d3dcompiler_47.dll` and no `d3dcompiler_old.dll`.
+
+This static inspection does not prove that `d3dcompiler_47.dll` loads successfully or that shader compilation succeeds on physical XP. Because the page also reports a null WebGL program/shader path before presentation, D3D compiler load/compile behavior is now a legitimate parallel diagnostic target. It is not yet established as the cause of `glGenTextures -> colorName=0`.
+
+Next diagnostic should first verify actual runtime loading of `d3dcompiler_47.dll` and capture any ANGLE HLSL compiler/load failure, while separately preserving the proven Basic framebuffer zero-name boundary.
