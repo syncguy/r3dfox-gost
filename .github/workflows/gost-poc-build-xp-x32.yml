@@ -98,10 +98,6 @@ jobs:
           Start-Process -FilePath $installer -ArgumentList '/S' -Wait
           if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
 
-      - name: Prepare pinned legacy Firefox XP D3DCompiler_47
-        shell: powershell
-        run: .\.github\scripts\xp\prepare-legacy-d3dcompiler47.ps1
-
       - name: Prepare pinned MSSPI source
         shell: powershell
         run: |
@@ -141,6 +137,10 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+
+      - name: Prepare pinned XP D3DCompiler_43 fallback
+        shell: powershell
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode Prepare
 
       - name: Prepare pinned XP bcrypt release asset
         shell: powershell
@@ -326,28 +326,15 @@ jobs:
             Copy-Item -Force $src (Join-Path $bin $dll)
           }
 
-      - name: Stage pinned legacy Firefox XP D3DCompiler_47
-        id: stage-legacy-d3dcompiler
+      - name: Stage pinned XP D3DCompiler_43 fallback
+        id: stage-d3dcompiler-fallback
         if: steps.stage-runtime.outcome == 'success'
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $expected = '3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e'
-          $bin = Join-Path $env:OBJDIR 'dist\bin'
-          $dst = Join-Path $bin 'd3dcompiler_47.dll'
-          if (-not (Test-Path $dst)) { throw "Build-produced D3DCompiler_47 missing: $dst" }
-          $before = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
-          Copy-Item -Force $env:LEGACY_D3DCOMPILER47 $dst
-          $after = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
-          if ($after -ne $expected) { throw "Legacy D3DCompiler_47 stage hash mismatch: $after" }
-          $version = (Get-Item $dst).VersionInfo.FileVersion
-          if ($version -notlike '10.0.14393.33*') { throw "Unexpected legacy D3DCompiler_47 version: $version" }
-          New-Item -ItemType Directory -Force diagnostics | Out-Null
-          @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") | Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode Stage
 
       - name: Stage pinned private DirectWrite closure
         id: stage-private-dwrite
-        if: steps.stage-legacy-d3dcompiler.outcome == 'success'
+        if: steps.stage-d3dcompiler-fallback.outcome == 'success'
         shell: powershell
         run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Stage
 
@@ -357,12 +344,12 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\retarget-dist-bin-pe-subsystem.ps1
 
-      - name: GATE - Verify retargeted legacy D3DCompiler_47
-        id: verify-retargeted-d3dcompiler
+      - name: GATE - Verify D3DCompiler pair unchanged after PE retarget
+        id: verify-d3dcompiler-after-retarget
         if: steps.retarget-pe.outcome == 'success'
         continue-on-error: true
         shell: powershell
-        run: .\.github\scripts\xp\verify-retargeted-legacy-d3dcompiler47.ps1
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode VerifyAfterRetarget
 
       - name: GATE - Verify private DirectWrite closure after PE retarget
         id: verify-private-dwrite
@@ -402,27 +389,19 @@ jobs:
           .\mach.ps1 package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: GATE - Verify legacy D3DCompiler_47 survived packaging
-        id: verify-legacy-d3dcompiler
-        if: steps.package-release.outcome == 'success'
-        continue-on-error: true
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $expected = $env:LEGACY_D3DCOMPILER47_RETARGETED_SHA256
-          if (-not $expected) { throw 'Retargeted D3DCompiler_47 hash was not recorded' }
-          $dll = Join-Path $env:OBJDIR 'dist\bin\d3dcompiler_47.dll'
-          if (-not (Test-Path $dll)) { throw "Staged D3DCompiler_47 disappeared after package: $dll" }
-          $hash = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
-          if ($hash -ne $expected) { throw "D3DCompiler_47 changed during package: expected=$expected actual=$hash" }
-          "post_package_sha256=$hash" | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
-
       - name: GATE - Verify msvcr14x CRT survived portable packaging
         id: verify-packaged-crt
         if: always() && steps.package-release.outcome == 'success'
         continue-on-error: true
         shell: powershell
         run: .\.github\scripts\xp\verify-packaged-msvcr14x-crt.ps1
+
+      - name: GATE - Verify packaged D3DCompiler pair and SM3 compile
+        id: verify-packaged-d3dcompiler-pair
+        if: always() && steps.verify-packaged-crt.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode VerifyPackage
 
       - name: GATE - Verify private DirectWrite closure survived portable packaging
         id: verify-packaged-private-dwrite
@@ -537,9 +516,9 @@ jobs:
           ADVAPI32_COMPAT_IMPORT_OUTCOME: ${{ steps.advapi32-etw-import-gate.outcome }}
           DPI_IMPORT_MODE_OUTCOME: ${{ steps.dpi-import-gate.outcome }}
           CORE_IMPORT_OUTCOME: ${{ steps.sync-import-gate.outcome }}
-          RETARGETED_D3DCOMPILER_OUTCOME: ${{ steps.verify-retargeted-d3dcompiler.outcome }}
+          D3DCOMPILER_AFTER_RETARGET_OUTCOME: ${{ steps.verify-d3dcompiler-after-retarget.outcome }}
           PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-private-dwrite.outcome }}
-          PACKAGED_D3DCOMPILER_OUTCOME: ${{ steps.verify-legacy-d3dcompiler.outcome }}
+          PACKAGED_D3DCOMPILER_PAIR_OUTCOME: ${{ steps.verify-packaged-d3dcompiler-pair.outcome }}
           PACKAGED_CRT_OUTCOME: ${{ steps.verify-packaged-crt.outcome }}
           PACKAGED_PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-packaged-private-dwrite.outcome }}
           PACKAGED_BCRYPT_OUTCOME: ${{ steps.verify-packaged-bcrypt.outcome }}
