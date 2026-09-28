@@ -575,3 +575,36 @@ Current root-cause status is still narrower than a final proof. The artifact ins
 Preferred remediation direction for a source experiment is to remove this XP dependency on MSVC thread-safe local-static TLS at the ANGLE trace-cache boundary rather than disabling WebGL, removing the trace point, weakening an assertion, or reopening the D3D9 backend. A targeted XP-only trace-cache fallback can avoid the function-local dynamically initialized `static` while leaving non-XP behavior unchanged. A broader `/Zc:threadSafeInit-` ANGLE build experiment remains a secondary diagnostic option because it changes all affected local-static initialization in the compiled target rather than only the proven owner.
 
 Status: **reproduced / GPU-child role PROVEN / fault owner and pre-renderer boundary PROVEN / exact TLS-epoch root cause still OPEN.**
+
+---
+
+## 2026-09-28 — WebGL ANGLE D3D9Ex presentation fallback full build GREEN + Windows 10 visible-render PASS
+
+Track: Windows graphics compatibility / WebGL presentation path. Independent of GOST TLS and WebRTC evidence.
+
+Exact build identity:
+
+- branch `agent/winrt-source-poc`;
+- source-under-test `705470c0f1fd7302669b1f4d4c9aead33b773928` (`fix(webgl): fall back when ANGLE has no D3D11 device`);
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36325907730`;
+- job `108638512476`;
+- result: **completed / success / GREEN**.
+
+Artifacts bound by GitHub Actions to exact source-under-test `705470c0...`:
+
+- package `10936509397` (`r3dfox-gost-xp-x32-package`), digest `sha256:65552a1e53bf98d25e59039afa3cdc2ee5dba7531bb39b7ef1b422361a1e7dbd`;
+- runtime `10937007948` (`r3dfox-gost-xp-x32-runtime`), digest `sha256:56e24e564eee9eb0765053b777315dd91cf074d79e7774b2f84e6da82a5a840f`;
+- diagnostics `10936509452` (`r3dfox-gost-xp-x32-diagnostics`), digest `sha256:0176bb946fc349ae2be7e0bbfa07e304519facbd11455381a0faa67804cec33a`.
+
+All recorded blocking build/package/static gates in job `108638512476` completed successfully, including the release browser build, ANGLE XP local-static codegen gate, XP PE/import audit, final packaged-runtime `libGLESv2.dll` YY TLS entry-point contract gate, packaging and aggregate summary.
+
+The source change hardens `GetD3D11DeviceOfEGLDisplay()` and rejects `SurfaceFactory_ANGLEShareHandle` during factory selection when the ANGLE display does not expose a D3D11 device. This allows the existing `InitSwapChain()` fallback to choose `SurfaceFactory_Basic` instead of failing later in `SwapChain::Acquire()` and losing the WebGL context.
+
+Windows 10 control-system runtime result: the user reports testing the newly built browser from this run with the same ANGLE D3D9Ex configuration that previously produced `Swap chain surface creation failed.` / context loss. `get.webgl.org` now visibly renders the rotating cube; the supplied screenshot shows the rendered cube and the page's WebGL-support result. This is a **visible WebGL presentation PASS on Windows 10 for the user-identified new build**.
+
+Evidence boundary: local `r3dfox.exe` / `xul.dll` / `libGLESv2.dll` hashes were not supplied for this Windows 10 run, so the physical observation is not yet independently byte-for-byte artifact-correlated. It does, however, provide direct A/B functional evidence that the presentation regression seen on the predecessor source is no longer reproduced in the newly built source line.
+
+Physical Windows XP acceptance remains separate. Required next evidence is a real WebGL render on XP (preferably console; RDP may additionally be tested with the WebGL blocklist/force prefs controlled), followed by graphics-triggered normal shutdown without recurrence of the prior `libGLESv2!DllMain` `DLL_THREAD_DETACH` second-chance AV.
+
+Status: **full build/package/static GREEN / Windows 10 visible WebGL presentation PASS (user-reported build association) / physical XP WebGL + teardown acceptance pending.**
