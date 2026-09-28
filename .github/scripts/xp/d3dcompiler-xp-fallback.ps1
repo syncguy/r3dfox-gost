@@ -1,11 +1,11 @@
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-
 param(
   [Parameter(Mandatory = $true)]
   [ValidateSet('Prepare','Stage','VerifyAfterRetarget','VerifyPackage')]
   [string]$Mode
 )
+
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 
 $sourceUri = 'https://archive.mozilla.org/pub/firefox/releases/52.9.0esr/firefox-52.9.0esr.win32.sdk.zip'
 $sourceZipSha256 = 'c3788c977d19149cc62daf9f4494d08092f836b9e60fa8ef411e05469f4bad4f'
@@ -112,6 +112,7 @@ function Invoke-ShaderProbe([string[]]$Dlls) {
 #include <windows.h>
 #include <d3dcompiler.h>
 #include <cstdio>
+#include <cstring>
 
 using D3DCompileFn = HRESULT (WINAPI*)(
     LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*,
@@ -120,7 +121,7 @@ using D3DCompileFn = HRESULT (WINAPI*)(
 static int CompileOne(D3DCompileFn fn, const char* source, const char* profile) {
   ID3DBlob* code = nullptr;
   ID3DBlob* errors = nullptr;
-  const HRESULT hr = fn(source, strlen(source), "smoke.hlsl", nullptr, nullptr,
+  const HRESULT hr = fn(source, std::strlen(source), "smoke.hlsl", nullptr, nullptr,
                         "main", profile, 0, 0, &code, &errors);
   if (FAILED(hr) || !code || code->GetBufferSize() == 0) {
     std::printf("%s compile failed: hr=0x%08lx\n", profile,
