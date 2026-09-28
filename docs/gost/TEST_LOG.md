@@ -682,3 +682,26 @@ A follow-up static inspection of the exact packaged `d3dcompiler_47.dll` from ar
 This static inspection does not prove that `d3dcompiler_47.dll` loads successfully or that shader compilation succeeds on physical XP. Because the page also reports a null WebGL program/shader path before presentation, D3D compiler load/compile behavior is now a legitimate parallel diagnostic target. It is not yet established as the cause of `glGenTextures -> colorName=0`.
 
 Next diagnostic should first verify actual runtime loading of `d3dcompiler_47.dll` and capture any ANGLE HLSL compiler/load failure, while separately preserving the proven Basic framebuffer zero-name boundary.
+
+
+---
+
+## 2026-09-28 — XP WebGL D3D compiler load failure proven by first-chance STATUS_ENTRYPOINT_NOT_FOUND
+
+Exact runtime remains source `705470c0f1fd7302669b1f4d4c9aead33b773928`, run `36325907730`, job `108638512476`, package artifact `10936509397`.
+
+On physical Windows XP under WinDbg, reloading `get.webgl.org` produces:
+
+- `ModLoad: ...\d3dcompiler_47.dll`;
+- immediately followed by first-chance exception `0xC0000139`;
+- then the page reports a null WebGL program path, followed by the already-known `<Present>: Swap chain surface creation failed.` and context loss.
+
+`0xC0000139` is `STATUS_ENTRYPOINT_NOT_FOUND`. This establishes that the packaged `d3dcompiler_47.dll` cannot complete normal loader import resolution on XP.
+
+Independent inspection of the exact packaged `d3dcompiler_47.dll` (SHA-1 `60fd000169306c8c7f33f7df175cc5c3a6562ab5`) shows a direct import of `_except_handler4_common` from `msvcrt.dll` together with other CRT imports. Historical Mozilla bug 980697 documented the same XP blocker for D3DCompiler 47: lowering the PE subsystem version was not sufficient because the DLL still depended on Vista-only `_except_handler4_common`.
+
+ANGLE source at this exact branch dynamically loads the configured D3D compiler DLL and, if that load fails, attempts `d3dcompiler_old.dll`. The current package contains `d3dcompiler_47.dll` but no `d3dcompiler_old.dll`.
+
+This does not yet prove which missing import WinDbg encountered first on the current machine; loader snaps should be used if exact symbol identity is required. However the compiler DLL's XP incompatibility itself is now proven.
+
+Next low-cost product-free A/B: provide a known XP-compatible D3D compiler exposing `D3DCompile` and `D3DDisassemble` under ANGLE's fallback filename `d3dcompiler_old.dll`, using a legitimate historical Mozilla/Microsoft redistributable source, and repeat WebGL on the exact package. If shader compilation succeeds but the Basic framebuffer still returns zero GL object names, keep the two blockers separate.
