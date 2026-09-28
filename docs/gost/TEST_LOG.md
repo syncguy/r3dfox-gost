@@ -705,3 +705,33 @@ ANGLE source at this exact branch dynamically loads the configured D3D compiler 
 This does not yet prove which missing import WinDbg encountered first on the current machine; loader snaps should be used if exact symbol identity is required. However the compiler DLL's XP incompatibility itself is now proven.
 
 Next low-cost product-free A/B: provide a known XP-compatible D3D compiler exposing `D3DCompile` and `D3DDisassemble` under ANGLE's fallback filename `d3dcompiler_old.dll`, using a legitimate historical Mozilla/Microsoft redistributable source, and repeat WebGL on the exact package. If shader compilation succeeds but the Basic framebuffer still returns zero GL object names, keep the two blockers separate.
+
+
+---
+
+## 2026-09-28 — Physical XP WebGL visible-render PASS with legacy D3D compiler fallback
+
+Track: Windows XP SP3 x86 compatibility / WebGL. Independent of GOST TLS and WebRTC evidence.
+
+Base browser identity remains source `705470c0f1fd7302669b1f4d4c9aead33b773928`, run `36325907730`, job `108638512476`, package artifact `10936509397`, with previously recorded artifact-correlated hashes for `r3dfox.exe`, `xul.dll`, and `libGLESv2.dll`.
+
+A single runtime addition was made without rebuilding the browser: `D3DCompiler_43.dll` from an installed 32-bit Firefox 52.9.0 directory was copied beside `r3dfox.exe` and renamed to ANGLE's existing fallback filename `D3DCompiler_old.dll`.
+
+Exact uploaded fallback DLL identity:
+
+- SHA-1 `98be17e1d324790a5b206e1ea1cc4e64fbe21240`;
+- PE32/i386;
+- PE subsystem target Windows 5.0;
+- file/product version `9.29.952.3111`;
+- original filename metadata `D3DCompiler_43.dll`;
+- exports include both `D3DCompile` and `D3DDisassemble`.
+
+Physical Windows XP result: `get.webgl.org` visibly renders the rotating cube. The user explicitly confirms successful WebGL rendering on XP. The supplied screenshot shows the rendered cube and no WebGL context-loss warnings.
+
+The accompanying `about:support` capture still records Software WebRender, `WEBGL default available`, and the expected hardware-compositor fallback diagnostics (`RcANGLE(no compositor device for EGLDisplay)` / software WebRender fallback). The previous `MozFramebuffer::CreateImpl(... colorName:0): Incomplete: 0x0` failure is absent from the new Graphics failure log. `webgl.use-canvas-render-thread=false` remained set during this successful test, so that pref is not established as required for the PASS.
+
+This A/B is strong evidence that the XP WebGL blocker was the unusable packaged `d3dcompiler_47.dll` path rather than a missing Basic presentation implementation. ANGLE's existing fallback to `d3dcompiler_old.dll` is sufficient when supplied with an XP-compatible D3DCompiler 43 binary. It also explains the earlier shader/program-null errors and the downstream Basic-surface allocation failure disappearing together. Exact internal causality between failed shader compiler initialization and the prior zero GL object name remains inferred rather than directly instrumented.
+
+Historical Mozilla evidence independently matches this result: Firefox's XP-era builds retained `D3DCompiler_43.dll` specifically for Windows XP WebGL, while D3DCompiler 47 was known to depend on Vista-only `_except_handler4_common`.
+
+Acceptance boundary: **physical XP visible WebGL render PASS with base artifact plus injected legacy compiler fallback**. Browser shutdown after this exact graphics workload is not yet recorded here, so the prior graphics-triggered `libGLESv2!DllMain` teardown boundary remains open until explicitly retested.
