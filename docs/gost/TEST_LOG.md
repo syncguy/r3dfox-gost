@@ -832,3 +832,31 @@ Expected web-visible result for the XP-compatible build is `Windows NT 10.0` in 
 Current full run `36422520907 / 108928478106` is source-under-test `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` and predates this commit; it cannot validate the web-identity change. Runtime acceptance requires a later exact build from `94ff242...` or descendant, with no manual `general.useragent.override`, checking `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, `navigator.appVersion`, and the actual outgoing HTTP `User-Agent`.
 
 Status: **source implementation committed / build and physical runtime evidence pending**.
+
+---
+
+## 2026-09-28 — cleaned D3DCompiler/broad-import candidate full build GREEN
+
+Track: Windows XP SP3 x86 compatibility / D3DCompiler packaging / final PE-import audit. Independent of GOST TLS runtime and the later web-identity change.
+
+Exact full-build evidence:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36422520907`;
+- job `108928478106`;
+- source-under-test `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e`;
+- run status: `completed`;
+- conclusion: `success` / **GREEN**;
+- package artifact `10979596508`, digest `sha256:f6e61b5045e192f0ddcb912e3516759bd45384d5c987d64db2a3cb9728a7641b`;
+- runtime artifact `10979016989`, digest `sha256:e2ded9fd6f9763ccf47cdabe09225322b1df3a0b931250578705ea792ea54088`;
+- diagnostics artifact `10979372043`, digest `sha256:1afc11e0d0e28ffee733322852fce1522631aa9bb65558a33b1083c620a873e3`.
+
+All blocking full-build/package/static gates passed, including the release build, ANGLE XP local-static codegen, core XP direct-import gates, packaged D3DCompiler pair plus SM3 compile probe, CRT/private-DirectWrite/bcrypt packaging checks, final XP PE-floor/direct-import audit, and aggregate summary.
+
+This run proves that removal of the speculative bare `_except_handler4_common` audit rule restores a GREEN full CI result while preserving the existing narrow XP import policy and the packaged legacy D3DCompiler fallback contract.
+
+Evidence boundary: **build/package/static GREEN only**. This does not establish physical Windows XP runtime PASS, WebGL runtime PASS, clean graphics-triggered shutdown, or GOST TLS handshake PASS.
+
+The run predates implementation commit `94ff24222ce2b05c2f89185778f062120a332881` (`MOZ_XP_COMPAT` web-visible Windows version frozen at 10.0), so it must not be cited as evidence for that later change.
+
+Status: **CI GREEN / exact artifacts recorded / physical runtime acceptance pending**.
