@@ -9,9 +9,9 @@ $checks = @(
   @{ Name='advapi32-compat-import'; Outcome=$env:ADVAPI32_COMPAT_IMPORT_OUTCOME },
   @{ Name='dpi-import-mode'; Outcome=$env:DPI_IMPORT_MODE_OUTCOME },
   @{ Name='core-import'; Outcome=$env:CORE_IMPORT_OUTCOME },
-  @{ Name='retargeted-d3dcompiler'; Outcome=$env:RETARGETED_D3DCOMPILER_OUTCOME },
+  @{ Name='d3dcompiler-after-retarget'; Outcome=$env:D3DCOMPILER_AFTER_RETARGET_OUTCOME },
   @{ Name='private-dwrite'; Outcome=$env:PRIVATE_DWRITE_OUTCOME },
-  @{ Name='packaged-d3dcompiler'; Outcome=$env:PACKAGED_D3DCOMPILER_OUTCOME },
+  @{ Name='packaged-d3dcompiler-pair'; Outcome=$env:PACKAGED_D3DCOMPILER_PAIR_OUTCOME },
   @{ Name='packaged-crt'; Outcome=$env:PACKAGED_CRT_OUTCOME },
   @{ Name='packaged-private-dwrite'; Outcome=$env:PACKAGED_PRIVATE_DWRITE_OUTCOME },
   @{ Name='packaged-bcrypt'; Outcome=$env:PACKAGED_BCRYPT_OUTCOME },
@@ -61,6 +61,7 @@ if ($env:GITHUB_SHA -and $env:GITHUB_SHA -ne $sourceSha) {
 "- Final all-PE audit records both ordinary and delay imports; only proven forbidden ordinary dependencies/APIs drive this gate." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- CRT/UCRT: pinned msvcr14x $env:MSVCR14X_SHA, preserving Firefox /MD." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- XP bcrypt: exact release $env:BCRYPT_TAG / asset $env:BCRYPT_ASSET_ID / SHA-256 $env:BCRYPT_SHA256." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+"- D3DCompiler packaging: build-produced d3dcompiler_47.dll is preserved byte-for-byte as the optional modern primary; pinned Firefox 52.9.0 ESR D3DCompiler_43 is packaged unchanged as d3dcompiler_old.dll with SHA-256 $env:XP_D3DCOMPILER_OLD_SHA256. Both vendor DLLs are excluded from PE subsystem retargeting." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "- YY-Thunks: v$env:YY_THUNKS_VERSION target $env:YY_THUNKS_TARGET/x86; NtCancelIoFileEx ntdll alias + five-name ADVAPI32 alias family + two-name WS2_32 alias family + narrow provider + synchronization.lib are injected through global target LDFLAGS; full kernel32.lib, ntdll.lib, advapi32.lib and ws2_32.lib remain prohibited." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 "### Operations" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
