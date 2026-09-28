@@ -752,3 +752,27 @@ The supplied screenshot confirms visible rendering after the clean-config restar
 The user's binary comparison between the packaged r3dfox `d3dcompiler_47.dll` and a current Yandex Browser `d3dcompiler_47.dll` shows only two differing bytes at file offsets `0x150` and `0x152`: r3dfox has `05 01`, Yandex has `06 00`. This is consistent with the already-observed r3dfox DLL reporting PE subsystem version 5.1 versus the Yandex DLL retaining subsystem version 6.0. That header-only compatibility difference does not address the XP loader failure caused by the DLL's runtime import contract.
 
 Final current XP WebGL conclusion: **default WebGL prefs + existing ANGLE Basic fallback + XP-compatible D3DCompiler 43 under the existing `d3dcompiler_old.dll` fallback name = visible WebGL PASS on physical XP.**
+
+
+---
+
+## 2026-09-28 — Focused Firefox 52 ESR D3DCompiler pair smoke GREEN
+
+Workflow `XP D3DCompiler pair smoke`, run `36385541515`, job `108810027817`, source-under-test `9599a02978386c3011bbee46f36d105a3a2e9abb`: completed successfully.
+
+Artifacts:
+- `firefox-52.9.0esr-d3dcompiler-pair`: artifact `10953904803`, digest `sha256:66a9ffcb0fcd9c3ba33936e02883021381e13f7fb55674ca1559121b69abd0d2`;
+- diagnostics: artifact `10954019191`, digest `sha256:16257fd4241b19ed161e2997caf053e5615cbf6afaa522c5dfb09081738a2f26`.
+
+Pinned source archive:
+- Firefox 52.9.0 ESR win32 SDK ZIP;
+- archive SHA-256 `c3788c977d19149cc62daf9f4494d08092f836b9e60fa8ef411e05469f4bad4f`.
+
+Verified pair:
+- `D3DCompiler_43.dll`: size 2106216, SHA-1 `98be17e1d324790a5b206e1ea1cc4e64fbe21240`, SHA-256 `2f23182ec6f4889397ac4bf03d62536136c5bdba825c7d2c4ef08c827f3a8a1c`, subsystem 5.0, version 9.29.952.3111;
+- `d3dcompiler_47.dll`: size 3747512, SHA-1 `dbb91a14563712ee6d7b6361ead29ef43c89fe80`, SHA-256 `3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e`, subsystem 6.0, version 10.0.14393.33;
+- `d3dcompiler_old.dll` is byte-identical to the verified `D3DCompiler_43.dll`.
+
+Both DLLs passed the focused functional probe using `D3DCompile` on a minimal `ps_3_0` shader.
+
+This smoke establishes a reproducible source and exact binary identities for both the XP-compatible legacy compiler and the unmodified Firefox 52 ESR D3DCompiler 47 reference.
