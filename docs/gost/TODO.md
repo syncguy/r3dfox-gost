@@ -94,12 +94,13 @@ Focused preflight is complete: corrected run `36257921234`, job `108448117969`, 
 
 Remaining sequence:
 
-1. Full build/static qualification is complete: run `36294912858`, job `108551864059`, exact source `ad96945f101cedc25b9ed40df25bbed25c045833`, completed/success, with final `libGLESv2.dll contract=true`. Package `10925293352`, runtime `10925462253`, and diagnostics `10925258640` are the accepted CI artifacts for this candidate.
-2. Exact package `10925293352` has now achieved an artifact-correlated physical XP startup PASS under RDP, followed by a `get.webgl.org` navigation + clean-shutdown PASS with no visible error dialog. The supplied MOZ log contains real page/network activity and orderly shutdown, while `about:support` confirms software WebRender on the RDP display path with WebGL 1/2 disabled. Remaining acceptance is therefore narrowly console-specific: when console-capable graphics testing is available, create/render a real WebGL context and then exercise browser/GPU-child teardown, requiring the reproduced `DLL_THREAD_DETACH` second-chance AV to be absent.
-3. Audit the current final-runtime YY DLL inventory (`strong candidates=16`, `contracts=4`, `missing-contract candidates=12`) before changing any additional DLL. Distinguish real compiler TLS / PE TLS / load-lifecycle requirements from resolver-only false positives; do not apply the YY entry point globally.
-4. Preserve the established `/Zc:threadSafeInit-` ANGLE remediation and pre-Vista D3DKMT guard. Do not reopen predecessor local-static or telemetry blockers without contradictory exact-build evidence.
-5. Keep the earlier `0x80000007` captures as historical top-level symptoms; do not claim they were all caused by this AV unless new first-chance evidence proves that linkage.
-
+1. New presentation-fallback candidate is now fully built: source `705470c0f1fd7302669b1f4d4c9aead33b773928`, run `36325907730`, job `108638512476`, completed/success. Package `10936509397`, runtime `10937007948`, and diagnostics `10936509452` are the current CI artifacts. All blocking build/package/static gates passed.
+2. Windows 10 control A/B is functionally positive at the user-observed level: with ANGLE D3D9Ex, the new build visibly renders the `get.webgl.org` rotating cube instead of losing the context at `Swap chain surface creation failed.`. Local binary hashes were not supplied, so retain this as user-associated runtime evidence rather than an independently artifact-correlated physical baseline.
+3. Next primary acceptance is physical Windows XP with the exact new payload: create and visibly render a WebGL context, then exercise browser/GPU-child teardown after graphics activity. Require the predecessor `libGLESv2!DllMain` `DLL_THREAD_DETACH` second-chance AV to be absent. Prefer console graphics for the strongest result.
+4. RDP may be tested as a separate capability path. Control WebGL feature policy explicitly (`webgl.disabled=false`, and when needed `webgl.ignore-blocklist=true` / `webgl.force-enabled=true`) so an RDP gfx blocklist decision is not confused with the presentation-fallback result. If RDP still cannot create WebGL, record that as a feature-selection boundary rather than reopening the swap-chain defect.
+5. Audit the current final-runtime YY DLL inventory before changing any additional DLL. Distinguish real compiler TLS / PE TLS / load-lifecycle requirements from resolver-only false positives; do not apply the YY entry point globally.
+6. Preserve the established `/Zc:threadSafeInit-` ANGLE remediation and pre-Vista D3DKMT guard. Do not reopen predecessor local-static or telemetry blockers without contradictory exact-build evidence.
+7. Keep earlier `0x80000007` captures as historical top-level symptoms; do not claim they were all caused by the detach AV unless new first-chance evidence proves that linkage.
 
 
 ## XP WebRTC
