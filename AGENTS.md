@@ -154,6 +154,13 @@ There are three independent project tracks. Evidence from one track must not be 
 
 A workflow may reuse infrastructure from another track without changing the meaning of its evidence. Use `docs/gost/WORKFLOWS.md` to determine each workflow's intended role.
 
+### XP source compatibility patch style
+- Preserve the normal non-XP code path by default. When a compatibility requirement is XP-specific and the existing non-XP implementation is not independently proven defective, keep the existing non-XP implementation unchanged and place the XP-specific behavior behind `#ifdef MOZ_XP_COMPAT` / `#else` (or an equivalently narrow XP build condition).
+- Do not rewrite, harden, or otherwise alter the general Windows path merely because Windows XP needs a different implementation. A shared/general behavior change requires its own technical justification and evidence outside the XP compatibility requirement.
+- Prefer additive XP-only source deltas over replacement of an existing implementation when both can coexist cleanly. The goal is to minimize regression surface on supported non-XP systems while making the XP behavior explicit and reviewable.
+- When promoting an experimental XP fix into a clean product/release branch, construct the final patch from the original pre-fix source state to the final intended source state. Do not use only the last incremental experiment commit when that commit depends on earlier intermediate changes.
+- The promoted patch must be self-contained against the target branch, contain only the final intended XP delta, and pass an applicability check such as `git apply --check` before it is applied.
+
 ### Mandatory Windows XP x86 build contract
 - `docs/gost/XP_BUILD_CONTRACT.md` is authoritative for project-built/staged Windows XP x86 dependencies and full-build migration. New chats must read it before changing this track.
 - The current physically proven reference is source `b19ba4ff3eebd2f323743d92110241fc9d4ce399`, Actions run `33387080767`, job `99472017220`, runtime artifact `9756275917`, successfully executed on a real Windows XP machine.
