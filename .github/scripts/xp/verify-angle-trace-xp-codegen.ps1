@@ -1,6 +1,7 @@
 param(
+  [Parameter(Mandatory = $true)]
   [ValidateSet('Focused', 'FullBuild')]
-  [string]$Mode = 'Focused'
+  [string]$Mode
 )
 
 $ErrorActionPreference = 'Stop'
