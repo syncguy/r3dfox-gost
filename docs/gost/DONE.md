@@ -6,6 +6,11 @@ This file is the compact registry of project milestones, blockers, and research 
 
 ## GOST TLS runtime
 
+
+### XP nICEr `inet_pton` release architecture — COMPLETE / SELECTED
+
+Release-153 discussion on 2026-09-29 selected the existing local nICEr IPv4/IPv6 parser under `MOZ_XP_COMPAT` as the final ownership model for `win-153-xp`. The project will not add an nICEr -> libwebrtc/rtc_base dependency or a new shared parser helper for this release line; the non-XP native `inet_pton` path remains unchanged. This decision preserves the semantics already physically proven by source `afee8c9e5ad2da729407ae06cda8d8029895ab06`. Detailed rationale and evidence boundaries are in `WEBRTC_XP_STATUS.md`; Astra coordination `coordination-050` records the architecture review. No new runtime claim is created by this documentation closure.
+
 ### Phase 1 GOST HTTPS transport baseline — COMPLETE
 
 Established for the tested Treasury environment:
