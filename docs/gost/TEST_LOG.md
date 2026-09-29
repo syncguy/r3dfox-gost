@@ -965,3 +965,29 @@ Result: **graphics-triggered clean shutdown PASS** for package artifact `1099097
 Additional stability observation: throughout the morning physical-XP session no error dialogs were observed. This is recorded as a session-level observation, not as a general guarantee beyond the tested session.
 
 With startup/session, WebGL, no-override HTTP/JS web identity, and graphics-triggered shutdown all physically PASS on the exact artifact, the current focused XP runtime acceptance set for this build is closed. GOST TLS remains an independent evidence line.
+
+---
+
+## 2026-09-29 — physical XP WebGL capability split confirmed: WebGL1 PASS / WebGL2 unavailable
+
+Track: Windows XP SP3 x86 compatibility / graphics capability. Exact artifact remains workflow run `36448769364`, job `109017796850`, source-under-test `94ff24222ce2b05c2f89185778f062120a332881`, package artifact `10990972577`.
+
+Physical-XP console probe:
+
+`({ webgl1: !!document.createElement("canvas").getContext("webgl"), webgl2: !!document.createElement("canvas").getContext("webgl2") })`
+
+Observed result:
+
+- `webgl1: true`;
+- `webgl2: false`;
+- WebGL2 creation diagnostic: `tryANGLE (FEATURE_FAILURE_EGL_NO_CONFIG)` followed by `Exhausted GL driver options. (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)`.
+
+Source correlation on `agent/winrt-source-poc`:
+
+- `dom/canvas/WebGLContext.cpp`: WebGL2 sets `CreateContextFlags::PREFER_ES3`;
+- `gfx/gl/GLContextProviderEGL.cpp`: ES3 preference requests `LOCAL_EGL_OPENGL_ES3_BIT_KHR` / major version 3 and emits `FEATURE_FAILURE_EGL_NO_CONFIG` when `eglChooseConfig` finds no compatible config;
+- `gfx/angle/checkout/src/libANGLE/renderer/d3d/d3d9/Renderer9.cpp`: both `getMaxSupportedESVersion()` and `getMaxConformantESVersion()` return `gl::Version(2, 0)`.
+
+Conclusion: the accepted XP ANGLE/D3D9 graphics path is intentionally bounded to GLES2/WebGL1. WebGL2 would require a separate backend/architecture change and is not a failure of the proven `d3dcompiler_old.dll` fallback or the current WebGL1 acceptance.
+
+Status: **WebGL1 physical PASS / WebGL2 unavailable by confirmed D3D9 capability boundary**.
