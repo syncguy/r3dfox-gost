@@ -45,7 +45,7 @@ jobs:
       - name: Checkout XP CI scripts
         uses: actions/checkout@v4
         with:
-          ref: 081aed8a0633cd7830d6669bd3511fe232d83154
+          ref: 8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae
           path: .xp-ci-source
           sparse-checkout: |
             .github/scripts/xp
@@ -70,7 +70,7 @@ jobs:
             "workflow_sha=$env:GITHUB_SHA"
             "source_ref=win-153-xp"
             "source_sha=$sourceSha"
-            "ci_scripts_ref=agent/winrt-source-poc@081aed8a0633cd7830d6669bd3511fe232d83154"
+            "ci_scripts_ref=agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae"
             "ci_scripts_sha=$scriptsSha"
           ) | Set-Content -Encoding utf8 diagnostics\xp-release-build-identity.txt
 
@@ -271,7 +271,7 @@ jobs:
         if: steps.build-release.outcome == 'success'
         continue-on-error: true
         shell: powershell
-        run: .\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1
+        run: .\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1 -Mode FullBuild
 
       - name: DIAG - Record xul IPHLPAPI XP compatibility imports
         id: xul-iphlpapi-import-diag
@@ -514,7 +514,7 @@ jobs:
         env:
           XP_BUILD_SUMMARY_TITLE: XP release build x32
           XP_SOURCE_REF: win-153-xp
-          XP_CI_SCRIPTS_REF: agent/winrt-source-poc@081aed8a0633cd7830d6669bd3511fe232d83154
+          XP_CI_SCRIPTS_REF: agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae
           DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
           ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME: ${{ steps.angle-local-static-codegen.outcome }}
           BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
