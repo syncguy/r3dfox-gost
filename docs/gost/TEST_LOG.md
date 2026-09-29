@@ -936,8 +936,14 @@ HTTP web-identity observation from the same running browser:
 - `httpbin.org/headers` returns `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win32; x86; rv:153.0) Gecko/20100101 Firefox/153.0`;
 - `httpbin.org/user-agent` returns the same value.
 
-This proves the server received a Windows-10-form User-Agent from the running browser session. It is not yet attributed uniquely to commit `94ff242...`: earlier UA investigation used a manual `general.useragent.override`, so the current profile must first confirm that pref is absent/reset, or the result must be repeated with a fresh profile.
+The initial observation above was contaminated by a retained manual `general.useragent.override` from earlier UA investigation and therefore was not accepted as source-fix proof.
 
-Remaining web-identity check: with no override, record `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, and `navigator.appVersion`; then repeat one server-side header check if needed.
+The override was then explicitly reset/removed, the browser was fully restarted, and `general.useragent.override` was confirmed absent from the profile. After restart, `https://httpbin.org/user-agent` returned:
+
+`Mozilla/5.0 (Windows NT 10.0; rv:153.0) Gecko/20100101 Firefox/153.0 r3dfox/153.0.3`
+
+This clean control closes the server-side HTTP User-Agent boundary for commit `94ff24222ce2b05c2f89185778f062120a332881`: on physical Windows XP, the exact artifact emits `Windows NT 10.0` without a manual UA override, while retaining the normal `r3dfox/153.0.3` product token.
+
+Remaining web-identity check: record `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, and `navigator.appVersion` from the same no-override session.
 
 Remaining runtime boundary after WebGL PASS: graphics-triggered clean shutdown. GOST TLS remains an independent evidence line.
