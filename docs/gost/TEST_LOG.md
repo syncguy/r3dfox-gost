@@ -944,6 +944,13 @@ The override was then explicitly reset/removed, the browser was fully restarted,
 
 This clean control closes the server-side HTTP User-Agent boundary for commit `94ff24222ce2b05c2f89185778f062120a332881`: on physical Windows XP, the exact artifact emits `Windows NT 10.0` without a manual UA override, while retaining the normal `r3dfox/153.0.3` product token.
 
-Remaining web-identity check: record `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, and `navigator.appVersion` from the same no-override session.
+JS-visible values were then recorded from the same no-override physical-XP session:
 
-Remaining runtime boundary after WebGL PASS: graphics-triggered clean shutdown. GOST TLS remains an independent evidence line.
+- `navigator.userAgent = "Mozilla/5.0 (Windows NT 10.0; rv:153.0) Gecko/20100101 Firefox/153.0 r3dfox/153.0.3"`;
+- `navigator.oscpu = "Windows NT 10.0"`;
+- `navigator.platform = "Win32"`;
+- `navigator.appVersion = "5.0 (Windows)"`.
+
+These results close the intended web-identity runtime boundary for commit `94ff24222ce2b05c2f89185778f062120a332881`: both the server-visible HTTP User-Agent and the JS-visible OS/CPU identity report Windows 10 on physical XP without `general.useragent.override`, while the platform remains the expected x86 `Win32`. The compact `appVersion` value is observed as `5.0 (Windows)` and is recorded as such rather than treated as a failure of the OS/CPU policy.
+
+Remaining runtime boundary after WebGL and web-identity PASS: graphics-triggered clean shutdown. GOST TLS remains an independent evidence line.
