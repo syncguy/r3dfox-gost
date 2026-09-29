@@ -299,6 +299,12 @@ nsresult gfxWindowsPlatform::GetGpuTimeSinceProcessStartInMs(
     return NS_OK;
   }
 
+  // D3DKMT GPU statistics require the WDDM graphics model introduced with
+  // Windows Vista. Windows XP uses XPDM and cannot provide these statistics.
+  if (!IsVistaOrLater()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
   nsModuleHandle module(LoadLibrary(L"gdi32.dll"));
   if (!module) {
     return NS_ERROR_NOT_AVAILABLE;

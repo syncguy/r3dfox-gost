@@ -223,6 +223,9 @@
 #ifdef MOZ_D3DCOMPILER_VISTA_DLL
 @BINPATH@/@MOZ_D3DCOMPILER_VISTA_DLL@
 #endif
+#ifdef XP_WIN
+@BINPATH@/d3dcompiler_old.dll
+#endif
 #endif # MOZ_ANGLE_RENDERER
 
 #ifdef MOZ_DXCOMPILER

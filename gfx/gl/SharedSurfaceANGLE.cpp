@@ -24,6 +24,7 @@ static ID3D11Device* GetD3D11DeviceOfEGLDisplay(GLContextEGL* gle) {
   }
 
   // Fetch the D3D11 device.
+#ifndef MOZ_XP_COMPAT
   EGLDeviceEXT eglDevice = nullptr;
   egl->fQueryDisplayAttribEXT(LOCAL_EGL_DEVICE_EXT, (EGLAttrib*)&eglDevice);
   MOZ_ASSERT(eglDevice);
@@ -34,6 +35,29 @@ static ID3D11Device* GetD3D11DeviceOfEGLDisplay(GLContextEGL* gle) {
     return nullptr;
   }
   return device;
+#else
+  const auto& lib = egl->mLib;
+  EGLAttrib eglDeviceAttrib = 0;
+  if (!egl->fQueryDisplayAttribEXT(LOCAL_EGL_DEVICE_EXT, &eglDeviceAttrib)) {
+    (void)lib->fGetError();
+    return nullptr;
+  }
+  if (!eglDeviceAttrib) {
+    return nullptr;
+  }
+
+  const auto eglDevice = reinterpret_cast<EGLDeviceEXT>(eglDeviceAttrib);
+  EGLAttrib d3d11DeviceAttrib = 0;
+  if (!lib->fQueryDeviceAttribEXT(eglDevice, LOCAL_EGL_D3D11_DEVICE_ANGLE,
+                                  &d3d11DeviceAttrib)) {
+    (void)lib->fGetError();
+    return nullptr;
+  }
+  if (!d3d11DeviceAttrib) {
+    return nullptr;
+  }
+  return reinterpret_cast<ID3D11Device*>(d3d11DeviceAttrib);
+#endif
 }
 
 // Returns `EGL_NO_SURFACE` (`0`) on error.
@@ -251,6 +275,12 @@ SurfaceFactory_ANGLEShareHandle::Create(GLContext& gl) {
           EGLExtension::ANGLE_surface_d3d_texture_2d_share_handle)) {
     return nullptr;
   }
+
+#ifdef MOZ_XP_COMPAT
+  if (!GetD3D11DeviceOfEGLDisplay(GLContextEGL::Cast(&gl))) {
+    return nullptr;
+  }
+#endif
 
   if (XRE_IsContentProcess()) {
     gfxPlatform::GetPlatform()->EnsureDevicesInitialized();

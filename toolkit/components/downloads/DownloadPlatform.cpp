@@ -88,6 +88,9 @@ CFURLRef CreateCFURLFromNSIURI(nsIURI* aURI) {
 
 #ifdef XP_WIN
 static void AddToRecentDocs(nsIFile* aTarget, nsAutoString& aPath) {
+#ifdef MOZ_XP_COMPAT
+  (void)aTarget;
+#else
   nsString modelId;
   if (mozilla::widget::WinTaskbar::GetAppUserModelID(modelId)) {
     nsCOMPtr<nsIURI> uri;
@@ -106,6 +109,7 @@ static void AddToRecentDocs(nsIFile* aTarget, nsAutoString& aPath) {
       }
     }
   }
+#endif
 
   ::SHAddToRecentDocs(SHARD_PATHW, aPath.get());
 }
