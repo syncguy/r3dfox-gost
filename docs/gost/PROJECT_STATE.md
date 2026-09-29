@@ -47,6 +47,7 @@ The full Firefox/r3dfox XP x86 compile/link, explicit ANGLE `FullBuild` codegen 
 The prior release attempt `36538672431 / 109308603560` on the same product source remains classified as workflow-infrastructure RED because the ANGLE verifier mode was invoked incorrectly. Run `36560808861` is the completed successful revalidation with the corrected explicit `-Mode FullBuild` contract and supersedes that RED attempt for build/static acceptance.
 
 No physical Windows XP runtime PASS is implied by this CI result. The exact new package/runtime payload still requires artifact-correlated physical execution before it can supersede the current clean-product physical baseline.
+
 ## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes; release-candidate correlation disproven
 
 The user physically exercised a Windows XP browser and supplied exact local SHA-1 identities:
