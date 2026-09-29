@@ -888,3 +888,35 @@ Evidence boundary: **build/package/static GREEN only**. It does not yet prove th
 Next runtime acceptance for this exact package: no manual `general.useragent.override`; verify `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, `navigator.appVersion`, the outgoing HTTP `User-Agent`, WebGL using the packaged D3DCompiler fallback path, and clean shutdown.
 
 Status: **exact-source CI GREEN / exact artifacts recorded / physical XP runtime acceptance pending**.
+
+---
+
+## 2026-09-29 — exact package physical XP startup/session PASS
+
+Track: Windows XP SP3 x86 compatibility / exact-artifact physical runtime. Independent of GOST TLS runtime.
+
+CI/build identity:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36448769364`;
+- job `109017796850`;
+- source-under-test `94ff24222ce2b05c2f89185778f062120a332881`;
+- package artifact `10990972577`, digest `sha256:042eca7570bccf7df6764eaf6d7caf6dfd3a01b6a67fc3facddfa85bede59aa8`.
+
+Physical-XP local identity supplied from the running portable directory:
+
+- `r3dfox.exe` SHA-1 `73ee1b683e4410804f4aa113e3057a3a2f50575d`;
+- `xul.dll` SHA-1 `fc1c57d8aa5827c76f0e6c51631424acde65438b`;
+- `libGLESv2.dll` SHA-1 `e01c0757697214101e9d6aa887576f46011b1c21`;
+- `d3dcompiler_47.dll` SHA-1 `ac019f36f22d527b60773e380b473a764721d377`;
+- `d3dcompiler_old.dll` SHA-1 `98be17e1d324790a5b206e1ea1cc4e64fbe21240`;
+- `application.ini BuildID=20260928163654`, `SourceStamp=94ff24222ce2b05c2f89185778f062120a332881`;
+- `platform.ini BuildID=20260928185320`, `SourceStamp=94ff24222ce2b05c2f89185778f062120a332881`.
+
+Artifact correlation was independently checked by downloading package artifact `10990972577`, extracting its `r3dfox-v153.0.3.win32.zip`, and hashing the corresponding files. All five SHA-1 values and both BuildID/SourceStamp pairs match the physical-XP local values exactly.
+
+Physical runtime result: the exact build launches on Windows XP SP3 x86 and sustains a live interactive browsing/network session; the user is using this exact browser build for the current ChatGPT session.
+
+Evidence boundary: **physical XP startup/session PASS**. This does not yet establish the intended web-visible Windows identity, WebGL runtime PASS, graphics-triggered clean shutdown, or GOST TLS handshake PASS.
+
+Status: **artifact-correlated physical XP startup/session PASS / remaining focused runtime checks pending**.
