@@ -953,4 +953,15 @@ JS-visible values were then recorded from the same no-override physical-XP sessi
 
 These results close the intended web-identity runtime boundary for commit `94ff24222ce2b05c2f89185778f062120a332881`: both the server-visible HTTP User-Agent and the JS-visible OS/CPU identity report Windows 10 on physical XP without `general.useragent.override`, while the platform remains the expected x86 `Win32`. The compact `appVersion` value is observed as `5.0 (Windows)` and is recorded as such rather than treated as a failure of the OS/CPU policy.
 
-Remaining runtime boundary after WebGL and web-identity PASS: graphics-triggered clean shutdown. GOST TLS remains an independent evidence line.
+Graphics-triggered shutdown was then exercised on the same exact physical-XP artifact:
+
+- `https://get.webgl.org/` was opened and the WebGL cube rendered;
+- the browser was closed normally;
+- all `r3dfox.exe` processes were observed to terminate;
+- the browser was started again successfully and returned to a live browsing session.
+
+Result: **graphics-triggered clean shutdown PASS** for package artifact `10990972577` / source `94ff24222ce2b05c2f89185778f062120a332881`.
+
+Additional stability observation: throughout the morning physical-XP session no error dialogs were observed. This is recorded as a session-level observation, not as a general guarantee beyond the tested session.
+
+With startup/session, WebGL, no-override HTTP/JS web identity, and graphics-triggered shutdown all physically PASS on the exact artifact, the current focused XP runtime acceptance set for this build is closed. GOST TLS remains an independent evidence line.
