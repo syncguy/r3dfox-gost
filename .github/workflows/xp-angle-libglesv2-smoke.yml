@@ -356,7 +356,7 @@ jobs:
         id: verify-angle-trace-codegen
         if: steps.build-libglesv2.outcome == 'success'
         shell: powershell
-        run: .\.xp-workflow-tools\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1
+        run: .\.xp-workflow-tools\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1 -Mode Focused
 
       - name: GATE - Inspect focused libGLESv2 binary
         id: inspect-libglesv2
