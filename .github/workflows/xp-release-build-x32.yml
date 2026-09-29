@@ -45,7 +45,7 @@ jobs:
       - name: Checkout XP CI scripts
         uses: actions/checkout@v4
         with:
-          ref: 75b4e8f052fb6fc09c723651938fde18f95af4ea
+          ref: 081aed8a0633cd7830d6669bd3511fe232d83154
           path: .xp-ci-source
           sparse-checkout: |
             .github/scripts/xp
@@ -70,7 +70,7 @@ jobs:
             "workflow_sha=$env:GITHUB_SHA"
             "source_ref=win-153-xp"
             "source_sha=$sourceSha"
-            "ci_scripts_ref=agent/winrt-source-poc@75b4e8f052fb6fc09c723651938fde18f95af4ea"
+            "ci_scripts_ref=agent/winrt-source-poc@081aed8a0633cd7830d6669bd3511fe232d83154"
             "ci_scripts_sha=$scriptsSha"
           ) | Set-Content -Encoding utf8 diagnostics\xp-release-build-identity.txt
 
@@ -136,14 +136,14 @@ jobs:
           Start-Process -FilePath $installer -ArgumentList '/S' -Wait
           if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
 
-      - name: Prepare pinned legacy Firefox XP D3DCompiler_47
-        shell: powershell
-        run: .\.github\scripts\xp\prepare-legacy-d3dcompiler47.ps1
-
       - name: Enable MSVC x86 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+
+      - name: Prepare pinned XP D3DCompiler_43 fallback
+        shell: powershell
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode Prepare
 
       - name: Prepare pinned XP bcrypt release asset
         shell: powershell
@@ -180,7 +180,7 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
 
-      - name: GATE - Verify committed xul.dll YY TLS entry-point contract
+      - name: GATE - Verify committed xul.dll and libGLESv2.dll YY TLS entry-point contracts
         shell: powershell
         run: .\.github\scripts\xp\verify-xul-yy-entrypoint-contract.ps1
 
@@ -213,7 +213,7 @@ jobs:
           ac_add_options --disable-eme
           ac_add_options --enable-jxl
           ac_add_options --enable-raw
-          ac_add_options --disable-webrtc
+          ac_add_options --enable-webrtc
           ac_add_options --disable-backgroundtasks
           ac_add_options --disable-bits-download
           ac_add_options --disable-crashreporter
@@ -265,6 +265,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify ANGLE XP local-static codegen
+        id: angle-local-static-codegen
+        if: steps.build-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\verify-angle-trace-xp-codegen.ps1
 
       - name: DIAG - Record xul IPHLPAPI XP compatibility imports
         id: xul-iphlpapi-import-diag
@@ -322,28 +329,15 @@ jobs:
             Copy-Item -Force $src (Join-Path $bin $dll)
           }
 
-      - name: Stage pinned legacy Firefox XP D3DCompiler_47
-        id: stage-legacy-d3dcompiler
+      - name: Stage pinned XP D3DCompiler_43 fallback
+        id: stage-d3dcompiler-fallback
         if: steps.stage-runtime.outcome == 'success'
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $expected = '3a010ee7186086a7f77b6aec3644e05f8495a84895b90572cab8d4f14efa088e'
-          $bin = Join-Path $env:OBJDIR 'dist\bin'
-          $dst = Join-Path $bin 'd3dcompiler_47.dll'
-          if (-not (Test-Path $dst)) { throw "Build-produced D3DCompiler_47 missing: $dst" }
-          $before = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
-          Copy-Item -Force $env:LEGACY_D3DCOMPILER47 $dst
-          $after = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
-          if ($after -ne $expected) { throw "Legacy D3DCompiler_47 stage hash mismatch: $after" }
-          $version = (Get-Item $dst).VersionInfo.FileVersion
-          if ($version -notlike '10.0.14393.33*') { throw "Unexpected legacy D3DCompiler_47 version: $version" }
-          New-Item -ItemType Directory -Force diagnostics | Out-Null
-          @("source=$env:LEGACY_D3DCOMPILER47", "build_dll_sha256=$before", "legacy_source_sha256=$after", "file_version=$version") | Set-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode Stage
 
       - name: Stage pinned private DirectWrite closure
         id: stage-private-dwrite
-        if: steps.stage-legacy-d3dcompiler.outcome == 'success'
+        if: steps.stage-d3dcompiler-fallback.outcome == 'success'
         shell: powershell
         run: .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Stage
 
@@ -353,12 +347,12 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\retarget-dist-bin-pe-subsystem.ps1
 
-      - name: GATE - Verify retargeted legacy D3DCompiler_47
-        id: verify-retargeted-d3dcompiler
+      - name: GATE - Verify D3DCompiler pair unchanged after PE retarget
+        id: verify-d3dcompiler-after-retarget
         if: steps.retarget-pe.outcome == 'success'
         continue-on-error: true
         shell: powershell
-        run: .\.github\scripts\xp\verify-retargeted-legacy-d3dcompiler47.ps1
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode VerifyAfterRetarget
 
       - name: GATE - Verify private DirectWrite closure after PE retarget
         id: verify-private-dwrite
@@ -398,27 +392,19 @@ jobs:
           .\mach.ps1 package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: GATE - Verify legacy D3DCompiler_47 survived packaging
-        id: verify-legacy-d3dcompiler
-        if: steps.package-release.outcome == 'success'
-        continue-on-error: true
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $expected = $env:LEGACY_D3DCOMPILER47_RETARGETED_SHA256
-          if (-not $expected) { throw 'Retargeted D3DCompiler_47 hash was not recorded' }
-          $dll = Join-Path $env:OBJDIR 'dist\bin\d3dcompiler_47.dll'
-          if (-not (Test-Path $dll)) { throw "Staged D3DCompiler_47 disappeared after package: $dll" }
-          $hash = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
-          if ($hash -ne $expected) { throw "D3DCompiler_47 changed during package: expected=$expected actual=$hash" }
-          "post_package_sha256=$hash" | Add-Content -Encoding utf8 diagnostics\legacy-d3dcompiler47.txt
-
       - name: GATE - Verify msvcr14x CRT survived portable packaging
         id: verify-packaged-crt
         if: always() && steps.package-release.outcome == 'success'
         continue-on-error: true
         shell: powershell
         run: .\.github\scripts\xp\verify-packaged-msvcr14x-crt.ps1
+
+      - name: GATE - Verify packaged D3DCompiler pair and SM3 compile
+        id: verify-packaged-d3dcompiler-pair
+        if: always() && steps.verify-packaged-crt.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode VerifyPackage
 
       - name: GATE - Verify private DirectWrite closure survived portable packaging
         id: verify-packaged-private-dwrite
@@ -461,6 +447,20 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\inventory-yy-dll-entrypoint-coverage.ps1
 
+      - name: GATE - Require libGLESv2.dll YY TLS entry-point contract
+        id: libglesv2-yy-entrypoint-gate
+        if: always() && steps.runtime-archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $report = 'diagnostics\yy-dll-entrypoint-audit.txt'
+          if (-not (Test-Path $report)) { throw "YY DLL entry-point audit missing: $report" }
+          $line = Get-Content $report | Where-Object { $_ -like 'dll=libGLESv2.dll|*' } | Select-Object -First 1
+          if (-not $line) { throw 'libGLESv2.dll missing from YY DLL entry-point audit' }
+          Write-Host $line
+          if ($line -notmatch '\|contract=true\|') { throw 'libGLESv2.dll does not carry the YY TLS entry-point contract' }
+
       - name: Upload XP x32 full-build package
         if: always() && steps.package-release.outcome == 'success'
         uses: actions/upload-artifact@v4
@@ -502,6 +502,7 @@ jobs:
             xp-x32-import-audit/**
             diagnostics/**
             obj-xp-release-x32/**/xul.pdb
+            obj-xp-release-x32/**/libGLESv2.pdb
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
             ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
@@ -513,16 +514,17 @@ jobs:
         env:
           XP_BUILD_SUMMARY_TITLE: XP release build x32
           XP_SOURCE_REF: win-153-xp
-          XP_CI_SCRIPTS_REF: agent/winrt-source-poc@75b4e8f052fb6fc09c723651938fde18f95af4ea
+          XP_CI_SCRIPTS_REF: agent/winrt-source-poc@081aed8a0633cd7830d6669bd3511fe232d83154
           DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
+          ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME: ${{ steps.angle-local-static-codegen.outcome }}
           BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
           SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
           ADVAPI32_COMPAT_IMPORT_OUTCOME: ${{ steps.advapi32-etw-import-gate.outcome }}
           DPI_IMPORT_MODE_OUTCOME: ${{ steps.dpi-import-gate.outcome }}
           CORE_IMPORT_OUTCOME: ${{ steps.sync-import-gate.outcome }}
-          RETARGETED_D3DCOMPILER_OUTCOME: ${{ steps.verify-retargeted-d3dcompiler.outcome }}
+          D3DCOMPILER_AFTER_RETARGET_OUTCOME: ${{ steps.verify-d3dcompiler-after-retarget.outcome }}
           PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-private-dwrite.outcome }}
-          PACKAGED_D3DCOMPILER_OUTCOME: ${{ steps.verify-legacy-d3dcompiler.outcome }}
+          PACKAGED_D3DCOMPILER_PAIR_OUTCOME: ${{ steps.verify-packaged-d3dcompiler-pair.outcome }}
           PACKAGED_CRT_OUTCOME: ${{ steps.verify-packaged-crt.outcome }}
           PACKAGED_PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-packaged-private-dwrite.outcome }}
           PACKAGED_BCRYPT_OUTCOME: ${{ steps.verify-packaged-bcrypt.outcome }}
@@ -532,4 +534,5 @@ jobs:
           RUNTIME_ARCHIVE_OUTCOME: ${{ steps.runtime-archive.outcome }}
           XUL_IPHLPAPI_IMPORT_DIAG_OUTCOME: ${{ steps.xul-iphlpapi-import-diag.outcome }}
           YY_DLL_ENTRYPOINT_DIAG_OUTCOME: ${{ steps.yy-dll-entrypoint-diag.outcome }}
+          LIBGLESV2_YY_ENTRYPOINT_OUTCOME: ${{ steps.libglesv2-yy-entrypoint-gate.outcome }}
         run: .\.github\scripts\xp\summarize-xp-x32-full-build.ps1
