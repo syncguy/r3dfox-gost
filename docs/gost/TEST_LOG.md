@@ -991,3 +991,35 @@ Source correlation on `agent/winrt-source-poc`:
 Conclusion: the accepted XP ANGLE/D3D9 graphics path is intentionally bounded to GLES2/WebGL1. WebGL2 would require a separate backend/architecture change and is not a failure of the proven `d3dcompiler_old.dll` fallback or the current WebGL1 acceptance.
 
 Status: **WebGL1 physical PASS / WebGL2 unavailable by confirmed D3D9 capability boundary**.
+
+---
+
+## 2026-09-29 — ANGLE verifier mode contract and focused workflow-SHA pin validated
+
+Track: Windows XP SP3 x86 compatibility / GitHub Actions infrastructure. Independent of GOST TLS runtime.
+
+Clean-product release workflow run `36538672431`, job `109308603560`, completed **failure / RED** with workflow/control SHA `6866ae1c421304b394ef4ba3acc97998d5bb0214`, product source-under-test `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`, and pinned XP CI scripts `agent/winrt-source-poc@081aed8a0633cd7830d6669bd3511fe232d83154`.
+
+The browser build, package, runtime archive, PE/import gates, D3DCompiler gates and YY entry-point gates completed successfully. The aggregate verdict was RED only because `verify-angle-trace-xp-codegen.ps1` was invoked without `-Mode FullBuild`; its old implicit default selected `Focused` and failed on the expected missing `diagnostics/libglesv2-build.log`. This is classified as **workflow-infrastructure RED**, not a product compile/link regression.
+
+The verifier contract was then hardened:
+
+- `verify-angle-trace-xp-codegen.ps1` now requires mandatory `-Mode Focused|FullBuild` with no default;
+- implementation CI-scripts commit: `8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
+- focused workflow calls `-Mode Focused`;
+- release workflow calls `-Mode FullBuild` and pins CI scripts to `8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
+- focused verification-tools checkout is pinned to `${{ github.workflow_sha }}`, eliminating a moving-branch identity race.
+
+Final focused validation:
+
+- workflow: `XP ANGLE libGLESv2 smoke`;
+- run `36566792929`;
+- job `109400577796`;
+- workflow/control SHA: `dbfc49158b986faae05fe335d61aea98d0699e65`;
+- checked-out product source-under-test: `agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
+- verification-tools source: `dbfc49158b986faae05fe335d61aea98d0699e65`, exactly matching the workflow SHA;
+- artifact `11034350212` (`xp-angle-libglesv2-smoke`), digest `sha256:9fc96e77bb3cefa0117aa9b42135ffe91515ed5827a96e903ecde2c3a362d44f`;
+- result: **completed / success / GREEN**.
+
+ANGLE focused codegen evidence reports `/Zc:threadSafeInit-=True` and `Init_thread_matches=0` for both `Display.cpp` and `formatutils.cpp`. The explicit-mode contract and workflow-SHA pin are therefore proven on the focused path. This does not make the earlier release run GREEN; the clean-product release workflow still requires a fresh completed run with `-Mode FullBuild`.
+
