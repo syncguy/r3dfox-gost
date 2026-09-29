@@ -1023,3 +1023,32 @@ Final focused validation:
 
 ANGLE focused codegen evidence reports `/Zc:threadSafeInit-=True` and `Init_thread_matches=0` for both `Display.cpp` and `formatutils.cpp`. The explicit-mode contract and workflow-SHA pin are therefore proven on the focused path. This does not make the earlier release run GREEN; the clean-product release workflow still requires a fresh completed run with `-Mode FullBuild`.
 
+---
+
+## 2026-09-29 — clean `win-153-xp` full release build GREEN on consolidated XP source
+
+Track: Windows XP SP3 x86 compatibility / clean-product release build. Independent of GOST TLS runtime.
+
+Exact identity:
+
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- run `36560808861`;
+- job `109380950857`;
+- workflow/control SHA `260409cadad57eda3be880e021b4881c6a4d7ae7`;
+- clean-product source-under-test `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- pinned XP CI scripts `agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
+- package artifact `11039397943`, digest `sha256:a8e2777bd5b7a9a529de8da3e3ae25d403445794b56134be356e60e0efbbcfa8`;
+- runtime artifact `11038838555`, digest `sha256:1b72e68c931361527472e00ea86f1a0bcb794ccc5f218a73bf95bda002821872`;
+- diagnostics artifact `11038753516`, digest `sha256:4654626e20a8e82c494d61bde3c6c272981158327d39a3d422a67876aa34e8f7`;
+- result: **completed / success / GREEN**.
+
+The job checked out the product source from `win-153-xp` and recorded `XP_SOURCE_SHA=42bfe890d9f508c9e9ce677acf8ecf03ea666626`; this product SHA is the source-under-test and must not be replaced by the workflow/control SHA or a later documentation commit.
+
+All blocking release gates passed, including SpiderMonkey/style and XP DPI source checks, the pinned dependency preparation, full Firefox build, explicit ANGLE `verify-angle-trace-xp-codegen.ps1 -Mode FullBuild` verification, core-browser and broad XP PE/direct-import gates, CRT survival, D3DCompiler pair plus SM3 compile, private DirectWrite closure, source-built bcrypt survival, runtime-archive generation, libGLESv2 YY entry-point contract, package/runtime/diagnostics uploads, and the final aggregate release summary.
+
+This successful run closes the workflow-infrastructure RED from release attempt `36538672431 / 109308603560`, where the same product source had built but the aggregate failed because the ANGLE verifier was invoked with the wrong implicit mode. The corrected release path now has exact full-build validation with the pinned CI scripts `8fa810b1...`.
+
+Evidence boundary: **build/package/static PASS only**. No physical Windows XP startup, WebGL, shutdown, WebRTC, or GOST TLS runtime result is created by this Actions success. Physical acceptance must use the exact new artifact and matching local binary identities.
+
+Status: **clean-product full release build/package/static GREEN / physical XP acceptance pending**.
+
