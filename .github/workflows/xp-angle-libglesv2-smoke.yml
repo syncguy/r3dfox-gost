@@ -39,7 +39,7 @@ jobs:
       - name: Checkout focused XP verification scripts
         uses: actions/checkout@v4
         with:
-          ref: agent/gost-tls-poc
+          ref: ${{ github.workflow_sha }}
           fetch-depth: 1
           path: .xp-workflow-tools
           sparse-checkout: |
