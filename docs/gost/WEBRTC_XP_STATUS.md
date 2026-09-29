@@ -53,6 +53,23 @@ The immediately following commit is:
 
 For `MOZ_XP_COMPAT`, this commit adds local IPv4/IPv6 parsing and routes nICEr address conversion through that fallback instead of the unavailable XP `inet_pton` path. Non-XP builds retain the native `inet_pton` calls.
 
+
+### Release-153 architecture decision — RESOLVED IN DISCUSSION
+
+On 2026-09-29 the release-line ownership question for this fallback was reviewed and closed. The selected design is to keep the IPv4/IPv6 parser local to nICEr under `MOZ_XP_COMPAT` and transfer the already physically proven implementation semantics into `win-153-xp` without introducing a new nICEr -> libwebrtc/rtc_base source/build dependency.
+
+The equivalent Windows parser in `third_party/libwebrtc/rtc_base/win32.cc` remains owned by libwebrtc. Although both nICEr and the relevant rtc_base targets ultimately link into `xul`, that common `FINAL_LIBRARY` does not define a component dependency contract. A direct call to `webrtc::win32_inet_pton()` or a shared helper would create new cross-component source/build ownership and vendoring obligations for no runtime-DLL benefit.
+
+Selected release contract:
+
+- keep the nICEr fallback functions local/static and guarded by `MOZ_XP_COMPAT`;
+- keep the existing non-XP native `inet_pton` path unchanged;
+- do not add a direct nICEr dependency on rtc_base and do not introduce a new shared parser helper for release 153;
+- preserve the physically proven parser semantics when promoting the fix; parser behavior changes, including any future upstream-derived corrections, require a separate change and evidence;
+- IPv6 parser behavior remains independently testable, while physical IPv6 ICE remains an environmental coverage gap on the current XP host.
+
+This is an architectural decision, not new runtime evidence. The review is recorded in Astra coordination `coordination-050`; documentation commit `3098653350ecaa92ac4008b4ce289d81f17e9548` changed only the coordination bridge.
+
 ## 3. First physically runnable WebRTC build on XP
 
 The corrected full build is:
