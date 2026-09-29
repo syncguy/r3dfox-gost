@@ -920,3 +920,24 @@ Physical runtime result: the exact build launches on Windows XP SP3 x86 and sust
 Evidence boundary: **physical XP startup/session PASS**. This does not yet establish the intended web-visible Windows identity, WebGL runtime PASS, graphics-triggered clean shutdown, or GOST TLS handshake PASS.
 
 Status: **artifact-correlated physical XP startup/session PASS / remaining focused runtime checks pending**.
+
+---
+
+## 2026-09-29 — exact package physical XP WebGL PASS; HTTP UA observation pending override exclusion
+
+Track: Windows XP SP3 x86 compatibility / WebGL runtime / web identity. Independent of GOST TLS runtime.
+
+Exact artifact remains run `36448769364`, job `109017796850`, source-under-test `94ff24222ce2b05c2f89185778f062120a332881`, package artifact `10990972577`.
+
+Physical XP WebGL result: **PASS**. On `https://get.webgl.org/`, the page reports `Your browser supports WebGL` and the WebGL cube is visibly rendered on the physical XP desktop. This advances the same artifact-correlated package that already has startup/session PASS.
+
+HTTP web-identity observation from the same running browser:
+
+- `httpbin.org/headers` returns `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win32; x86; rv:153.0) Gecko/20100101 Firefox/153.0`;
+- `httpbin.org/user-agent` returns the same value.
+
+This proves the server received a Windows-10-form User-Agent from the running browser session. It is not yet attributed uniquely to commit `94ff242...`: earlier UA investigation used a manual `general.useragent.override`, so the current profile must first confirm that pref is absent/reset, or the result must be repeated with a fresh profile.
+
+Remaining web-identity check: with no override, record `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, and `navigator.appVersion`; then repeat one server-side header check if needed.
+
+Remaining runtime boundary after WebGL PASS: graphics-triggered clean shutdown. GOST TLS remains an independent evidence line.
