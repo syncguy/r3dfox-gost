@@ -829,9 +829,9 @@ Implementation commit `94ff24222ce2b05c2f89185778f062120a332881` changes only `n
 
 Expected web-visible result for the XP-compatible build is `Windows NT 10.0` in the HTTP User-Agent OS token and `navigator.oscpu`; `navigator.platform` remains the normal Windows x86 value `Win32`. The existing r3dfox product token is not changed by this commit. This is a build-mode policy rather than a physical-XP-only runtime branch, so the same XP-compatible binary reports Windows NT 10.0 when run on later Windows versions as well.
 
-Current full run `36422520907 / 108928478106` is source-under-test `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` and predates this commit; it cannot validate the web-identity change. Runtime acceptance requires a later exact build from `94ff242...` or descendant, with no manual `general.useragent.override`, checking `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, `navigator.appVersion`, and the actual outgoing HTTP `User-Agent`.
+Full run `36448769364 / 109017796850` is source-under-test `94ff24222ce2b05c2f89185778f062120a332881` and completed **success / GREEN**, providing full build/package/static acceptance of this exact web-identity implementation. Runtime acceptance still requires the exact produced package on physical XP, with no manual `general.useragent.override`, checking `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, `navigator.appVersion`, and the actual outgoing HTTP `User-Agent`.
 
-Status: **source implementation committed / build and physical runtime evidence pending**.
+Status: **source implementation committed / full CI build-package-static GREEN / physical runtime evidence pending**.
 
 ---
 
@@ -860,3 +860,31 @@ Evidence boundary: **build/package/static GREEN only**. This does not establish 
 The run predates implementation commit `94ff24222ce2b05c2f89185778f062120a332881` (`MOZ_XP_COMPAT` web-visible Windows version frozen at 10.0), so it must not be cited as evidence for that later change.
 
 Status: **CI GREEN / exact artifacts recorded / physical runtime acceptance pending**.
+
+---
+
+## 2026-09-28 — web-identity exact-source full XP x32 build GREEN
+
+Track: Windows XP SP3 x86 compatibility / web-visible OS identity. Independent of GOST TLS runtime.
+
+Exact full-build evidence:
+
+- workflow `.github/workflows/gost-poc-build-xp-x32.yml` / `GOST TLS PoC build  XP x32`;
+- run `36448769364`;
+- job `109017796850`;
+- source-under-test `94ff24222ce2b05c2f89185778f062120a332881`;
+- run status: `completed`;
+- conclusion: `success` / **GREEN**;
+- package artifact `10990972577`, digest `sha256:042eca7570bccf7df6764eaf6d7caf6dfd3a01b6a67fc3facddfa85bede59aa8`;
+- runtime artifact `10990353061`, digest `sha256:4c744ce5abde18d0d5d0c3ed08afaed5141f1767dd860ffed5902323abed4dd8`;
+- diagnostics artifact `10990717703`, digest `sha256:60192433e2bcfe0b28e43acb70f95267921a847b60feeb29f8cf42a4e23ca14e`.
+
+All blocking build/package/static gates completed successfully, including the release build, ANGLE XP local-static codegen, XP direct-import gates, packaged D3DCompiler pair plus SM3 probe, CRT/private-DirectWrite/bcrypt packaging checks, final PE-floor/direct-import audit, and aggregate summary.
+
+This is the first full XP x32 build bound to the exact source that freezes the XP-compatible build's reported Windows version at `10.0` in `nsHttpHandler.cpp`.
+
+Evidence boundary: **build/package/static GREEN only**. It does not yet prove the web-visible values on physical XP, WebGL runtime behavior, clean graphics-triggered shutdown, or any GOST TLS handshake.
+
+Next runtime acceptance for this exact package: no manual `general.useragent.override`; verify `navigator.userAgent`, `navigator.oscpu`, `navigator.platform`, `navigator.appVersion`, the outgoing HTTP `User-Agent`, WebGL using the packaged D3DCompiler fallback path, and clean shutdown.
+
+Status: **exact-source CI GREEN / exact artifacts recorded / physical XP runtime acceptance pending**.
