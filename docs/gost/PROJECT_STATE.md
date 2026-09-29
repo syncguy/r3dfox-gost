@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-27
+Last updated: 2026-09-29
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`. [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for all Windows XP WebRTC build/runtime/codec/ICE/NAT status and remaining WebRTC boundaries; WebRTC state must not be duplicated here.
 
@@ -9,7 +9,7 @@ This file is the authoritative current technical synthesis and handoff for new c
 - Repository: `syncguy/r3dfox-gost`.
 - Default branch and canonical documentation source: `agent/gost-tls-poc`.
 - Windows XP SP3 x86 implementation branch: `agent/winrt-source-poc`.
-- Current implementation-branch HEAD observed before this documentation update: `ad96945f101cedc25b9ed40df25bbed25c045833`. Product change `482bc4417601fc96f2ab135f377f64e03945cd27` adds the YY-Thunks TLS-aware DLL entry-point contract to Windows x86 `libGLESv2.dll`; the following commits add source/final-binary CI gates. The earlier pre-Vista D3DKMT guard remains in ancestry and is not reverted. The ANGLE product remediation remains rooted at `b01f3461d52eec1b60aa87d12e083f3485032fba`; `cee8175a...`, `d655a237...`, and `f15a047e...` add XP CI verification infrastructure, while `27f4271...` is the subsequent one-file product runtime A/B in `gfx/thebes/gfxWindowsPlatform.cpp`.
+- Current implementation-branch HEAD observed for this update: `8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`; this HEAD hardens the ANGLE verifier/CI contract and retains the accepted implementation ancestry. The clean release branch has independently advanced to `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`, which consolidates the final selected XP product compatibility fixes for release validation.
 - Frozen baseline: `win-153`; never modify, merge, rebase, force-push or otherwise change it without explicit user instruction.
 - PR #1 historically targets `win-153`; it does not define the active work branch.
 - Project remains on r3dfox / Firefox 153 until the user explicitly decides otherwise.
@@ -31,19 +31,22 @@ Build success is not physical runtime success. Static PE/import success is not r
 The current clean-product release candidate is:
 
 - source-under-test branch `win-153-xp`;
-- source-under-test SHA `85863f2355a23223bf33f55b641ccb509a2b72ac`;
+- source-under-test SHA `42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
 - workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
-- run `35724604122`;
-- job `106735182867`;
+- workflow/control SHA `260409cadad57eda3be880e021b4881c6a4d7ae7`;
+- pinned XP CI scripts `agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
+- run `36560808861`;
+- job `109380950857`;
 - aggregate result **completed / success / GREEN**;
-- package artifact `10700255591`, digest `sha256:63b97b0e53b31bcb062dbf98d1ebdb67124de76af1bad663911972834c1c2cb2`;
-- runtime artifact `10700395290`, digest `sha256:f8dd39d87d304f5e99d02e299a08c278287f18a523f207dd257c53aaa04076b3`;
-- diagnostics artifact `10700061102`, digest `sha256:ab984ed4662365fdb8fcbba17166edc9ebb362d3ae95d44dd39281c7960eaad0`.
+- package artifact `11039397943`, digest `sha256:a8e2777bd5b7a9a529de8da3e3ae25d403445794b56134be356e60e0efbbcfa8`;
+- runtime artifact `11038838555`, digest `sha256:1b72e68c931361527472e00ea86f1a0bcb794ccc5f218a73bf95bda002821872`;
+- diagnostics artifact `11038753516`, digest `sha256:4654626e20a8e82c494d61bde3c6c272981158327d39a3d422a67876aa34e8f7`.
 
-The full Firefox/r3dfox XP x86 compile/link, XP compatibility gates, package construction, runtime-archive generation, package-survival checks, broad PE/direct-import audit, artifact uploads and final summary all passed. This is authoritative **build/package/static** evidence for exact product source `85863f23...`.
+The full Firefox/r3dfox XP x86 compile/link, explicit ANGLE `FullBuild` codegen verification, XP compatibility/import gates, CRT/D3DCompiler/private-DWrite/bcrypt staging and package-survival checks, package construction, runtime-archive generation, broad PE/direct-import audit, artifact uploads and final aggregate summary all passed. This is authoritative **build/package/static** evidence for exact product source `42bfe890...`.
 
-The source contains the six-file WebGL/stock-language-pack fallback already physically proven on the implementation line.
+The prior release attempt `36538672431 / 109308603560` on the same product source remains classified as workflow-infrastructure RED because the ANGLE verifier mode was invoked incorrectly. Run `36560808861` is the completed successful revalidation with the corrected explicit `-Mode FullBuild` contract and supersedes that RED attempt for build/static acceptance.
 
+No physical Windows XP runtime PASS is implied by this CI result. The exact new package/runtime payload still requires artifact-correlated physical execution before it can supersede the current clean-product physical baseline.
 ## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes; release-candidate correlation disproven
 
 The user physically exercised a Windows XP browser and supplied exact local SHA-1 identities:
@@ -193,7 +196,7 @@ Keep the XP mechanisms distinct:
 
 # Current acceptance / next boundary
 
-For the clean release line, no evidence currently overturns the proven physical XP lifecycle of `586fe5f8...`. The newer `85863f23...` release candidate is GREEN through build/package/static gates, but the physical binaries previously assumed to belong to it are now identified as a different WebRTC/GOST implementation lineage. Immediate clean-product acceptance boundary remains physical execution of the exact `10700255591` / `10700395290` release payload with matching hashes.
+For the clean release line, `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626` is now the latest accepted **build/package/static** candidate: workflow `XP release build x32`, run `36560808861`, job `109380950857`, package `11039397943`, runtime `11038838555`, diagnostics `11038753516`, completed / success / GREEN. The immediate clean-product acceptance boundary is physical Windows XP execution of that exact payload with binary/artifact correlation. Until then, `win-153-xp@586fe5f856971a790db6e3529bdb0ac7a6133872` remains the last clean-product source with artifact-correlated physical lifecycle PASS.
 
 For the implementation XP line, the download/recent-documents blocker remains physically closed on artifact-correlated source `e13354c...`. Source `3119c849...` physically advances past the former ANGLE trace-category `libGLESv2+0x3C1CA` crash but reaches a second TLS-backed local-static failure at `libGLESv2+0x159EBB` in `GenerateCaps -> GetAllSizedInternalFormats`. The ANGLE product remediation remains `b01f3461...` (`/Zc:threadSafeInit-` plus restored normal trace static). Focused run `35974426502 / 107551429542` proves both known owner objects contain zero `_Init_thread_header/footer/epoch` matches and passes the focused `libGLESv2.dll` binary gate. Full run `35980235042 / 107570122638` is completed / success / GREEN on `f15a047e...`, and physical console XP reaches artifact-correlated WebGL context creation and rendering on that package output. The later telemetry A/B source `27f4271...` also has completed / success / GREEN full-build evidence from run `36164782271 / 108169777457`, with package `10883654763`, runtime `10883894624`, and diagnostics `10884079570`. Exact binaries from that package are independently hash-correlated and ordinary RDP startup/profile/policy/browsing/shutdown remains a physical lifecycle PASS. Contradictory graphics-triggered evidence now narrows that acceptance: after opening the WebGL test page and then closing the browser, the exact new-build GPU child again produces `0x80000007 / STATUS_WAKE_SYSTEM_DEBUGGER`. Matching `xul.pdb` no longer shows the predecessor `GetGpuTimeSinceProcessStartInMs -> RecordPowerMetrics -> FlushFOGData` / `LoadLibraryW` path; instead the exception-thread Firefox frame is in `mozilla::widget::WinUtils::WaitForMessage()`, with the upper stack in the ordinary GPU child app/message loop. Exact disassembly shows the return site follows `USER32!MsgWaitForMultipleObjectsEx`; Watson's `GetLastInputInfo+...` export label is not the actual imported call. Therefore the pre-Vista D3DKMT guard is retained as a successful boundary advancement. That Watson capture alone did not prove a new root-cause owner; the later live WinDbg evidence in the following paragraph advances the graphics-triggered teardown boundary to the `libGLESv2.dll` static-TLS lifecycle contract. The predecessor `f15a...` console test remains the latest accepted WebGL rendering evidence; console WebGL on `27f4271...` is still pending.
 
