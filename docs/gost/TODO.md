@@ -44,30 +44,23 @@ After core TLS behavior is stable, evaluate transparent one-shot discovery only 
 
 ## Immediate clean-product acceptance task — run the exact release payload
 
-Release candidate build/static identity:
+Latest accepted clean-product build/static identity:
 
-- product source `win-153-xp @ 85863f2355a23223bf33f55b641ccb509a2b72ac`;
+- product source `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
 - workflow `XP release build x32`;
-- run `35724604122`, job `106735182867`, **completed / success / GREEN**;
-- package artifact `10700255591`;
-- runtime artifact `10700395290`;
-- diagnostics artifact `10700061102`.
+- workflow/control SHA `260409cadad57eda3be880e021b4881c6a4d7ae7`;
+- pinned XP CI scripts `agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
+- run `36560808861`, job `109380950857`, **completed / success / GREEN**;
+- package artifact `11039397943`, digest `sha256:a8e2777bd5b7a9a529de8da3e3ae25d403445794b56134be356e60e0efbbcfa8`;
+- runtime artifact `11038838555`, digest `sha256:1b72e68c931361527472e00ea86f1a0bcb794ccc5f218a73bf95bda002821872`;
+- diagnostics artifact `11038753516`, digest `sha256:4654626e20a8e82c494d61bde3c6c272981158327d39a3d422a67876aa34e8f7`.
 
-The 2026-09-23 physical XP Page Info / certificate / ordinary NSS HTTPS smoke passed for exact local SHA-1 identities:
+The full compile/link, explicit ANGLE FullBuild verifier, final XP PE/import gates, CRT/D3DCompiler/private-DWrite/bcrypt package-survival gates, package/runtime archive creation and aggregate summary all passed. The earlier release attempt `36538672431 / 109308603560` is superseded for build/static acceptance; its RED status was workflow infrastructure caused by the ANGLE verifier mode invocation, not a product compile/link regression.
 
-- `r3dfox.exe=b1e38de25a5212a54833ddcd4ca830318a10467c`;
-- `xul.dll=266b8baea04e92d301fb6ffdd5ad87f492c398eb`.
+The remaining clean-product acceptance task is physical Windows XP execution of the exact `11039397943` / `11038838555` payload with artifact-correlated binary hashes. Exercise at minimum startup/new-profile creation, packaged/policy extension provisioning, ordinary browsing, WebGL1 using the packaged compiler pair, normal graphics-triggered shutdown, and restart. Do not transfer implementation-line physical results to this clean release artifact.
 
-That local pair is now user-identified as the WebRTC/GOST implementation build from run `35737946733`, job `106779925555`, source `afee8c9e5ad2da729407ae06cda8d8029895ab06`, not the clean release run above. The authoritative release package/runtime payloads instead contain:
+Until that exact physical check passes, retain `win-153-xp@586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` as the last artifact-correlated clean-product physical lifecycle baseline.
 
-- `r3dfox.exe=adc00ebb4cee4bc9fdd611016433827a695c93a0`;
-- `xul.dll=b7806d06aecdb47b83482666d3a7d59dcd8c5c6a`.
-
-Therefore the release-line provenance ambiguity is resolved: the earlier physical smoke does not validate `85863f23...`. The remaining clean-product acceptance task is now singular and concrete: extract directly from artifact `10700255591` or `10700395290`, verify the expected release hashes before launch, and perform the short physical XP regression smoke.
-
-Until that is done, retain `win-153-xp @ 586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` as the last artifact-correlated clean-product physical lifecycle baseline.
-
-Detailed release evidence: `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
 ## Active XP implementation work
 
