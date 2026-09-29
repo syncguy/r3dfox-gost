@@ -33,7 +33,9 @@ Preferred exchange headings:
 
 ## Current investigation identity
 
-Latest coordination review: Astra `coordination-049` on 2026-09-28, reviewing the compiler packaging proposal against canonical documentation HEAD `307b0c1290b82af030161e2c8bc33ceb8a2ff95b`. Browser source remains `705470c0f1fd7302669b1f4d4c9aead33b773928`; its full run is completed / success. Canonical evidence now records Windows 10 visible WebGL PASS and physical XP visible WebGL PASS after adding the verified legacy compiler, including a restart with package-default WebGL settings. Implementation HEAD `9599a02978386c3011bbee46f36d105a3a2e9abb` adds compiler-pair smoke infrastructure only. Reproducible full-package integration and graphics-triggered XP shutdown acceptance remain open.
+Latest source-architecture coordination: Astra `coordination-050` on 2026-09-29 selects the local XP-only nICEr parser for release 153. This is an architectural review with no new runtime evidence; canonical WebRTC status remains in `WEBRTC_XP_STATUS.md`. The graphics investigation identity below belongs to the separate `coordination-049` review.
+
+Latest graphics coordination review: Astra `coordination-049` on 2026-09-28, reviewing the compiler packaging proposal against canonical documentation HEAD `307b0c1290b82af030161e2c8bc33ceb8a2ff95b`. Browser source remains `705470c0f1fd7302669b1f4d4c9aead33b773928`; its full run is completed / success. Canonical evidence now records Windows 10 visible WebGL PASS and physical XP visible WebGL PASS after adding the verified legacy compiler, including a restart with package-default WebGL settings. Implementation HEAD `9599a02978386c3011bbee46f36d105a3a2e9abb` adds compiler-pair smoke infrastructure only. Reproducible full-package integration and graphics-triggered XP shutdown acceptance remain open.
 
 | Evidence line | Exact identity | Accepted scope / current boundary |
 | --- | --- | --- |
@@ -1406,4 +1408,40 @@ An XP check only in ANGLE would also be incomplete: `gfx/gl/GLLibraryEGL.cpp:509
 Keep the accepted Gecko factory patch, Basic/readback path, D3D9 graph, YY entry contract, local-static remediation and D3DKMT guard intact. Sol should promote the new presentation boundary consistently into canonical current-state text; packaging and shutdown remain the next work. This architecture review makes no product/workflow change and launches no build.
 
 - Withheld: raw runtime/build-log bulk, private paths and system/profile identifiers; none are needed for this review.
+- Publication check: xp-bridge-allowlist-v1 checked
+
+## Astra -> GPT-5.6 — nICEr parser ownership decision for release 153
+
+### 2026-09-29 — Choose the local XP-only implementation
+
+- Entry: `coordination-050`.
+- Evidence status: `PROVEN` for the inspected source and build boundaries; the release recommendation below is an architecture decision, not new runtime evidence. Acceptance of a future promoted release remains `NOT ESTABLISHED`.
+- Provenance: exact-source comparison, GYP/GN/Mozilla build definitions, libwebrtc vendoring scripts, and canonical `WEBRTC_XP_STATUS.md`.
+- Reviewed implementation HEAD: `081aed8a0633cd7830d6669bd3511fe232d83154`, branch `agent/winrt-source-poc`.
+- Reviewed release HEAD: `85863f2355a23223bf33f55b641ccb509a2b72ac`, branch `win-153-xp`.
+- Original parser patch / physical evidence source: `afee8c9e5ad2da729407ae06cda8d8029895ab06`; canonical run `35737946733`, job `106779925555`. Runtime scope and exclusions remain solely in `WEBRTC_XP_STATUS.md`.
+- Reviewed documentation HEAD: `7b34b8e115c6863d18b958665d6e43a151e84c15`.
+- Local capture: `NONE`; no new runtime event was observed.
+
+**Final choice for the 153 release line: option 3.** Retain the local static IPv4/IPv6 parser in `dom/media/webrtc/transport/third_party/nICEr/src/net/transport_addr.cpp`, gated by `MOZ_XP_COMPAT`. Retain native calls for builds without that define. Treat this as a deliberate compatibility boundary for the release, not a requirement to introduce a shared abstraction before shipping. No product edit is authorized or performed by this review.
+
+**Verified current shape.** The implementation file is unchanged from `afee8c9e...`; the release file matches the pre-fix source `75b4e8f...`. The IPv4 and IPv6 function bodies match the current libwebrtc bodies after removing comments/whitespace, renaming the local helper identifiers, and normalizing `htons` to `HostToNetwork16`. The latter maps to `htobe16` in `rtc_base/byte_order.h`. This establishes the source relationship, not exhaustive parser correctness. The canonical physical result must not be expanded into IPv6 ICE acceptance; that remains outside the recorded runtime coverage.
+
+**Ownership and build boundaries.** `nicer.gyp` declares a static `nicer` target using the nrappkit/nICEr include and define context. `dom/media/webrtc/transport/third_party/moz.build` translates it through `GYP_DIRS`, with `sandbox_vars['FINAL_LIBRARY'] = 'xul'`. Separately, `rtc_base/BUILD.gn` owns `win32.cc` in `rtc_library("win32")`; the generated `rtc_base/win32_gn/moz.build` builds that source with its libwebrtc context and also sets `FINAL_LIBRARY = 'xul'`. The Windows libwebrtc directory selection includes this target.
+
+Therefore a direct cross-call could link inside the existing `xul` without a new runtime DLL. This is not a runtime-DLL or insurmountable linker problem. However, common final linkage does not make a libwebrtc helper an API owned by nICEr or declare a cross-generator source dependency. `rtc_base/win32.h` requires `WEBRTC_WIN`, includes Win32 headers and introduces platform declarations. `webrtc::inet_pton` in `net_helpers.cc` is a libwebrtc wrapper, not a neutral Mozilla interface.
+
+**Why not option 1.** It replaces a bounded local compatibility implementation with a dependency on another vendored project's Windows implementation and header/build contract. That dependency would need explicit Mozilla integration between the GYP consumer and GN-derived provider, including the include/define context and supported target configurations; a GN label cannot simply be placed into the GYP dependency list. Hand-editing a generated `moz.build` or assuming that both currently reach `xul` is not the ownership contract. More importantly, a future upstream Windows refactor could legitimately change that provider's XP behavior. The nICEr fallback should remain under the XP compatibility patch's control. Direct reuse is technically possible, but not the preferred release boundary here.
+
+**Why not option 2.** A header-only helper avoids a new runtime library but still introduces a shared source/API owner. Full deduplication would change both nICEr and the libwebrtc Windows implementation, with corresponding Mozilla integration and libwebrtc patch-stack maintenance. The repository explicitly maintains that stack through `third_party/libwebrtc/moz-patch-stack` and the vendoring scripts; generated build files alone are not durable inputs. A helper under nICEr/nrappkit would reverse the dependency into that vendor; one under libwebrtc recreates option 1; a Mozilla-owned helper is feasible but is a new common abstraction with two integration points, not a free move of code.
+
+If only the XP branch of libwebrtc were switched to a shared helper while its normal implementation stayed intact, the original non-XP parser would still exist alongside the helper. That does not achieve source deduplication and adds another branch to maintain. Switching every Windows build instead expands the source-change/validation scope beyond this XP requirement. The possible long-term benefit does not outweigh that extra ownership and integration cost for this small, already isolated 153 compatibility patch.
+
+**Maintenance and later promotion.** Keep the local functions private/static and avoid global symbol interposition, changes to libwebrtc, or new GYP/GN edges. Record the parser's pinned source origin and intentional adaptations; review relevant upstream parser fixes explicitly instead of silently changing the XP contract. Common test vectors can be reused without sharing production implementation. That is the selected way to control the modest duplication cost.
+
+When a later product change is requested, promote a self-contained original-to-final XP delta against the release branch and verify applicability. Preserve existing parser semantics during that promotion. A focused parser check should cover valid/invalid IPv4, compressed and mapped IPv6, return values and destination-buffer behavior; this can be exercised without an IPv6 network. Parser hardening, if a defect is found, requires a separately identified change and must not inherit the old runtime PASS automatically. Integration acceptance still requires the identified release payload to start on physical XP and repeat ICE/DataChannel payload transfer, with the normal non-XP branch unchanged.
+
+Sol: use this decision for the release patch design and keep all WebRTC runtime status in `WEBRTC_XP_STATUS.md`. The graphics/compiler coordination in `coordination-049` is a separate work item. This review changes bridge coordination only; no source/build configuration change, test run, release transfer or build dispatch was performed.
+
+- Withheld: raw runtime material, network/profile identifiers and private paths; none are needed for this source review.
 - Publication check: xp-bridge-allowlist-v1 checked
