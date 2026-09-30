@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Project State
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 This file is the authoritative current technical synthesis and handoff for new chats. Detailed experiment evidence is in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; closed milestones are in `DONE.md`; pending work is in `TODO.md`; workflow roles are in `WORKFLOWS.md`; the mandatory Windows XP x86 build/dependency contract is in `XP_BUILD_CONTRACT.md`. [WEBRTC_XP_STATUS.md](WEBRTC_XP_STATUS.md) is the single source of truth for all Windows XP WebRTC build/runtime/codec/ICE/NAT status and remaining WebRTC boundaries; WebRTC state must not be duplicated here.
 
@@ -46,7 +46,9 @@ The full Firefox/r3dfox XP x86 compile/link, explicit ANGLE `FullBuild` codegen 
 
 The prior release attempt `36538672431 / 109308603560` on the same product source remains classified as workflow-infrastructure RED because the ANGLE verifier mode was invoked incorrectly. Run `36560808861` is the completed successful revalidation with the corrected explicit `-Mode FullBuild` contract and supersedes that RED attempt for build/static acceptance.
 
-No physical Windows XP runtime PASS is implied by this CI result. The exact new package/runtime payload still requires artifact-correlated physical execution before it can supersede the current clean-product physical baseline.
+Physical Windows XP SP3 x86 execution of this exact clean-release payload is now artifact-correlated and has passed startup/live-session acceptance. The user is actively using the exact browser for a real ChatGPT browsing session. Independent extraction of final `r3dfox-v153.0.3.win32.zip` from package artifact `11039397943` confirms byte-for-byte SHA-1 matches for `r3dfox.exe=3867c9f67f2d22ac59d092cccc3fb2b32a1d23a0`, `xul.dll=d2be72012f2881cec30df008d86c14f1e22ed1f5`, `libGLESv2.dll=5007c5df144c05db13037628305fb8b73f6e3019`, and `d3dcompiler_old.dll=98be17e1d324790a5b206e1ea1cc4e64fbe21240`. The physical `application.ini` / `platform.ini` values also match the package exactly: BuildIDs `20260929114625` / `20260929140444`, both with `SourceStamp=42bfe890d9f508c9e9ce677acf8ecf03ea666626`.
+
+This establishes **artifact-correlated physical XP startup/session and ordinary browsing PASS** for the current clean-product candidate. It does not by itself claim exact-build WebGL rendering, graphics-triggered shutdown/restart, WebRTC behavior, or GOST TLS behavior.
 
 ## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes; release-candidate correlation disproven
 
@@ -76,19 +78,22 @@ The release-line conclusion remains: **`85863f23...` has build/package/static GR
 
 Detailed release-line evidence remains in `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
-## Last artifact-correlated clean-product physical baseline — PASS
+## Current artifact-correlated clean-product physical baseline — PASS at startup/session scope
 
-The current source/artifact-correlated clean-product physical baseline remains:
+The current clean-product physical baseline has advanced to:
 
-- `win-153-xp @ 586fe5f856971a790db6e3529bdb0ac7a6133872`;
+- `win-153-xp @ 42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
 - workflow `XP release build x32`;
-- run `35697342392`, job `106647034214`;
-- package `10685004306`, runtime `10684874629`, diagnostics `10686043053`;
+- run `36560808861`, job `109380950857`;
+- package artifact `11039397943`, runtime artifact `11038838555`, diagnostics artifact `11038753516`;
 - build/package/static result **completed / success / GREEN**;
-- physical Windows XP startup, new-profile creation, policy-driven uBlock installation, representative page browsing, normal shutdown and orderly termination **PASS**;
-- four key runtime binaries were independently hash-correlated to package artifact `10685004306`.
+- physical Windows XP startup and sustained interactive browsing/network session **PASS**;
+- the user is actively using this exact browser build for the current ChatGPT session;
+- four key runtime binaries and both BuildID/SourceStamp identities are independently correlated to the final package bytes.
 
-This distinction is intentional: the newer source has the stronger build/static result, while the older source remains the latest clean-product physical result whose local binaries are proven to come from the named CI artifact.
+Artifact-side identities for the same final package are SHA-256 `r3dfox.exe=f06eaef9165248e933a8e0622b403d84fc66f324934b42513dad01bccd4f5dc8`, `xul.dll=c44a22dce70864d88ec2e58f75612ce8442e1425b1a7ef259cfea1ac25a0b399`, `libGLESv2.dll=f7cdd21624a817a189838f1fbb3dede53c8817646ef8939c2cc2ec9493d76b62`, and `d3dcompiler_old.dll=2f23182ec6f4889397ac4bf03d62536136c5bdba825c7d2c4ef08c827f3a8a1c`.
+
+The older `586fe5f8...` / run `35697342392` result remains the last clean-product artifact with a separately recorded full lifecycle including normal shutdown. For the new consolidated `42bfe890...` package, startup/session/browsing are accepted; exact-build WebGL and shutdown/restart remain separate checks before calling the new package a full lifecycle PASS.
 
 # Localization / packaging
 
