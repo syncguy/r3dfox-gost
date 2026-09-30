@@ -1092,3 +1092,27 @@ Evidence boundary: **artifact-correlated physical XP startup/session and ordinar
 
 Status: **clean-product physical startup/session PASS / provenance closed / remaining exact-build lifecycle checks separate**.
 
+---
+
+## 2026-09-30 — clean release physical XP WebGL1 PASS with packaged legacy compiler fallback
+
+Track: Windows XP SP3 x86 compatibility / clean-product WebGL runtime. Independent of GOST TLS runtime.
+
+Exact identity remains:
+
+- product source-under-test `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- workflow `XP release build x32`;
+- run `36560808861`;
+- job `109380950857`;
+- package artifact `11039397943`.
+
+The exact physical-XP browser was already artifact-correlated to the package by matching `r3dfox.exe`, `xul.dll`, `libGLESv2.dll`, `d3dcompiler_old.dll`, both BuildIDs, and both SourceStamp values.
+
+Physical runtime result: opening `https://get.webgl.org/` on the exact clean-release browser reports `Your browser supports WebGL` and visibly renders the WebGL cube. The package contains the pinned Firefox 52 legacy D3D compiler fallback as `d3dcompiler_old.dll`; local/package SHA-1 is `98be17e1d324790a5b206e1ea1cc4e64fbe21240`.
+
+This is the clean-release integration confirmation for the already-selected XP graphics solution: the transferred ANGLE/source compatibility patches and the packaged legacy compiler fallback operate together successfully on physical Windows XP without a manual runtime DLL addition.
+
+Evidence boundary: **artifact-correlated physical XP WebGL1 rendering PASS**. WebGL2 remains outside the accepted ANGLE D3D9/GLES2 capability boundary. Graphics-triggered shutdown/process-exit and restart on this exact consolidated package remain separate lifecycle checks.
+
+Status: **clean-product WebGL1 physical PASS / packaged compiler fallback accepted**.
+
