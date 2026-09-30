@@ -1116,3 +1116,34 @@ Evidence boundary: **artifact-correlated physical XP WebGL1 rendering PASS**. We
 
 Status: **clean-product WebGL1 physical PASS / packaged compiler fallback accepted**.
 
+---
+
+## 2026-09-30 — clean release full lifecycle PASS and Google Search observation
+
+Track: Windows XP SP3 x86 compatibility / clean-product lifecycle. Independent of GOST TLS runtime.
+
+Exact identity remains:
+
+- product source-under-test `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- workflow `XP release build x32`;
+- run `36560808861`;
+- job `109380950857`;
+- package artifact `11039397943`;
+- exact local/package identities already correlated for `r3dfox.exe`, `xul.dll`, `libGLESv2.dll`, `d3dcompiler_old.dll`, both BuildIDs, and both SourceStamp values.
+
+The browser was exercised on physical Windows XP with ordinary tabs and the active `get.webgl.org` WebGL1 page still open. User-initiated shutdown completed normally, all browser processes terminated, and the same portable build then started correctly again.
+
+Combined with the already-recorded startup/live-session and WebGL1 rendering results, this closes the clean-product lifecycle acceptance for the exact consolidated package at the exercised scope:
+
+- startup and sustained ordinary browsing/network session: **PASS**;
+- WebGL1 context/rendering using the package-supplied legacy compiler fallback: **PASS**;
+- graphics-triggered normal shutdown: **PASS**;
+- complete browser-process exit: **PASS**;
+- subsequent restart: **PASS**.
+
+Additional same-session observation: Google Search operated normally and accepted searches without presenting a CAPTCHA. This is recorded as an observed service behavior for the exact physical session only. It does not prove that the XP-compatible User-Agent/OS identity change was solely responsible, does not isolate IP/account/reputation or other anti-abuse inputs, and is not a guarantee for future requests.
+
+Evidence boundary: **artifact-correlated clean-product physical XP full lifecycle PASS at the exercised browser/WebGL1 scope**. WebRTC runtime and GOST TLS/SSPI/CryptoPro remain separate evidence lines.
+
+Status: **clean `win-153-xp` consolidated runtime acceptance COMPLETE for current lifecycle scope**.
+
