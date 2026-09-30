@@ -1052,3 +1052,43 @@ Evidence boundary: **build/package/static PASS only**. No physical Windows XP st
 
 Status: **clean-product full release build/package/static GREEN / physical XP acceptance pending**.
 
+---
+
+## 2026-09-30 — clean release artifact-correlated physical XP startup/session PASS
+
+Track: Windows XP SP3 x86 compatibility / clean-product release runtime. Independent of GOST TLS runtime.
+
+Exact build identity remains:
+
+- product source-under-test `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- run `36560808861`;
+- job `109380950857`;
+- package artifact `11039397943`, digest `sha256:a8e2777bd5b7a9a529de8da3e3ae25d403445794b56134be356e60e0efbbcfa8`;
+- runtime artifact `11038838555`;
+- diagnostics artifact `11038753516`.
+
+Physical Windows XP local SHA-1 identities supplied from the running portable directory:
+
+- `r3dfox.exe=3867c9f67f2d22ac59d092cccc3fb2b32a1d23a0`;
+- `xul.dll=d2be72012f2881cec30df008d86c14f1e22ed1f5`;
+- `libGLESv2.dll=5007c5df144c05db13037628305fb8b73f6e3019`;
+- `d3dcompiler_old.dll=98be17e1d324790a5b206e1ea1cc4e64fbe21240`;
+- `application.ini BuildID=20260929114625`, `SourceStamp=42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- `platform.ini BuildID=20260929140444`, `SourceStamp=42bfe890d9f508c9e9ce677acf8ecf03ea666626`.
+
+Independent artifact correlation was performed by downloading package artifact `11039397943`, extracting its final `r3dfox-v153.0.3.win32.zip`, and hashing the corresponding files. All four SHA-1 values and both BuildID/SourceStamp pairs match the physical-XP values exactly.
+
+Artifact-side SHA-256 identities are:
+
+- `r3dfox.exe=f06eaef9165248e933a8e0622b403d84fc66f324934b42513dad01bccd4f5dc8`;
+- `xul.dll=c44a22dce70864d88ec2e58f75612ce8442e1425b1a7ef259cfea1ac25a0b399`;
+- `libGLESv2.dll=f7cdd21624a817a189838f1fbb3dede53c8817646ef8939c2cc2ec9493d76b62`;
+- `d3dcompiler_old.dll=2f23182ec6f4889397ac4bf03d62536136c5bdba825c7d2c4ef08c827f3a8a1c`.
+
+Physical result: the exact clean-release browser starts on Windows XP SP3 x86 and sustains a real interactive browsing/network session; the user is actively using this exact build for the current ChatGPT conversation.
+
+Evidence boundary: **artifact-correlated physical XP startup/session and ordinary browsing PASS**. This result does not yet claim exact-build WebGL rendering, graphics-triggered shutdown/restart, WebRTC runtime, or GOST TLS handshake behavior.
+
+Status: **clean-product physical startup/session PASS / provenance closed / remaining exact-build lifecycle checks separate**.
+
