@@ -50,7 +50,9 @@ Physical Windows XP SP3 x86 execution of this exact clean-release payload is now
 
 This establishes **artifact-correlated physical XP startup/session and ordinary browsing PASS** for the current clean-product candidate. The same exact artifact has now also passed physical WebGL1 rendering: on Windows XP, `https://get.webgl.org/` reports `Your browser supports WebGL` and visibly renders the WebGL cube. The tested package already contains the pinned Firefox 52 legacy compiler as `d3dcompiler_old.dll`; its SHA-1 `98be17e1d324790a5b206e1ea1cc4e64fbe21240` is independently artifact-correlated to package `11039397943`. Therefore the clean-release transfer of the accepted ANGLE/source fixes plus packaged legacy D3D compiler fallback is physically accepted at WebGL1 rendering scope.
 
-This does not yet claim exact-build graphics-triggered shutdown/restart, WebRTC behavior, or GOST TLS behavior.
+The remaining clean-release lifecycle boundary is now also physically closed on the same exact artifact: with ordinary tabs and the active WebGL page open, the browser shuts down normally, all browser processes terminate, and the same portable build then starts correctly again. Therefore `42bfe890...` / package `11039397943` now has an **artifact-correlated physical XP full lifecycle PASS at the exercised clean-product scope**, including startup/live browsing, WebGL1 rendering, graphics-triggered normal shutdown/process exit, and restart.
+
+During the same exact physical-XP session, ordinary Google Search also completed normally without presenting a CAPTCHA. Record this only as an observed service-behavior result for this exact session; it does not establish which browser identity/network/reputation signal caused the behavior and is not a general guarantee for future Google requests. WebRTC and GOST TLS remain independent evidence lines.
 
 ## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes; release-candidate correlation disproven
 
@@ -80,7 +82,7 @@ The release-line conclusion remains: **`85863f23...` has build/package/static GR
 
 Detailed release-line evidence remains in `TEST_LOG_2026-09-23_release_runtime_smoke.md`.
 
-## Current artifact-correlated clean-product physical baseline — PASS at startup/session scope
+## Current artifact-correlated clean-product physical baseline — FULL LIFECYCLE PASS
 
 The current clean-product physical baseline has advanced to:
 
@@ -90,12 +92,16 @@ The current clean-product physical baseline has advanced to:
 - package artifact `11039397943`, runtime artifact `11038838555`, diagnostics artifact `11038753516`;
 - build/package/static result **completed / success / GREEN**;
 - physical Windows XP startup and sustained interactive browsing/network session **PASS**;
+- physical WebGL1 rendering on `get.webgl.org` **PASS** with the packaged `d3dcompiler_old.dll`;
+- shutdown with the active WebGL page and ordinary tabs **PASS**, with all browser processes terminating;
+- subsequent restart of the same portable build **PASS**;
+- Google Search operated normally during the same session without presenting a CAPTCHA (session observation only);
 - the user is actively using this exact browser build for the current ChatGPT session;
 - four key runtime binaries and both BuildID/SourceStamp identities are independently correlated to the final package bytes.
 
 Artifact-side identities for the same final package are SHA-256 `r3dfox.exe=f06eaef9165248e933a8e0622b403d84fc66f324934b42513dad01bccd4f5dc8`, `xul.dll=c44a22dce70864d88ec2e58f75612ce8442e1425b1a7ef259cfea1ac25a0b399`, `libGLESv2.dll=f7cdd21624a817a189838f1fbb3dede53c8817646ef8939c2cc2ec9493d76b62`, and `d3dcompiler_old.dll=2f23182ec6f4889397ac4bf03d62536136c5bdba825c7d2c4ef08c827f3a8a1c`.
 
-The older `586fe5f8...` / run `35697342392` result remains the last clean-product artifact with a separately recorded full lifecycle including normal shutdown. For the new consolidated `42bfe890...` package, startup/session/browsing and WebGL1 rendering are now physically accepted; graphics-triggered shutdown/process exit and restart remain the final lifecycle checks before calling the new package a full lifecycle PASS.
+The consolidated `42bfe890...` package now supersedes `586fe5f8...` as the current clean-product physical lifecycle baseline. The older result remains historical evidence, but the exact release artifact `11039397943` now carries the stronger end-to-end acceptance because its provenance, WebGL1 path, shutdown/process exit, and restart are all physically exercised on Windows XP.
 
 # Localization / packaging
 
