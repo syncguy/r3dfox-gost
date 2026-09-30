@@ -57,9 +57,11 @@ Latest accepted clean-product build/static identity:
 
 The full compile/link, explicit ANGLE FullBuild verifier, final XP PE/import gates, CRT/D3DCompiler/private-DWrite/bcrypt package-survival gates, package/runtime archive creation and aggregate summary all passed. The earlier release attempt `36538672431 / 109308603560` is superseded for build/static acceptance; its RED status was workflow infrastructure caused by the ANGLE verifier mode invocation, not a product compile/link regression.
 
-The remaining clean-product acceptance task is physical Windows XP execution of the exact `11039397943` / `11038838555` payload with artifact-correlated binary hashes. Exercise at minimum startup/new-profile creation, packaged/policy extension provisioning, ordinary browsing, WebGL1 using the packaged compiler pair, normal graphics-triggered shutdown, and restart. Do not transfer implementation-line physical results to this clean release artifact.
+Physical Windows XP execution of the exact clean-release payload has now begun and provenance is closed. The running browser is independently artifact-correlated to package `11039397943`: `r3dfox.exe=3867c9f67f2d22ac59d092cccc3fb2b32a1d23a0`, `xul.dll=d2be72012f2881cec30df008d86c14f1e22ed1f5`, `libGLESv2.dll=5007c5df144c05db13037628305fb8b73f6e3019`, and `d3dcompiler_old.dll=98be17e1d324790a5b206e1ea1cc4e64fbe21240`; both local BuildID/SourceStamp pairs also match the package. The exact browser starts and sustains a real interactive ChatGPT browsing/network session on physical XP.
 
-Until that exact physical check passes, retain `win-153-xp@586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` as the last artifact-correlated clean-product physical lifecycle baseline.
+Therefore startup/session/ordinary-browsing acceptance is **PASS** for `42bfe890...`. Remaining exact-build clean-release checks are limited to the runtime surfaces not yet observed on this consolidated payload: WebGL1 with the packaged compiler pair, graphics-triggered normal shutdown plus process exit, and restart. New-profile/extension provisioning should be recorded if exercised, but provenance no longer blocks runtime acceptance.
+
+The older `win-153-xp@586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` remains the last clean-product artifact with a separately recorded full startup-to-shutdown lifecycle PASS until the new consolidated package completes those remaining checks.
 
 
 ## Active XP implementation work
