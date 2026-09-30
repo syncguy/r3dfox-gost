@@ -48,7 +48,9 @@ The prior release attempt `36538672431 / 109308603560` on the same product sourc
 
 Physical Windows XP SP3 x86 execution of this exact clean-release payload is now artifact-correlated and has passed startup/live-session acceptance. The user is actively using the exact browser for a real ChatGPT browsing session. Independent extraction of final `r3dfox-v153.0.3.win32.zip` from package artifact `11039397943` confirms byte-for-byte SHA-1 matches for `r3dfox.exe=3867c9f67f2d22ac59d092cccc3fb2b32a1d23a0`, `xul.dll=d2be72012f2881cec30df008d86c14f1e22ed1f5`, `libGLESv2.dll=5007c5df144c05db13037628305fb8b73f6e3019`, and `d3dcompiler_old.dll=98be17e1d324790a5b206e1ea1cc4e64fbe21240`. The physical `application.ini` / `platform.ini` values also match the package exactly: BuildIDs `20260929114625` / `20260929140444`, both with `SourceStamp=42bfe890d9f508c9e9ce677acf8ecf03ea666626`.
 
-This establishes **artifact-correlated physical XP startup/session and ordinary browsing PASS** for the current clean-product candidate. It does not by itself claim exact-build WebGL rendering, graphics-triggered shutdown/restart, WebRTC behavior, or GOST TLS behavior.
+This establishes **artifact-correlated physical XP startup/session and ordinary browsing PASS** for the current clean-product candidate. The same exact artifact has now also passed physical WebGL1 rendering: on Windows XP, `https://get.webgl.org/` reports `Your browser supports WebGL` and visibly renders the WebGL cube. The tested package already contains the pinned Firefox 52 legacy compiler as `d3dcompiler_old.dll`; its SHA-1 `98be17e1d324790a5b206e1ea1cc4e64fbe21240` is independently artifact-correlated to package `11039397943`. Therefore the clean-release transfer of the accepted ANGLE/source fixes plus packaged legacy D3D compiler fallback is physically accepted at WebGL1 rendering scope.
+
+This does not yet claim exact-build graphics-triggered shutdown/restart, WebRTC behavior, or GOST TLS behavior.
 
 ## 2026-09-23 physical XP runtime smoke — PASS for exact local hashes; release-candidate correlation disproven
 
@@ -93,7 +95,7 @@ The current clean-product physical baseline has advanced to:
 
 Artifact-side identities for the same final package are SHA-256 `r3dfox.exe=f06eaef9165248e933a8e0622b403d84fc66f324934b42513dad01bccd4f5dc8`, `xul.dll=c44a22dce70864d88ec2e58f75612ce8442e1425b1a7ef259cfea1ac25a0b399`, `libGLESv2.dll=f7cdd21624a817a189838f1fbb3dede53c8817646ef8939c2cc2ec9493d76b62`, and `d3dcompiler_old.dll=2f23182ec6f4889397ac4bf03d62536136c5bdba825c7d2c4ef08c827f3a8a1c`.
 
-The older `586fe5f8...` / run `35697342392` result remains the last clean-product artifact with a separately recorded full lifecycle including normal shutdown. For the new consolidated `42bfe890...` package, startup/session/browsing are accepted; exact-build WebGL and shutdown/restart remain separate checks before calling the new package a full lifecycle PASS.
+The older `586fe5f8...` / run `35697342392` result remains the last clean-product artifact with a separately recorded full lifecycle including normal shutdown. For the new consolidated `42bfe890...` package, startup/session/browsing and WebGL1 rendering are now physically accepted; graphics-triggered shutdown/process exit and restart remain the final lifecycle checks before calling the new package a full lifecycle PASS.
 
 # Localization / packaging
 
