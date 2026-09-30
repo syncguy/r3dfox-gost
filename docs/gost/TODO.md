@@ -42,27 +42,11 @@ After core TLS behavior is stable, evaluate transparent one-shot discovery only 
 
 # Windows XP compatibility — independent
 
-## Immediate clean-product acceptance task — run the exact release payload
+## Clean-product acceptance
 
-Latest accepted clean-product build/static identity:
+The consolidated clean release `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`, run `36560808861 / 109380950857`, package `11039397943`, has completed its current physical Windows XP acceptance: artifact correlation, startup/live browsing, WebGL1 with the packaged legacy compiler fallback, graphics-triggered normal shutdown with complete process exit, and restart all PASS. The completed milestone is recorded in `DONE.md` and detailed evidence is in `TEST_LOG.md`.
 
-- product source `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
-- workflow `XP release build x32`;
-- workflow/control SHA `260409cadad57eda3be880e021b4881c6a4d7ae7`;
-- pinned XP CI scripts `agent/winrt-source-poc@8fa810b1e1331c031fe8a6fd0f91fcd1623ecaae`;
-- run `36560808861`, job `109380950857`, **completed / success / GREEN**;
-- package artifact `11039397943`, digest `sha256:a8e2777bd5b7a9a529de8da3e3ae25d403445794b56134be356e60e0efbbcfa8`;
-- runtime artifact `11038838555`, digest `sha256:1b72e68c931361527472e00ea86f1a0bcb794ccc5f218a73bf95bda002821872`;
-- diagnostics artifact `11038753516`, digest `sha256:4654626e20a8e82c494d61bde3c6c272981158327d39a3d422a67876aa34e8f7`.
-
-The full compile/link, explicit ANGLE FullBuild verifier, final XP PE/import gates, CRT/D3DCompiler/private-DWrite/bcrypt package-survival gates, package/runtime archive creation and aggregate summary all passed. The earlier release attempt `36538672431 / 109308603560` is superseded for build/static acceptance; its RED status was workflow infrastructure caused by the ANGLE verifier mode invocation, not a product compile/link regression.
-
-Physical Windows XP execution of the exact clean-release payload has now begun and provenance is closed. The running browser is independently artifact-correlated to package `11039397943`: `r3dfox.exe=3867c9f67f2d22ac59d092cccc3fb2b32a1d23a0`, `xul.dll=d2be72012f2881cec30df008d86c14f1e22ed1f5`, `libGLESv2.dll=5007c5df144c05db13037628305fb8b73f6e3019`, and `d3dcompiler_old.dll=98be17e1d324790a5b206e1ea1cc4e64fbe21240`; both local BuildID/SourceStamp pairs also match the package. The exact browser starts and sustains a real interactive ChatGPT browsing/network session on physical XP.
-
-Therefore startup/session/ordinary-browsing acceptance is **PASS** for `42bfe890...`. Physical WebGL1 is also now **PASS** on the same artifact: `get.webgl.org` reports WebGL support and visibly renders the cube using the package that already contains the artifact-correlated `d3dcompiler_old.dll`. Remaining exact-build clean-release lifecycle checks are now limited to graphics-triggered normal shutdown plus process exit and restart. New-profile/extension provisioning should be recorded if exercised, but provenance no longer blocks runtime acceptance.
-
-The older `win-153-xp@586fe5f856971a790db6e3529bdb0ac7a6133872`, run `35697342392`, job `106647034214`, package `10685004306` remains the last clean-product artifact with a separately recorded full startup-to-shutdown lifecycle PASS until the new consolidated package completes those remaining checks.
-
+No immediate clean-product lifecycle acceptance task remains. Add new work here only for a newly observed regression, a deliberately expanded feature-acceptance matrix, or a later release candidate; do not re-run the closed checks on unchanged source without contradictory evidence.
 
 ## Active XP implementation work
 
