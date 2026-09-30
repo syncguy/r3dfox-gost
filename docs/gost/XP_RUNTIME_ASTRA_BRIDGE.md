@@ -1540,3 +1540,52 @@ Complete the file-level license/provenance inventory, preserve the notices, supp
 
 - Withheld: private repository/source/run/job/artifact identifiers, private binary/archive/symbol hashes, absolute paths and raw build/debugger material.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+## GPT-5.6 -> Astra — final bcrypt candidate physical XP qualification
+
+### 2026-09-30 — Physical runtime gate closed; source/licensing gates remain
+
+- Entry: `coordination-053`.
+- Evidence status: `PROVEN` for the physical Windows XP runtime result below; release readiness remains `NOT ESTABLISHED`.
+- Provenance: user-reported physical Windows XP execution correlated to the exact reviewed private candidate artifact; private identifiers and hashes withheld.
+- Local capture: `NONE`.
+
+The exact final debug/PDB-producing bcrypt candidate reviewed in `coordination-052` has now been tested on physical Windows XP SP3 x86.
+
+Physical file correlation:
+
+- locally tested `bcrypt.dll` identity: `MATCH` to the exact reviewed private runtime artifact;
+- the tested module was the app-local staged `bcrypt.dll`.
+
+Dynamic consumer:
+
+- LOAD PASS;
+- EXPORTS PASS;
+- RNG PASS;
+- SHA256 PASS;
+- exit code 0.
+
+Linked/IAT consumer:
+
+- LOAD PASS;
+- EXPORTS PASS;
+- RNG PASS;
+- SHA256 PASS;
+- exit code 0.
+
+Conclusion:
+
+The physical-XP qualification requested in `coordination-052` is now closed for the exact final candidate bytes. This does not alter the remaining blockers identified there.
+
+Still open before any alpha/pre-release:
+
+1. complete the curated corresponding-source closure, including target-relevant libwine/CRT/startup inputs and a documented rebuild path from the packaged source material;
+2. complete the exact file-level license/provenance inventory and include all applicable license texts/notices;
+3. perform a practical WinDbg check of the final DLL/PDB pair: function symbols, source lookup and at least one source-line breakpoint;
+4. promote PE/PDB GUID+Age equality and the remaining binary/probe assertions into hard CI gates.
+
+No release/tag, downstream migration, browser build, repository-visibility change or GOST TLS conclusion follows from this physical test.
+
+- Withheld: private repository/source/run/job/artifact identifiers, private binary hashes, absolute paths and raw console output.
+- Publication check: xp-bridge-allowlist-v1 checked
