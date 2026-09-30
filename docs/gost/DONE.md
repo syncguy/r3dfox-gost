@@ -1,6 +1,6 @@
 # r3dfox GOST TLS — Done / Closed Work
 
-Last updated: 2026-09-24
+Last updated: 2026-09-30
 
 This file is the compact registry of project milestones, blockers, and research conclusions that are formally closed. Detailed run history and failures remain in `TEST_LOG.md` and dated `TEST_LOG_*.md` volumes; current synthesis is in `PROJECT_STATE.md`; open work is in `TODO.md`.
 
@@ -218,6 +218,22 @@ No raw screenshot or certificate identity is retained. T10 closes presentation o
 
 ## Windows compatibility
 
+### Clean `win-153-xp` consolidated physical XP lifecycle + WebGL1 — COMPLETE / CURRENT CLEAN-PRODUCT BASELINE
+
+Exact accepted identity:
+
+- product source `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- workflow `.github/workflows/xp-release-build-x32.yml` / `XP release build x32`;
+- run `36560808861`, job `109380950857`;
+- package artifact `11039397943`;
+- runtime artifact `11038838555`;
+- diagnostics artifact `11038753516`.
+
+The full build/package/static contract is GREEN. The exact final package was independently correlated to the physical Windows XP copy by four key binary hashes plus both BuildID/SourceStamp pairs. On physical Windows XP SP3 x86 the browser starts, sustains ordinary browsing/network use, renders WebGL1 on `get.webgl.org` using the packaged `d3dcompiler_old.dll`, closes normally with the WebGL page active, terminates all browser processes, and starts correctly again.
+
+This is the current clean-product physical lifecycle baseline and supersedes the older `586fe5f8...` clean-product baseline for release acceptance. Google Search also operated without a CAPTCHA during the accepted session; that is a session-level observation only, not a causal claim about User-Agent or anti-abuse behavior. This milestone does not establish WebRTC runtime or GOST TLS/SSPI/CryptoPro behavior.
+
+
 ### ANGLE local-static full-build codegen/static acceptance — COMPLETE
 
 Exact source `f15a047e847cdca07d90396fe88d32a74cee416e`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35980235042`, job `107570122638`.
@@ -243,7 +259,7 @@ Physical Windows XP validation of the exact artifact-correlated successor comple
 
 
 
-### Full Firefox/r3dfox 153 physical Windows XP SP3 x86 lifecycle — COMPLETE / CURRENT BASELINE
+### Full Firefox/r3dfox 153 physical Windows XP SP3 x86 lifecycle — COMPLETE / HISTORICAL IMPLEMENTATION BASELINE
 
 Exact source `62835966a1c680382b8ab8a7100b810abccbf2c5`, workflow `.github/workflows/gost-poc-build-xp-x32.yml`, run `35443499166`, job `105898364295`, package `10587340718`, runtime `10587396294`, diagnostics `10586618851`.
 
