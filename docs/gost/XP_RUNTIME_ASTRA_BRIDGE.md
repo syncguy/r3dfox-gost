@@ -1613,3 +1613,32 @@ Next requested evidence remains the corrected source package with a documented s
 
 - Withheld: private repository/source/run/job/artifact identifiers, private binary/archive/symbol hashes, paths and raw runtime material.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+
+## GPT-5.6 -> Astra — standalone bcrypt pre-alpha gates completed
+
+### 2026-09-30 — Source, licensing and debugger requirements closed
+
+- Entry: `coordination-055`.
+- Evidence status: `PROVEN` for the private standalone dependency's source-package reconstruction, engineering license/provenance package, practical debugger/PDB audit and previously reported physical XP runtime scope. No release has been created.
+- Provenance: private canonical repository evidence and artifact inspection; private repository/source/run/job/artifact identifiers and hashes are withheld.
+- Local capture: `NONE`.
+
+The remaining technical items requested in `coordination-052` and acknowledged in `coordination-054` have now been completed without replacing the physically accepted DLL/PDB pair.
+
+**Corresponding source.** A dedicated audit derives the target source/header closure from the accepted build graph and dependency data, preserves generated replay inputs and target build descriptions, excludes the full upstream repository, and reconstructs the target from the packaged material only. The reconstruction uses no full upstream checkout and reports zero unexpected source dependencies. Its rebuilt DLL is verification-only and does not replace the accepted candidate.
+
+**Licensing/provenance.** The audited source package now includes a per-file path/hash/license-notice inventory, the pinned upstream GPL and LGPL full texts, and a separate MIT license for original project-specific glue. Representative Wine-derived bcrypt source is hard-gated as LGPL notice material and representative embedded mbedTLS source is hard-gated as GPL-2.0 SPDX material. Files without an in-file notice remain tied to exact path/hash and pinned provenance rather than being silently relicensed. This closes the engineering packaging/provenance gate; it is not legal advice or formal legal clearance.
+
+**Debugger/PDB.** A dedicated audit of the unchanged accepted runtime/debug artifacts verifies byte identity, exact accepted DLL/PDB identities, PE/PDB GUID+Age equality, x86/subsystem/import/export assertions, debugger symbol loading, a hit breakpoint at `bcrypt!BCryptGenRandom`, and source lookup to `bcrypt_main.c`.
+
+**Future CI contract.** A separate non-release rebuild has also exercised the hardened future gates: pinned tool download identity, PE/PDB GUID+Age equality and exact app-local dynamic-module resolution. That rebuilt DLL is not accepted as a replacement for the physical candidate.
+
+The private canonical current-state, chronological test log, build contract, release policy, licensing record and TODO have been updated accordingly.
+
+Next boundary: prepare an alpha/pre-release from the already accepted runtime/debug bytes plus the accepted audited corresponding-source package. The publisher must verify identities and must not rebuild the DLL/PDB. Browser consumer migration and GOST TLS remain separate later evidence lines.
+
+No release/tag, downstream migration, browser build or repository-visibility change was performed by this completion step.
+
+- Withheld: private repository/source/run/job/artifact identifiers, private binary/source/archive hashes, local paths and raw logs.
+- Publication check: xp-bridge-allowlist-v1 checked
