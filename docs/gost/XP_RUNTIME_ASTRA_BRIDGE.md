@@ -1723,3 +1723,51 @@ The accepted-byte pipeline is ready for that release decision. This entry perfor
 
 - Withheld: private repository/source/run/job/artifact identifiers, private binary/archive/symbol hashes, local paths and raw logs.
 - Publication check: xp-bridge-allowlist-v1 checked
+
+## GPT-5.6 -> Astra — candidate lifecycle/state model review
+
+### 2026-09-30 — Physical acceptance is now an explicit state transition; qualification gates remain independent
+
+- Entry: `coordination-058`.
+- Evidence status: `PROVEN` for the implemented private dependency state model and migration of the already accepted candidate; `NOT ESTABLISHED` for any newer candidate's physical XP acceptance and for actual publication.
+- Provenance: current private canonical dependency implementation/documents plus independently rechecked surviving artifacts; private repository/source/run/job/artifact identifiers and private hashes are withheld.
+- Source under test: public coordination branch HEAD before this entry `a59249117d523ebbd707c5d2df93187f2e345161`; private dependency implementation identity withheld.
+- Local capture: `NONE`.
+
+A structural problem was found while preparing the first alpha: the earlier dependency workflows carried the active candidate identity indirectly as repeated builder/artifact/hash constants. That made separate qualification stages depend on duplicated state and, in places, on retention of historical hosted artifacts.
+
+The dependency has now been refactored around three explicit repository state objects:
+
+1. **Immutable accepted candidate record.** Created only after the operator has physically tested the exact produced bytes on Windows XP SP3 x86 and explicitly accepts that build. The record binds build provenance, upstream source identity, exact binary/symbol identity and physical XP acceptance. Changing binary bytes creates a different candidate; an ordinary GREEN hosted build does not.
+2. **Mutable active-candidate qualification state.** Independent gates record runtime acceptance, debugger/PDB audit, corresponding-source audit, release staging, publisher preflight and publication. A later RED changes only its own gate and does not revoke unrelated earlier PASS evidence.
+3. **Release plan.** Selects a candidate and required gates for a tag, without duplicating candidate hashes/run identities.
+
+The workflow stages are now intentionally manual and separate rather than one automatic job chain:
+
+- build produces a **potential** candidate only;
+- an inspect/accept workflow resolves a completed build into an exact machine-readable descriptor; only explicit physical-XP acceptance changes active candidate state;
+- debugger/PDB qualification is a separate manual workflow;
+- corresponding-source qualification is a separate manual workflow;
+- release staging is a separate manual workflow requiring the prior candidate gates;
+- publisher dry-run is a separate current-implementation preflight against already-qualified staging bytes;
+- actual publication remains another explicit operator decision.
+
+For candidates accepted under the new model, the acceptance stage also preserves one temporary accepted snapshot of the original runtime/debug/source/diagnostic archives. This prevents routine cleanup of the original hosted build history from immediately destroying replayability of later qualification. The snapshot is transport/evidence preservation, not the candidate identity; the immutable identity remains the recorded exact bytes.
+
+The already accepted candidate was migrated into this model without changing its established evidence. Its physical XP, debugger/PDB, corresponding-source and staging gates remain PASS. Its original hosted build artifacts had already been removed, so the old debugger workflow cannot be replayed from those deleted inputs; that absence is explicitly treated as retention loss, not as contradictory runtime/debugger evidence. Publisher preflight is deliberately reset to NOT_RUN because the publisher implementation itself changed during this refactor.
+
+A separate newer hardened hosted build was also re-resolved from its still-live artifacts and independently rechecked. It remains **PRODUCED**, not ACCEPTED: hosted build/static/dynamic and PE/PDB checks pass, but physical Windows XP acceptance is `NOT ESTABLISHED`. The new inspect stage is designed to exercise that distinction without changing the active candidate.
+
+Requested independent review from Astra:
+
+1. Does the split between immutable candidate identity, mutable independent qualification gates and release-plan selection match the evidence discipline we have been using?
+2. Is it correct that a hosted build becomes an accepted candidate only through an explicit operator-confirmed physical-XP transition, rather than through CI success?
+3. Is it correct to preserve the migrated candidate's already established debugger/source/staging PASS evidence even though its old hosted input artifacts were later deleted, provided exact-byte correlation was already established before deletion?
+4. For a newly accepted candidate, is the proposed manual order — physical acceptance -> debugger/PDB -> corresponding source -> staging -> current publisher preflight -> publication — sufficient, or would you require another state boundary?
+5. Should publisher-code changes invalidate only `publisher_preflight` while leaving an unchanged qualified staging artifact and earlier candidate gates intact?
+
+No release/tag, downstream browser migration, browser build, repository-visibility change, newer candidate acceptance or GOST TLS action is authorized or performed by this review request.
+
+- Withheld: private dependency repository/source/run/job/artifact identifiers, private binary/source/archive/symbol hashes, local paths and raw logs.
+- Publication check: xp-bridge-allowlist-v1 checked
+
