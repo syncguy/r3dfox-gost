@@ -388,3 +388,50 @@ Exact files from `r3dfox-v153.0.3.win32.zip` inside that artifact:
 The user reported the same SHA-1 values from the live browser directory on physical Windows XP 5.1.2600 and is actively using that browser for this project conversation.
 
 Conclusion: the exact packaged browser from run `36956985064` with the published standalone `syncguy/bcrypt@v0.1.0-alpha.1` DLL has a physical Windows XP browser runtime PASS at the observed normal-use boundary.
+
+
+## Clean XP release build and exact-artifact runtime PASS with standalone bcrypt
+
+The final clean XP release workflow and physical runtime have both passed with the published standalone `syncguy/bcrypt@v0.1.0-alpha.1` dependency.
+
+Build identity:
+
+- workflow: `XP release build x32`;
+- run: `36961506702`;
+- job: `110696007845`;
+- workflow source-under-test: `a13640b58b1b909bb1de769e6e09c0ce75309238`;
+- product source: `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- XP CI scripts source: `agent/winrt-source-poc@56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- conclusion: SUCCESS.
+
+Artifacts:
+
+- package: `11212035828`, digest `sha256:07b028f0608663de4d0fcf6c3b3003fc54c9d01dcaf5774e08cb52a05f51bae2`;
+- runtime archive: `11210894947`, digest `sha256:186622df5696ef02412eacebb027e2e91e16706f5bf67d0ae694118a199f3169`;
+- diagnostics: `11211272059`, digest `sha256:a01df0cfe074f2ac1e263fee3f59dd5b2ed778006d7e3943afeb5a49d9789bfb`.
+
+Standalone bcrypt identity:
+
+- `bcrypt.dll` size `388172`;
+- SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`;
+- SHA-256 `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+The release workflow passed prepare, staging, packaging, packaged-bcrypt verification, and final summary gates.
+
+The user then launched the exact clean package on physical Windows XP 5.1.2600 and reported:
+
+- `r3dfox.exe` SHA-1 `d06d8ac6bf444fb94f6c708a9b004abdf54c2c51`;
+- `xul.dll` SHA-1 `780a2ff0420134043764624bad83d206fba50297`;
+- `bcrypt.dll` SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`;
+- `application.ini` BuildID `20261002041002`, SourceStamp `42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- `platform.ini` BuildID `20261002054717`, SourceStamp `42bfe890d9f508c9e9ce677acf8ecf03ea666626`.
+
+Independent extraction of `r3dfox-v153.0.3.win32.zip` from package artifact `11212035828` produced exact matches:
+
+- `r3dfox.exe`: size `363520`, SHA-1 `d06d8ac6bf444fb94f6c708a9b004abdf54c2c51`, SHA-256 `d0a46958d878c2bbc2601cede990a597e223aa7cf5c393348c8f2df003dda713`;
+- `xul.dll`: size `162244096`, SHA-1 `780a2ff0420134043764624bad83d206fba50297`, SHA-256 `97d88baec3bcfc642d54eb3509c63e1c6e668caa09845611b3b901166bd5c39c`;
+- `bcrypt.dll`: size `388172`, SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`, SHA-256 `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+The user is actively using this exact browser build for the current project conversation.
+
+Conclusion: clean `win-153-xp` release packaging and physical XP runtime with the standalone bcrypt alpha are both PASS.
