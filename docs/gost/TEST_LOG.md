@@ -1241,3 +1241,49 @@ All three live SHA-1 values MATCH the exact package artifact.
 Runtime observation: the user is actively using this browser on physical XP for the current project conversation.
 
 Conclusion: exact-artifact physical XP browser runtime PASS for the standalone-bcrypt integration build.
+
+
+---
+
+## 2026-10-02 — clean XP release build + exact physical runtime PASS
+
+Workflow:
+
+- `XP release build x32`;
+- run `36961506702`;
+- job `110696007845`;
+- workflow source-under-test `a13640b58b1b909bb1de769e6e09c0ce75309238`;
+- product source `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- XP CI scripts `agent/winrt-source-poc@56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- completed/success.
+
+Relevant gates:
+
+- prepare pinned standalone bcrypt — PASS;
+- stage proven bcrypt — PASS;
+- package release build — PASS;
+- verify packaged bcrypt — PASS;
+- final aggregate summary — PASS.
+
+Package artifact: `11212035828`, digest `sha256:07b028f0608663de4d0fcf6c3b3003fc54c9d01dcaf5774e08cb52a05f51bae2`.
+
+Physical Windows XP 5.1.2600 live identities reported by the user:
+
+- `r3dfox.exe` SHA-1 `d06d8ac6bf444fb94f6c708a9b004abdf54c2c51`;
+- `xul.dll` SHA-1 `780a2ff0420134043764624bad83d206fba50297`;
+- `bcrypt.dll` SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`.
+
+Exact package extraction matched all three identities. The package also contains:
+
+- `application.ini` BuildID `20261002041002`, SourceStamp `42bfe890d9f508c9e9ce677acf8ecf03ea666626`;
+- `platform.ini` BuildID `20261002054717`, SourceStamp `42bfe890d9f508c9e9ce677acf8ecf03ea666626`.
+
+Artifact-extracted SHA-256 values:
+
+- `r3dfox.exe`: `d0a46958d878c2bbc2601cede990a597e223aa7cf5c393348c8f2df003dda713`;
+- `xul.dll`: `97d88baec3bcfc642d54eb3509c63e1c6e668caa09845611b3b901166bd5c39c`;
+- `bcrypt.dll`: `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+Runtime observation: the user is actively using this exact clean build for the current project conversation.
+
+Conclusion: exact-artifact physical XP runtime PASS for the clean release build with standalone bcrypt.
