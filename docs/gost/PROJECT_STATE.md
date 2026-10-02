@@ -303,3 +303,24 @@ Pinned standalone dependency:
 The existing browser-side gates remain in place: exact Release metadata, SHA-1/SHA-256/size, x86 PE machine, forbidden-import audit, required BCrypt exports, staging identity, and packaged-archive identity.
 
 This is an implementation transition only. No browser build PASS or physical-XP browser runtime PASS is claimed yet for the standalone bcrypt dependency.
+
+
+## Standalone bcrypt browser runtime: manual substitution PASS; automated packaging pending
+
+The published standalone `syncguy/bcrypt@v0.1.0-alpha.1` DLL has already been manually substituted into the user's current physical Windows XP browser installation and is operating successfully in normal browser use. The user is actively using that browser instance for this project conversation.
+
+Standalone DLL identity:
+
+- `bcrypt.dll`;
+- size `388172`;
+- SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`;
+- SHA-256 `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`;
+- source release `syncguy/bcrypt@v0.1.0-alpha.1`.
+
+Evidence boundary:
+
+- physical browser runtime compatibility of the standalone DLL is user-confirmed by manual app-local substitution;
+- the exact browser package/source identity for this manual substitution was not re-established in this exchange, so do not use this observation as artifact-correlated proof for a specific newly built browser package;
+- the currently running Actions build `36956985064 / 110682033011`, source-under-test `56ea4129e318e3565dfdd81d0bf60a8735961976`, is therefore primarily an automated integration/packaging test: it must prove that the workflow fetches, stages and preserves the same standalone DLL in the produced browser package without manual replacement.
+
+Do not require a new standalone bcrypt rebuild or a new standalone XP acceptance merely because the browser packaging workflow is being changed.
