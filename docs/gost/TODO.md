@@ -118,3 +118,11 @@ The reproduced stock-Russian-langpack Page Info/WebGL failure is closed by the s
 - Prefer source-level fallback, then correct build configuration, then legacy Windows API path, then a narrow provider/thunk; broad workarounds are last resort.
 
 - Exact-source full run `36448769364 / 109017796850` on `94ff24222ce2b05c2f89185778f062120a332881` is **success / GREEN**, and package artifact `10990972577` now has artifact-correlated physical Windows XP startup/session PASS, **physical WebGL1 PASS**, **HTTP User-Agent PASS without `general.useragent.override`**, **JS-visible web-identity PASS**, and **graphics-triggered clean shutdown PASS**. A direct console probe also confirms `webgl1: true`, `webgl2: false`; source inspection ties WebGL2 failure (`FEATURE_FAILURE_EGL_NO_CONFIG`) to the accepted ANGLE D3D9 backend's hard ES 2.0 cap. Treat WebGL2-on-XP as a separate future graphics-backend/architecture task, not as an open blocker for this accepted WebGL1 path. No error dialogs were observed during the morning session. The focused XP runtime acceptance set for this exact package is complete; future work should move to new blockers/regressions or the separate GOST TLS line rather than re-opening these closed checks without contrary evidence.
+
+
+### Standalone bcrypt browser integration
+
+- IN PROGRESS: build `agent/winrt-source-poc@56ea4129e318e3565dfdd81d0bf60a8735961976` with `gost-poc-build-xp-x32.yml`, which now pins `syncguy/bcrypt@v0.1.0-alpha.1` exact DLL SHA-256 `47182ec8...`.
+- Require CI staging/package gates to prove the standalone DLL survives into the final browser package unchanged.
+- After GREEN build, physically run the exact produced browser package on Windows XP SP3 x86 before declaring browser integration PASS.
+- Do not rebuild the standalone bcrypt project unless contradictory evidence appears; the browser integration test consumes the already accepted published DLL.
