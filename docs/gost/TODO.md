@@ -122,7 +122,7 @@ The reproduced stock-Russian-langpack Page Info/WebGL failure is closed by the s
 
 ### Standalone bcrypt browser integration
 
-- IN PROGRESS: build `agent/winrt-source-poc@56ea4129e318e3565dfdd81d0bf60a8735961976` with `gost-poc-build-xp-x32.yml`, which now pins `syncguy/bcrypt@v0.1.0-alpha.1` exact DLL SHA-256 `47182ec8...`.
+- COMPLETE: `gost-poc-build-xp-x32.yml` run `36956985064 / 110682033011` on `agent/winrt-source-poc@56ea4129e318e3565dfdd81d0bf60a8735961976` completed SUCCESS with exact standalone `syncguy/bcrypt@v0.1.0-alpha.1` DLL SHA-256 `47182ec8...` staged and preserved in the final package.
 - Require CI staging/package gates to prove the standalone DLL survives into the final browser package unchanged.
 - After GREEN build, physically run the exact produced browser package on Windows XP SP3 x86 before declaring browser integration PASS.
 - Do not rebuild the standalone bcrypt project unless contradictory evidence appears; the browser integration test consumes the already accepted published DLL.
