@@ -1147,3 +1147,34 @@ Evidence boundary: **artifact-correlated clean-product physical XP full lifecycl
 
 Status: **clean `win-153-xp` consolidated runtime acceptance COMPLETE for current lifecycle scope**.
 
+
+
+---
+
+## 2026-10-02 — standalone bcrypt manual browser substitution runtime PASS
+
+Evidence status: user-confirmed physical runtime PASS.
+
+The published standalone `syncguy/bcrypt@v0.1.0-alpha.1` `bcrypt.dll` was manually substituted into the user's existing physical Windows XP browser installation. The browser started and remained usable in normal browsing; the user is actively using that browser instance for the current project conversation.
+
+DLL identity selected for the browser integration:
+
+- size `388172`;
+- SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`;
+- SHA-256 `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`;
+- release `syncguy/bcrypt@v0.1.0-alpha.1`.
+
+Boundary:
+
+- this proves physical browser runtime compatibility for the manually substituted standalone DLL at the observed usage boundary;
+- the exact browser artifact/source identity was not re-established for this manual substitution in this exchange;
+- it does not by itself prove that the updated browser workflow stages/packages the DLL correctly.
+
+Automated integration build currently in progress:
+
+- workflow `GOST TLS PoC build XP x32`;
+- run `36956985064`;
+- job `110682033011`;
+- source-under-test `56ea4129e318e3565dfdd81d0bf60a8735961976`.
+
+For that run, success means automated dependency fetch/staging/package preservation of the already accepted standalone DLL; it is not a prerequisite for the manual-substitution runtime observation above.
