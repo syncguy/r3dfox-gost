@@ -126,3 +126,6 @@ The reproduced stock-Russian-langpack Page Info/WebGL failure is closed by the s
 - Require CI staging/package gates to prove the standalone DLL survives into the final browser package unchanged.
 - After GREEN build, physically run the exact produced browser package on Windows XP SP3 x86 before declaring browser integration PASS.
 - Do not rebuild the standalone bcrypt project unless contradictory evidence appears; the browser integration test consumes the already accepted published DLL.
+
+
+- COMPLETE: clean release standalone bcrypt integration is closed. `XP release build x32` run `36961506702 / 110696007845` on product source `win-153-xp@42bfe890d9f508c9e9ce677acf8ecf03ea666626` completed SUCCESS, preserved standalone bcrypt SHA-256 `47182ec8...`, and the exact package artifact `11212035828` was physically run on Windows XP with matching `r3dfox.exe`, `xul.dll`, and `bcrypt.dll` identities.
