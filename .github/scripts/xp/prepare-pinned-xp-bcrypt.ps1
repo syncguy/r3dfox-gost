@@ -6,7 +6,8 @@ $root = Join-Path $env:RUNNER_TEMP 'xp-bcrypt-release'
 if (Test-Path $root) { Remove-Item -Recurse -Force $root }
 New-Item -ItemType Directory -Force $root | Out-Null
 
-$releaseUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:BCRYPT_TAG"
+if (-not $env:BCRYPT_REPOSITORY) { throw 'Pinned bcrypt repository is not configured' }
+$releaseUri = "https://api.github.com/repos/$env:BCRYPT_REPOSITORY/releases/tags/$env:BCRYPT_TAG"
 $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri $releaseUri
 if ([string]$release.id -ne $env:BCRYPT_RELEASE_ID) { throw "Unexpected bcrypt release id: $($release.id)" }
 if ($release.tag_name -ne $env:BCRYPT_TAG) { throw "Unexpected bcrypt release tag: $($release.tag_name)" }
@@ -48,6 +49,7 @@ foreach ($name in @(
 }
 
 @(
+  "repository=$env:BCRYPT_REPOSITORY",
   "tag=$($release.tag_name)",
   "release_id=$($release.id)",
   "source_sha=$($release.target_commitish)",
