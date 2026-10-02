@@ -365,3 +365,26 @@ Artifacts:
 - diagnostics: `11210171855`, digest `sha256:c4b18416d5a1ce3c62f11646c798bb7089461fb7fd5fc87250752c0063e71952`.
 
 Evidence boundary: this run proves automated fetch/staging/build/package preservation of the standalone bcrypt dependency. Physical browser runtime compatibility was established separately by the user's manual DLL substitution on Windows XP.
+
+
+## Exact-artifact physical XP browser PASS with standalone bcrypt
+
+The user's current physical Windows XP SP3 x86 browser session has now been correlated exactly to the package artifact produced by the standalone-bcrypt integration build.
+
+Build/package identity:
+
+- workflow: `GOST TLS PoC build XP x32`;
+- run: `36956985064`;
+- job: `110682033011`;
+- source-under-test: `56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- package artifact: `11209658894`, digest `sha256:ae963381982ef24c038718e226a4ad0672b11e79d452128e8e1e4e540eac77c5`.
+
+Exact files from `r3dfox-v153.0.3.win32.zip` inside that artifact:
+
+- `r3dfox.exe`: size `363520`, SHA-1 `445bc68db3a3462d9b69b8488777801a3ffafff1`, SHA-256 `d729aa7b048f47e84c558937ac41b2b028be850ee0a47f1551200ad55bf3f084`;
+- `xul.dll`: size `162337792`, SHA-1 `caffe638a2fd75638720b1b06d29b52f66e92f79`, SHA-256 `82fcbc4d64857bc86e126bf95918496920d624c24fe613eada825e1e76b477e3`;
+- `bcrypt.dll`: size `388172`, SHA-1 `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`, SHA-256 `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+The user reported the same SHA-1 values from the live browser directory on physical Windows XP 5.1.2600 and is actively using that browser for this project conversation.
+
+Conclusion: the exact packaged browser from run `36956985064` with the published standalone `syncguy/bcrypt@v0.1.0-alpha.1` DLL has a physical Windows XP browser runtime PASS at the observed normal-use boundary.
