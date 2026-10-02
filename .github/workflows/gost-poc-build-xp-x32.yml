@@ -27,13 +27,14 @@ jobs:
       YY_THUNKS_TARGET: "5.1.2600.0"
       WINDOWS_XP_SUBSYSTEM: "5.01"
       OBJDIR: "obj-gost-xp-x32"
-      BCRYPT_TAG: "xp-bcrypt-v1"
-      BCRYPT_RELEASE_ID: "380563342"
-      BCRYPT_ASSET_ID: "539647946"
-      BCRYPT_SOURCE_SHA: "a30a701fcf50eb08b6ea7574cb7cc927f6eae014"
-      BCRYPT_SIZE: "520704"
-      BCRYPT_SHA1: "ae021f44edc48b03bb4d67cb5773b62bdf60cb67"
-      BCRYPT_SHA256: "f157f8026347d180e9ab42732bedaad0ea2b3b03dfd0d9ba8b8abe9612aff193"
+      BCRYPT_REPOSITORY: "syncguy/bcrypt"
+      BCRYPT_TAG: "v0.1.0-alpha.1"
+      BCRYPT_RELEASE_ID: "401484730"
+      BCRYPT_ASSET_ID: "604569009"
+      BCRYPT_SOURCE_SHA: "2683896c5d288dcd90449f2fabebe8aa4790753c"
+      BCRYPT_SIZE: "388172"
+      BCRYPT_SHA1: "31e7dd01ad4d87dfa97de99d936abf8e397a86c1"
+      BCRYPT_SHA256: "47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59"
 
     steps:
       - name: Checkout r3dfox-gost
