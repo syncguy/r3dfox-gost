@@ -324,3 +324,44 @@ Evidence boundary:
 - the currently running Actions build `36956985064 / 110682033011`, source-under-test `56ea4129e318e3565dfdd81d0bf60a8735961976`, is therefore primarily an automated integration/packaging test: it must prove that the workflow fetches, stages and preserves the same standalone DLL in the produced browser package without manual replacement.
 
 Do not require a new standalone bcrypt rebuild or a new standalone XP acceptance merely because the browser packaging workflow is being changed.
+
+
+## Standalone bcrypt automated browser integration PASS
+
+The GOST/XP full-build workflow has now completed successfully with the published standalone `syncguy/bcrypt@v0.1.0-alpha.1` dependency.
+
+Exact CI identity:
+
+- workflow: `GOST TLS PoC build XP x32`;
+- run: `36956985064`;
+- job: `110682033011`;
+- source-under-test: `56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- conclusion: SUCCESS.
+
+Standalone bcrypt identity consumed and preserved:
+
+- repository: `syncguy/bcrypt`;
+- tag: `v0.1.0-alpha.1`;
+- Release ID: `401484730`;
+- asset ID: `604569009`;
+- size: `388172`;
+- SHA-1: `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`;
+- SHA-256: `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+Relevant gates all completed SUCCESS:
+
+- `Prepare pinned XP bcrypt release asset`;
+- `Stage proven XP bcrypt.dll`;
+- `Package XP x32 experiment`;
+- `GATE - Verify proven bcrypt survived portable packaging`;
+- `GATE - Summarize XP x32 full build`.
+
+The final summary recorded `PACKAGED_BCRYPT_OUTCOME=success` and `XP_BCRYPT_STAGED_SHA256=47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+Artifacts:
+
+- package: `11209658894`, digest `sha256:ae963381982ef24c038718e226a4ad0672b11e79d452128e8e1e4e540eac77c5`;
+- runtime archive: `11210565328`, digest `sha256:d0d96bf888a7720fc63e01111b91bdebfd442aafbb5714700ae179f93c6a1e6d`;
+- diagnostics: `11210171855`, digest `sha256:c4b18416d5a1ce3c62f11646c798bb7089461fb7fd5fc87250752c0063e71952`.
+
+Evidence boundary: this run proves automated fetch/staging/build/package preservation of the standalone bcrypt dependency. Physical browser runtime compatibility was established separately by the user's manual DLL substitution on Windows XP.
