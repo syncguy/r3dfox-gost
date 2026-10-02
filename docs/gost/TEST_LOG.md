@@ -1178,3 +1178,34 @@ Automated integration build currently in progress:
 - source-under-test `56ea4129e318e3565dfdd81d0bf60a8735961976`.
 
 For that run, success means automated dependency fetch/staging/package preservation of the already accepted standalone DLL; it is not a prerequisite for the manual-substitution runtime observation above.
+
+
+---
+
+## 2026-10-02 — standalone bcrypt automated browser integration GREEN
+
+Workflow/run:
+
+- `GOST TLS PoC build XP x32`;
+- run `36956985064`;
+- job `110682033011`;
+- source-under-test `56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- completed/success.
+
+The workflow consumed `syncguy/bcrypt@v0.1.0-alpha.1` exact `bcrypt.dll` SHA-256 `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+Relevant gates:
+
+- prepare pinned release asset — PASS;
+- stage proven bcrypt — PASS;
+- package — PASS;
+- verify packaged bcrypt — PASS;
+- aggregate summary — PASS.
+
+Final package/runtime/diagnostics artifacts:
+
+- package `11209658894`, digest `sha256:ae963381982ef24c038718e226a4ad0672b11e79d452128e8e1e4e540eac77c5`;
+- runtime `11210565328`, digest `sha256:d0d96bf888a7720fc63e01111b91bdebfd442aafbb5714700ae179f93c6a1e6d`;
+- diagnostics `11210171855`, digest `sha256:c4b18416d5a1ce3c62f11646c798bb7089461fb7fd5fc87250752c0063e71952`.
+
+Conclusion: automated browser integration and package preservation of the standalone bcrypt alpha are GREEN. This CI result is separate from, and complementary to, the previously user-confirmed physical Windows XP runtime PASS from manual DLL substitution.
