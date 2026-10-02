@@ -275,3 +275,31 @@ This is a confirmed capability boundary, not a regression in the now-accepted We
 Focused run `36385541515 / 108810027817` proved the Firefox 52.9.0 ESR SDK as a reproducible source for both `D3DCompiler_43.dll` and the unmodified `d3dcompiler_47.dll`. The legacy 43 binary is the proven physical-XP WebGL fallback when staged as `d3dcompiler_old.dll`; the 47 reference remains subsystem 6.0 and should not be retargeted to XP.
 
 Full run `36390265057 / 108824318489` on source `8bb4ef8fed2362030a27e67058be87e12be61bba` completed with all D3DCompiler retarget/package/SM3 gates PASS, together with successful build, package, CRT, private-DirectWrite and bcrypt gates. The final aggregate remained RED only because the broad import audit had incorrectly generalized historical `_except_handler4_common` evidence into a bare-symbol ban; diagnostics artifact `10962284979` shows all 23 hits were imports satisfied by the pinned app-local `ucrtbase.dll`. The special `_except_handler4_common` audit rule has now been removed entirely. Source `0832bbb1dbbe52f9dde9f101bef2a512c5daf72e` keeps the broad audit's pre-existing XP rules and the narrow optional root `_47` role, but adds no speculative guard for that historical D3DCompiler symbol. Full run `36422520907 / 108928478106` on that exact source is now completed **success / GREEN**, closing the CI build/package/static acceptance for this cleaned candidate. Physical XP/Windows 10 acceptance of the automatically packaged compiler pair remains separate.
+
+
+## XP browser bcrypt dependency switched to standalone public alpha (pending build/runtime acceptance)
+
+The XP implementation branch `agent/winrt-source-poc` now consumes the independently released standalone `syncguy/bcrypt` alpha instead of the historical browser-local `xp-bcrypt-v1` asset.
+
+Implementation identity:
+
+- XP branch HEAD: `56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- workflow pin commit: `5ad6a541eb6f64fbb58ff51a879ce6860935573b`;
+- release-fetch script commit: `56ea4129e318e3565dfdd81d0bf60a8735961976`;
+- workflow: `.github/workflows/gost-poc-build-xp-x32.yml`;
+- preparation script: `.github/scripts/xp/prepare-pinned-xp-bcrypt.ps1`.
+
+Pinned standalone dependency:
+
+- repository: `syncguy/bcrypt`;
+- tag: `v0.1.0-alpha.1`;
+- Release ID: `401484730`;
+- Release target: `2683896c5d288dcd90449f2fabebe8aa4790753c`;
+- `bcrypt.dll` asset ID: `604569009`;
+- size: `388172`;
+- SHA-1: `31e7dd01ad4d87dfa97de99d936abf8e397a86c1`;
+- SHA-256: `47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59`.
+
+The existing browser-side gates remain in place: exact Release metadata, SHA-1/SHA-256/size, x86 PE machine, forbidden-import audit, required BCrypt exports, staging identity, and packaged-archive identity.
+
+This is an implementation transition only. No browser build PASS or physical-XP browser runtime PASS is claimed yet for the standalone bcrypt dependency.
