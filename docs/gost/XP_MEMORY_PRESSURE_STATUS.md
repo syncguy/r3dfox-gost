@@ -81,9 +81,11 @@ Both values come from `GlobalMemoryStatusEx()`.
 
 ### Low-commit branch
 
-`IsCommitSpaceLow()` tests `MEMORYSTATUSEX::ullAvailPageFile` against the 200 MB preference. In this project analysis it should be treated as the existing code's low-commit/page-file exhaustion proxy.
+`IsCommitSpaceLow()` tests `MEMORYSTATUSEX::ullAvailPageFile` against the 200 MB preference.
 
-This is a plausible last-resort condition and is not currently the primary concern.
+Terminology matters: `ullAvailPageFile` is used here as Windows-reported available commit headroom; it is not simply "free bytes inside the pagefile", and it does not measure free/contiguous user virtual address space in the 32-bit browser process.
+
+This is the existing code's commit-exhaustion guard and is not currently the primary concern.
 
 ### Physical-memory branch
 
@@ -124,23 +126,57 @@ AvailableMemoryWatcherWin::OnLowMemory()
 watcher.onUnloadAttemptCompleted(NS_ERROR_NOT_AVAILABLE)
 ```
 
-`nsAvailableMemoryWatcherBase::OnUnloadAttemptCompleted()` handles that result by incrementing the memory-pressure counter and calling:
+`nsAvailableMemoryWatcherBase::OnUnloadAttemptCompleted()` handles that result by incrementing the memory-pressure counter and requesting:
 
 ```text
 NS_NotifyOfEventualMemoryPressure(MemoryPressureState::LowMemory)
 ```
 
-Therefore the disabled tab-unload preference does not make the low-memory path inert. Under a continuously true watcher predicate, Firefox can still repeatedly enter its global memory-pressure path.
+Therefore the disabled tab-unload preference does not make the low-memory path inert.
 
-This is the central source-level finding.
+### Memory-pressure state machine
+
+The eventual request is then normalized by `xpcom/threads/nsMemoryPressure.cpp`.
+
+The delivered observer semantics are:
+
+```text
+previous internal state   requested state     delivered notification
+NoPressure                LowMemory           memory-pressure / low-memory
+LowMemory                 LowMemory           memory-pressure / low-memory-ongoing
+LowMemory                 NoPressure          memory-pressure-stop
+```
+
+Pending requests can be coalesced before main-thread delivery.
+
+This is an important qualification to the original analysis: a continuously true Windows predicate does **not** imply a fresh full low-memory episode, shrinking GC and cycle collection every polling interval. After the first delivered `low-memory`, subsequent delivered pressure notifications are normally `low-memory-ongoing` until a `NoPressure` transition occurs.
+
+The Windows watcher still calls `UnloadTabAsync()` repeatedly while the predicate remains true; `mUnderMemoryPressure` prevents repeated episode-count increments but does not suppress those calls. A successfully saved memory report is likewise limited to one save per pressure episode by `mSavedReport`.
+
+### Verified consumers of new versus ongoing pressure
+
+The distinction is respected by some expensive consumers:
+
+- `dom/base/nsJSEnvironment.cpp` returns immediately for `low-memory-ongoing`; the initial `low-memory` can set low-memory state and schedule low-memory GC, but ongoing pressure does not repeat that GC/CC path;
+- `dom/workers/RuntimeService.cpp` also returns immediately for `low-memory-ongoing`; the initial pressure can set worker low-memory state, run shrinking worker GC, worker CC, and worker memory-pressure handling.
+
+Other verified consumers react to the generic `memory-pressure` topic without checking whether the data is `low-memory` or `low-memory-ongoing`:
+
+- `image/SurfaceCache.cpp` calls its memory-pressure discard path;
+- `image/imgLoader.cpp` calls `MinimizeCache()`;
+- `netwerk/cache2/CacheObserver.cpp` requests `PurgeFromMemory(PURGE_EVERYTHING)` for the in-memory network cache.
+
+`dom/ipc/ContentParent.cpp` forwards both the pressure reason and pressure-stop state into live content processes, so the observer activity is not limited to the parent process.
+
+Do not describe this as repeatedly clearing the entire disk cache: the verified Necko path is an in-memory purge request.
 
 ### Runtime hypothesis to test
 
-On a 2 GB XP system, the fixed 2048 MB physical threshold may cause the browser to spend most or all of its life in repeated low-memory handling, even while automatic tab discard remains disabled.
+On a 2 GB XP system, the fixed 2048 MB physical threshold may keep the browser in a prolonged low-memory state even while automatic tab discard remains disabled.
 
-Possible consequences include excessive cache trimming, repeated memory minimization work, GC/CC-related pressure handling, or other subsystem reactions. These are **hypotheses**, not established explanations for previously observed browser slowness.
+The most credible recurring cost is therefore not "full GC/CC every five seconds". It is repeated ongoing-pressure work in consumers that do not distinguish the ongoing state, plus observer/IPC activity and possible cache eviction/refill churn. Image re-decoding, disk/network re-fetch work, and user-visible stalls are plausible consequences when caches are actively repopulated, but their physical cost is **not yet established**.
 
-Do not attribute past stalls or high RAM use to this mechanism without a controlled physical comparison.
+On an already-empty cache, repeated ongoing handling may be cheap. A controlled A/B is required before this mechanism is attributed to previously observed browser slowness.
 
 ## TabUnloader behavior when enabled
 
@@ -186,11 +222,13 @@ The configured `isLoading` criterion has weight 8 in the criterion table, but th
 
 For a larger candidate set, TabUnloader performs a more expensive process-aware calculation.
 
-It walks each tab's browsing contexts, maps frames to OS PIDs, calls `ChromeUtils.requestProcInfo()`, and obtains child-process memory information.
+It walks each candidate tab's browsing contexts, maps frames to OS PIDs, calls `ChromeUtils.requestProcInfo()`, and obtains child-process memory information.
+
+On Windows, the underlying process-memory helper fills this metric from `PROCESS_MEMORY_COUNTERS_EX::PrivateUsage`. The ranking therefore does not directly measure resident physical RAM and the reported value must not be interpreted as "bytes that unloading this tab will certainly return to physical memory".
 
 It then estimates per-tab memory by distributing shared process memory among top-level and subframe users. A top-level frame receives twice the frame weight of a subframe in the estimator.
 
-The selection also computes `uniqueCount`: the number of processes referenced only by one tab. Tabs whose unloading can release more unique processes are favored.
+The selection also computes `uniqueCount`: the number of processes referenced only by one tab **within the candidate map**. Tabs whose unloading can release more apparently unique processes are favored.
 
 Conceptually the later-stage ranking combines:
 
@@ -198,10 +236,14 @@ Conceptually the later-stage ranking combines:
 base priority / user impact
 + last-accessed ordering
 + unique-process release potential
-+ estimated process memory
++ estimated process memory rank
 ```
 
-This process-aware mechanism is more relevant to the project's low-RAM target than a WebExtension-level JS heap estimate and should be preserved unless runtime evidence shows a defect.
+The final resource score is ranking-based rather than a direct "largest number of megabytes wins" rule.
+
+There is a source-level limitation: recently used ordinary background tabs are filtered before `getAllProcesses()` constructs the process map. If an excluded fresh tab shares a content process with a retained candidate, that process can appear unique within the analyzed candidate set even though it is not unique across all live tabs. Treat this as an approximation weakness, not a proven runtime defect.
+
+Despite these qualifications, this native process-aware mechanism is more relevant to the project's low-RAM target than a WebExtension-level JS heap estimate and should be preserved unless runtime evidence shows a defect.
 
 ### One tab per pressure attempt
 
@@ -230,7 +272,9 @@ This is a real resource-unload operation rather than a cosmetic placeholder impl
 
 r3dfox extends the unloader to permit a selected tab from a **background browser window** to remain a last-resort candidate with weight 100.
 
-If such a selected tab must be unloaded, the code creates or reuses one `about:blank` recovery tab for that window, selects it, and then discards the original tab. Selected-tab replacement is throttled by a 30-second per-window cooldown.
+If such a selected tab must be unloaded, the code creates or reuses one `about:blank` recovery tab for that window, selects it, and then attempts to discard the original tab. Selected-tab replacement is throttled by a 30-second per-window cooldown.
+
+The recovery design avoids uncontrolled multiplication: one marked recovery tab is tracked per browser window and can be reused. The cooldown applies to selected-tab replacement, not to the complete pressure loop.
 
 There is a policy corner case worth testing:
 
@@ -238,7 +282,13 @@ There is a policy corner case worth testing:
 - a selected tab in a background window is deliberately kept in the candidate list;
 - therefore a fresh selected tab in another window can remain eligible when equally fresh ordinary background tabs are excluded.
 
-No change is proposed yet, but the project's preferred low-RAM policy should probably exhaust normal inactive background tabs before considering any selected tab from any window.
+There are also transactional review points in the current source:
+
+- selection switches to the recovery tab before final `discardBrowser()` success is known;
+- if discard ultimately returns false, there is no explicit rollback to the original selected tab in this path;
+- `prepareDiscardBrowser()` is asynchronous, but the complete TabUnloader policy set (media/WebRTC/window-selection status, etc.) is not recalculated after the await immediately before discard.
+
+These are source-level review findings, not demonstrated user-visible failures. No change is proposed yet, but the project's preferred low-RAM policy should probably exhaust normal inactive background tabs before considering any selected tab from any window.
 
 ## about:unloads qualification
 
@@ -256,7 +306,11 @@ The first experiment should separate the **watcher trigger** from the **tab-disc
 
 Use the exact currently accepted XP browser package and record the exact binary identity before testing.
 
-### A — current control
+Run a short **A -> B -> A** sequence with the same profile, same initial tab set, same warm-up, same observation interval, and the same scripted/manual interaction sequence.
+
+Do not manually invoke `about:unloads` Unload or "Minimize memory usage" during this measurement.
+
+### A1 — current control
 
 Keep:
 
@@ -267,14 +321,7 @@ browser.low_commit_space_threshold_mb = 200
 browser.memory_poll_interval_ms = 5000
 ```
 
-Exercise a repeatable small browsing workload and record:
-
-- available physical memory;
-- browser responsiveness;
-- process working-set/private-memory behavior where practical;
-- evidence of repeated memory-pressure activity if it can be observed without invasive instrumentation.
-
-### B — physical-threshold A/B
+### B — physical-threshold probe
 
 Change only:
 
@@ -282,34 +329,37 @@ Change only:
 browser.low_physical_memory_threshold_mb = 512
 ```
 
-Keep automatic tab unloading disabled and leave the 200 MB commit threshold and 5000 ms poll interval unchanged.
+Keep automatic tab unloading disabled and leave the 200 MB commit threshold and 5000 ms poll interval unchanged. Perform a full browser restart before measuring.
 
-Restart the browser and repeat the same workload.
+The value 512 MB is a diagnostic probe, not an accepted product default.
 
-Purpose: test whether suppressing the structurally over-broad 2048 MB physical trigger changes runtime behavior before introducing tab discard as another variable.
+For B to isolate the physical-threshold branch, available physical memory must remain at or above 512 MB and available commit headroom must remain at or above 200 MB during the measured interval. If either lower threshold is crossed, continued pressure is expected and the experiment no longer isolates the 2048 MB trigger.
 
-The value 512 MB is an initial diagnostic threshold, not an accepted product default.
+### A2 — return to control
 
-### C — native TabUnloader experiment
+Restore the 2048 MB physical threshold, restart again, and repeat the same workload.
 
-Only after the trigger behavior is understood, enable:
+A reproducible B effect that disappears after restoring A is materially stronger than a single A/B comparison.
 
-```text
-browser.tabs.unloadOnLowMemory = true
-```
+### Minimum measurements
 
-with the corrected diagnostic physical threshold.
+Prefer direct counters/observability for:
 
-Create multiple tabs, allow eligible background tabs to exceed the 10-minute inactive duration, then reduce available memory deliberately through a controlled local workload and observe:
+1. separately delivered `memory-pressure / low-memory`, `memory-pressure / low-memory-ongoing`, and `memory-pressure-stop`;
+2. available physical memory and available commit headroom over the interval;
+3. browser-process CPU time over the same interval and one repeatable UI latency measurement;
+4. `TabBrowserDiscarded` count, expected to remain zero because `browser.tabs.unloadOnLowMemory=false`;
+5. GC/CC durations/reasons and disk activity if an already convenient measurement path exists.
 
-- which tab is chosen;
-- whether active media/WebRTC/foreground tabs remain protected;
-- actual memory reclaimed after discard;
-- whether unique content processes exit;
-- whether browsing remains usable;
-- whether pressure resolves without repeated unnecessary discards.
+Do not use the crash annotation / `LowPhysicalMemoryEvents` counter as the event count for item 1: the watcher increments it on entry into a pressure episode, not for every ongoing observer delivery.
 
-Do not use the 2048 MB threshold for this acceptance experiment on a 2 GB machine.
+### Interpretation
+
+- pressure signals disappear in B but runtime behavior is unchanged: the trigger problem is confirmed, but a material performance cost is not;
+- pressure signals disappear in B, a runtime effect reproducibly appears, and the effect returns in A2: the current policy is implicated, but the expensive consumer still requires localization;
+- pressure signals do not disappear in B: first determine whether the 512 MB physical condition, 200 MB commit condition, or another pressure source remained active.
+
+Only after this trigger experiment is understood should native `browser.tabs.unloadOnLowMemory` be enabled for a separate discard/reclamation experiment with eligible tabs older than the normal 10-minute inactivity threshold.
 
 ## Candidate product direction after evidence
 
@@ -319,12 +369,15 @@ If the hypothesis is confirmed, prefer the narrowest remediation:
 
 1. fix the XP/low-RAM trigger policy rather than replacing TabUnloader;
 2. preserve the 200 MB low-commit emergency path unless evidence says otherwise;
-3. derive a physical-memory threshold appropriate to small-memory systems instead of a fixed 2048 MB value;
-4. keep foreground selected tabs protected;
-5. evaluate whether selected tabs in background windows should also remain protected until all normal eligible background tabs are exhausted;
-6. preserve process-aware tab ranking and native `discardBrowser()`.
+3. for the first product experiment, prefer a small XP-specific fixed physical threshold selected from measurements rather than immediately redesigning the watcher;
+4. if the product must support materially different low-RAM classes, evaluate a RAM-relative threshold with sensible lower/upper bounds and hysteresis so threshold jitter does not repeatedly create new low-memory episodes and their expensive initial GC/CC work;
+5. keep foreground selected tabs protected;
+6. evaluate whether selected tabs in background windows should also remain protected until all normal eligible background tabs are exhausted;
+7. preserve process-aware tab ranking and native `discardBrowser()`.
 
-An XP-only policy under `MOZ_XP_COMPAT` is acceptable if the problem is specific to the XP product target and the normal Windows path should remain unchanged. The final choice between a fixed small threshold, a RAM-relative threshold, or restoration of an event-driven Windows memory-resource notification path requires physical evidence first.
+Restoring the earlier event-driven Windows memory-resource notification model remains a valid later design option because the API is available on XP, but it changes both trigger semantics and lifecycle behavior and should not be the automatic first fix. The predecessor was itself a hybrid: OS notification initiated the episode, then polling tracked recovery and commit state.
+
+An XP-only policy under `MOZ_XP_COMPAT` is acceptable if the problem is specific to the XP product target and the normal Windows path should remain unchanged.
 
 ## Evidence status
 
@@ -334,13 +387,17 @@ An XP-only policy under `MOZ_XP_COMPAT` is acceptable if the problem is specific
 - Windows currently polls memory periodically instead of relying on the earlier memory-resource notification path;
 - the default physical threshold is 2048 MB;
 - the clean product default has automatic tab unloading disabled;
-- a low-memory attempt with tab unloading disabled is converted into global `MemoryPressureState::LowMemory`;
-- TabUnloader contains process-aware ranking and native browser destruction/lazy restoration.
+- a low-memory attempt with tab unloading disabled requests global `MemoryPressureState::LowMemory`;
+- `nsMemoryPressure.cpp` turns the first delivered request into `low-memory`, subsequent delivered requests in the same episode into `low-memory-ongoing`, and a recovery transition into `memory-pressure-stop`;
+- main JS and worker GC/CC handlers explicitly skip `low-memory-ongoing`, while verified image/network memory-cache consumers do not distinguish it;
+- ContentParent forwards the pressure reason to content processes;
+- TabUnloader contains process-aware ranking and native browser destruction/lazy restoration;
+- the Windows process-memory metric used by ProcInfo is `PROCESS_MEMORY_COUNTERS_EX::PrivateUsage`.
 
 **NOT YET PROVEN on physical XP:**
 
-- exact frequency of low-memory notifications on the accepted 2 GB machine;
-- whether that signaling materially contributes to observed UI stalls or high memory churn;
+- exact frequency of delivered new/ongoing/stop memory-pressure notifications on the accepted 2 GB machine;
+- whether ongoing cache/observer/IPC work materially contributes to observed UI stalls or memory/cache churn;
 - the amount of memory reclaimed per native discard for the project's common workloads;
 - whether 512 MB is an appropriate product threshold;
 - whether the selected-background-window fallback causes undesirable user-visible behavior in practice.
