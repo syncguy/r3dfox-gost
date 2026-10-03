@@ -52,6 +52,20 @@ No immediate clean-product lifecycle acceptance task remains. Add new work here 
 
 `agent/winrt-source-poc` is allowed to move ahead of the clean release baseline. Its HEAD is not a runtime baseline merely because it contains later fixes/tests. Before every physical claim, bind the exact source-under-test, run/job, artifact and local binary hashes.
 
+### XP memory-pressure / native TabUnloader policy — open
+
+Focused analysis is in [XP_MEMORY_PRESSURE_STATUS.md](XP_MEMORY_PRESSURE_STATUS.md). The r3dfox WIP memory watcher polls `GlobalMemoryStatusEx()` every 5 seconds and treats available physical RAM below 2048 MB as low memory, while the accepted product default keeps `browser.tabs.unloadOnLowMemory=false`. Source analysis shows that a rejected unload attempt is still converted into Firefox-wide `MemoryPressureState::LowMemory`, so a 2 GB XP system may be exposed to repeated pressure handling even with automatic tab discard disabled.
+
+Next sequence:
+
+1. On the exact accepted physical XP package, establish the control with the current 2048 MB physical threshold and automatic tab unloading still disabled.
+2. Run a one-variable A/B with `browser.low_physical_memory_threshold_mb=512`, preserving the 200 MB commit threshold, 5000 ms polling interval, and `browser.tabs.unloadOnLowMemory=false`. Compare pressure activity, responsiveness and process/memory behavior. Treat 512 MB as a diagnostic value, not a product default.
+3. Only after the trigger behavior is understood, enable native `browser.tabs.unloadOnLowMemory` with the corrected diagnostic threshold and measure actual reclaimed memory/process exit on eligible >10-minute inactive tabs.
+4. Preserve process-aware TabUnloader ranking and native `discardBrowser()` unless contrary evidence appears. Do not replace it with WebExtension heap heuristics.
+5. If the hypothesis is confirmed, design the narrowest product fix for low-RAM XP: an appropriate physical-memory trigger (fixed, RAM-relative, or event-driven) and separately review whether selected tabs in background windows should remain last-resort candidates.
+
+Do not attribute earlier XP slowness to this mechanism until the physical A/B proves a material effect.
+
 ### Download completion / Recent Documents — closed
 
 Closed on artifact-correlated source `e13354c...`, run `35810132801 / 107019631325`. See [DONE.md](DONE.md) for the compact closure and [TEST_LOG.md](TEST_LOG.md) for detailed evidence.
