@@ -54,15 +54,21 @@ No immediate clean-product lifecycle acceptance task remains. Add new work here 
 
 ### XP memory-pressure / native TabUnloader policy — open
 
-Focused analysis is in [XP_MEMORY_PRESSURE_STATUS.md](XP_MEMORY_PRESSURE_STATUS.md). The r3dfox WIP memory watcher polls `GlobalMemoryStatusEx()` every 5 seconds and treats available physical RAM below 2048 MB as low memory, while the accepted product default keeps `browser.tabs.unloadOnLowMemory=false`. Source analysis shows that a rejected unload attempt is still converted into Firefox-wide `MemoryPressureState::LowMemory`, so a 2 GB XP system may be exposed to repeated pressure handling even with automatic tab discard disabled.
+Focused analysis is in [XP_MEMORY_PRESSURE_STATUS.md](XP_MEMORY_PRESSURE_STATUS.md). The r3dfox WIP memory watcher polls `GlobalMemoryStatusEx()` on a repeating-slack timer with a 5000 ms default and treats available commit below 200 MB **or** available physical RAM below 2048 MB as low memory. The accepted product default keeps `browser.tabs.unloadOnLowMemory=false`, but source analysis proves that this does not make the watcher inert: rejected unload attempts request global low-memory pressure.
+
+Important qualification: `nsMemoryPressure.cpp` delivers the first request in an episode as `memory-pressure / low-memory`, later delivered requests as `low-memory-ongoing`, and recovery as `memory-pressure-stop`. Main JS and worker GC/CC explicitly skip ongoing pressure, while verified image/network memory-cache consumers still react to every delivered `memory-pressure`. The open question is therefore the physical cost of prolonged ongoing-pressure cache/observer/IPC activity on the 2 GB XP target, not "full GC/CC every five seconds".
 
 Next sequence:
 
-1. On the exact accepted physical XP package, establish the control with the current 2048 MB physical threshold and automatic tab unloading still disabled.
-2. Run a one-variable A/B with `browser.low_physical_memory_threshold_mb=512`, preserving the 200 MB commit threshold, 5000 ms polling interval, and `browser.tabs.unloadOnLowMemory=false`. Compare pressure activity, responsiveness and process/memory behavior. Treat 512 MB as a diagnostic value, not a product default.
-3. Only after the trigger behavior is understood, enable native `browser.tabs.unloadOnLowMemory` with the corrected diagnostic threshold and measure actual reclaimed memory/process exit on eligible >10-minute inactive tabs.
-4. Preserve process-aware TabUnloader ranking and native `discardBrowser()` unless contrary evidence appears. Do not replace it with WebExtension heap heuristics.
-5. If the hypothesis is confirmed, design the narrowest product fix for low-RAM XP: an appropriate physical-memory trigger (fixed, RAM-relative, or event-driven) and separately review whether selected tabs in background windows should remain last-resort candidates.
+1. On the exact accepted physical XP package, run a controlled **A -> B -> A** with automatic tab unloading disabled throughout.
+2. A1: physical threshold 2048 MB, commit 200 MB, poll 5000 ms. B: change only `browser.low_physical_memory_threshold_mb=512`, full restart. A2: restore 2048 MB and restart again.
+3. Keep B interpretable: available physical memory must remain >=512 MB and commit headroom >=200 MB during the measurement, otherwise continued pressure is expected from another branch of the predicate.
+4. Record separately delivered `low-memory`, `low-memory-ongoing`, and `memory-pressure-stop`; available physical/commit headroom; browser-process CPU time and one repeatable UI-latency measure; and `TabBrowserDiscarded` count (expected zero). Use GC/CC reasons/durations and disk activity if already convenient. Do not use `LowPhysicalMemoryEvents` as the ongoing-event counter.
+5. Do not manually invoke `about:unloads` Unload or "Minimize memory usage" during this trigger A/B.
+6. Only after trigger cost is understood, enable native `browser.tabs.unloadOnLowMemory` with the corrected diagnostic threshold and measure actual reclamation/process exit on eligible >10-minute inactive tabs.
+7. Preserve process-aware TabUnloader ranking and native `discardBrowser()` unless contrary evidence appears. Its Windows process-memory metric is `PROCESS_MEMORY_COUNTERS_EX::PrivateUsage`, and its candidate process map has known heuristic limitations; neither is yet a demonstrated blocker.
+8. If the A/B shows a reproducible benefit, prefer a narrow XP-specific fixed threshold as the first product experiment. Consider RAM-relative bounds/hysteresis only if multiple low-RAM classes require it; event-driven Windows notification remains a later architectural option.
+9. Separately review the selected-background-window recovery path: fresh selected tabs can outlive the normal age filter and recovery selection currently occurs before final discard success.
 
 Do not attribute earlier XP slowness to this mechanism until the physical A/B proves a material effect.
 
