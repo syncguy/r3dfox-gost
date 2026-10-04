@@ -1,0 +1,203 @@
+name: Rust Win7 build-std smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/rust-win7-toolchain.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-win7-rust:
+    name: Nightly build-std / x86_64-win7-windows-msvc
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    env:
+      RUST_TARGET: "x86_64-win7-windows-msvc"
+      NIGHTLY_TOOLCHAIN: "nightly-2026-08-20"
+      SMOKE_DIR: "rust-win7-smoke"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust nightly with rust-src
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          components: rust-src
+
+      - name: Record Rust toolchain and Win7 target cfg
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          rustc --version --verbose 2>&1 | Tee-Object -FilePath rust-win7-rustc-version.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          cargo --version --verbose 2>&1 | Tee-Object -FilePath rust-win7-cargo-version.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $cfg = rustc --print cfg --target $env:RUST_TARGET 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cfg | Tee-Object -FilePath rust-win7-target-cfg.txt
+
+          if (($cfg -join "`n") -notmatch 'target_vendor="win7"') {
+            throw 'Win7 target verification failed: target_vendor="win7" was not reported.'
+          }
+
+          rustc --print target-list | Select-String -SimpleMatch $env:RUST_TARGET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Restore Cargo build-std cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.SMOKE_DIR }}/target
+          key: rust-win7-buildstd-${{ runner.os }}-${{ env.NIGHTLY_TOOLCHAIN }}-${{ env.RUST_TARGET }}-v1
+
+      - name: Create Win7 smoke project
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force "$env:SMOKE_DIR\src" | Out-Null
+
+          @'
+          [package]
+          name = "rust-win7-smoke"
+          version = "0.1.0"
+          edition = "2021"
+
+          # Keep this throwaway project out of r3dfox's top-level Cargo workspace.
+          [workspace]
+
+          [profile.release]
+          panic = "abort"
+          lto = false
+          codegen-units = 1
+          '@ | Set-Content -Encoding utf8 "$env:SMOKE_DIR\Cargo.toml"
+
+          @'
+          use std::collections::hash_map::RandomState;
+          use std::hash::{BuildHasher, Hasher};
+          use std::sync::{Arc, Condvar, Mutex};
+          use std::thread;
+
+          fn main() {
+              let random = RandomState::new();
+              let mut hasher = random.build_hasher();
+              hasher.write_u64(0x0123_4567_89ab_cdef);
+              let hash = hasher.finish();
+
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let worker_pair = Arc::clone(&pair);
+              let worker = thread::spawn(move || {
+                  let (lock, cv) = &*worker_pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_one();
+              });
+
+              let (lock, cv) = &*pair;
+              let mut ready = lock.lock().unwrap();
+              while !*ready {
+                  ready = cv.wait(ready).unwrap();
+              }
+              drop(ready);
+              worker.join().unwrap();
+
+              println!("win7-smoke-ok hash={hash:016x}");
+          }
+          '@ | Set-Content -Encoding utf8 "$env:SMOKE_DIR\src\main.rs"
+
+          Get-Content "$env:SMOKE_DIR\Cargo.toml"
+          Get-Content "$env:SMOKE_DIR\src\main.rs"
+
+      - name: Build Win7 smoke EXE with build-std
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:SMOKE_DIR
+          try {
+            cargo build --release `
+              -Z build-std=std,panic_abort `
+              --target $env:RUST_TARGET
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $exe = Join-Path $env:SMOKE_DIR "target\$env:RUST_TARGET\release\rust-win7-smoke.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Smoke-test EXE was not produced: $exe"
+          }
+          Copy-Item -Force $exe .\rust-win7-smoke.exe
+
+      - name: Run smoke test on Windows Server 2022
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\rust-win7-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-smoke-output.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Inspect smoke-test PE imports
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          dumpbin /imports .\rust-win7-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-smoke-imports.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dumpbin /headers .\rust-win7-smoke.exe 2>&1 | Tee-Object -FilePath rust-win7-smoke-headers.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $imports = [System.IO.File]::ReadAllText((Resolve-Path 'rust-win7-smoke-imports.txt'))
+          $forbidden = @(
+            'bcryptprimitives.dll',
+            'ProcessPrng',
+            'api-ms-win-core-synch-l1-2-0.dll',
+            'WaitOnAddress',
+            'WakeByAddressAll',
+            'WakeByAddressSingle'
+          )
+
+          foreach ($symbol in $forbidden) {
+            if ($imports.IndexOf($symbol, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              throw "Win7 import gate failed: forbidden import found: $symbol"
+            }
+          }
+
+          Write-Host 'Win7 PE import gate PASSED.'
+
+      - name: Upload Win7 smoke-test artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-win7-buildstd-${{ env.NIGHTLY_TOOLCHAIN }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            rust-win7-smoke.exe
+            rust-win7-smoke-output.txt
+            rust-win7-smoke-imports.txt
+            rust-win7-smoke-headers.txt
+            rust-win7-rustc-version.txt
+            rust-win7-cargo-version.txt
+            rust-win7-target-cfg.txt
+            rust-win7-smoke/Cargo.toml
+            rust-win7-smoke/src/main.rs
