@@ -1,3 +1,13 @@
+# Documentation migration override
+
+> **Effective 2026-10-04:** this repository is the source/CI repository for `r3dfox-gost`. Canonical internal engineering documentation has moved to the private `syncguy/agents@main` repository under `projects/r3dfox-gost/`.
+>
+> The existing `docs/gost/` tree in this public repository is frozen migration heritage. Do not append new experiment results, current project state, backlog changes, model-to-model handoff, or other substantive internal engineering documentation here.
+>
+> For source work, verify code, branches, workflows, Actions runs, and source-under-test identities in this repository. When private project documentation is available, use `syncguy/agents/projects/r3dfox-gost/` for current engineering state and documentation writes.
+>
+> The historical instructions below are retained for source-development context. Any statement below that describes this repository's `docs/gost/` as the canonical documentation write target is superseded by this notice.
+
 # Global instructions
 Limit the amount of comments you put in the code to a strict minimum. You should almost never add comments, except sometimes on non-trivial code, function definitions if the arguments aren't self-explanatory, and class definitions and their members.
 
