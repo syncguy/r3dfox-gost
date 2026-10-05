@@ -713,7 +713,9 @@
 
           // In this case we default to the privileged about process as that's
           // the best guess we can make, and we'll likely need it eventually.
-          remoteType = E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE;
+          remoteType = gMultiProcessBrowser
+            ? E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE
+            : E10SUtils.NOT_REMOTE;
         }
       }
 
