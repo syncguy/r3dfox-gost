@@ -14,6 +14,9 @@
 #include "nsITimer.h"
 #include "nsMemoryPressure.h"
 #include "nsServiceManagerUtils.h"
+#ifdef MOZ_XP_COMPAT
+#  include "nsWindowsHelpers.h"
+#endif
 
 #include <windows.h>
 #include <memoryapi.h>
@@ -40,8 +43,8 @@ class nsAvailableMemoryWatcher final : public nsITimerCallback,
   static void RecordLowMemoryEvent();
 
   static bool IsCommitSpaceLow();
-  static bool IsPhysicalMemoryLow();
-  static bool IsMemoryLow();
+  bool IsPhysicalMemoryLow(const MutexAutoLock&) MOZ_REQUIRES(mMutex);
+  bool IsMemoryLow(const MutexAutoLock&) MOZ_REQUIRES(mMutex);
 
   ~nsAvailableMemoryWatcher();
 
@@ -52,6 +55,9 @@ class nsAvailableMemoryWatcher final : public nsITimerCallback,
   void OnHighMemory(const MutexAutoLock&) MOZ_REQUIRES(mMutex);
 
   nsCOMPtr<nsITimer> mTimer MOZ_GUARDED_BY(mMutex);
+#ifdef MOZ_XP_COMPAT
+  nsAutoHandle mLowMemoryHandle MOZ_GUARDED_BY(mMutex);
+#endif
 
   bool mUnderMemoryPressure MOZ_GUARDED_BY(mMutex);
   bool mSavedReport MOZ_GUARDED_BY(mMutex);
@@ -84,6 +90,14 @@ nsresult nsAvailableMemoryWatcher::Init() {
   if (!mTimer) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
+
+#ifdef MOZ_XP_COMPAT
+  mLowMemoryHandle.own(
+      ::CreateMemoryResourceNotification(LowMemoryResourceNotification));
+  if (!mLowMemoryHandle) {
+    return NS_ERROR_FAILURE;
+  }
+#endif
 
   uint32_t interval =
       StaticPrefs::browser_memory_poll_interval_ms();
@@ -123,6 +137,10 @@ void nsAvailableMemoryWatcher::Shutdown(const MutexAutoLock&) {
     mTimer->Cancel();
     mTimer = nullptr;
   }
+
+#ifdef MOZ_XP_COMPAT
+  mLowMemoryHandle.reset();
+#endif
 }
 
 void nsAvailableMemoryWatcher::MaybeSaveMemoryReport(
@@ -199,7 +217,14 @@ bool nsAvailableMemoryWatcher::IsCommitSpaceLow() {
          StaticPrefs::browser_low_commit_space_threshold_mb();
 }
 
-bool nsAvailableMemoryWatcher::IsPhysicalMemoryLow() {
+bool nsAvailableMemoryWatcher::IsPhysicalMemoryLow(
+    const MutexAutoLock&) {
+#ifdef MOZ_XP_COMPAT
+  BOOL lowMemory = FALSE;
+  return mLowMemoryHandle &&
+         ::QueryMemoryResourceNotification(mLowMemoryHandle, &lowMemory) &&
+         lowMemory;
+#else
   MEMORYSTATUSEX memStatus = {sizeof(memStatus)};
 
   if (!::GlobalMemoryStatusEx(&memStatus)) {
@@ -214,11 +239,13 @@ bool nsAvailableMemoryWatcher::IsPhysicalMemoryLow() {
   return availPhysMB <
          StaticPrefs::
              browser_low_physical_memory_threshold_mb();
+#endif
 }
 
-bool nsAvailableMemoryWatcher::IsMemoryLow() {
+bool nsAvailableMemoryWatcher::IsMemoryLow(
+    const MutexAutoLock& aLock) {
   return IsCommitSpaceLow() ||
-         IsPhysicalMemoryLow();
+         IsPhysicalMemoryLow(aLock);
 }
 
 NS_IMETHODIMP
@@ -229,7 +256,7 @@ nsAvailableMemoryWatcher::Notify(nsITimer* aTimer) {
     return NS_OK;
   }
 
-  if (IsMemoryLow()) {
+  if (IsMemoryLow(lock)) {
     OnLowMemory(lock);
   } else {
     OnHighMemory(lock);
