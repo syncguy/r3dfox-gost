@@ -5,6 +5,7 @@
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { BrowserUtils } from "resource://gre/modules/BrowserUtils.sys.mjs";
 import { PrivateBrowsingUtils } from "resource://gre/modules/PrivateBrowsingUtils.sys.mjs";
+import { XPBrowserProcessPolicy } from "resource:///modules/XPBrowserProcessPolicy.sys.mjs";
 
 const lazy = {};
 
@@ -223,6 +224,8 @@ function openInWindow(url, params, sourceWindow) {
       resolveOnContentBrowserCreated(win.gBrowser.selectedBrowser)
     );
   }
+
+  features = XPBrowserProcessPolicy.applyWindowFeatureDefaults(features);
 
   win = Services.ww.openWindow(
     sourceWindow,
