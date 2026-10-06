@@ -6943,6 +6943,27 @@
         return this.replaceTabWithWindow(elements[0], aOptions);
       }
 
+      // Multi-tab tearout uses the same source-window capability as the
+      // selected tab that creates the destination window. Reject conflicting
+      // feature overrides before changing any tab UI.
+      const sourceLoadContext =
+        window.docShell.QueryInterface(Ci.nsILoadContext);
+      const sourceWindowCapabilities = {
+        remote: sourceLoadContext.useRemoteTabs,
+        fission: sourceLoadContext.useRemoteSubframes,
+      };
+      const features = Object.entries(aOptions)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(",");
+      if (
+        !this.XPBrowserProcessPolicy.windowFeaturesMatchCapabilities(
+          features,
+          sourceWindowCapabilities
+        )
+      ) {
+        return null;
+      }
+
       // Play the closing animation for all selected tabs to give
       // immediate feedback while waiting for the new window to appear.
       if (!gReduceMotion) {
@@ -6969,6 +6990,15 @@
       }
 
       let win = this.replaceTabWithWindow(selectedTab, aOptions);
+      if (!win) {
+        if (!gReduceMotion) {
+          for (let element of elements) {
+            element.setAttribute("fadein", "true");
+          }
+        }
+        return null;
+      }
+
       win.addEventListener(
         "before-initial-tab-adopted",
         () => {
