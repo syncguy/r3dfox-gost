@@ -8,6 +8,7 @@
  */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+import { XPBrowserProcessPolicy } from "resource:///modules/XPBrowserProcessPolicy.sys.mjs";
 
 const lazy = {};
 
@@ -34,6 +35,7 @@ export let NewTabPagePreloading = {
 
   get enabled() {
     return (
+      !XPBrowserProcessPolicy.enabled &&
       this.prefEnabled &&
       this.newTabEnabled &&
       !lazy.AboutNewTab.newTabURLOverridden
