@@ -6,6 +6,7 @@ import { BrowserWindowTracker } from "resource:///modules/BrowserWindowTracker.s
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { PrivateBrowsingUtils } from "resource://gre/modules/PrivateBrowsingUtils.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+import { XPBrowserProcessPolicy } from "resource:///modules/XPBrowserProcessPolicy.sys.mjs";
 
 let lazy = {};
 
@@ -320,6 +321,8 @@ export class BrowserDOMWindow {
         if (isPrivate) {
           features += ",private";
         }
+        features =
+          XPBrowserProcessPolicy.applyWindowFeatureDefaults(features);
         // Pass all params to openDialog to ensure that "url" isn't passed through
         // loadOneOrMoreURIs, which splits based on "|"
         try {
