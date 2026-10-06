@@ -7,6 +7,8 @@
 ChromeUtils.defineESModuleGetters(this, {
   HomePage: "resource:///modules/HomePage.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+  XPBrowserProcessPolicy:
+    "resource:///modules/XPBrowserProcessPolicy.sys.mjs",
 });
 
 var { ExtensionError, promiseObserved } = ExtensionUtils;
@@ -248,6 +250,7 @@ this.windows = class extends ExtensionAPIPersistent {
           // some urls, we fallback to using a content principal like we do in the tabs api.
           // Throws if url is an array and any url can't be loaded by the extension principal.
           let principal = context.principal;
+          let adoptionWindowCapabilities = null;
           function setContentTriggeringPrincipal(url) {
             principal = Services.scriptSecurityManager.createContentPrincipal(
               Services.io.newURI(url),
@@ -303,6 +306,13 @@ this.windows = class extends ExtensionAPIPersistent {
             // If the tab is part of a split view, move the whole split view
             // instead of just that single tab.
             const tabToAdopt = tab.splitview ?? tab;
+            const sourceLoadContext = tab.documentGlobal.docShell.QueryInterface(
+              Ci.nsILoadContext
+            );
+            adoptionWindowCapabilities = {
+              remote: sourceLoadContext.useRemoteTabs,
+              fission: sourceLoadContext.useRemoteSubframes,
+            };
             // For tab adoption logic, see getTabToAdopt() in browser-init.js.
             args.appendElement(tabToAdopt);
           } else if (createData.url !== null) {
@@ -446,11 +456,24 @@ this.windows = class extends ExtensionAPIPersistent {
             );
           }
 
+          let featureString = features.join(",");
+          if (adoptionWindowCapabilities) {
+            featureString += adoptionWindowCapabilities.remote
+              ? ",remote"
+              : ",non-remote";
+            featureString += adoptionWindowCapabilities.fission
+              ? ",fission"
+              : ",non-fission";
+          } else {
+            featureString =
+              XPBrowserProcessPolicy.applyWindowFeatureDefaults(featureString);
+          }
+
           let window = Services.ww.openWindow(
             null,
             AppConstants.BROWSER_CHROME_URL,
             "_blank",
-            features.join(","),
+            featureString,
             args
           );
 
