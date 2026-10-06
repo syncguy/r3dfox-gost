@@ -12,7 +12,7 @@ function isWindowsXP() {
   }
 
   try {
-    return Services.sysinfo.getProperty("version").startsWith("5.1");
+    return String(Services.sysinfo.getProperty("version")).startsWith("5.1");
   } catch (e) {
     return false;
   }
@@ -46,8 +46,7 @@ function appendFeature(features, feature) {
 // already-created windows, so changing the pref takes effect after restart.
 const prefEnabled = Services.prefs.getBoolPref(PREF_NAME, false);
 const windowsXP = isWindowsXP();
-const globalRemoteAutostart =
-  Services.appinfo.browserTabsRemoteAutostart;
+const globalRemoteAutostart = Services.appinfo.browserTabsRemoteAutostart;
 const enabled = prefEnabled && windowsXP && !globalRemoteAutostart;
 
 export const XPBrowserProcessPolicy = Object.freeze({
