@@ -1096,6 +1096,11 @@ pref("browser.tabs.delayHidingAudioPlayingIconMS", 3000);
 // types of privleged content processes, each with different privleges.
 pref("browser.tabs.remote.separatePrivilegedContentProcess", true);
 
+// XP-only hybrid process profile. The effective mode is additionally gated on
+// Windows XP runtime and globally disabled e10s autostart, and is snapshotted
+// before browser-window creation so changes take effect after restart.
+pref("browser.tabs.remote.xpHybrid.enabled", false);
+
 #if defined(NIGHTLY_BUILD) && !defined(MOZ_ASAN)
   // This pref will cause assertions when a remoteType triggers a process switch
   // to a new remoteType it should not be able to trigger.
