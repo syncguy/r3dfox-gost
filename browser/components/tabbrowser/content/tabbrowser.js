@@ -695,14 +695,15 @@
         }
 
         if (uriToLoad && typeof uriToLoad == "string") {
-          // A UI-owned empty startup tab in XP hybrid mode begins in the
-          // parent. The remote-capable window can switch it normally once a
-          // real navigation is selected.
-          if (
+          // Only the simple browser-window startup argument is treated as a
+          // neutral UI-owned blank. Callers using the extended argument shape
+          // may carry principals/referrer state consumed later by browser-init.
+          let neutralHybridStartupBlank =
             this.XPBrowserProcessPolicy.enabled &&
             uriToLoad == "about:blank" &&
-            !triggeringRemoteType
-          ) {
+            !triggeringRemoteType &&
+            (!window.arguments || window.arguments.length < 3);
+          if (neutralHybridStartupBlank) {
             remoteType = E10SUtils.NOT_REMOTE;
           } else {
             remoteType = ChromeUtils.predictRemoteTypeForURI(
@@ -3438,6 +3439,10 @@
           openWindowInfo,
           skipLoad,
           triggeringRemoteType,
+          originPrincipal,
+          originStoragePrincipal,
+          triggeringPrincipal,
+          allowInheritPrincipal,
         }));
 
         if (focusUrlBar) {
@@ -4256,6 +4261,10 @@
         openWindowInfo,
         skipLoad,
         triggeringRemoteType,
+        originPrincipal,
+        originStoragePrincipal,
+        triggeringPrincipal,
+        allowInheritPrincipal,
       }
     ) {
       // If we don't have a preferred remote type (or it is `NOT_REMOTE`), and
@@ -4290,6 +4299,10 @@
       let hybridEmptyUIBrowser =
         this.XPBrowserProcessPolicy.enabled &&
         uriIsAboutBlank &&
+        triggeringPrincipal?.isSystemPrincipal &&
+        !originPrincipal &&
+        !originStoragePrincipal &&
+        !allowInheritPrincipal &&
         !preferredRemoteType &&
         !openerBrowser &&
         !openWindowInfo &&
@@ -6375,9 +6388,17 @@
         return false;
       }
 
-      // Do not allow transfering a useRemoteSubframes tab to a
-      // non-useRemoteSubframes window and vice versa.
-      if (gFissionBrowser != aOtherTab.documentGlobal.gFissionBrowser) {
+      // FrameLoader swapping requires the source and destination windows to
+      // agree on both remote-tabs and remote-subframes capability. Reject the
+      // move before _beginRemoveTab() starts tearing down the source tab.
+      const ourLoadContext = window.docShell.QueryInterface(Ci.nsILoadContext);
+      const otherLoadContext =
+        aOtherTab.documentGlobal.docShell.QueryInterface(Ci.nsILoadContext);
+      if (
+        ourLoadContext.useRemoteTabs != otherLoadContext.useRemoteTabs ||
+        ourLoadContext.useRemoteSubframes !=
+          otherLoadContext.useRemoteSubframes
+      ) {
         return false;
       }
 
@@ -6858,6 +6879,24 @@
       // TODO bug 1967925: Consider handling the case where aTab is a tab group
       // and also the only tab group in its window.
 
+      const sourceLoadContext =
+        window.docShell.QueryInterface(Ci.nsILoadContext);
+      const sourceWindowCapabilities = {
+        remote: sourceLoadContext.useRemoteTabs,
+        fission: sourceLoadContext.useRemoteSubframes,
+      };
+      const features = Object.entries(aOptions)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(",");
+      if (
+        !this.XPBrowserProcessPolicy.windowFeaturesMatchCapabilities(
+          features,
+          sourceWindowCapabilities
+        )
+      ) {
+        return null;
+      }
+
       // Play the tab closing animation to give immediate feedback while
       // waiting for the new window to appear.
       if (!gReduceMotion && this.isTab(aTab)) {
@@ -6870,11 +6909,11 @@
       args.appendElement(aTab.splitview ?? aTab);
       return BrowserWindowTracker.openWindow({
         private: PrivateBrowsingUtils.isWindowPrivate(window),
-        features: Object.entries(aOptions)
-          .map(([key, value]) => `${key}=${value}`)
-          .join(","),
+        features,
         openerWindow: window,
         args,
+        remote: sourceWindowCapabilities.remote,
+        fission: sourceWindowCapabilities.fission,
       });
     }
 
@@ -7544,6 +7583,7 @@
       let params = {
         eventDetail: { adoptedTab: aTab },
         preferredRemoteType: linkedBrowser.remoteType,
+        forceNotRemote: linkedBrowser.remoteType === E10SUtils.NOT_REMOTE,
         initialBrowsingContextGroupId: linkedBrowser.browsingContext?.group.id,
         skipAnimation: true,
         elementIndex,
