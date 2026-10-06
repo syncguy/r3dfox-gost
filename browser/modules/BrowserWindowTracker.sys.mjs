@@ -9,6 +9,7 @@
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+import { XPBrowserProcessPolicy } from "resource:///modules/XPBrowserProcessPolicy.sys.mjs";
 
 const lazy = {};
 
@@ -343,6 +344,12 @@ export const BrowserWindowTracker = {
       remote = undefined,
       fission = undefined,
     } = options;
+
+    ({ remote, fission } = XPBrowserProcessPolicy.getWindowOptions({
+      features,
+      remote,
+      fission,
+    }));
 
     args = lazy.AIWindow.handleAIWindowOptions(options);
 
