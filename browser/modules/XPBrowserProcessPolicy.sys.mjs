@@ -21,19 +21,85 @@ function isWindowsXP() {
   }
 }
 
-// Match the WindowFeatures tokenization rules that matter to this policy:
-// feature names are case-insensitive, whitespace may surround "=", duplicate
-// names use the last value, and boolean values follow HTML window-feature
-// parsing.
+// Directly mirror the WindowFeatures::Tokenize algorithm for the feature
+// grammar used by WindowWatcher. A separator is ASCII whitespace, "=" or ",".
+// Duplicate names intentionally use the last value.
 function tokenizeWindowFeatures(features) {
   const tokens = new Map();
   const input = String(features ?? "");
-  const featurePattern =
-    /(?:^|[\s,]+)([^\s,=]+)(?:\s*=\s*([^\s,]*))?/g;
+  let position = 0;
 
-  for (const match of input.matchAll(featurePattern)) {
-    tokens.set(match[1].toLowerCase(), (match[2] ?? "").toLowerCase());
+  const isASCIIWhitespace = char =>
+    char == " " ||
+    char == "\t" ||
+    char == "\n" ||
+    char == "\f" ||
+    char == "\r";
+  const isFeatureSeparator = char =>
+    isASCIIWhitespace(char) || char == "=" || char == ",";
+
+  while (position < input.length) {
+    while (
+      position < input.length &&
+      isFeatureSeparator(input[position])
+    ) {
+      position++;
+    }
+
+    let nameStart = position;
+    while (
+      position < input.length &&
+      !isFeatureSeparator(input[position])
+    ) {
+      position++;
+    }
+    let name = input.slice(nameStart, position).toLowerCase();
+
+    if (name == "screenx") {
+      name = "left";
+    } else if (name == "screeny") {
+      name = "top";
+    } else if (name == "innerwidth") {
+      name = "width";
+    } else if (name == "innerheight") {
+      name = "height";
+    }
+
+    while (
+      position < input.length &&
+      isASCIIWhitespace(input[position])
+    ) {
+      position++;
+    }
+
+    let value = "";
+    if (
+      position < input.length &&
+      isFeatureSeparator(input[position])
+    ) {
+      while (
+        position < input.length &&
+        isFeatureSeparator(input[position]) &&
+        input[position] != ","
+      ) {
+        position++;
+      }
+
+      let valueStart = position;
+      while (
+        position < input.length &&
+        !isFeatureSeparator(input[position])
+      ) {
+        position++;
+      }
+      value = input.slice(valueStart, position).toLowerCase();
+    }
+
+    if (name) {
+      tokens.set(name, value);
+    }
   }
+
   return tokens;
 }
 
