@@ -6995,6 +6995,9 @@
           for (let element of elements) {
             element.setAttribute("fadein", "true");
           }
+          if (this.isTab(selectedTab) && !elements.includes(selectedTab)) {
+            selectedTab.setAttribute("fadein", "true");
+          }
         }
         return null;
       }
