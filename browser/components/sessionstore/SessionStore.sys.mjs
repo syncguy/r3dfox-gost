@@ -166,6 +166,7 @@ import { TabMetrics } from "moz-src:///browser/components/tabbrowser/TabMetrics.
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { GlobalState } from "resource:///modules/sessionstore/GlobalState.sys.mjs";
+import { XPBrowserProcessPolicy } from "resource:///modules/XPBrowserProcessPolicy.sys.mjs";
 
 const lazy = {};
 
@@ -7307,16 +7308,17 @@ var SessionStoreInternal = {
       argString.data = "";
     }
 
+    let featureString = XPBrowserProcessPolicy.applyWindowFeatureDefaults(
+      features.join(",")
+    );
     this._log.debug(
-      `Opening window:${winState.closedId} with features: ${features.join(
-        ","
-      )}, argString: ${argString}.`
+      `Opening window:${winState.closedId} with features: ${featureString}, argString: ${argString}.`
     );
     var window = Services.ww.openWindow(
       null,
       AppConstants.BROWSER_CHROME_URL,
       "_blank",
-      features.join(","),
+      featureString,
       argString
     );
 
