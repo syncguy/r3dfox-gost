@@ -12,29 +12,65 @@ function isWindowsXP() {
   }
 
   try {
-    return String(Services.sysinfo.getProperty("version")).startsWith("5.1");
+    const [major, minor] = String(
+      Services.sysinfo.getProperty("version")
+    ).split(".");
+    return major == "5" && minor == "1";
   } catch (e) {
     return false;
   }
 }
 
-function windowFeatureNames(features) {
-  return new Set(
-    String(features ?? "")
-      .split(",")
-      .map(feature => feature.trim().split("=", 1)[0].toLowerCase())
-      .filter(Boolean)
-  );
+// Match the WindowFeatures tokenization rules that matter to this policy:
+// feature names are case-insensitive, whitespace may surround "=", duplicate
+// names use the last value, and boolean values follow HTML window-feature
+// parsing.
+function tokenizeWindowFeatures(features) {
+  const tokens = new Map();
+  const input = String(features ?? "");
+  const featurePattern =
+    /(?:^|[\s,]+)([^\s,=]+)(?:\s*=\s*([^\s,]*))?/g;
+
+  for (const match of input.matchAll(featurePattern)) {
+    tokens.set(match[1].toLowerCase(), (match[2] ?? "").toLowerCase());
+  }
+  return tokens;
+}
+
+function parseWindowFeatureBool(value) {
+  if (value == "" || value == "yes" || value == "true") {
+    return true;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? false : parsed != 0;
 }
 
 function hasRemotenessOverride(features) {
-  const names = windowFeatureNames(features);
-  return names.has("remote") || names.has("non-remote");
+  const tokens = tokenizeWindowFeatures(features);
+  return tokens.has("remote") || tokens.has("non-remote");
 }
 
 function hasFissionOverride(features) {
-  const names = windowFeatureNames(features);
-  return names.has("fission") || names.has("non-fission");
+  const tokens = tokenizeWindowFeatures(features);
+  return tokens.has("fission") || tokens.has("non-fission");
+}
+
+function resultingCapability(
+  tokens,
+  positiveName,
+  negativeName,
+  defaultValue
+) {
+  if (defaultValue) {
+    return tokens.has(negativeName)
+      ? !parseWindowFeatureBool(tokens.get(negativeName))
+      : true;
+  }
+
+  return tokens.has(positiveName)
+    ? parseWindowFeatureBool(tokens.get(positiveName))
+    : false;
 }
 
 function appendFeature(features, feature) {
@@ -47,6 +83,7 @@ function appendFeature(features, feature) {
 const prefEnabled = Services.prefs.getBoolPref(PREF_NAME, false);
 const windowsXP = isWindowsXP();
 const globalRemoteAutostart = Services.appinfo.browserTabsRemoteAutostart;
+const globalFissionAutostart = Services.appinfo.fissionAutostart;
 const enabled = prefEnabled && windowsXP && !globalRemoteAutostart;
 
 export const XPBrowserProcessPolicy = Object.freeze({
@@ -54,7 +91,44 @@ export const XPBrowserProcessPolicy = Object.freeze({
   prefEnabled,
   windowsXP,
   globalRemoteAutostart,
+  globalFissionAutostart,
   enabled,
+
+  /**
+   * Return false when textual WindowWatcher features would create a window
+   * whose remote-tabs or remote-subframes capability differs from the required
+   * source-window capability. This mirrors WindowWatcher's choice of the
+   * positive or negative feature based on the session default.
+   */
+  windowFeaturesMatchCapabilities(features, { remote, fission }) {
+    const tokens = tokenizeWindowFeatures(features);
+
+    if (
+      (tokens.has("remote") || tokens.has("non-remote")) &&
+      resultingCapability(
+        tokens,
+        "remote",
+        "non-remote",
+        globalRemoteAutostart
+      ) != remote
+    ) {
+      return false;
+    }
+
+    if (
+      (tokens.has("fission") || tokens.has("non-fission")) &&
+      resultingCapability(
+        tokens,
+        "fission",
+        "non-fission",
+        globalFissionAutostart
+      ) != fission
+    ) {
+      return false;
+    }
+
+    return true;
+  },
 
   /**
    * Apply the hybrid capability only as the default. Explicit structured
