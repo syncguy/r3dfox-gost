@@ -711,9 +711,12 @@
             );
           }
 
-          // In this case we default to the privileged about process as that's
-          // the best guess we can make, and we'll likely need it eventually.
-          remoteType = E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE;
+          // In multiprocess windows, default to the privileged about process as
+          // that's the best guess we can make, and we'll likely need it eventually.
+          // Non-e10s windows must keep the initial browser in the parent process.
+          remoteType = gMultiProcessBrowser
+            ? E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE
+            : E10SUtils.NOT_REMOTE;
         }
       }
 
