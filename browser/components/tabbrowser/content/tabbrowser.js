@@ -214,6 +214,8 @@
           "moz-src:///browser/components/urlbar/UrlbarProviderOpenTabs.sys.mjs",
         FaviconUtils: "moz-src:///toolkit/modules/FaviconUtils.sys.mjs",
         KeyboardLockUtils: "resource://gre/modules/KeyboardLockUtils.sys.mjs",
+        XPBrowserProcessPolicy:
+          "resource:///modules/XPBrowserProcessPolicy.sys.mjs",
       });
       ChromeUtils.defineLazyGetter(this, "tabLocalization", () => {
         return new Localization(
@@ -693,10 +695,18 @@
         }
 
         if (uriToLoad && typeof uriToLoad == "string") {
-          remoteType = ChromeUtils.predictRemoteTypeForURI(
-            uriToLoad,
-            remoteTypeOptions
-          );
+          if (
+            this.XPBrowserProcessPolicy.enabled &&
+            uriToLoad == "about:blank" &&
+            !triggeringRemoteType
+          ) {
+            remoteType = E10SUtils.NOT_REMOTE;
+          } else {
+            remoteType = ChromeUtils.predictRemoteTypeForURI(
+              uriToLoad,
+              remoteTypeOptions
+            );
+          }
         } else {
           // If we reach here, we don't have the url to load. This means that
           // `uriToLoad` is most likely a promise which is waiting on SessionStore
@@ -714,9 +724,10 @@
           // In multiprocess windows, default to the privileged about process as
           // that's the best guess we can make, and we'll likely need it eventually.
           // Non-e10s windows must keep the initial browser in the parent process.
-          remoteType = gMultiProcessBrowser
-            ? E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE
-            : E10SUtils.NOT_REMOTE;
+          remoteType =
+            this.XPBrowserProcessPolicy.enabled || !gMultiProcessBrowser
+              ? E10SUtils.NOT_REMOTE
+              : E10SUtils.PRIVILEGEDABOUT_REMOTE_TYPE;
         }
       }
 
@@ -4272,13 +4283,23 @@
         );
       }
 
-      let remoteType = forceNotRemote
-        ? E10SUtils.NOT_REMOTE
-        : ChromeUtils.predictRemoteTypeForURI(uriString, {
-            window,
-            userContextId,
-            preferredRemoteType,
-          });
+      let hybridEmptyUIBrowser =
+        this.XPBrowserProcessPolicy.enabled &&
+        uriIsAboutBlank &&
+        !preferredRemoteType &&
+        !openerBrowser &&
+        !openWindowInfo &&
+        !triggeringRemoteType &&
+        !referrerInfo?.originalReferrer;
+
+      let remoteType =
+        forceNotRemote || hybridEmptyUIBrowser
+          ? E10SUtils.NOT_REMOTE
+          : ChromeUtils.predictRemoteTypeForURI(uriString, {
+              window,
+              userContextId,
+              preferredRemoteType,
+            });
 
       let b,
         usingPreloadedContent = false;
