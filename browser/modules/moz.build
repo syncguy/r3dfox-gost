@@ -104,6 +104,9 @@ with Files("webrtcUI.sys.mjs"):
 with Files("ZoomUI.sys.mjs"):
     BUG_COMPONENT = ("Firefox", "Toolbars and Customization")
 
+with Files("XPBrowserProcessPolicy.sys.mjs"):
+    BUG_COMPONENT = ("Firefox", "General")
+
 BROWSER_CHROME_MANIFESTS += [
     "test/browser/browser.toml",
     "test/browser/browserSidebarRevamp.toml",
@@ -143,6 +146,7 @@ EXTRA_JS_MODULES += [
     "TransientPrefs.sys.mjs",
     "UpdatePolicyEnforcer.sys.mjs",
     "URILoadingHelper.sys.mjs",
+    "XPBrowserProcessPolicy.sys.mjs",
     "webrtcUI.sys.mjs",
     "ZoomUI.sys.mjs",
 ]
