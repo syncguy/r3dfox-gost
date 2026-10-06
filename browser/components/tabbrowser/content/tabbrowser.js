@@ -695,6 +695,9 @@
         }
 
         if (uriToLoad && typeof uriToLoad == "string") {
+          // A UI-owned empty startup tab in XP hybrid mode begins in the
+          // parent. The remote-capable window can switch it normally once a
+          // real navigation is selected.
           if (
             this.XPBrowserProcessPolicy.enabled &&
             uriToLoad == "about:blank" &&
@@ -721,9 +724,10 @@
             );
           }
 
-          // In multiprocess windows, default to the privileged about process as
-          // that's the best guess we can make, and we'll likely need it eventually.
-          // Non-e10s windows must keep the initial browser in the parent process.
+          // Standard multiprocess windows default to privilegedabout as the
+          // best available guess. XP hybrid instead starts an unresolved
+          // initial browser in the parent, while retaining maychangeremoteness
+          // through the window's remote-tabs capability.
           remoteType =
             this.XPBrowserProcessPolicy.enabled || !gMultiProcessBrowser
               ? E10SUtils.NOT_REMOTE
