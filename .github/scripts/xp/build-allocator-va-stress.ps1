@@ -20,6 +20,31 @@ function Invoke-Checked([string]$Name, [scriptblock]$Command) {
   }
 }
 
+function Find-MozMake() {
+  $candidates = @()
+
+  $command = Get-Command mozmake.exe -ErrorAction SilentlyContinue
+  if ($command) {
+    $candidates += $command.Source
+  }
+
+  if ($env:MOZBUILD_STATE_PATH) {
+    $candidates += (Join-Path $env:MOZBUILD_STATE_PATH 'mozmake\mozmake.exe')
+  }
+
+  if ($env:USERPROFILE) {
+    $candidates += (Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe')
+  }
+
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
+  }
+
+  throw 'Mozilla-managed mozmake.exe was not found in PATH or the mozbuild state directory'
+}
+
 function Find-StressExe([string]$ObjDir) {
   $candidates = @(Get-ChildItem -LiteralPath $ObjDir -Recurse -File -Filter 'allocator-va-stress.exe')
   if (-not $candidates.Count) {
@@ -91,7 +116,7 @@ function Build-MozJemallocVariant(
   $objDir = Join-Path $env:GITHUB_WORKSPACE $ObjDirName
   $rootTarget = 'memory/allocator_va_stress/target'
   $dryRunLog = Join-Path $diag "$Label-root-deps-dry-run.txt"
-  $mozmake = (Get-Command mozmake.exe -ErrorAction Stop).Source
+  $mozmake = Find-MozMake
 
   Copy-Item -Force (Join-Path $objDir 'root.mk') (Join-Path $diag "$Label-root.mk")
   Copy-Item -Force (Join-Path $objDir 'root-deps.mk') (Join-Path $diag "$Label-root-deps.mk")
