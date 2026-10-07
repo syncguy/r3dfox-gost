@@ -692,12 +692,116 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
   }
   Touch(viaArena, 64u * 1024u);
 
-  /* Plain free is explicitly valid for moz_arena_malloc pointers. With a
-   * replacement allocator active, this exercises pointer-ownership routing:
-   * the glue must return this native mozjemalloc pointer to the original
-   * allocator rather than pass it to mimalloc.
-   */
-  TestFree(viaArena);
+  void* ordinary = malloc(48u * 1024u);
+  if (!ordinary) {
+    printf("ARENA_SMOKE label=%s success=0 stage=ordinary-malloc\n",
+           config.label);
+    moz_arena_free(arena, viaArena);
+    moz_dispose_arena(arena);
+    return false;
+  }
+  Touch(ordinary, 48u * 1024u);
+
+  using ReplaceProbeFn = unsigned(__cdecl*)(const void*, const void*);
+  ReplaceProbeFn replaceProbe = nullptr;
+  bool replaceExpected = false;
+  char replacePath[MAX_PATH] = {};
+  DWORD replaceLen = GetEnvironmentVariableA(
+      "MOZ_REPLACE_MALLOC_LIB", replacePath, MAX_PATH);
+  if (replaceLen) {
+    replaceExpected = true;
+    if (replaceLen >= MAX_PATH) {
+      printf("ARENA_SMOKE label=%s success=0 stage=replace-path\n",
+             config.label);
+      free(ordinary);
+      moz_arena_free(arena, viaArena);
+      moz_dispose_arena(arena);
+      return false;
+    }
+
+    HMODULE module = GetModuleHandleA(replacePath);
+    if (!module) {
+      const char* slash = strrchr(replacePath, '\\');
+      const char* forward = strrchr(replacePath, '/');
+      const char* base = replacePath;
+      if (slash && (!forward || slash > forward)) {
+        base = slash + 1;
+      } else if (forward) {
+        base = forward + 1;
+      }
+      module = GetModuleHandleA(base);
+    }
+    if (!module) {
+      printf("ARENA_SMOKE label=%s success=0 stage=replace-module\n",
+             config.label);
+      free(ordinary);
+      moz_arena_free(arena, viaArena);
+      moz_dispose_arena(arena);
+      return false;
+    }
+
+    replaceProbe = reinterpret_cast<ReplaceProbeFn>(
+        GetProcAddress(module, "allocator_va_stress_replace_probe"));
+    if (!replaceProbe) {
+      printf("ARENA_SMOKE label=%s success=0 stage=replace-probe\n",
+             config.label);
+      free(ordinary);
+      moz_arena_free(arena, viaArena);
+      moz_dispose_arena(arena);
+      return false;
+    }
+  }
+
+  unsigned probeFlags =
+      replaceProbe ? replaceProbe(ordinary, viaArena) : 0u;
+  if (replaceExpected && (probeFlags & 7u) != 7u) {
+    printf(
+        "REPLACE_SMOKE label=%s initialized=%u ordinary_mimalloc=%u "
+        "arena_native=%u success=0 stage=ownership-initial\n",
+        config.label, (probeFlags & 1u) ? 1u : 0u,
+        (probeFlags & 2u) ? 1u : 0u, (probeFlags & 4u) ? 1u : 0u);
+    free(ordinary);
+    moz_arena_free(arena, viaArena);
+    moz_dispose_arena(arena);
+    return false;
+  }
+
+  const size_t nativeUsable = malloc_usable_size(viaArena);
+  if (!nativeUsable) {
+    printf("ARENA_SMOKE label=%s success=0 stage=plain-usable-size\n",
+           config.label);
+    free(ordinary);
+    moz_arena_free(arena, viaArena);
+    moz_dispose_arena(arena);
+    return false;
+  }
+
+  void* reallocated = realloc(viaArena, 96u * 1024u);
+  if (!reallocated) {
+    printf("ARENA_SMOKE label=%s success=0 stage=plain-realloc\n",
+           config.label);
+    free(ordinary);
+    free(viaArena);
+    moz_dispose_arena(arena);
+    return false;
+  }
+  Touch(reallocated, 96u * 1024u);
+
+  probeFlags = replaceProbe ? replaceProbe(ordinary, reallocated) : 0u;
+  if (replaceExpected && (probeFlags & 7u) != 7u) {
+    printf(
+        "REPLACE_SMOKE label=%s initialized=%u ordinary_mimalloc=%u "
+        "arena_native=%u success=0 stage=ownership-after-realloc\n",
+        config.label, (probeFlags & 1u) ? 1u : 0u,
+        (probeFlags & 2u) ? 1u : 0u, (probeFlags & 4u) ? 1u : 0u);
+    free(ordinary);
+    free(reallocated);
+    moz_dispose_arena(arena);
+    return false;
+  }
+
+  free(reallocated);
+  free(ordinary);
 
   void* viaArena2 = moz_arena_calloc(arena, 1u, 32u * 1024u);
   if (!viaArena2) {
@@ -710,7 +814,15 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
   moz_arena_free(arena, viaArena2);
   moz_dispose_arena(arena);
 
-  printf("ARENA_SMOKE label=%s success=1\n", config.label);
+  printf("ARENA_SMOKE label=%s native_usable=%zu success=1\n",
+         config.label, nativeUsable);
+  if (replaceExpected) {
+    printf(
+        "REPLACE_SMOKE label=%s initialized=%u ordinary_mimalloc=%u "
+        "arena_native=%u success=1\n",
+        config.label, (probeFlags & 1u) ? 1u : 0u,
+        (probeFlags & 2u) ? 1u : 0u, (probeFlags & 4u) ? 1u : 0u);
+  }
 #else
   (void)config;
 #endif
@@ -945,6 +1057,7 @@ int main(int argc, char** argv) {
   const char* stopReason = StopThresholdReason(config, snapshot);
   bool stoppedByFailure = false;
   bool stoppedByDuration = false;
+  unsigned completedCycles = 0;
 
   for (unsigned cycle = 1;
        cycle <= config.cycles && !stopReason && !stoppedByFailure; ++cycle) {
@@ -1022,6 +1135,7 @@ int main(int argc, char** argv) {
       break;
     }
 
+    completedCycles = cycle;
     stopReason = StopThresholdReason(config, snapshot);
     if (stopReason) {
       printf("STOP label=%s cycle=%u reason=%s free_mib=%.1f "
@@ -1054,7 +1168,10 @@ int main(int argc, char** argv) {
     status = "threshold-stop";
   }
 
-  printf("RESULT label=%s status=%s elapsed_ms=%lu\n", config.label, status,
-         ElapsedMs(runStart));
+  printf(
+      "RESULT label=%s status=%s cycles_completed=%u cycles_requested=%u "
+      "elapsed_ms=%lu\n",
+      config.label, status, completedCycles, config.cycles,
+      ElapsedMs(runStart));
   return 0;
 }
