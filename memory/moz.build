@@ -9,7 +9,7 @@ DIRS += [
     "build",
 ]
 
-if CONFIG["MOZ_BUILD_APP"] in ("memory", "browser"):
+if CONFIG["MOZ_BUILD_APP"] == "browser" and CONFIG["MOZ_ALLOCATOR_VA_STRESS"]:
     DIRS += [
         "allocator_va_stress",
     ]
