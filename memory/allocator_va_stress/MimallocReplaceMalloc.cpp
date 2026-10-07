@@ -17,6 +17,7 @@
 #include "replace_malloc.h"
 
 static malloc_table_t gOriginal;
+static bool gInitialized = false;
 
 static bool IsMimallocPointer(const void* aPtr) {
   return aPtr && mi_is_in_heap_region(aPtr);
@@ -136,9 +137,25 @@ static void replace_jemalloc_free_excess_dirty_pages() {
 
 MOZ_BEGIN_EXTERN_C
 
+MOZ_EXPORT unsigned allocator_va_stress_replace_probe(
+    const void* aOrdinaryPtr, const void* aArenaPtr) {
+  unsigned result = 0;
+  if (gInitialized) {
+    result |= 1u;
+  }
+  if (aOrdinaryPtr && IsMimallocPointer(aOrdinaryPtr)) {
+    result |= 2u;
+  }
+  if (aArenaPtr && !IsMimallocPointer(aArenaPtr)) {
+    result |= 4u;
+  }
+  return result;
+}
+
 MOZ_EXPORT void replace_init(malloc_table_t* aTable,
                              ReplaceMallocBridge** aBridge) {
   gOriginal = *aTable;
+  gInitialized = true;
 
   aTable->malloc = replace_malloc;
   aTable->calloc = replace_calloc;
