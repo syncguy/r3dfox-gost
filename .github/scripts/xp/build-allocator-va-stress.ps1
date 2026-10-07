@@ -121,8 +121,21 @@ function Build-MozJemallocVariant(
   Copy-Item -Force (Join-Path $objDir 'root.mk') (Join-Path $diag "$Label-root.mk")
   Copy-Item -Force (Join-Path $objDir 'root-deps.mk') (Join-Path $diag "$Label-root-deps.mk")
 
-  & $mozmake -C $objDir -n -k $rootTarget 2>&1 | Tee-Object -FilePath $dryRunLog
-  $dryRunExit = $LASTEXITCODE
+  $savedErrorActionPreference = $ErrorActionPreference
+  try {
+    # Windows PowerShell 5 promotes native stderr records to terminating errors
+    # when ErrorActionPreference=Stop. A GNU make -n traversal can legitimately
+    # print recursive submake failures because prerequisite libraries are only
+    # planned, not created. Keep that output as diagnostics and let the real
+    # root build below be the dependency-closure gate.
+    $ErrorActionPreference = 'Continue'
+    & $mozmake -C $objDir -n -k $rootTarget 2>&1 |
+      Tee-Object -FilePath $dryRunLog
+    $dryRunExit = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $savedErrorActionPreference
+  }
 
   # GNU make still executes recursive $(MAKE) commands under -n. The root
   # dry-run therefore may enter the harness submake before cross-directory
