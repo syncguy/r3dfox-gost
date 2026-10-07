@@ -314,7 +314,10 @@ foreach ($dll in $replacementDlls) {
     throw "dumpbin /exports failed for $dll"
   }
   $exports | Set-Content -Encoding utf8 $exportsPath
-  if (-not ($exports | Where-Object { $_ -match '(?i)\breplace_init\s*
+  if (-not ($exports | Where-Object { $_ -match '(?i)(^|\s)replace_init\s*$' })) {
+    throw "$name does not export exact replace_init required by Firefox MOZ_REPLACE_MALLOC_LIB"
+  }
+}
 
 Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
   $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
