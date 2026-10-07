@@ -92,7 +92,7 @@ jobs:
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build and smoke three allocator variants
+      - name: Build allocator variants and Firefox replacement glue
         shell: powershell
         run: .\.github\scripts\xp\build-allocator-va-stress.ps1
 
