@@ -9,9 +9,13 @@ DIRS += [
     "build",
 ]
 
-if CONFIG["MOZ_BUILD_APP"] == "memory":
+if CONFIG["MOZ_BUILD_APP"] in ("memory", "browser"):
     DIRS += [
         "allocator_va_stress",
+    ]
+
+if CONFIG["MOZ_BUILD_APP"] == "memory":
+    DIRS += [
         "mozjemalloc_info",
     ]
 else:
