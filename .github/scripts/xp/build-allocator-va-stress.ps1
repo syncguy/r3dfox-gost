@@ -49,6 +49,7 @@ ac_add_options --disable-tests
 ac_add_options --disable-sandbox
 ac_add_options --enable-jemalloc
 ac_add_options --enable-replace-malloc
+ac_add_options --enable-allocator-va-stress
 ac_add_options --enable-optimize
 ac_add_options --enable-release
 ac_add_options --disable-eme
@@ -83,11 +84,11 @@ function Build-MozJemallocVariant(
 
   Invoke-Checked "mach configure ($Label)" { .\mach.ps1 configure }
 
-  # Use the normal browser build graph so generated/exported Gecko headers are
-  # produced by their real owners. The focused executable itself is then built
-  # as an allowed subdirectory target; this avoids linking the full browser.
   Invoke-Checked "mach export ($Label)" {
     .\mach.ps1 build pre-export export
+  }
+  Invoke-Checked "mach focused prerequisites ($Label)" {
+    .\mach.ps1 build --allow-subdirectory-build build/pure_virtual memory/build
   }
   Invoke-Checked "mach focused build ($Label)" {
     .\mach.ps1 build --allow-subdirectory-build memory/allocator_va_stress
