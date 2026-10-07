@@ -15,12 +15,21 @@ DIRS += [
 ]
 
 EXPORTS.mozilla += [
+    "!GeckoProcessTypes.h",
+    "/mozglue/misc/DynamicallyLinkedFunctionPtr.h",
     "/mozglue/misc/IntegerPrintfMacros.h",
     "/mozglue/misc/Now.h",
+    "/mozglue/misc/ProcessType.h",
     "/mozglue/misc/Sprintf.h",
     "/mozglue/misc/TimeStamp.h",
     "/mozglue/misc/Uptime.h",
 ]
+
+GeneratedFile(
+    "GeckoProcessTypes.h",
+    script="/xpcom/build/gen_process_types.py",
+    entry_point="main",
+)
 
 if CONFIG["OS_ARCH"] == "WINNT":
     EXPORTS.mozilla += [
