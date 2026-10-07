@@ -122,9 +122,15 @@ function Build-MozJemallocVariant(
   Copy-Item -Force (Join-Path $objDir 'root-deps.mk') (Join-Path $diag "$Label-root-deps.mk")
 
   & $mozmake -C $objDir -n -k $rootTarget 2>&1 | Tee-Object -FilePath $dryRunLog
-  if ($LASTEXITCODE -ne 0) {
-    throw "root dependency dry-run ($Label) failed with exit code $LASTEXITCODE"
-  }
+  $dryRunExit = $LASTEXITCODE
+
+  # GNU make still executes recursive $(MAKE) commands under -n. The root
+  # dry-run therefore may enter the harness submake before cross-directory
+  # libraries such as pure_virtual.lib physically exist. Treat the dry-run as
+  # a dependency-plan diagnostic; the real root build below is the closure
+  # gate. Keep the exit code in diagnostics instead of requiring zero here.
+  "root_dependency_dry_run_exit_$Label=$dryRunExit" |
+    Add-Content (Join-Path $diag 'identity.txt')
 
   $dryRunText = Get-Content $dryRunLog -Raw
   if ($dryRunText -notmatch '(?i)build[\\/]pure_virtual') {
