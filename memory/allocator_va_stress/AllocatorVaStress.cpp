@@ -814,7 +814,7 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
   moz_arena_free(arena, viaArena2);
   moz_dispose_arena(arena);
 
-  printf("ARENA_SMOKE label=%s native_usable=%zu success=1\n",
+  printf("ARENA_SMOKE label=%s success=1 native_usable=%zu\n",
          config.label, nativeUsable);
   if (replaceExpected) {
     printf(
