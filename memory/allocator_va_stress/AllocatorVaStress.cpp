@@ -676,6 +676,45 @@ void PrintAllocatorPolicy(const Config& config) {
 #endif
 }
 
+
+bool RunNativeArenaOwnershipSmoke(const Config& config) {
+#ifdef ALLOCATOR_MOZJEMALLOC
+  arena_id_t arena = moz_create_arena();
+
+  void* viaArena = moz_arena_malloc(arena, 64u * 1024u);
+  if (!viaArena) {
+    printf("ARENA_SMOKE label=%s success=0 stage=arena-malloc\n",
+           config.label);
+    moz_dispose_arena(arena);
+    return false;
+  }
+  Touch(viaArena, 64u * 1024u);
+
+  /* Plain free is explicitly valid for moz_arena_malloc pointers. With a
+   * replacement allocator active, this exercises pointer-ownership routing:
+   * the glue must return this native mozjemalloc pointer to the original
+   * allocator rather than pass it to mimalloc.
+   */
+  TestFree(viaArena);
+
+  void* viaArena2 = moz_arena_calloc(arena, 1u, 32u * 1024u);
+  if (!viaArena2) {
+    printf("ARENA_SMOKE label=%s success=0 stage=arena-calloc\n",
+           config.label);
+    moz_dispose_arena(arena);
+    return false;
+  }
+
+  moz_arena_free(arena, viaArena2);
+  moz_dispose_arena(arena);
+
+  printf("ARENA_SMOKE label=%s success=1\n", config.label);
+#else
+  (void)config;
+#endif
+  return true;
+}
+
 void PrintJemallocStats(const Config& config, const char* phase,
                         unsigned cycle) {
 #ifdef ALLOCATOR_MOZJEMALLOC
@@ -881,6 +920,10 @@ int main(int argc, char** argv) {
       static_cast<unsigned long long>(maxAddress));
 
   PrintAllocatorPolicy(config);
+
+  if (!RunNativeArenaOwnershipSmoke(config)) {
+    return 4;
+  }
 
   const DWORD runStart = GetTickCount();
   PrintSnapshot(config, "process_start", 0);
