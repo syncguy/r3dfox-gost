@@ -35,20 +35,40 @@ function Find-StressExe([string]$ObjDir) {
   return $candidates[0].FullName
 }
 
-function Write-MemoryMozconfig([string]$Path, [string]$ObjDirName) {
+function Write-BrowserMozconfig([string]$Path, [string]$ObjDirName) {
   @'
 mk_add_options AUTOCLOBBER=1
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/OBJDIR_PLACEHOLDER
-ac_add_options --enable-project=memory
+mk_add_options MOZ_PARALLEL_BUILD=4
+mk_add_options MOZ_MAKE_FLAGS="-j4"
 ac_add_options --target=i686
+ac_add_options --enable-application=browser
+ac_add_options --disable-artifact-builds
 ac_add_options --disable-debug
 ac_add_options --disable-tests
+ac_add_options --disable-sandbox
 ac_add_options --enable-jemalloc
 ac_add_options --enable-replace-malloc
 ac_add_options --enable-optimize
 ac_add_options --enable-release
-export CFLAGS="$CFLAGS -DMOZ_XP_COMPAT"
-export CXXFLAGS="$CXXFLAGS -DMOZ_XP_COMPAT"
+ac_add_options --disable-eme
+ac_add_options --disable-backgroundtasks
+ac_add_options --disable-bits-download
+ac_add_options --disable-crashreporter
+ac_add_options --disable-default-browser-agent
+ac_add_options --disable-maintenance-service
+ac_add_options --disable-necko-wifi
+ac_add_options --disable-notification-server
+ac_add_options --disable-parental-controls
+ac_add_options --without-onnx-runtime
+ac_add_options --without-wasm-sandboxed-libraries
+ac_add_options --disable-update-agent
+ac_add_options --disable-updater
+export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+export MOZ_CRASHREPORTER=0
+export MOZ_DATA_REPORTING=0
+export MOZ_TELEMETRY_REPORTING=
 '@.Replace('OBJDIR_PLACEHOLDER', $ObjDirName) | Set-Content -Encoding ascii $Path
 }
 
@@ -58,11 +78,20 @@ function Build-MozJemallocVariant(
   [string]$DestinationName
 ) {
   $mozconfig = Join-Path $env:GITHUB_WORKSPACE ".mozconfig-$Label"
-  Write-MemoryMozconfig $mozconfig $ObjDirName
+  Write-BrowserMozconfig $mozconfig $ObjDirName
   $env:MOZCONFIG = $mozconfig
 
   Invoke-Checked "mach configure ($Label)" { .\mach.ps1 configure }
-  Invoke-Checked "mach build ($Label)" { .\mach.ps1 build }
+
+  # Use the normal browser build graph so generated/exported Gecko headers are
+  # produced by their real owners. The focused executable itself is then built
+  # as an allowed subdirectory target; this avoids linking the full browser.
+  Invoke-Checked "mach export ($Label)" {
+    .\mach.ps1 build pre-export export
+  }
+  Invoke-Checked "mach focused build ($Label)" {
+    .\mach.ps1 build --allow-subdirectory-build memory/allocator_va_stress
+  }
 
   $objDir = Join-Path $env:GITHUB_WORKSPACE $ObjDirName
   $exe = Find-StressExe $objDir
