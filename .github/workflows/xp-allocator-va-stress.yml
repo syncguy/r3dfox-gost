@@ -1,0 +1,126 @@
+name: XP x86 allocator VA stress
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source ref containing the allocator VA harness
+        required: true
+        default: agent/winrt-source-poc
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xp-allocator-va-stress
+  cancel-in-progress: false
+
+env:
+  MOZILLABUILD: C:\\mozilla-build
+  MOZILLABUILD_VERSION: "4.2.1"
+  MACH_NO_TERMINAL_FOOTER: "1"
+  MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+  MIMALLOC_VERSION: "2.5.2"
+  MIMALLOC_SHA: "2406cc5f3ab6d6e54fe560cdd66fa46eee775312"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+
+jobs:
+  allocator-va-stress:
+    name: XP x86 allocator VA comparison
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Record exact source identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          "SOURCE_UNDER_TEST=$sha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "source_under_test=$sha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: .\.github\scripts\xp\build-msvcr14x-release-x86.ps1
+
+      - name: GATE - Require XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: .\.github\scripts\xp\verify-msvcr14x-xp-contract.ps1
+
+      - name: Bootstrap focused Mozilla build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and smoke three allocator variants
+        shell: powershell
+        run: .\.github\scripts\xp\build-allocator-va-stress.ps1
+
+      - name: Upload XP runtime bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-x86-allocator-va-stress-runtime
+          path: allocator-va-runtime
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-x86-allocator-va-stress-diagnostics
+          path: |
+            allocator-va-diagnostics
+            diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          "## XP x86 allocator VA stress" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-under-test: $env:SOURCE_UNDER_TEST" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Variants: Firefox mozjemalloc stock 128 MiB recycle limit; mozjemalloc zero recycle retention; mimalloc $env:MIMALLOC_VERSION." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Hosted smoke is not physical XP acceptance and does not select a winning allocator." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
