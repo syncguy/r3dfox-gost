@@ -124,34 +124,53 @@ if ($mimallocActual -ne $env:MIMALLOC_SHA) {
   throw "Unexpected mimalloc commit: $mimallocActual"
 }
 
-$mimallocObj = Join-Path $env:RUNNER_TEMP 'mimalloc-static.obj'
-$mimallocCompileLog = Join-Path $diag 'mimalloc-compile.txt'
-$miCompileArgs = @(
-  '/nologo','/c','/O2','/MD','/TC',
-  '/DMI_STATIC_LIB','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
-  "/I$mimallocRoot\include",
-  "$mimallocRoot\src\static.c",
-  "/Fo:$mimallocObj"
-)
-& cl.exe @miCompileArgs 2>&1 | Tee-Object -FilePath $mimallocCompileLog
-if ($LASTEXITCODE -ne 0) {
-  throw "mimalloc static compile failed: $LASTEXITCODE"
+function Build-MimallocVariant(
+  [string]$Label,
+  [string]$ObjectName,
+  [string]$ExeName,
+  [string[]]$ExtraDefines
+) {
+  $obj = Join-Path $env:RUNNER_TEMP $ObjectName
+  $compileLog = Join-Path $diag "$Label-compile.txt"
+  $compileArgs = @(
+    '/nologo','/c','/O2','/MD','/TC',
+    '/DMI_STATIC_LIB','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501'
+  )
+  if ($ExtraDefines) {
+    $compileArgs += $ExtraDefines
+  }
+  $compileArgs += @(
+    "/I$mimallocRoot\include",
+    "$mimallocRoot\src\static.c",
+    "/Fo:$obj"
+  )
+
+  & cl.exe @compileArgs 2>&1 | Tee-Object -FilePath $compileLog
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label static compile failed: $LASTEXITCODE"
+  }
+
+  $exe = Join-Path $runtime $ExeName
+  $harness = Join-Path $env:GITHUB_WORKSPACE 'memory\allocator_va_stress\AllocatorVaStress.cpp'
+  $linkLog = Join-Path $diag "$Label-harness-link.txt"
+  $linkArgs = @(
+    '/nologo','/O2','/EHsc','/MD','/std:c++17',
+    '/DALLOCATOR_MIMALLOC','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
+    "/I$mimallocRoot\include",
+    $harness,$obj,
+    '/link','/SUBSYSTEM:CONSOLE,5.01','/LARGEADDRESSAWARE',"/OUT:$exe"
+  )
+  & cl.exe @linkArgs 2>&1 | Tee-Object -FilePath $linkLog
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label harness link failed: $LASTEXITCODE"
+  }
 }
 
-$mimallocExe = Join-Path $runtime 'allocator-va-stress-mimalloc-2.5.2.exe'
-$harness = Join-Path $env:GITHUB_WORKSPACE 'memory\allocator_va_stress\AllocatorVaStress.cpp'
-$mimallocLinkLog = Join-Path $diag 'mimalloc-harness-link.txt'
-$miLinkArgs = @(
-  '/nologo','/O2','/EHsc','/MD','/std:c++17',
-  '/DALLOCATOR_MIMALLOC','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
-  "/I$mimallocRoot\include",
-  $harness,$mimallocObj,
-  '/link','/SUBSYSTEM:CONSOLE,5.01','/LARGEADDRESSAWARE',"/OUT:$mimallocExe"
-)
-& cl.exe @miLinkArgs 2>&1 | Tee-Object -FilePath $mimallocLinkLog
-if ($LASTEXITCODE -ne 0) {
-  throw "mimalloc harness link failed: $LASTEXITCODE"
-}
+$mimallocDefaultExe = Join-Path $runtime 'allocator-va-stress-mimalloc-2.5.2-default.exe'
+Build-MimallocVariant -Label 'mimalloc-2.5.2-default' -ObjectName 'mimalloc-2.5.2-default.obj' -ExeName 'allocator-va-stress-mimalloc-2.5.2-default.exe' -ExtraDefines @() | Out-Host
+
+$mimallocNoArenaExe = Join-Path $runtime 'allocator-va-stress-mimalloc-2.5.2-noarena.exe'
+Build-MimallocVariant -Label 'mimalloc-2.5.2-noarena' -ObjectName 'mimalloc-2.5.2-noarena.obj' -ExeName 'allocator-va-stress-mimalloc-2.5.2-noarena.exe' -ExtraDefines @('/DMI_DEFAULT_ARENA_RESERVE=0','/DMI_DEFAULT_DISALLOW_ARENA_ALLOC=1') | Out-Host
 
 foreach ($dll in @('ucrtbase.dll', 'msvcp140.dll')) {
   $src = Join-Path $env:MSVCR14X_RELEASE $dll
@@ -246,7 +265,7 @@ function Audit-XpExe([string]$Path) {
   }
 }
 
-$executables = @($stockExe, $zeroExe, $mimallocExe)
+$executables = @($stockExe, $zeroExe, $mimallocDefaultExe, $mimallocNoArenaExe)
 foreach ($exe in $executables) {
   Audit-XpExe $exe
 }
@@ -259,65 +278,104 @@ Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
 @'
 @echo off
 setlocal
-set COMMON=--live-mib 512 --burst-mib 256 --cycles 30 --gc-hold-per-cycle 2 --sleep-ms 100 --stop-free-mib 128 --stop-aligned-mib 2
+set COMMON=--live-mib 416 --survivor-mib 32 --burst-mib 256 --cycles 30 --gc-hold-per-cycle 2 --sleep-ms 100 --max-ms 90000 --stop-free-mib 64 --stop-aligned-mib 0
 
-echo Running mozjemalloc stock retention...
-allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128 %COMMON% > mozjemalloc-128.log 2>&1
+echo Repeat 1/3
+allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128-r1 %COMMON% > mozjemalloc-128-r1.log 2>&1
+allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0-r1 %COMMON% > mozjemalloc-0-r1.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-default.exe --label mimalloc-default-r1 %COMMON% > mimalloc-default-r1.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-noarena.exe --label mimalloc-noarena-r1 %COMMON% > mimalloc-noarena-r1.log 2>&1
 
-echo Running mozjemalloc zero retention...
-allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0 %COMMON% > mozjemalloc-0.log 2>&1
+echo Repeat 2/3
+allocator-va-stress-mimalloc-2.5.2-noarena.exe --label mimalloc-noarena-r2 %COMMON% > mimalloc-noarena-r2.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-default.exe --label mimalloc-default-r2 %COMMON% > mimalloc-default-r2.log 2>&1
+allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0-r2 %COMMON% > mozjemalloc-0-r2.log 2>&1
+allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128-r2 %COMMON% > mozjemalloc-128-r2.log 2>&1
 
-echo Running mimalloc 2.5.2...
-allocator-va-stress-mimalloc-2.5.2.exe --label mimalloc-2.5.2 %COMMON% > mimalloc-2.5.2.log 2>&1
+echo Repeat 3/3
+allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0-r3 %COMMON% > mozjemalloc-0-r3.log 2>&1
+allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128-r3 %COMMON% > mozjemalloc-128-r3.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-noarena.exe --label mimalloc-noarena-r3 %COMMON% > mimalloc-noarena-r3.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-default.exe --label mimalloc-default-r3 %COMMON% > mimalloc-default-r3.log 2>&1
 
-echo Complete. Send all three *.log files for comparison.
+echo Complete. Send all twelve *.log files for comparison.
 endlocal
 '@ | Set-Content -Encoding ascii (Join-Path $runtime 'run-all.cmd')
 
 @'
 XP x86 allocator VA stress PoC
 
-Variants:
+Four modes are compared with the same deterministic workload:
+
   allocator-va-stress-mozjemalloc-128.exe
-    Firefox 153 mozjemalloc with stock gRecycleLimit = 128 MiB.
+    Exact Firefox 153 mozjemalloc from this tree with stock
+    gRecycleLimit = 128 MiB.
 
   allocator-va-stress-mozjemalloc-0.exe
-    Same Firefox 153 mozjemalloc with only gRecycleLimit changed to 0
-    during the focused build.
+    The same mozjemalloc with only gRecycleLimit changed to 0
+    during this focused build.
 
-  allocator-va-stress-mimalloc-2.5.2.exe
-    mimalloc v2.5.2 from pinned source commit.
+  allocator-va-stress-mimalloc-2.5.2-default.exe
+    Pinned mimalloc v2.5.2 with its normal 32-bit arena policy.
+    The executable prints the effective arena_reserve and retry policy.
+
+  allocator-va-stress-mimalloc-2.5.2-noarena.exe
+    The same pinned mimalloc source compiled with automatic arena allocation
+    disabled and default arena reserve set to zero.
 
 Recommended physical XP run:
   run-all.cmd
 
-The default physical workload keeps a long-lived 512 MiB heap, repeatedly
-allocates and frees 256 MiB bursts, exercises cross-thread allocation/free,
-and holds two direct 1 MiB-aligned VirtualAlloc chunks per cycle. It stops
-before the already-observed near-failure boundary if total free VA reaches
-128 MiB or the largest 1 MiB-aligned capacity falls to 2 MiB.
+run-all.cmd launches every mode as a fresh process three times, rotating
+the order between repetitions. The workload keeps a 416 MiB long-lived
+mixed-size base heap, retains about 32 MiB from each burst for three
+generations, repeatedly allocates/frees 256 MiB mixed-size bursts,
+exercises cross-thread ownership, and concurrently holds direct
+1 MiB-aligned GC-like mappings.
 
-Compare VA metrics, not only Working Set. Hosted CI success is only
-build/import/function evidence. Physical XP remains a separate runtime gate.
-The zero-retention build is an experiment, not a product setting.
+The GC probe follows the Windows strategy used by Gecko MapAlignedPages:
+ordinary mapping, retained-region alignment, over-reserve slow path, then
+a bounded last-ditch path. It records which path succeeded, retries,
+Win32 error and latency.
+
+Safety bounds are per process: 90 seconds and 64 MiB total free VA.
+There is no synthetic aligned-hole stop; actual GC-like mapping determines
+alignment success or failure.
+
+Compare:
+  - tracked user payload;
+  - total free/reserved/committed VA;
+  - largest/Top-5/Top-10 free regions;
+  - large-hole counts;
+  - GC mapping success path and latency;
+  - heap allocator failures;
+  - available pagefile/commit context;
+  - mozjemalloc internal mapped/allocated/waste/dirty/bin-unused metrics.
+
+Hosted CI success is only build/import/function evidence. Physical XP
+remains the runtime gate. No product allocator or threshold is selected by
+this PoC.
 '@ | Set-Content -Encoding ascii (Join-Path $runtime 'README.txt')
 
 Push-Location $runtime
 try {
   $smokeArgs = @(
-    '--live-mib','64',
+    '--live-mib','48',
+    '--survivor-mib','4',
     '--burst-mib','32',
     '--cycles','3',
     '--gc-hold-per-cycle','1',
     '--sleep-ms','0',
+    '--max-ms','30000',
     '--stop-free-mib','64',
-    '--stop-aligned-mib','1'
+    '--stop-aligned-mib','0'
   )
 
   foreach ($entry in @(
     @{ File='allocator-va-stress-mozjemalloc-128.exe'; Label='mozjemalloc-128' },
     @{ File='allocator-va-stress-mozjemalloc-0.exe'; Label='mozjemalloc-0' },
-    @{ File='allocator-va-stress-mimalloc-2.5.2.exe'; Label='mimalloc-2.5.2' }
+    @{ File='allocator-va-stress-mimalloc-2.5.2-default.exe'; Label='mimalloc-default' },
+    @{ File='allocator-va-stress-mimalloc-2.5.2-noarena.exe'; Label='mimalloc-noarena' }
   )) {
     $log = Join-Path $diag "hosted-$($entry.Label).txt"
     & ".\$($entry.File)" --label $entry.Label @smokeArgs 2>&1 | Tee-Object -FilePath $log
@@ -327,6 +385,16 @@ try {
     $text = Get-Content $log -Raw
     if ($text -notmatch "RESULT label=$([regex]::Escape($entry.Label)) status=") {
       throw "Hosted smoke produced no RESULT line for $($entry.Label)"
+    }
+    if ($entry.Label -eq 'mimalloc-default') {
+      if ($text -notmatch 'MIMALLOC_POLICY .*arena_reserve_mib=128\.0 .*disallow_arena_alloc=0') {
+        throw 'Default mimalloc policy did not report 128 MiB arena reserve with arenas enabled'
+      }
+    }
+    if ($entry.Label -eq 'mimalloc-noarena') {
+      if ($text -notmatch 'MIMALLOC_POLICY .*arena_reserve_mib=0\.0 .*disallow_arena_alloc=1') {
+        throw 'No-arena mimalloc policy did not report zero arena reserve with arena allocation disabled'
+      }
     }
   }
 }
