@@ -81,7 +81,8 @@ if (-not $constantsOriginal.Contains($expectedRecycle)) {
 }
 
 try {
-  $stockExe = Build-MozJemallocVariant -Label 'mozjemalloc-128' -ObjDirName 'obj-memory-va-stock' -DestinationName 'allocator-va-stress-mozjemalloc-128.exe'
+  $stockExe = Join-Path $runtime 'allocator-va-stress-mozjemalloc-128.exe'
+  Build-MozJemallocVariant -Label 'mozjemalloc-128' -ObjDirName 'obj-memory-va-stock' -DestinationName 'allocator-va-stress-mozjemalloc-128.exe' | Out-Host
 
   $zeroSource = $constantsOriginal.Replace(
     $expectedRecycle,
@@ -90,7 +91,8 @@ try {
   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText($constantsPath, $zeroSource, $utf8NoBom)
 
-  $zeroExe = Build-MozJemallocVariant -Label 'mozjemalloc-0' -ObjDirName 'obj-memory-va-zero' -DestinationName 'allocator-va-stress-mozjemalloc-0.exe'
+  $zeroExe = Join-Path $runtime 'allocator-va-stress-mozjemalloc-0.exe'
+  Build-MozJemallocVariant -Label 'mozjemalloc-0' -ObjDirName 'obj-memory-va-zero' -DestinationName 'allocator-va-stress-mozjemalloc-0.exe' | Out-Host
 }
 finally {
   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
