@@ -3,21 +3,3 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 imply_option("--enable-jemalloc", True)
-
-option(
-    "--enable-allocator-va-stress",
-    help="Build the standalone allocator virtual-address-space stress harness",
-)
-
-@depends("--enable-allocator-va-stress", target, build_project)
-def allocator_va_stress(enabled, target, build_project):
-    if not enabled:
-        return False
-    if build_project != "browser":
-        die("--enable-allocator-va-stress requires --enable-application=browser")
-    if target.kernel != "WINNT" or target.cpu != "x86":
-        die("--enable-allocator-va-stress requires Windows x86")
-    return True
-
-
-set_config("MOZ_ALLOCATOR_VA_STRESS", allocator_va_stress)
