@@ -75,6 +75,46 @@ static size_t replace_malloc_good_size(size_t aSize) {
   return mi_malloc_good_size(aSize);
 }
 
+
+/* Keep Firefox's explicit arena API on the original mozjemalloc allocator.
+ *
+ * Gecko's replace_malloc_init_funcs() installs DummyArenaAllocator when malloc
+ * is replaced but the arena entries are left equal to the canonical table.
+ * These forwarding wrappers intentionally make the entries non-canonical while
+ * preserving native mozjemalloc arena semantics.
+ */
+static arena_id_t replace_moz_create_arena_with_params(
+    arena_params_t* aParams) {
+  return gOriginal.moz_create_arena_with_params(aParams);
+}
+
+static void replace_moz_dispose_arena(arena_id_t aArenaId) {
+  gOriginal.moz_dispose_arena(aArenaId);
+}
+
+static void* replace_moz_arena_malloc(arena_id_t aArenaId, size_t aSize) {
+  return gOriginal.moz_arena_malloc(aArenaId, aSize);
+}
+
+static void* replace_moz_arena_calloc(arena_id_t aArenaId, size_t aCount,
+                                      size_t aSize) {
+  return gOriginal.moz_arena_calloc(aArenaId, aCount, aSize);
+}
+
+static void* replace_moz_arena_realloc(arena_id_t aArenaId, void* aPtr,
+                                       size_t aSize) {
+  return gOriginal.moz_arena_realloc(aArenaId, aPtr, aSize);
+}
+
+static void replace_moz_arena_free(arena_id_t aArenaId, void* aPtr) {
+  gOriginal.moz_arena_free(aArenaId, aPtr);
+}
+
+static void* replace_moz_arena_memalign(arena_id_t aArenaId,
+                                        size_t aAlignment, size_t aSize) {
+  return gOriginal.moz_arena_memalign(aArenaId, aAlignment, aSize);
+}
+
 /* Preserve Firefox's existing purge hooks while also asking mimalloc to return
  * unused backing pages. This keeps about:memory "Minimize memory usage" from
  * becoming a no-op for the replacement-owned ordinary heap.
@@ -111,14 +151,24 @@ MOZ_EXPORT void replace_init(malloc_table_t* aTable,
   aTable->malloc_usable_size = replace_malloc_usable_size;
   aTable->malloc_good_size = replace_malloc_good_size;
 
+  aTable->moz_create_arena_with_params =
+      replace_moz_create_arena_with_params;
+  aTable->moz_dispose_arena = replace_moz_dispose_arena;
+  aTable->moz_arena_malloc = replace_moz_arena_malloc;
+  aTable->moz_arena_calloc = replace_moz_arena_calloc;
+  aTable->moz_arena_realloc = replace_moz_arena_realloc;
+  aTable->moz_arena_free = replace_moz_arena_free;
+  aTable->moz_arena_memalign = replace_moz_arena_memalign;
+
   aTable->jemalloc_purge_freed_pages = replace_jemalloc_purge_freed_pages;
   aTable->jemalloc_free_dirty_pages = replace_jemalloc_free_dirty_pages;
   aTable->jemalloc_free_excess_dirty_pages =
       replace_jemalloc_free_excess_dirty_pages;
 
-  /* moz_create_arena_with_params / moz_arena_* and native jemalloc stats stay
-   * on the original Firefox allocator for this PoC. Plain free/realloc/
-   * malloc_usable_size above route original-owned pointers back correctly.
+  /* Native jemalloc statistics remain original. The explicit arena wrappers
+   * above prevent Gecko from substituting DummyArenaAllocator and keep
+   * moz_arena_* semantics on native mozjemalloc. Plain free/realloc/
+   * malloc_usable_size route original-owned pointers back correctly.
    */
   *aBridge = nullptr;
 }
