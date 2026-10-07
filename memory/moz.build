@@ -11,6 +11,7 @@ DIRS += [
 
 if CONFIG["MOZ_BUILD_APP"] == "memory":
     DIRS += [
+        "allocator_va_stress",
         "mozjemalloc_info",
     ]
 else:
