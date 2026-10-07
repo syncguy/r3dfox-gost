@@ -59,7 +59,7 @@ function Build-MozJemallocVariant(
   $env:MOZCONFIG = $mozconfig
 
   Invoke-Checked "mach configure ($Label)" { .\mach.ps1 configure }
-  Invoke-Checked "mach build ($Label)" { .\mach.ps1 build memory/allocator_va_stress }
+  Invoke-Checked "mach build ($Label)" { .\mach.ps1 build }
 
   $objDir = Join-Path $env:GITHUB_WORKSPACE $ObjDirName
   $exe = Find-StressExe $objDir
@@ -128,6 +128,7 @@ function Build-MimallocVariant(
   [string]$Label,
   [string]$ObjectName,
   [string]$ExeName,
+  [string]$GlueName,
   [string[]]$ExtraDefines
 ) {
   $obj = Join-Path $env:RUNNER_TEMP $ObjectName
@@ -164,13 +165,46 @@ function Build-MimallocVariant(
   if ($LASTEXITCODE -ne 0) {
     throw "$Label harness link failed: $LASTEXITCODE"
   }
+
+  $glue = Join-Path $runtime $GlueName
+  $glueSource = Join-Path $env:GITHUB_WORKSPACE 'memory\allocator_va_stress\MimallocReplaceMalloc.cpp'
+  $mozillaInclude = Join-Path $env:GITHUB_WORKSPACE 'obj-memory-va-stock\dist\include'
+  $memoryBuildInclude = Join-Path $env:GITHUB_WORKSPACE 'memory\build'
+  if (-not (Test-Path $mozillaInclude)) {
+    throw "Mozilla generated include directory missing: $mozillaInclude"
+  }
+
+  $defPath = Join-Path $env:RUNNER_TEMP "$Label.def"
+  @"
+LIBRARY "$([System.IO.Path]::GetFileNameWithoutExtension($GlueName))"
+EXPORTS
+    replace_init
+"@ | Set-Content -Encoding ascii $defPath
+
+  $glueLog = Join-Path $diag "$Label-glue-link.txt"
+  $glueArgs = @(
+    '/nologo','/O2','/EHsc','/MD','/std:c++17','/LD',
+    '/DMI_STATIC_LIB','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
+    "/I$mimallocRoot\include",
+    "/I$mozillaInclude",
+    "/I$memoryBuildInclude",
+    $glueSource,$obj,
+    '/link','/SUBSYSTEM:WINDOWS,5.01','/LARGEADDRESSAWARE',
+    "/DEF:$defPath", "/OUT:$glue"
+  )
+  & cl.exe @glueArgs 2>&1 | Tee-Object -FilePath $glueLog
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label Firefox replacement glue link failed: $LASTEXITCODE"
+  }
 }
 
 $mimallocDefaultExe = Join-Path $runtime 'allocator-va-stress-mimalloc-2.5.2-default.exe'
-Build-MimallocVariant -Label 'mimalloc-2.5.2-default' -ObjectName 'mimalloc-2.5.2-default.obj' -ExeName 'allocator-va-stress-mimalloc-2.5.2-default.exe' -ExtraDefines @() | Out-Host
+$mimallocDefaultGlue = Join-Path $runtime 'mimalloc_glue_default.dll'
+Build-MimallocVariant -Label 'mimalloc-2.5.2-default' -ObjectName 'mimalloc-2.5.2-default.obj' -ExeName 'allocator-va-stress-mimalloc-2.5.2-default.exe' -GlueName 'mimalloc_glue_default.dll' -ExtraDefines @() | Out-Host
 
 $mimallocNoArenaExe = Join-Path $runtime 'allocator-va-stress-mimalloc-2.5.2-noarena.exe'
-Build-MimallocVariant -Label 'mimalloc-2.5.2-noarena' -ObjectName 'mimalloc-2.5.2-noarena.obj' -ExeName 'allocator-va-stress-mimalloc-2.5.2-noarena.exe' -ExtraDefines @('/DMI_DEFAULT_ARENA_RESERVE=0','/DMI_DEFAULT_DISALLOW_ARENA_ALLOC=1') | Out-Host
+$mimallocNoArenaGlue = Join-Path $runtime 'mimalloc_glue_noarena.dll'
+Build-MimallocVariant -Label 'mimalloc-2.5.2-noarena' -ObjectName 'mimalloc-2.5.2-noarena.obj' -ExeName 'allocator-va-stress-mimalloc-2.5.2-noarena.exe' -GlueName 'mimalloc_glue_noarena.dll' -ExtraDefines @('/DMI_DEFAULT_ARENA_RESERVE=0','/DMI_DEFAULT_DISALLOW_ARENA_ALLOC=1') | Out-Host
 
 foreach ($dll in @('ucrtbase.dll', 'msvcp140.dll')) {
   $src = Join-Path $env:MSVCR14X_RELEASE $dll
@@ -268,6 +302,202 @@ function Audit-XpExe([string]$Path) {
 $executables = @($stockExe, $zeroExe, $mimallocDefaultExe, $mimallocNoArenaExe)
 foreach ($exe in $executables) {
   Audit-XpExe $exe
+}
+
+$replacementDlls = @($mimallocDefaultGlue, $mimallocNoArenaGlue)
+foreach ($dll in $replacementDlls) {
+  Audit-XpExe $dll
+  $name = [System.IO.Path]::GetFileNameWithoutExtension($dll)
+  $exportsPath = Join-Path $diag "$name-exports.txt"
+  $exports = @(& dumpbin.exe /nologo /exports $dll 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    throw "dumpbin /exports failed for $dll"
+  }
+  $exports | Set-Content -Encoding utf8 $exportsPath
+  if (-not ($exports | Where-Object { $_ -match '(?i)\breplace_init\s*
+
+Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
+  $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+  "$($_.Name)|$($_.Length)|sha256=$hash"
+} | Sort-Object | Set-Content -Encoding utf8 (Join-Path $diag 'runtime-hashes.txt')
+
+@'
+@echo off
+setlocal
+set COMMON=--live-mib 416 --survivor-mib 32 --burst-mib 256 --cycles 30 --gc-hold-per-cycle 2 --sleep-ms 100 --max-ms 90000 --stop-free-mib 64 --stop-aligned-mib 0
+
+echo Repeat 1/3
+allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128-r1 %COMMON% > mozjemalloc-128-r1.log 2>&1
+allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0-r1 %COMMON% > mozjemalloc-0-r1.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-default.exe --label mimalloc-default-r1 %COMMON% > mimalloc-default-r1.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-noarena.exe --label mimalloc-noarena-r1 %COMMON% > mimalloc-noarena-r1.log 2>&1
+
+echo Repeat 2/3
+allocator-va-stress-mimalloc-2.5.2-noarena.exe --label mimalloc-noarena-r2 %COMMON% > mimalloc-noarena-r2.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-default.exe --label mimalloc-default-r2 %COMMON% > mimalloc-default-r2.log 2>&1
+allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0-r2 %COMMON% > mozjemalloc-0-r2.log 2>&1
+allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128-r2 %COMMON% > mozjemalloc-128-r2.log 2>&1
+
+echo Repeat 3/3
+allocator-va-stress-mozjemalloc-0.exe --label mozjemalloc-0-r3 %COMMON% > mozjemalloc-0-r3.log 2>&1
+allocator-va-stress-mozjemalloc-128.exe --label mozjemalloc-128-r3 %COMMON% > mozjemalloc-128-r3.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-noarena.exe --label mimalloc-noarena-r3 %COMMON% > mimalloc-noarena-r3.log 2>&1
+allocator-va-stress-mimalloc-2.5.2-default.exe --label mimalloc-default-r3 %COMMON% > mimalloc-default-r3.log 2>&1
+
+echo Complete. Send all twelve *.log files for comparison.
+endlocal
+'@ | Set-Content -Encoding ascii (Join-Path $runtime 'run-all.cmd')
+
+@'
+XP x86 allocator VA stress PoC
+
+Four modes are compared with the same deterministic workload:
+
+  allocator-va-stress-mozjemalloc-128.exe
+    Exact Firefox 153 mozjemalloc from this tree with stock
+    gRecycleLimit = 128 MiB.
+
+  allocator-va-stress-mozjemalloc-0.exe
+    The same mozjemalloc with only gRecycleLimit changed to 0
+    during this focused build.
+
+  allocator-va-stress-mimalloc-2.5.2-default.exe
+    Pinned mimalloc v2.5.2 with its normal 32-bit arena policy.
+    The executable prints the effective arena_reserve and retry policy.
+
+  allocator-va-stress-mimalloc-2.5.2-noarena.exe
+    The same pinned mimalloc source compiled with automatic arena allocation
+    disabled and default arena reserve set to zero.
+
+Recommended physical XP run:
+  run-all.cmd
+
+run-all.cmd launches every mode as a fresh process three times, rotating
+the order between repetitions. The workload keeps a 416 MiB long-lived
+mixed-size base heap, retains about 32 MiB from each burst for three
+generations, repeatedly allocates/frees 256 MiB mixed-size bursts,
+exercises cross-thread ownership, and concurrently holds direct
+1 MiB-aligned GC-like mappings.
+
+The GC probe follows the Windows strategy used by Gecko MapAlignedPages:
+ordinary mapping, retained-region alignment, over-reserve slow path, then
+a bounded last-ditch path. It records which path succeeded, retries,
+Win32 error and latency.
+
+Safety bounds are per process: 90 seconds and 64 MiB total free VA.
+There is no synthetic aligned-hole stop; actual GC-like mapping determines
+alignment success or failure.
+
+Compare:
+  - tracked user payload;
+  - total free/reserved/committed VA;
+  - largest/Top-5/Top-10 free regions;
+  - large-hole counts;
+  - GC mapping success path and latency;
+  - heap allocator failures;
+  - available pagefile/commit context;
+  - mozjemalloc internal mapped/allocated/waste/dirty/bin-unused metrics.
+
+Hosted CI success is only build/import/function evidence. Physical XP
+remains the runtime gate. No product allocator or threshold is selected by
+this PoC.
+
+Firefox replacement DLLs are also included as experimental artifacts:
+  mimalloc_glue_default.dll
+  mimalloc_glue_noarena.dll
+
+They export the exact replace_init ABI expected by Firefox on Windows.
+They replace the ordinary malloc family with mimalloc while leaving
+Firefox moz_arena_* allocations on native mozjemalloc and routing
+free/realloc/usable-size by pointer ownership.
+
+Example browser A/B after standalone XP acceptance:
+  set MOZ_REPLACE_MALLOC_LIB=%~dp0mimalloc_glue_noarena.dll
+  r3dfox.exe
+
+Unset MOZ_REPLACE_MALLOC_LIB to return to native mozjemalloc. The variable is
+inherited by the browser process tree, so this is a whole-browser experiment,
+not a web-process-only switch. Firefox internal jemalloc heap reports remain
+incomplete for mimalloc-owned ordinary allocations; external VA/process
+measurements are the primary evidence for the browser A/B.
+'@ | Set-Content -Encoding ascii (Join-Path $runtime 'README.txt')
+
+Push-Location $runtime
+try {
+  $smokeArgs = @(
+    '--live-mib','48',
+    '--survivor-mib','4',
+    '--burst-mib','32',
+    '--cycles','3',
+    '--gc-hold-per-cycle','1',
+    '--sleep-ms','0',
+    '--max-ms','30000',
+    '--stop-free-mib','64',
+    '--stop-aligned-mib','0'
+  )
+
+  foreach ($entry in @(
+    @{ File='allocator-va-stress-mozjemalloc-128.exe'; Label='mozjemalloc-128' },
+    @{ File='allocator-va-stress-mozjemalloc-0.exe'; Label='mozjemalloc-0' },
+    @{ File='allocator-va-stress-mimalloc-2.5.2-default.exe'; Label='mimalloc-default' },
+    @{ File='allocator-va-stress-mimalloc-2.5.2-noarena.exe'; Label='mimalloc-noarena' }
+  )) {
+    $log = Join-Path $diag "hosted-$($entry.Label).txt"
+    & ".\$($entry.File)" --label $entry.Label @smokeArgs 2>&1 | Tee-Object -FilePath $log
+    if ($LASTEXITCODE -ne 0) {
+      throw "Hosted smoke failed for $($entry.Label): $LASTEXITCODE"
+    }
+    $text = Get-Content $log -Raw
+    if ($text -notmatch "RESULT label=$([regex]::Escape($entry.Label)) status=") {
+      throw "Hosted smoke produced no RESULT line for $($entry.Label)"
+    }
+    if ($entry.Label -eq 'mimalloc-default') {
+      if ($text -notmatch 'MIMALLOC_POLICY .*arena_reserve_mib=128\.0 .*disallow_arena_alloc=0') {
+        throw 'Default mimalloc policy did not report 128 MiB arena reserve with arenas enabled'
+      }
+    }
+    if ($entry.Label -eq 'mimalloc-noarena') {
+      if ($text -notmatch 'MIMALLOC_POLICY .*arena_reserve_mib=0\.0 .*disallow_arena_alloc=1') {
+        throw 'No-arena mimalloc policy did not report zero arena reserve with arena allocation disabled'
+      }
+    }
+  }
+}
+finally {
+  Pop-Location
+}
+
+$oldReplaceLib = $env:MOZ_REPLACE_MALLOC_LIB
+try {
+  foreach ($entry in @(
+    @{ Dll='mimalloc_glue_default.dll'; Label='replace-glue-default' },
+    @{ Dll='mimalloc_glue_noarena.dll'; Label='replace-glue-noarena' }
+  )) {
+    $env:MOZ_REPLACE_MALLOC_LIB = Join-Path $runtime $entry.Dll
+    $log = Join-Path $diag "hosted-$($entry.Label).txt"
+    & $stockExe --label $entry.Label --live-mib 32 --survivor-mib 2 --burst-mib 16 --cycles 2 --gc-hold-per-cycle 1 --sleep-ms 0 --max-ms 20000 --stop-free-mib 64 --stop-aligned-mib 0 2>&1 | Tee-Object -FilePath $log
+    if ($LASTEXITCODE -ne 0) {
+      throw "Hosted Firefox replace-malloc smoke failed for $($entry.Dll): $LASTEXITCODE"
+    }
+    $text = Get-Content $log -Raw
+    if ($text -notmatch "RESULT label=$([regex]::Escape($entry.Label)) status=") {
+      throw "Hosted replace-malloc smoke produced no RESULT line for $($entry.Dll)"
+    }
+  }
+}
+finally {
+  if ($null -eq $oldReplaceLib) {
+    Remove-Item Env:MOZ_REPLACE_MALLOC_LIB -ErrorAction SilentlyContinue
+  } else {
+    $env:MOZ_REPLACE_MALLOC_LIB = $oldReplaceLib
+  }
+}
+
+"allocator_va_stress=GREEN" | Add-Content (Join-Path $diag 'identity.txt')
+"firefox_replace_malloc_glue=GREEN" | Add-Content (Join-Path $diag 'identity.txt')
+ })) {
+    throw "$name does not export exact replace_init required by Firefox MOZ_REPLACE_MALLOC_LIB"
+  }
 }
 
 Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
