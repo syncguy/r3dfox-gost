@@ -146,8 +146,8 @@ EXTRA_JS_MODULES += [
     "TransientPrefs.sys.mjs",
     "UpdatePolicyEnforcer.sys.mjs",
     "URILoadingHelper.sys.mjs",
-    "XPBrowserProcessPolicy.sys.mjs",
     "webrtcUI.sys.mjs",
+    "XPBrowserProcessPolicy.sys.mjs",
     "ZoomUI.sys.mjs",
 ]
 
