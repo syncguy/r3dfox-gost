@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,8 @@ constexpr size_t kMaxBlocks = 65536u;
 constexpr size_t kMaxGcBlocks = 4096u;
 constexpr size_t kGcChunk = 1u * kMiB;
 constexpr size_t kGcAlignment = 1u * kMiB;
+constexpr unsigned kSurvivorGenerations = 3u;
+constexpr unsigned kMaxAlignAttempts = 32u;
 
 struct Block {
   void* ptr;
@@ -36,9 +39,11 @@ struct BlockList {
 struct Config {
   size_t liveMiB;
   size_t burstMiB;
+  size_t survivorMiB;
   unsigned cycles;
   unsigned gcHoldPerCycle;
   unsigned sleepMs;
+  unsigned maxMs;
   size_t stopFreeMiB;
   size_t stopAlignedMiB;
   bool crossThread;
@@ -68,6 +73,15 @@ struct VaSnapshot {
   bool complete;
 };
 
+struct AllocFailure {
+  const char* stage;
+  size_t requested;
+  size_t completed;
+  int crtErrno;
+  DWORD win32Error;
+  DWORD elapsedMs;
+};
+
 struct ThreadContext {
   BlockList* list;
   size_t targetBytes;
@@ -75,10 +89,27 @@ struct ThreadContext {
   bool result;
 };
 
+struct GcAllocResult {
+  void* ptr;
+  const char* path;
+  DWORD win32Error;
+  unsigned attempts;
+  DWORD elapsedMs;
+};
+
 BlockList gLive = {};
 BlockList gBurst = {};
+BlockList gToFree = {};
+BlockList gSurvivors[kSurvivorGenerations] = {};
 void* gGcBlocks[kMaxGcBlocks] = {};
 size_t gGcBlockCount = 0;
+AllocFailure gAllocFailure = {};
+
+DWORD ElapsedMs(DWORD start) { return GetTickCount() - start; }
+
+double MiB(uint64_t bytes) {
+  return static_cast<double>(bytes) / static_cast<double>(kMiB);
+}
 
 void* TestAlloc(size_t size) {
 #ifdef ALLOCATOR_MIMALLOC
@@ -112,7 +143,25 @@ uint32_t NextRand(uint32_t& state) {
   return state;
 }
 
-bool AllocatePattern(BlockList* list, size_t targetBytes, uint32_t seed) {
+uint64_t BlockListBytes(const BlockList& list) {
+  uint64_t result = 0;
+  for (size_t i = 0; i < list.count; ++i) {
+    result += list.blocks[i].size;
+  }
+  return result;
+}
+
+uint64_t TrackedUserBytes() {
+  uint64_t result = BlockListBytes(gLive) + BlockListBytes(gBurst) +
+                    BlockListBytes(gToFree);
+  for (unsigned i = 0; i < kSurvivorGenerations; ++i) {
+    result += BlockListBytes(gSurvivors[i]);
+  }
+  return result;
+}
+
+bool AllocatePattern(BlockList* list, size_t targetBytes, uint32_t seed,
+                     const char* stage) {
   static const size_t kSizes[] = {
       4096u,    16384u,   65536u,   262144u,
       1048576u, 32768u,   131072u,  524288u,
@@ -122,9 +171,12 @@ bool AllocatePattern(BlockList* list, size_t targetBytes, uint32_t seed) {
   list->count = 0;
   size_t allocated = 0;
   uint32_t state = seed;
+  const DWORD start = GetTickCount();
 
   while (allocated < targetBytes) {
     if (list->count == kMaxBlocks) {
+      gAllocFailure = {stage, 0, allocated, 0, ERROR_NOT_ENOUGH_MEMORY,
+                       ElapsedMs(start)};
       fprintf(stderr, "block table exhausted at %zu allocations\n", list->count);
       return false;
     }
@@ -138,11 +190,15 @@ bool AllocatePattern(BlockList* list, size_t targetBytes, uint32_t seed) {
       break;
     }
 
+    errno = 0;
+    SetLastError(ERROR_SUCCESS);
     void* ptr = TestAlloc(size);
     if (!ptr) {
+      gAllocFailure = {stage, size, allocated, errno, GetLastError(),
+                       ElapsedMs(start)};
       fprintf(stderr,
-              "allocator failure after %.1f MiB in current allocation phase\n",
-              static_cast<double>(allocated) / kMiB);
+              "allocator failure stage=%s requested=%zu completed_mib=%.1f\n",
+              stage, size, MiB(allocated));
       return false;
     }
 
@@ -154,9 +210,22 @@ bool AllocatePattern(BlockList* list, size_t targetBytes, uint32_t seed) {
   return true;
 }
 
+void PrintAllocFailure(const Config& config, unsigned cycle) {
+  printf(
+      "FAILURE label=%s cycle=%u kind=heap_allocator stage=%s "
+      "requested_bytes=%zu completed_mib=%.1f errno=%d win32_error=%lu "
+      "elapsed_ms=%lu\n",
+      config.label, cycle, gAllocFailure.stage ? gAllocFailure.stage : "unknown",
+      gAllocFailure.requested, MiB(gAllocFailure.completed),
+      gAllocFailure.crtErrno, gAllocFailure.win32Error,
+      gAllocFailure.elapsedMs);
+}
+
 void FreeList(BlockList* list) {
   for (size_t i = 0; i < list->count; ++i) {
-    TestFree(list->blocks[i].ptr);
+    if (list->blocks[i].ptr) {
+      TestFree(list->blocks[i].ptr);
+    }
     list->blocks[i] = {};
   }
   list->count = 0;
@@ -164,7 +233,8 @@ void FreeList(BlockList* list) {
 
 DWORD WINAPI AllocateThread(void* raw) {
   ThreadContext* ctx = static_cast<ThreadContext*>(raw);
-  ctx->result = AllocatePattern(ctx->list, ctx->targetBytes, ctx->seed);
+  ctx->result =
+      AllocatePattern(ctx->list, ctx->targetBytes, ctx->seed, "burst");
   return ctx->result ? 0 : 1;
 }
 
@@ -190,92 +260,302 @@ bool RunThread(LPTHREAD_START_ROUTINE routine, void* context) {
   return wait == WAIT_OBJECT_0 && exitCode == 0;
 }
 
+bool RetireSurvivorGeneration(unsigned slot, bool onWorker) {
+  if (!gSurvivors[slot].count) {
+    return true;
+  }
+  if (onWorker) {
+    return RunThread(FreeThread, &gSurvivors[slot]);
+  }
+  FreeList(&gSurvivors[slot]);
+  return true;
+}
+
+bool SplitBurstAndFree(const Config& config, unsigned cycle,
+                       bool burstAllocatedOnWorker) {
+  const unsigned slot = (cycle - 1u) % kSurvivorGenerations;
+  if (!RetireSurvivorGeneration(slot,
+                                config.crossThread && (cycle % 2u) == 0u)) {
+    return false;
+  }
+
+  BlockList* survivors = &gSurvivors[slot];
+  survivors->count = 0;
+  gToFree.count = 0;
+  const uint64_t survivorTarget = config.survivorMiB * kMiB;
+  uint64_t survivorBytes = 0;
+
+  for (size_t i = 0; i < gBurst.count && survivorBytes < survivorTarget; ++i) {
+    if (((i + cycle) % 5u) != 0u || !gBurst.blocks[i].ptr) {
+      continue;
+    }
+    Block block = gBurst.blocks[i];
+    survivors->blocks[survivors->count++] = block;
+    survivorBytes += block.size;
+    gBurst.blocks[i] = {};
+  }
+
+  for (size_t i = 0; i < gBurst.count && survivorBytes < survivorTarget; ++i) {
+    if (!gBurst.blocks[i].ptr) {
+      continue;
+    }
+    Block block = gBurst.blocks[i];
+    survivors->blocks[survivors->count++] = block;
+    survivorBytes += block.size;
+    gBurst.blocks[i] = {};
+  }
+
+  for (size_t i = 0; i < gBurst.count; ++i) {
+    if (!gBurst.blocks[i].ptr) {
+      continue;
+    }
+    if (gToFree.count == kMaxBlocks) {
+      return false;
+    }
+    gToFree.blocks[gToFree.count++] = gBurst.blocks[i];
+    gBurst.blocks[i] = {};
+  }
+  gBurst.count = 0;
+
+  bool freed = true;
+  if (config.crossThread && !burstAllocatedOnWorker) {
+    freed = RunThread(FreeThread, &gToFree);
+  } else {
+    FreeList(&gToFree);
+  }
+
+  printf(
+      "SURVIVORS label=%s cycle=%u generation=%u survivor_mib=%.1f "
+      "tracked_user_mib=%.1f\n",
+      config.label, cycle, slot, MiB(BlockListBytes(*survivors)),
+      MiB(TrackedUserBytes()));
+  return freed;
+}
+
 uintptr_t AlignUp(uintptr_t value, size_t alignment) {
   const uintptr_t mask = static_cast<uintptr_t>(alignment - 1);
   return (value + mask) & ~mask;
 }
 
-void* AllocateAligned1MiB() {
-  SYSTEM_INFO info = {};
-  GetSystemInfo(&info);
-
-  uintptr_t address =
-      reinterpret_cast<uintptr_t>(info.lpMinimumApplicationAddress);
-  const uintptr_t maximum =
-      reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress);
-
-  while (address <= maximum) {
-    MEMORY_BASIC_INFORMATION mbi = {};
-    SIZE_T queried =
-        VirtualQuery(reinterpret_cast<void*>(address), &mbi, sizeof(mbi));
-    if (!queried || mbi.RegionSize == 0) {
-      return nullptr;
-    }
-
-    const uintptr_t base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
-    const uint64_t end64 =
-        static_cast<uint64_t>(base) + static_cast<uint64_t>(mbi.RegionSize);
-    const uint64_t maxEnd = static_cast<uint64_t>(maximum) + 1u;
-    const uintptr_t end =
-        static_cast<uintptr_t>(end64 > maxEnd ? maxEnd : end64);
-
-    if (mbi.State == MEM_FREE && end > base) {
-      uintptr_t candidate = AlignUp(base, kGcAlignment);
-      while (candidate < end &&
-             static_cast<uint64_t>(candidate) + kGcChunk <= end) {
-        void* ptr = VirtualAlloc(reinterpret_cast<void*>(candidate), kGcChunk,
-                                 MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        if (ptr == reinterpret_cast<void*>(candidate)) {
-          Touch(ptr, kGcChunk);
-          return ptr;
-        }
-        if (ptr) {
-          VirtualFree(ptr, 0, MEM_RELEASE);
-        }
-        if (candidate > maximum - kGcAlignment) {
-          break;
-        }
-        candidate += kGcAlignment;
-      }
-    }
-
-    if (end <= address || end > maximum) {
-      break;
-    }
-    address = end;
-  }
-
-  return nullptr;
+bool IsAligned(void* ptr, size_t alignment) {
+  return ptr && (reinterpret_cast<uintptr_t>(ptr) % alignment) == 0;
 }
 
-bool HoldGcChunks(unsigned count) {
+void ReleaseRegion(void* ptr) {
+  if (ptr) {
+    VirtualFree(ptr, 0, MEM_RELEASE);
+  }
+}
+
+void* MapCommitted(size_t length, DWORD* error) {
+  SetLastError(ERROR_SUCCESS);
+  void* ptr =
+      VirtualAlloc(nullptr, length, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+  *error = ptr ? ERROR_SUCCESS : GetLastError();
+  return ptr;
+}
+
+void* MapCommittedAt(void* address, size_t length, DWORD* error) {
+  SetLastError(ERROR_SUCCESS);
+  void* ptr = VirtualAlloc(address, length, MEM_RESERVE | MEM_COMMIT,
+                           PAGE_READWRITE);
+  *error = ptr ? ERROR_SUCCESS : GetLastError();
+  return ptr;
+}
+
+void* MapReservedAt(void* address, size_t length, DWORD* error) {
+  SetLastError(ERROR_SUCCESS);
+  void* ptr = VirtualAlloc(address, length, MEM_RESERVE, PAGE_NOACCESS);
+  *error = ptr ? ERROR_SUCCESS : GetLastError();
+  return ptr;
+}
+
+bool TryToAlignChunk(void** region, void** retainedRegion,
+                     unsigned* attemptCounter, DWORD* lastError) {
+  *retainedRegion = nullptr;
+
+  for (unsigned guard = 0; guard < kMaxAlignAttempts && *region; ++guard) {
+    ++(*attemptCounter);
+    if (IsAligned(*region, kGcAlignment)) {
+      return true;
+    }
+
+    const uintptr_t value = reinterpret_cast<uintptr_t>(*region);
+    const size_t offset = value % kGcAlignment;
+    const size_t retainedLength = kGcAlignment - offset;
+    void* oldRegion = *region;
+    ReleaseRegion(oldRegion);
+
+    DWORD retainError = ERROR_SUCCESS;
+    void* retained = MapReservedAt(oldRegion, retainedLength, &retainError);
+
+    DWORD mapError = ERROR_SUCCESS;
+    void* nextRegion = MapCommitted(kGcChunk, &mapError);
+    *region = nextRegion;
+
+    if (retained) {
+      *retainedRegion = retained;
+      *lastError = mapError;
+      break;
+    }
+
+    *lastError = retainError ? retainError : mapError;
+  }
+
+  const bool success = IsAligned(*region, kGcAlignment);
+  if (success && *retainedRegion) {
+    ReleaseRegion(*retainedRegion);
+    *retainedRegion = nullptr;
+  }
+  return success;
+}
+
+GcAllocResult AllocateGeckoLikeAligned1MiB() {
+  const DWORD start = GetTickCount();
+  unsigned attempts = 0;
+  DWORD lastError = ERROR_SUCCESS;
+
+  void* region = MapCommitted(kGcChunk, &lastError);
+  ++attempts;
+  if (region && IsAligned(region, kGcAlignment)) {
+    Touch(region, kGcChunk);
+    return {region, "initial-map", lastError, attempts, ElapsedMs(start)};
+  }
+
+  if (region) {
+    void* retained = nullptr;
+    if (TryToAlignChunk(&region, &retained, &attempts, &lastError)) {
+      Touch(region, kGcChunk);
+      return {region, "retained-align", lastError, attempts, ElapsedMs(start)};
+    }
+    ReleaseRegion(retained);
+    ReleaseRegion(region);
+    region = nullptr;
+  }
+
+  const size_t reserveLength = kGcChunk + kGcAlignment - kPageTouch;
+  for (unsigned i = 0; i < kMaxAlignAttempts; ++i) {
+    ++attempts;
+    SetLastError(ERROR_SUCCESS);
+    void* reserve =
+        VirtualAlloc(nullptr, reserveLength, MEM_RESERVE, PAGE_NOACCESS);
+    if (!reserve) {
+      lastError = GetLastError();
+      break;
+    }
+
+    void* aligned =
+        reinterpret_cast<void*>(AlignUp(reinterpret_cast<uintptr_t>(reserve),
+                                        kGcAlignment));
+    ReleaseRegion(reserve);
+
+    DWORD exactError = ERROR_SUCCESS;
+    region = MapCommittedAt(aligned, kGcChunk, &exactError);
+    if (region == aligned) {
+      Touch(region, kGcChunk);
+      return {region, "slow-overreserve", ERROR_SUCCESS, attempts,
+              ElapsedMs(start)};
+    }
+    ReleaseRegion(region);
+    region = nullptr;
+    lastError = exactError;
+  }
+
+  void* tempMaps[kMaxAlignAttempts] = {};
+  unsigned tempCount = 0;
+
+  region = MapCommitted(kGcChunk, &lastError);
+  ++attempts;
+  if (region && IsAligned(region, kGcAlignment)) {
+    Touch(region, kGcChunk);
+    return {region, "last-ditch-initial", lastError, attempts,
+            ElapsedMs(start)};
+  }
+
+  for (unsigned i = 0; i < kMaxAlignAttempts && region; ++i) {
+    void* retained = nullptr;
+    if (TryToAlignChunk(&region, &retained, &attempts, &lastError)) {
+      break;
+    }
+    if (!region || !retained) {
+      ReleaseRegion(retained);
+      break;
+    }
+    tempMaps[tempCount++] = retained;
+  }
+
+  if (region && !IsAligned(region, kGcAlignment)) {
+    ReleaseRegion(region);
+    region = nullptr;
+  }
+
+  for (unsigned i = 0; i < tempCount; ++i) {
+    ReleaseRegion(tempMaps[i]);
+  }
+
+  if (region) {
+    Touch(region, kGcChunk);
+    return {region, "last-ditch", ERROR_SUCCESS, attempts, ElapsedMs(start)};
+  }
+
+  return {nullptr, "failed", lastError, attempts, ElapsedMs(start)};
+}
+
+bool HoldGcChunks(const Config& config, unsigned cycle, unsigned count) {
   for (unsigned i = 0; i < count; ++i) {
     if (gGcBlockCount == kMaxGcBlocks) {
-      fprintf(stderr, "GC block table exhausted\n");
+      printf(
+          "FAILURE label=%s cycle=%u kind=gc_aligned_mapping "
+          "stage=gc-table-exhausted\n",
+          config.label, cycle);
       return false;
     }
-    void* ptr = AllocateAligned1MiB();
-    if (!ptr) {
-      fprintf(stderr, "failed to reserve aligned 1 MiB GC-like chunk\n");
+
+    GcAllocResult result = AllocateGeckoLikeAligned1MiB();
+    printf(
+        "GC_ALLOC label=%s cycle=%u role=hold ordinal=%u success=%u "
+        "path=%s attempts=%u elapsed_ms=%lu win32_error=%lu\n",
+        config.label, cycle, i, result.ptr ? 1u : 0u, result.path,
+        result.attempts, result.elapsedMs, result.win32Error);
+
+    if (!result.ptr) {
+      printf(
+          "FAILURE label=%s cycle=%u kind=gc_aligned_mapping stage=hold "
+          "path=%s attempts=%u elapsed_ms=%lu win32_error=%lu\n",
+          config.label, cycle, result.path, result.attempts, result.elapsedMs,
+          result.win32Error);
       return false;
     }
-    gGcBlocks[gGcBlockCount++] = ptr;
+
+    gGcBlocks[gGcBlockCount++] = result.ptr;
   }
   return true;
 }
 
-bool ProbeAligned1MiB() {
-  void* ptr = AllocateAligned1MiB();
-  if (!ptr) {
+bool ProbeAligned1MiB(const Config& config, unsigned cycle) {
+  GcAllocResult result = AllocateGeckoLikeAligned1MiB();
+  printf(
+      "GC_ALLOC label=%s cycle=%u role=probe success=%u path=%s attempts=%u "
+      "elapsed_ms=%lu win32_error=%lu\n",
+      config.label, cycle, result.ptr ? 1u : 0u, result.path,
+      result.attempts, result.elapsedMs, result.win32Error);
+
+  if (!result.ptr) {
+    printf(
+        "FAILURE label=%s cycle=%u kind=gc_aligned_mapping stage=probe "
+        "path=%s attempts=%u elapsed_ms=%lu win32_error=%lu\n",
+        config.label, cycle, result.path, result.attempts, result.elapsedMs,
+        result.win32Error);
     return false;
   }
-  VirtualFree(ptr, 0, MEM_RELEASE);
+
+  ReleaseRegion(result.ptr);
   return true;
 }
 
 void ReleaseGcChunks() {
   for (size_t i = 0; i < gGcBlockCount; ++i) {
-    VirtualFree(gGcBlocks[i], 0, MEM_RELEASE);
+    ReleaseRegion(gGcBlocks[i]);
     gGcBlocks[i] = nullptr;
   }
   gGcBlockCount = 0;
@@ -382,8 +662,18 @@ VaSnapshot ReadVaSnapshot() {
   return result;
 }
 
-double MiB(uint64_t bytes) {
-  return static_cast<double>(bytes) / static_cast<double>(kMiB);
+void PrintAllocatorPolicy(const Config& config) {
+#ifdef ALLOCATOR_MIMALLOC
+  printf(
+      "MIMALLOC_POLICY label=%s arena_reserve_mib=%.1f "
+      "disallow_arena_alloc=%ld retry_on_oom_ms=%ld purge_decommits=%ld\n",
+      config.label, MiB(mi_option_get_size(mi_option_arena_reserve)),
+      mi_option_get(mi_option_disallow_arena_alloc),
+      mi_option_get(mi_option_retry_on_oom),
+      mi_option_get(mi_option_purge_decommits));
+#else
+  (void)config;
+#endif
 }
 
 void PrintJemallocStats(const Config& config, const char* phase,
@@ -415,8 +705,8 @@ VaSnapshot PrintSnapshot(const Config& config, const char* phase,
 
   printf(
       "SNAPSHOT label=%s phase=%s cycle=%u complete=%u "
-      "free_mib=%.1f reserved_mib=%.1f committed_mib=%.1f "
-      "private_mib=%.1f image_mib=%.1f mapped_mib=%.1f "
+      "tracked_user_mib=%.1f free_mib=%.1f reserved_mib=%.1f "
+      "committed_mib=%.1f private_mib=%.1f image_mib=%.1f mapped_mib=%.1f "
       "largest_mib=%.1f top5_mib=%.1f top10_mib=%.1f "
       "ge4_mib=%.1f ge4_regions=%u ge16_mib=%.1f ge16_regions=%u "
       "ge64_mib=%.1f ge64_regions=%u free_regions=%u "
@@ -424,13 +714,13 @@ VaSnapshot PrintSnapshot(const Config& config, const char* phase,
       "avail_phys_mib=%.1f avail_pagefile_mib=%.1f avail_virtual_mib=%.1f "
       "gc_held_mib=%zu\n",
       config.label, phase, cycle, snapshot.complete ? 1u : 0u,
-      MiB(snapshot.freeBytes), MiB(snapshot.reservedBytes),
-      MiB(snapshot.committedBytes), MiB(snapshot.privateBytes),
-      MiB(snapshot.imageBytes), MiB(snapshot.mappedBytes),
-      MiB(snapshot.largestFree), MiB(snapshot.top5Free),
-      MiB(snapshot.top10Free), MiB(snapshot.freeGe4), snapshot.regionsGe4,
-      MiB(snapshot.freeGe16), snapshot.regionsGe16, MiB(snapshot.freeGe64),
-      snapshot.regionsGe64, snapshot.freeRegions,
+      MiB(TrackedUserBytes()), MiB(snapshot.freeBytes),
+      MiB(snapshot.reservedBytes), MiB(snapshot.committedBytes),
+      MiB(snapshot.privateBytes), MiB(snapshot.imageBytes),
+      MiB(snapshot.mappedBytes), MiB(snapshot.largestFree),
+      MiB(snapshot.top5Free), MiB(snapshot.top10Free), MiB(snapshot.freeGe4),
+      snapshot.regionsGe4, MiB(snapshot.freeGe16), snapshot.regionsGe16,
+      MiB(snapshot.freeGe64), snapshot.regionsGe64, snapshot.freeRegions,
       MiB(snapshot.largestAligned1MiB),
       static_cast<unsigned long long>(snapshot.aligned1MiBSlots),
       snapshot.queriedRegions,
@@ -465,11 +755,13 @@ bool ParseUnsignedArg(const char* value, unsigned* result) {
 
 bool ParseArgs(int argc, char** argv, Config* config) {
   *config = {
-      512u,
+      416u,
       256u,
+      32u,
       30u,
       2u,
       100u,
+      120000u,
       128u,
       2u,
       true,
@@ -498,12 +790,16 @@ bool ParseArgs(int argc, char** argv, Config* config) {
       if (!ParseSizeArg(value, &config->liveMiB)) return false;
     } else if (!strcmp(name, "--burst-mib")) {
       if (!ParseSizeArg(value, &config->burstMiB)) return false;
+    } else if (!strcmp(name, "--survivor-mib")) {
+      if (!ParseSizeArg(value, &config->survivorMiB)) return false;
     } else if (!strcmp(name, "--cycles")) {
       if (!ParseUnsignedArg(value, &config->cycles)) return false;
     } else if (!strcmp(name, "--gc-hold-per-cycle")) {
       if (!ParseUnsignedArg(value, &config->gcHoldPerCycle)) return false;
     } else if (!strcmp(name, "--sleep-ms")) {
       if (!ParseUnsignedArg(value, &config->sleepMs)) return false;
+    } else if (!strcmp(name, "--max-ms")) {
+      if (!ParseUnsignedArg(value, &config->maxMs)) return false;
     } else if (!strcmp(name, "--stop-free-mib")) {
       if (!ParseSizeArg(value, &config->stopFreeMiB)) return false;
     } else if (!strcmp(name, "--stop-aligned-mib")) {
@@ -524,29 +820,27 @@ bool ParseArgs(int argc, char** argv, Config* config) {
   return true;
 }
 
-bool BelowStopThreshold(const Config& config, const VaSnapshot& snapshot) {
+const char* StopThresholdReason(const Config& config,
+                                const VaSnapshot& snapshot) {
   if (config.stopFreeMiB &&
       snapshot.freeBytes <= config.stopFreeMiB * kMiB) {
-    printf("STOP reason=free-va-threshold threshold_mib=%zu\n",
-           config.stopFreeMiB);
-    return true;
+    return "free-va-threshold";
   }
 
   if (config.stopAlignedMiB &&
       snapshot.largestAligned1MiB <= config.stopAlignedMiB * kMiB) {
-    printf("STOP reason=aligned-headroom-threshold threshold_mib=%zu\n",
-           config.stopAlignedMiB);
-    return true;
+    return "aligned-headroom-threshold";
   }
 
-  return false;
+  return nullptr;
 }
 
 void PrintUsage() {
   puts(
       "allocator-va-stress [--label NAME] [--live-mib N] [--burst-mib N] "
-      "[--cycles N] [--gc-hold-per-cycle N] [--sleep-ms N] "
-      "[--stop-free-mib N] [--stop-aligned-mib N] [--no-cross-thread]");
+      "[--survivor-mib N] [--cycles N] [--gc-hold-per-cycle N] "
+      "[--sleep-ms N] [--max-ms N] [--stop-free-mib N] "
+      "[--stop-aligned-mib N] [--no-cross-thread]");
 }
 
 }  // namespace
@@ -558,37 +852,64 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  printf(
-      "CONFIG label=%s pointer_bits=%u live_mib=%zu burst_mib=%zu cycles=%u "
-      "gc_hold_per_cycle=%u cross_thread=%u stop_free_mib=%zu "
-      "stop_aligned_mib=%zu\n",
-      config.label, static_cast<unsigned>(sizeof(void*) * 8u), config.liveMiB,
-      config.burstMiB, config.cycles, config.gcHoldPerCycle,
-      config.crossThread ? 1u : 0u, config.stopFreeMiB,
-      config.stopAlignedMiB);
-
   if (sizeof(void*) != 4) {
     fprintf(stderr, "this experiment requires a 32-bit process\n");
     return 3;
   }
 
+  SYSTEM_INFO info = {};
+  GetSystemInfo(&info);
+  const uint64_t minAddress =
+      reinterpret_cast<uintptr_t>(info.lpMinimumApplicationAddress);
+  const uint64_t maxAddress =
+      reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress);
+  const uint64_t userVaBytes = maxAddress >= minAddress
+                                   ? (maxAddress - minAddress + 1u)
+                                   : 0u;
+
+  printf(
+      "CONFIG label=%s pointer_bits=%u live_mib=%zu burst_mib=%zu "
+      "survivor_mib=%zu survivor_generations=%u cycles=%u "
+      "gc_hold_per_cycle=%u cross_thread=%u max_ms=%u stop_free_mib=%zu "
+      "stop_aligned_mib=%zu user_va_mib=%.1f user_va_min=0x%08llX "
+      "user_va_max=0x%08llX\n",
+      config.label, static_cast<unsigned>(sizeof(void*) * 8u), config.liveMiB,
+      config.burstMiB, config.survivorMiB, kSurvivorGenerations,
+      config.cycles, config.gcHoldPerCycle, config.crossThread ? 1u : 0u,
+      config.maxMs, config.stopFreeMiB, config.stopAlignedMiB,
+      MiB(userVaBytes), static_cast<unsigned long long>(minAddress),
+      static_cast<unsigned long long>(maxAddress));
+
+  PrintAllocatorPolicy(config);
+
+  const DWORD runStart = GetTickCount();
   PrintSnapshot(config, "process_start", 0);
 
-  if (!AllocatePattern(&gLive, config.liveMiB * kMiB, 0x13579bdfu)) {
+  const DWORD liveStart = GetTickCount();
+  if (!AllocatePattern(&gLive, config.liveMiB * kMiB, 0x13579bdfu,
+                       "base-live")) {
+    PrintAllocFailure(config, 0);
     PrintSnapshot(config, "live_alloc_failed", 0);
     FreeList(&gLive);
     return 10;
   }
+  printf("PHASE_TIME label=%s phase=base-live cycle=0 elapsed_ms=%lu\n",
+         config.label, ElapsedMs(liveStart));
 
   VaSnapshot snapshot = PrintSnapshot(config, "live_ready", 0);
-  if (BelowStopThreshold(config, snapshot)) {
-    FreeList(&gLive);
-    return 0;
-  }
-
+  const char* stopReason = StopThresholdReason(config, snapshot);
   bool stoppedByFailure = false;
+  bool stoppedByDuration = false;
 
-  for (unsigned cycle = 1; cycle <= config.cycles; ++cycle) {
+  for (unsigned cycle = 1;
+       cycle <= config.cycles && !stopReason && !stoppedByFailure; ++cycle) {
+    if (config.maxMs && ElapsedMs(runStart) >= config.maxMs) {
+      stoppedByDuration = true;
+      printf("STOP label=%s cycle=%u reason=duration-limit elapsed_ms=%lu\n",
+             config.label, cycle, ElapsedMs(runStart));
+      break;
+    }
+
     ThreadContext ctx = {
         &gBurst,
         config.burstMiB * kMiB,
@@ -596,14 +917,24 @@ int main(int argc, char** argv) {
         false,
     };
 
+    const bool burstAllocatedOnWorker =
+        config.crossThread && (cycle & 1u);
+    const DWORD burstStart = GetTickCount();
     bool allocated = false;
-    if (config.crossThread && (cycle & 1u)) {
+    if (burstAllocatedOnWorker) {
       allocated = RunThread(AllocateThread, &ctx);
     } else {
-      allocated = AllocatePattern(ctx.list, ctx.targetBytes, ctx.seed);
+      allocated =
+          AllocatePattern(ctx.list, ctx.targetBytes, ctx.seed, "burst");
     }
+    printf(
+        "PHASE_TIME label=%s phase=burst-alloc cycle=%u elapsed_ms=%lu "
+        "worker=%u\n",
+        config.label, cycle, ElapsedMs(burstStart),
+        burstAllocatedOnWorker ? 1u : 0u);
 
     if (!allocated) {
+      PrintAllocFailure(config, cycle);
       PrintSnapshot(config, "burst_alloc_failed", cycle);
       stoppedByFailure = true;
       break;
@@ -611,40 +942,47 @@ int main(int argc, char** argv) {
 
     PrintSnapshot(config, "burst_peak", cycle);
 
-    bool freed = true;
-    if (config.crossThread && !(cycle & 1u)) {
-      freed = RunThread(FreeThread, &gBurst);
-    } else {
-      FreeList(&gBurst);
-    }
-
-    if (!freed) {
-      fprintf(stderr, "cross-thread free failed\n");
+    const DWORD freeStart = GetTickCount();
+    if (!SplitBurstAndFree(config, cycle, burstAllocatedOnWorker)) {
+      printf(
+          "FAILURE label=%s cycle=%u kind=cross_thread_free "
+          "stage=burst-free\n",
+          config.label, cycle);
       stoppedByFailure = true;
       break;
     }
+    printf("PHASE_TIME label=%s phase=burst-free cycle=%u elapsed_ms=%lu\n",
+           config.label, cycle, ElapsedMs(freeStart));
 
     snapshot = PrintSnapshot(config, "after_burst_free", cycle);
 
-    if (!HoldGcChunks(config.gcHoldPerCycle)) {
+    const DWORD gcStart = GetTickCount();
+    if (!HoldGcChunks(config, cycle, config.gcHoldPerCycle)) {
       PrintSnapshot(config, "gc_hold_failed", cycle);
       stoppedByFailure = true;
       break;
     }
 
-    const bool alignedProbe = ProbeAligned1MiB();
-    snapshot = PrintSnapshot(config,
-                             alignedProbe ? "after_gc_hold" : "aligned_probe_failed",
-                             cycle);
-    printf("ALIGNED_PROBE label=%s cycle=%u success=%u\n", config.label, cycle,
-           alignedProbe ? 1u : 0u);
+    const bool alignedProbe = ProbeAligned1MiB(config, cycle);
+    printf("PHASE_TIME label=%s phase=gc-hold-and-probe cycle=%u "
+           "elapsed_ms=%lu\n",
+           config.label, cycle, ElapsedMs(gcStart));
+
+    snapshot = PrintSnapshot(
+        config, alignedProbe ? "after_gc_hold" : "aligned_probe_failed",
+        cycle);
 
     if (!alignedProbe) {
       stoppedByFailure = true;
       break;
     }
 
-    if (BelowStopThreshold(config, snapshot)) {
+    stopReason = StopThresholdReason(config, snapshot);
+    if (stopReason) {
+      printf("STOP label=%s cycle=%u reason=%s free_mib=%.1f "
+             "aligned1m_max_mib=%.1f\n",
+             config.label, cycle, stopReason, MiB(snapshot.freeBytes),
+             MiB(snapshot.largestAligned1MiB));
       break;
     }
 
@@ -654,11 +992,24 @@ int main(int argc, char** argv) {
   }
 
   FreeList(&gBurst);
+  FreeList(&gToFree);
   FreeList(&gLive);
+  for (unsigned i = 0; i < kSurvivorGenerations; ++i) {
+    FreeList(&gSurvivors[i]);
+  }
   ReleaseGcChunks();
   PrintSnapshot(config, "cleanup", config.cycles);
 
-  printf("RESULT label=%s status=%s\n", config.label,
-         stoppedByFailure ? "allocation-boundary" : "completed");
+  const char* status = "completed";
+  if (stoppedByFailure) {
+    status = "allocation-boundary";
+  } else if (stoppedByDuration) {
+    status = "duration-limit";
+  } else if (stopReason) {
+    status = "threshold-stop";
+  }
+
+  printf("RESULT label=%s status=%s elapsed_ms=%lu\n", config.label, status,
+         ElapsedMs(runStart));
   return 0;
 }
