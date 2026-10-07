@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Source ref containing the allocator VA harness
+        description: Exact source ref containing the allocator VA harness and browser-graph build glue
         required: true
         default: agent/winrt-source-poc
         type: string
@@ -31,7 +31,7 @@ jobs:
   allocator-va-stress:
     name: XP x86 allocator VA comparison
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout source under test
@@ -123,4 +123,5 @@ jobs:
           "## XP x86 allocator VA stress" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Source-under-test: $env:SOURCE_UNDER_TEST" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- Variants: Firefox mozjemalloc stock 128 MiB recycle limit; mozjemalloc zero recycle retention; mimalloc $env:MIMALLOC_VERSION default 32-bit arena policy; mimalloc $env:MIMALLOC_VERSION with automatic arenas disabled." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Hosted smoke is not physical XP acceptance and does not select a winning allocator." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Focused build uses the normal browser export graph, then builds only memory/allocator_va_stress as an allowed subdirectory target.
+          - Hosted smoke is not physical XP acceptance and does not select a winning allocator." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
