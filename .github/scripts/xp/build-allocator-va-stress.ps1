@@ -457,6 +457,11 @@ try {
       throw "Hosted smoke produced no RESULT line for $($entry.Label)"
     }
 
+    if ($entry.Label -like 'mozjemalloc-*' -and
+        $text -notmatch "ARENA_SMOKE label=$([regex]::Escape($entry.Label)) success=1") {
+      throw "Hosted native arena ownership smoke failed for $($entry.Label)"
+    }
+
     if ($entry.Label -eq 'mimalloc-default') {
       if ($text -notmatch 'MIMALLOC_POLICY .*arena_reserve_mib=128\.0 .*disallow_arena_alloc=0') {
         throw 'Default mimalloc policy is not the expected 128 MiB arena mode'
@@ -500,6 +505,9 @@ try {
       $text = Get-Content $log -Raw
       if ($text -notmatch "RESULT label=$([regex]::Escape($entry.Label)) status=") {
         throw "Hosted replace-malloc smoke produced no RESULT line"
+      }
+      if ($text -notmatch "ARENA_SMOKE label=$([regex]::Escape($entry.Label)) success=1") {
+        throw "Hosted replace-malloc arena ownership smoke failed for $($entry.Dll)"
       }
     }
   }
