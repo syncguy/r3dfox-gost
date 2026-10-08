@@ -465,9 +465,16 @@ static void DoMozStackWalkThread(MozWalkStackCallback aCallback,
     targetThread = ::GetCurrentThread();
     walkCallingThread = true;
   } else {
+#  ifdef MOZ_XP_COMPAT
+    // MozStackWalkThread is explicitly the other-thread entry point. XP has no
+    // GetThreadId(HANDLE); callers walking the current thread use MozStackWalk,
+    // which reaches the null-handle branch above and captures its own context.
+    walkCallingThread = false;
+#  else
     DWORD targetThreadId = ::GetThreadId(targetThread);
     DWORD currentThreadId = ::GetCurrentThreadId();
     walkCallingThread = (targetThreadId == currentThreadId);
+#  endif
   }
 
   // If not already provided, get a context for the specified thread.
