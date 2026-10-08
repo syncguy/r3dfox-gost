@@ -111,7 +111,7 @@ ac_add_options --without-wasm-sandboxed-libraries
 ac_add_options --disable-update-agent
 ac_add_options --disable-updater
 export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
-export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT -Zc:threadSafeInit-"
 export MOZ_CRASHREPORTER=0
 export MOZ_DATA_REPORTING=0
 export MOZ_TELEMETRY_REPORTING=
