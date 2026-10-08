@@ -219,68 +219,9 @@ if ($mimallocActual -ne $env:MIMALLOC_SHA) {
   throw "Unexpected mimalloc commit: $mimallocActual"
 }
 
-function Apply-MimallocXpCompat([string]$Root) {
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  $atomicPath = Join-Path $Root 'include\mimalloc\atomic.h'
-  $primPath = Join-Path $Root 'src\prim\windows\prim.c'
+$prepareMimallocXp = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\xp\prepare-mimalloc-xp.ps1'
+& $prepareMimallocXp -MimallocRoot $mimallocRoot -ExpectedSha $env:MIMALLOC_SHA -DiagnosticsDir $diag
 
-  $atomic = [System.IO.File]::ReadAllText($atomicPath)
-  $atomicNeedle = "#if defined(_WIN32)`n`ntypedef struct mi_lock_s {"
-  $atomicReplacement = "#if defined(_WIN32) && (!defined(_WIN32_WINNT) || (_WIN32_WINNT >= 0x0600))`n`ntypedef struct mi_lock_s {"
-  if (-not $atomic.Contains($atomicNeedle)) {
-    throw 'Pinned mimalloc lock implementation no longer matches expected 2.5.2 source'
-  }
-  $atomic = $atomic.Replace($atomicNeedle, $atomicReplacement)
-  [System.IO.File]::WriteAllText($atomicPath, $atomic, $utf8NoBom)
-
-  $prim = [System.IO.File]::ReadAllText($primPath)
-  $numaNeedle = @'
-  else if (pGetNumaProcessorNode != NULL) {
-    // Vista or earlier, use older API that is limited to 64 processors. Issue #277
-    DWORD pnum = GetCurrentProcessorNumber();
-    UCHAR nnode = 0;
-    BOOL ok = pGetNumaProcessorNode((UCHAR)pnum, &nnode);
-    if (ok) { numa_node = nnode; }
-  }
-'@
-  $numaReplacement = @'
-#if (_WIN32_WINNT >= 0x0600)
-  else if (pGetNumaProcessorNode != NULL) {
-    // Vista or later: the legacy NUMA path still depends on
-    // GetCurrentProcessorNumber, which is not exported by Windows XP.
-    DWORD pnum = GetCurrentProcessorNumber();
-    UCHAR nnode = 0;
-    BOOL ok = pGetNumaProcessorNode((UCHAR)pnum, &nnode);
-    if (ok) { numa_node = nnode; }
-  }
-#endif
-'@
-  if (-not $prim.Contains($numaNeedle)) {
-    throw 'Pinned mimalloc NUMA implementation no longer matches expected 2.5.2 source'
-  }
-  $prim = $prim.Replace($numaNeedle, $numaReplacement)
-  [System.IO.File]::WriteAllText($primPath, $prim, $utf8NoBom)
-
-  Invoke-Checked 'mimalloc XP compatibility diff check' {
-    git -C $Root diff --check
-  }
-
-  $changed = @(git -C $Root diff --name-only)
-  $expectedChanged = @(
-    'include/mimalloc/atomic.h',
-    'src/prim/windows/prim.c'
-  )
-  if (($changed | Sort-Object) -join "`n" -ne ($expectedChanged | Sort-Object) -join "`n") {
-    throw "Unexpected mimalloc XP compatibility files: $($changed -join ', ')"
-  }
-
-  git -C $Root diff -- include/mimalloc/atomic.h src/prim/windows/prim.c |
-    Set-Content -Encoding utf8 (Join-Path $diag 'mimalloc-2.5.2-xp-compat.diff')
-  "mimalloc_xp_compat=atomic-lock-fallback,no-direct-GetCurrentProcessorNumber" |
-    Add-Content (Join-Path $diag 'identity.txt')
-}
-
-Apply-MimallocXpCompat $mimallocRoot
 
 function Build-MimallocVariant(
   [string]$Label,
@@ -294,7 +235,7 @@ function Build-MimallocVariant(
 
   $compileArgs = @(
     '/nologo','/c','/O2','/MD','/TC',
-    '/DMI_STATIC_LIB','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501'
+    '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501'
   )
   if ($ExtraDefines) {
     $compileArgs += $ExtraDefines
@@ -347,7 +288,7 @@ EXPORTS
   $glueLog = Join-Path $diag "$Label-glue-link.txt"
   $glueArgs = @(
     '/nologo','/O2','/EHsc','/MD','/std:c++17','/LD',
-    '/DMI_STATIC_LIB','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
+    '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
     "/I$mimallocRoot\include",
     "/I$mozillaInclude",
     "/I$memoryBuildInclude",
@@ -543,11 +484,12 @@ Standalone allocator modes:
     Same Firefox mozjemalloc with only gRecycleLimit = 0 in focused build.
 
   allocator-va-stress-mimalloc-2.5.2-default.exe
-    Pinned mimalloc 2.5.2 with normal 32-bit arena policy.
+    Pinned mimalloc 2.5.2 with normal 32-bit arena policy plus the common
+    XP compatibility overlay recorded in diagnostics.
 
   allocator-va-stress-mimalloc-2.5.2-noarena.exe
-    Same mimalloc source with automatic arena allocation disabled and
-    default arena reserve set to zero.
+    Same pinned source and XP compatibility overlay, with automatic arena
+    allocation disabled and default arena reserve set to zero.
 
 Recommended physical XP standalone run:
   run-all.cmd
