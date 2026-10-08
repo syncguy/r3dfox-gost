@@ -9,7 +9,6 @@ SOURCES += [
     "/mfbt/Assertions.cpp",
     "/mfbt/RandomNum.cpp",
     "/mfbt/TaggedAnonymousMemory.cpp",
-    "/mozglue/misc/StackWalk.cpp",
     "AllocatorVaStress.cpp",
 ]
 
@@ -28,7 +27,6 @@ DEFINES["IMPL_MFBT"] = True
 if CONFIG["OS_ARCH"] == "WINNT":
     OS_LIBS += [
         "advapi32",
-        "dbghelp",
     ]
 
 OS_LIBS += CONFIG["LIBATOMIC_LIBS"]
