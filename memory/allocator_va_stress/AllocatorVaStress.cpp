@@ -11,6 +11,13 @@
 
 #ifdef ALLOCATOR_MOZJEMALLOC
 #  include "mozmemory.h"
+
+extern "C" {
+void* je_malloc(size_t);
+void* je_realloc(void*, size_t);
+void je_free(void*) noexcept;
+size_t je_malloc_usable_size(usable_ptr_t) noexcept;
+}
 #endif
 
 #ifdef ALLOCATOR_MIMALLOC
@@ -117,7 +124,23 @@ void* TestAlloc(size_t size) {
 #ifdef ALLOCATOR_MIMALLOC
   return mi_malloc(size);
 #else
-  return malloc(size);
+  return je_malloc(size);
+#endif
+}
+
+void* TestRealloc(void* ptr, size_t size) {
+#ifdef ALLOCATOR_MIMALLOC
+  return mi_realloc(ptr, size);
+#else
+  return je_realloc(ptr, size);
+#endif
+}
+
+size_t TestUsableSize(void* ptr) {
+#ifdef ALLOCATOR_MIMALLOC
+  return mi_malloc_usable_size(ptr);
+#else
+  return je_malloc_usable_size(ptr);
 #endif
 }
 
@@ -125,7 +148,7 @@ void TestFree(void* ptr) {
 #ifdef ALLOCATOR_MIMALLOC
   mi_free(ptr);
 #else
-  free(ptr);
+  je_free(ptr);
 #endif
 }
 
@@ -692,7 +715,7 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
   }
   Touch(viaArena, 64u * 1024u);
 
-  void* ordinary = malloc(48u * 1024u);
+  void* ordinary = TestAlloc(48u * 1024u);
   if (!ordinary) {
     printf("ARENA_SMOKE label=%s success=0 stage=ordinary-malloc\n",
            config.label);
@@ -713,7 +736,7 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
     if (replaceLen >= MAX_PATH) {
       printf("ARENA_SMOKE label=%s success=0 stage=replace-path\n",
              config.label);
-      free(ordinary);
+      TestFree(ordinary);
       moz_arena_free(arena, viaArena);
       moz_dispose_arena(arena);
       return false;
@@ -734,7 +757,7 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
     if (!module) {
       printf("ARENA_SMOKE label=%s success=0 stage=replace-module\n",
              config.label);
-      free(ordinary);
+      TestFree(ordinary);
       moz_arena_free(arena, viaArena);
       moz_dispose_arena(arena);
       return false;
@@ -745,7 +768,7 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
     if (!replaceProbe) {
       printf("ARENA_SMOKE label=%s success=0 stage=replace-probe\n",
              config.label);
-      free(ordinary);
+      TestFree(ordinary);
       moz_arena_free(arena, viaArena);
       moz_dispose_arena(arena);
       return false;
@@ -760,28 +783,28 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
         "arena_native=%u success=0 stage=ownership-initial\n",
         config.label, (probeFlags & 1u) ? 1u : 0u,
         (probeFlags & 2u) ? 1u : 0u, (probeFlags & 4u) ? 1u : 0u);
-    free(ordinary);
+    TestFree(ordinary);
     moz_arena_free(arena, viaArena);
     moz_dispose_arena(arena);
     return false;
   }
 
-  const size_t nativeUsable = malloc_usable_size(viaArena);
+  const size_t nativeUsable = TestUsableSize(viaArena);
   if (!nativeUsable) {
     printf("ARENA_SMOKE label=%s success=0 stage=plain-usable-size\n",
            config.label);
-    free(ordinary);
+    TestFree(ordinary);
     moz_arena_free(arena, viaArena);
     moz_dispose_arena(arena);
     return false;
   }
 
-  void* reallocated = realloc(viaArena, 96u * 1024u);
+  void* reallocated = TestRealloc(viaArena, 96u * 1024u);
   if (!reallocated) {
     printf("ARENA_SMOKE label=%s success=0 stage=plain-realloc\n",
            config.label);
-    free(ordinary);
-    free(viaArena);
+    TestFree(ordinary);
+    TestFree(viaArena);
     moz_dispose_arena(arena);
     return false;
   }
@@ -794,14 +817,14 @@ bool RunNativeArenaOwnershipSmoke(const Config& config) {
         "arena_native=%u success=0 stage=ownership-after-realloc\n",
         config.label, (probeFlags & 1u) ? 1u : 0u,
         (probeFlags & 2u) ? 1u : 0u, (probeFlags & 4u) ? 1u : 0u);
-    free(ordinary);
-    free(reallocated);
+    TestFree(ordinary);
+    TestFree(reallocated);
     moz_dispose_arena(arena);
     return false;
   }
 
-  free(reallocated);
-  free(ordinary);
+  TestFree(reallocated);
+  TestFree(ordinary);
 
   void* viaArena2 = moz_arena_calloc(arena, 1u, 32u * 1024u);
   if (!viaArena2) {
