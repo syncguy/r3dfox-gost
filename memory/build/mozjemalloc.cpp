@@ -169,6 +169,10 @@
 
 using namespace mozilla;
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+size_t gXPRecycleLimit = gRecycleLimit;
+#endif
+
 #ifdef MOZJEMALLOC_PROFILING_CALLBACKS
 // MallocProfilerCallbacks is refcounted so that one thread cannot destroy it
 // while another thread accesses it.  This means that clearing this value or
@@ -3494,6 +3498,13 @@ static bool malloc_init_hard() {
     }
   }
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+  const char* recycle_option = getenv("R3DFOX_XP_JEMALLOC_RECYCLE_MIB");
+  if (recycle_option && strcmp(recycle_option, "0") == 0) {
+    gXPRecycleLimit = 0;
+  }
+#endif
+
   MOZ_ASSERT(gPageSize <= gRealPageSize);
 #ifndef MALLOC_STATIC_PAGESIZE
   DefineGlobals();
@@ -3517,6 +3528,12 @@ static bool malloc_init_hard() {
   }
 
   malloc_initialized = true;
+
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+  ::OutputDebugStringA(gXPRecycleLimit == 0
+                           ? "r3dfox mozjemalloc: recycle_limit_mib=0\n"
+                           : "r3dfox mozjemalloc: recycle_limit_mib=128\n");
+#endif
 
   // Dummy call so that the function is not removed by dead-code elimination
   Debug::jemalloc_ptr_info(nullptr);
