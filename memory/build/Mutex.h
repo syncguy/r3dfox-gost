@@ -149,6 +149,29 @@ struct MOZ_CAPABILITY("mutex") Mutex {
 // everywhere incur a performance penalty. See bug 1418389.
 #if defined(XP_WIN)
 struct MOZ_CAPABILITY("mutex") StaticMutex {
+#  ifdef MOZ_XP_COMPAT
+  // SRWLOCK starts with Windows Vista. The allocator initialization lock must
+  // still be usable from static initialization and cannot depend on a
+  // constructor that runs after the first malloc. A zero-initialized LONG plus
+  // interlocked operations preserves that bootstrap property on Windows XP.
+  volatile LONG mMutex;
+
+  constexpr StaticMutex() : mMutex(0) {}
+
+  inline void Lock() MOZ_CAPABILITY_ACQUIRE() {
+    unsigned spins = 0;
+    while (InterlockedCompareExchange(&mMutex, 1, 0) != 0) {
+      if (++spins >= 1024) {
+        spins = 0;
+        Sleep(0);
+      }
+    }
+  }
+
+  inline void Unlock() MOZ_CAPABILITY_RELEASE() {
+    InterlockedExchange(&mMutex, 0);
+  }
+#  else
   SRWLOCK mMutex;
 
   constexpr StaticMutex() : mMutex(SRWLOCK_INIT) {}
@@ -160,6 +183,7 @@ struct MOZ_CAPABILITY("mutex") StaticMutex {
   inline void Unlock() MOZ_CAPABILITY_RELEASE() {
     ReleaseSRWLockExclusive(&mMutex);
   }
+#  endif
 };
 
 #else
