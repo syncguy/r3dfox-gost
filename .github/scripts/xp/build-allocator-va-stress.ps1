@@ -253,8 +253,20 @@ function Build-MimallocVariant(
   $obj = Join-Path $env:RUNNER_TEMP $ObjectName
   $compileLog = Join-Path $diag "$Label-compile.txt"
 
+  $releaseCheck = Join-Path $env:RUNNER_TEMP "$Label-mimalloc-release-check.h"
+  @'
+#include "mimalloc/types.h"
+#if MI_DEBUG != 0
+#error allocator VA stress requires MI_DEBUG=0
+#endif
+#if defined(MI_PADDING) && MI_PADDING != 0
+#error allocator VA stress requires MI_PADDING=0
+#endif
+'@ | Set-Content -Encoding ascii $releaseCheck
+
   $compileArgs = @(
     '/nologo','/c','/O2','/MD','/TC',
+    '/DNDEBUG','/DMI_DEBUG=0',"/FI$releaseCheck",
     '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501'
   )
   if ($ExtraDefines) {
@@ -276,6 +288,7 @@ function Build-MimallocVariant(
   $harnessLog = Join-Path $diag "$Label-harness-link.txt"
   $harnessArgs = @(
     '/nologo','/O2','/EHsc','/MD','/std:c++17',
+    '/DNDEBUG','/DMI_DEBUG=0',
     '/DALLOCATOR_MIMALLOC','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
     "/I$mimallocRoot\include",
     $harness,$obj,
@@ -309,6 +322,7 @@ EXPORTS
   $mozillaClangCl = Find-MozillaClangCl
   $glueArgs = @(
     '/nologo','/O2','/EHsc','/MD','/std:c++20','/LD','-m32',
+    '/DNDEBUG','/DMI_DEBUG=0',
     '-fms-compatibility-version=19.50',
     '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
     "/I$mimallocRoot\include",
