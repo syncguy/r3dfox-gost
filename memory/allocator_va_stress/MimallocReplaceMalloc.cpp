@@ -67,7 +67,7 @@ static size_t replace_malloc_usable_size(usable_ptr_t aPtr) {
     return 0;
   }
   if (IsMimallocPointer(aPtr)) {
-    return mi_malloc_usable_size(aPtr);
+    return mi_usable_size(aPtr);
   }
   return gOriginal.malloc_usable_size(aPtr);
 }
