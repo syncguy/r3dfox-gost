@@ -1,0 +1,88 @@
+name: XP x86 rpmalloc VA stress
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact experimental source branch or SHA with rpmalloc harness
+        required: true
+        type: string
+        default: agent/allocator-rpmalloc-poc
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xp-rpmalloc-va-stress
+  cancel-in-progress: false
+
+env:
+  MSVCR14X_REPO: https://github.com/Chuyu-Team/msvcr14x.git
+  MSVCR14X_SHA: 6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384
+
+jobs:
+  rpmalloc-va:
+    name: XP x86 rpmalloc standalone and VA gates
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact experimental source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Record source and workflow identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          "SOURCE_UNDER_TEST=$sha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "- Workflow/control SHA: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-under-test SHA: $sha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Initialize MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: .\.github\scripts\xp\build-msvcr14x-release-x86.ps1
+
+      - name: Gate pinned XP CRT imports and subsystem
+        shell: powershell
+        run: .\.github\scripts\xp\verify-msvcr14x-xp-contract.ps1
+
+      - name: Build rpmalloc 1.4.5 standalone and XP PE/import gates
+        shell: powershell
+        run: .\.github\scripts\xp\build-rpmalloc-va-stress.ps1
+
+      - name: Upload XP rpmalloc runtime
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-x86-rpmalloc-va-runtime
+          path: rpmalloc-va-runtime
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-x86-rpmalloc-va-diagnostics
+          path: |
+            rpmalloc-va-diagnostics
+            diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          "## rpmalloc 1.4.5 / XP x86 standalone research" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Source-under-test: $env:SOURCE_UNDER_TEST" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- This is NOT a Firefox browser build and does not test replacement malloc ABI." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Hosted smoke and PE gates are not physical Windows XP runtime evidence." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
