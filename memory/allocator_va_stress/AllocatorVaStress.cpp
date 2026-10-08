@@ -24,6 +24,10 @@ size_t je_malloc_usable_size(usable_ptr_t) noexcept;
 #  include "mimalloc.h"
 #endif
 
+#ifdef ALLOCATOR_RPMALLOC
+#  include "rpmalloc.h"
+#endif
+
 namespace {
 
 constexpr size_t kMiB = 1024u * 1024u;
@@ -121,7 +125,9 @@ double MiB(uint64_t bytes) {
 }
 
 void* TestAlloc(size_t size) {
-#ifdef ALLOCATOR_MIMALLOC
+#ifdef ALLOCATOR_RPMALLOC
+  return rpmalloc(size);
+#elif defined(ALLOCATOR_MIMALLOC)
   return mi_malloc(size);
 #else
   return je_malloc(size);
@@ -129,7 +135,9 @@ void* TestAlloc(size_t size) {
 }
 
 void* TestRealloc(void* ptr, size_t size) {
-#ifdef ALLOCATOR_MIMALLOC
+#ifdef ALLOCATOR_RPMALLOC
+  return rprealloc(ptr, size);
+#elif defined(ALLOCATOR_MIMALLOC)
   return mi_realloc(ptr, size);
 #else
   return je_realloc(ptr, size);
@@ -137,7 +145,9 @@ void* TestRealloc(void* ptr, size_t size) {
 }
 
 size_t TestUsableSize(void* ptr) {
-#ifdef ALLOCATOR_MIMALLOC
+#ifdef ALLOCATOR_RPMALLOC
+  return rpmalloc_usable_size(ptr);
+#elif defined(ALLOCATOR_MIMALLOC)
   return mi_malloc_usable_size(ptr);
 #else
   return je_malloc_usable_size(ptr);
@@ -145,7 +155,9 @@ size_t TestUsableSize(void* ptr) {
 }
 
 void TestFree(void* ptr) {
-#ifdef ALLOCATOR_MIMALLOC
+#ifdef ALLOCATOR_RPMALLOC
+  rpfree(ptr);
+#elif defined(ALLOCATOR_MIMALLOC)
   mi_free(ptr);
 #else
   je_free(ptr);
@@ -257,15 +269,27 @@ void FreeList(BlockList* list) {
 }
 
 DWORD WINAPI AllocateThread(void* raw) {
+#ifdef ALLOCATOR_RPMALLOC
+  rpmalloc_thread_initialize();
+#endif
   ThreadContext* ctx = static_cast<ThreadContext*>(raw);
   ctx->result =
       AllocatePattern(ctx->list, ctx->targetBytes, ctx->seed, "burst");
+#ifdef ALLOCATOR_RPMALLOC
+  rpmalloc_thread_finalize(1);
+#endif
   return ctx->result ? 0 : 1;
 }
 
 DWORD WINAPI FreeThread(void* raw) {
+#ifdef ALLOCATOR_RPMALLOC
+  rpmalloc_thread_initialize();
+#endif
   BlockList* list = static_cast<BlockList*>(raw);
   FreeList(list);
+#ifdef ALLOCATOR_RPMALLOC
+  rpmalloc_thread_finalize(1);
+#endif
   return 0;
 }
 
@@ -941,7 +965,9 @@ bool ParseArgs(int argc, char** argv, Config* config) {
       128u,
       2u,
       true,
-#ifdef ALLOCATOR_MIMALLOC
+#if defined(ALLOCATOR_RPMALLOC)
+      "rpmalloc",
+#elif defined(ALLOCATOR_MIMALLOC)
       "mimalloc",
 #else
       "mozjemalloc",
@@ -1032,6 +1058,15 @@ int main(int argc, char** argv) {
     fprintf(stderr, "this experiment requires a 32-bit process\n");
     return 3;
   }
+#ifdef ALLOCATOR_RPMALLOC
+  if (rpmalloc_initialize() != 0) {
+    fprintf(stderr, "rpmalloc_initialize failed\n");
+    return 5;
+  }
+  rpmalloc_thread_initialize();
+  atexit(rpmalloc_finalize);
+  printf("RPMALLOC_POLICY label=%s explicit_thread_lifecycle=1\n", config.label);
+#endif
 
   SYSTEM_INFO info = {};
   GetSystemInfo(&info);
