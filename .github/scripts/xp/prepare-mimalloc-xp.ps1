@@ -27,7 +27,7 @@ $primPath = Join-Path $MimallocRoot 'src\prim\windows\prim.c'
 
 # SRWLOCK is unavailable on XP. For _WIN32_WINNT=0x0501 use mimalloc's
 # existing portable atomic lock implementation instead of importing SRW APIs.
-Replace-RegexOnce -Path $atomicPath -Pattern '#if defined\(_WIN32\)(\r?\n\r?\ntypedef struct mi_lock_s)' -Replacement '#if defined(_WIN32) && (_WIN32_WINNT >= 0x0600)$1' -Description 'pre-Vista lock fallback'
+Replace-RegexOnce -Path $atomicPath -Pattern '#if defined\(_WIN32\)(\r?\n\r?\ntypedef struct mi_lock_s)' -Replacement '#if defined(_WIN32) && !defined(MI_XP_COMPAT)$1' -Description 'XP lock fallback'
 
 # Mimalloc already resolves the surrounding NUMA APIs dynamically. Do the same
 # for GetCurrentProcessorNumber so an XP process does not carry a direct import.
