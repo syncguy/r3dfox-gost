@@ -11,4 +11,12 @@
 #define FlsGetValue(index) TlsGetValue(index)
 #define FlsSetValue(index, value) TlsSetValue(index, value)
 
+// Windows XP KERNEL32.dll does not export GetLargePageMinimum.
+// rpmalloc calls this only in its optional huge-page path. Disable that
+// unsupported optimization at compile time for the standalone XP probe;
+// a runtime branch alone would still leave an unconditional PE import.
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT < 0x0600)
+#  define GetLargePageMinimum() ((SIZE_T)0)
+#endif
+
 #endif
