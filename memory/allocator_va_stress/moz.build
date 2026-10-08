@@ -13,12 +13,23 @@ SOURCES += [
     "AllocatorVaStress.cpp",
 ]
 
+if CONFIG["OS_TARGET"] == "WINNT":
+    SOURCES += [
+        "/mozglue/misc/ProcessType.cpp",
+    ]
+
 USE_LIBS += [
     "memory",
 ]
 
 DEFINES["ALLOCATOR_MOZJEMALLOC"] = True
 DEFINES["IMPL_MFBT"] = True
+
+if CONFIG["OS_ARCH"] == "WINNT":
+    OS_LIBS += [
+        "advapi32",
+        "dbghelp",
+    ]
 
 OS_LIBS += CONFIG["LIBATOMIC_LIBS"]
 
