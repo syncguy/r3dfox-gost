@@ -292,16 +292,16 @@ EXPORTS
   $glueLog = Join-Path $diag "$Label-glue-link.txt"
   $mozillaClangCl = Find-MozillaClangCl
   $glueArgs = @(
-    '-nologo','-O2','-EHsc','-MD','-std:c++20','-LD','-m32',
+    '/nologo','/O2','/EHsc','/MD','/std:c++20','/LD','-m32',
     '-fms-compatibility-version=19.50',
-    '-DMI_STATIC_LIB','-DMI_XP_COMPAT=1','-D_WIN32_WINNT=0x0501','-DWINVER=0x0501',
-    "-I$mimallocRoot\include",
-    "-I$mozillaInclude",
-    "-I$memoryBuildInclude",
+    '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
+    "/I$mimallocRoot\include",
+    "/I$mozillaInclude",
+    "/I$memoryBuildInclude",
     $glueSource,$obj,
-    '-link','-SUBSYSTEM:WINDOWS,5.01','-LARGEADDRESSAWARE','advapi32.lib',
-    "-DEF:$defPath",
-    "-OUT:$glue"
+    '/link','/SUBSYSTEM:WINDOWS,5.01','/LARGEADDRESSAWARE','advapi32.lib',
+    "/DEF:$defPath",
+    "/OUT:$glue"
   )
 
   & $mozillaClangCl @glueArgs 2>&1 | Tee-Object -FilePath $glueLog
