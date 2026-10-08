@@ -219,6 +219,69 @@ if ($mimallocActual -ne $env:MIMALLOC_SHA) {
   throw "Unexpected mimalloc commit: $mimallocActual"
 }
 
+function Apply-MimallocXpCompat([string]$Root) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  $atomicPath = Join-Path $Root 'include\mimalloc\atomic.h'
+  $primPath = Join-Path $Root 'src\prim\windows\prim.c'
+
+  $atomic = [System.IO.File]::ReadAllText($atomicPath)
+  $atomicNeedle = "#if defined(_WIN32)`n`ntypedef struct mi_lock_s {"
+  $atomicReplacement = "#if defined(_WIN32) && (!defined(_WIN32_WINNT) || (_WIN32_WINNT >= 0x0600))`n`ntypedef struct mi_lock_s {"
+  if (-not $atomic.Contains($atomicNeedle)) {
+    throw 'Pinned mimalloc lock implementation no longer matches expected 2.5.2 source'
+  }
+  $atomic = $atomic.Replace($atomicNeedle, $atomicReplacement)
+  [System.IO.File]::WriteAllText($atomicPath, $atomic, $utf8NoBom)
+
+  $prim = [System.IO.File]::ReadAllText($primPath)
+  $numaNeedle = @'
+  else if (pGetNumaProcessorNode != NULL) {
+    // Vista or earlier, use older API that is limited to 64 processors. Issue #277
+    DWORD pnum = GetCurrentProcessorNumber();
+    UCHAR nnode = 0;
+    BOOL ok = pGetNumaProcessorNode((UCHAR)pnum, &nnode);
+    if (ok) { numa_node = nnode; }
+  }
+'@
+  $numaReplacement = @'
+#if (_WIN32_WINNT >= 0x0600)
+  else if (pGetNumaProcessorNode != NULL) {
+    // Vista or later: the legacy NUMA path still depends on
+    // GetCurrentProcessorNumber, which is not exported by Windows XP.
+    DWORD pnum = GetCurrentProcessorNumber();
+    UCHAR nnode = 0;
+    BOOL ok = pGetNumaProcessorNode((UCHAR)pnum, &nnode);
+    if (ok) { numa_node = nnode; }
+  }
+#endif
+'@
+  if (-not $prim.Contains($numaNeedle)) {
+    throw 'Pinned mimalloc NUMA implementation no longer matches expected 2.5.2 source'
+  }
+  $prim = $prim.Replace($numaNeedle, $numaReplacement)
+  [System.IO.File]::WriteAllText($primPath, $prim, $utf8NoBom)
+
+  Invoke-Checked 'mimalloc XP compatibility diff check' {
+    git -C $Root diff --check
+  }
+
+  $changed = @(git -C $Root diff --name-only)
+  $expectedChanged = @(
+    'include/mimalloc/atomic.h',
+    'src/prim/windows/prim.c'
+  )
+  if (($changed | Sort-Object) -join "`n" -ne ($expectedChanged | Sort-Object) -join "`n") {
+    throw "Unexpected mimalloc XP compatibility files: $($changed -join ', ')"
+  }
+
+  git -C $Root diff -- include/mimalloc/atomic.h src/prim/windows/prim.c |
+    Set-Content -Encoding utf8 (Join-Path $diag 'mimalloc-2.5.2-xp-compat.diff')
+  "mimalloc_xp_compat=atomic-lock-fallback,no-direct-GetCurrentProcessorNumber" |
+    Add-Content (Join-Path $diag 'identity.txt')
+}
+
+Apply-MimallocXpCompat $mimallocRoot
+
 function Build-MimallocVariant(
   [string]$Label,
   [string]$ObjectName,
@@ -255,7 +318,7 @@ function Build-MimallocVariant(
     '/DALLOCATOR_MIMALLOC','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
     "/I$mimallocRoot\include",
     $harness,$obj,
-    '/link','/SUBSYSTEM:CONSOLE,5.01','/LARGEADDRESSAWARE',
+    '/link','/SUBSYSTEM:CONSOLE,5.01','/LARGEADDRESSAWARE','advapi32.lib',
     "/OUT:$exe"
   )
 
@@ -289,7 +352,7 @@ EXPORTS
     "/I$mozillaInclude",
     "/I$memoryBuildInclude",
     $glueSource,$obj,
-    '/link','/SUBSYSTEM:WINDOWS,5.01','/LARGEADDRESSAWARE',
+    '/link','/SUBSYSTEM:WINDOWS,5.01','/LARGEADDRESSAWARE','advapi32.lib',
     "/DEF:$defPath",
     "/OUT:$glue"
   )
