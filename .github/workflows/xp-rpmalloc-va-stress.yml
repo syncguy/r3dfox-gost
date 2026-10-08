@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Exact experimental source branch or SHA with rpmalloc harness
+        description: Exact XP implementation source branch or SHA with rpmalloc harness
         required: true
         type: string
-        default: agent/allocator-rpmalloc-poc
+        default: agent/winrt-source-poc
 
 permissions:
   contents: read
