@@ -58,7 +58,8 @@ $forbiddenApis = @('FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
   'AcquireSRWLockExclusive','AcquireSRWLockShared','ReleaseSRWLockExclusive',
   'ReleaseSRWLockShared','InitializeSRWLock','InitializeConditionVariable',
   'GetCurrentProcessorNumber','GetActiveProcessorCount','GetTickCount64',
-  'VirtualAlloc2','GetThreadId','CancelIoEx','CreateEventExW','CreateFile2')
+  'VirtualAlloc2','GetThreadId','CancelIoEx','CreateEventExW','CreateFile2',
+  'GetLargePageMinimum')
 foreach ($api in $forbiddenApis) {
   if ($importText -match ('(?m)\b' + [regex]::Escape($api) + '\b')) { throw "Forbidden XP API: $api" }
 }
