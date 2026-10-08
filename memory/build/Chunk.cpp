@@ -43,6 +43,10 @@
 
 using namespace mozilla;
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+extern size_t gXPRecycleLimit;
+#endif
+
 // On Windows, delay crashing on OOM.
 #ifdef XP_WIN
 
@@ -621,9 +625,14 @@ void base_chunk_dealloc(void* aChunk, size_t aSize, ChunkType aType) {
 
   if (CAN_RECYCLE(aSize)) {
     size_t recycled_so_far = gRecycledSize;
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+    const size_t recycle_limit = gXPRecycleLimit;
+#else
+    const size_t recycle_limit = gRecycleLimit;
+#endif
     // In case some race condition put us above the limit.
-    if (recycled_so_far < gRecycleLimit) {
-      size_t recycle_remaining = gRecycleLimit - recycled_so_far;
+    if (recycled_so_far < recycle_limit) {
+      size_t recycle_remaining = recycle_limit - recycled_so_far;
       size_t to_recycle;
       if (aSize > recycle_remaining) {
 #ifndef XP_WIN
