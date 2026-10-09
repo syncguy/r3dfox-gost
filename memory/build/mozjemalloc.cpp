@@ -114,6 +114,9 @@
 #include "mozmemory_wrap.h"
 #include "mozjemalloc.h"
 #include "mozjemalloc_types.h"
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+#  include "XPVirtualMemoryPool.h"
+#endif
 #include "mozjemalloc_profiling.h"
 
 #include <bit>
@@ -3512,6 +3515,11 @@ static bool malloc_init_hard() {
   gRecycledSize = 0;
 
   chunks_init();
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+  const char* xp_pool_option = getenv("R3DFOX_XP_VA_POOL_32M");
+  GetXPVirtualMemoryPool().Init(xp_pool_option &&
+                                strcmp(xp_pool_option, "1") == 0);
+#endif
   huge_init();
   sBaseAlloc.Init();
 
@@ -3533,6 +3541,11 @@ static bool malloc_init_hard() {
   ::OutputDebugStringA(gXPRecycleLimit == 0
                            ? "r3dfox mozjemalloc: recycle_limit_mib=0\n"
                            : "r3dfox mozjemalloc: recycle_limit_mib=128\n");
+#  if !defined(_WIN64)
+  ::OutputDebugStringA(GetXPVirtualMemoryPool().Enabled()
+                           ? "r3dfox xp-va-pool: enabled slab_mib=32 slot_mib=1 owner=mozjemalloc\n"
+                           : "r3dfox xp-va-pool: disabled\n");
+#  endif
 #endif
 
   // Dummy call so that the function is not removed by dead-code elimination
@@ -3888,6 +3901,23 @@ inline void MozJemalloc::jemalloc_stats_internal(
 
   MOZ_ASSERT(aStats->mapped >= aStats->allocated + aStats->waste +
                                    aStats->pages_dirty + aStats->bookkeeping);
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+  const XPVirtualMemoryPoolStats pool = GetXPVirtualMemoryPool().GetStats();
+  aStats->xp_va_pool_enabled = pool.enabled;
+  aStats->xp_va_pool_map_requests = pool.mapRequests;
+  aStats->xp_va_pool_map_successes = pool.mapSuccesses;
+  aStats->xp_va_pool_slot_reuses = pool.slotReuses;
+  aStats->xp_va_pool_fallback_requests = pool.fallbackRequests;
+  aStats->xp_va_pool_reserve_failures = pool.reserveFailures;
+  aStats->xp_va_pool_commit_failures = pool.commitFailures;
+  aStats->xp_va_pool_pool_creates = pool.poolCreates;
+  aStats->xp_va_pool_pool_releases = pool.poolReleases;
+  aStats->xp_va_pool_active_pools = pool.activePools;
+  aStats->xp_va_pool_active_slots = pool.activeSlots;
+  aStats->xp_va_pool_reserved_bytes = pool.reservedBytes;
+  aStats->xp_va_pool_unused_slot_bytes = pool.unusedSlotBytes;
+  aStats->xp_va_pool_peak_reserved_bytes = pool.peakReservedBytes;
+#endif
 }
 
 inline void MozJemalloc::jemalloc_stats_lite(jemalloc_stats_lite_t* aStats) {
