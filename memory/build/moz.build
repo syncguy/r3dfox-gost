@@ -42,6 +42,7 @@ if CONFIG["MOZ_MEMORY"]:
         "mozmemory_wrap.cpp",
         "Mutex.cpp",
         "Utils.cpp",
+        "XPVirtualMemoryPool.cpp",
     ]
 else:
     UNIFIED_SOURCES += [
