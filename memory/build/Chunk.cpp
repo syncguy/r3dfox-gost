@@ -29,6 +29,10 @@
 #include "Globals.h"
 #include "RedBlackTree.h"
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+#  include "XPVirtualMemoryPool.h"
+#endif
+
 #include "mozilla/Assertions.h"
 #include "mozilla/HelperMacros.h"
 // Note: MozTaggedAnonymousMmap() could call an LD_PRELOADed mmap
@@ -777,19 +781,32 @@ void* arena_chunk_alloc(chunk_allocator_t* aChunkAllocator, size_t aSize,
 }
 
 static void* system_pages_map(size_t aSize, size_t aAlignment) {
-  void* ret = nullptr;
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+  if (aSize == kChunkSize && aAlignment <= kChunkSize &&
+      GetXPVirtualMemoryPool().Enabled()) {
+    if (void* ret = GetXPVirtualMemoryPool().Map()) {
+      return ret;
+    }
+    GetXPVirtualMemoryPool().NoteFallback();
+  }
+#endif
 
+  void* ret = nullptr;
   if (CAN_RECYCLE(aSize)) {
     ret = chunk_recycle(aSize, aAlignment);
   }
   if (!ret) {
     ret = pages_mmap_aligned(aSize, aAlignment, ReserveAndCommit);
   }
-
   return ret;
 }
 
 static void system_pages_unmap(void* aAddr, size_t aSize) {
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+  if (aSize == kChunkSize && GetXPVirtualMemoryPool().Unmap(aAddr)) {
+    return;
+  }
+#endif
   base_chunk_dealloc(aAddr, aSize, ARENA_CHUNK);
 }
 
