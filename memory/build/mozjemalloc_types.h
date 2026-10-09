@@ -166,6 +166,23 @@ typedef struct {
                           // or move, or different size classes) require
                           // different internal operations is unspecified.
   size_t arena_run_header;
+
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+  size_t xp_va_pool_enabled;
+  size_t xp_va_pool_map_requests;
+  size_t xp_va_pool_map_successes;
+  size_t xp_va_pool_slot_reuses;
+  size_t xp_va_pool_fallback_requests;
+  size_t xp_va_pool_reserve_failures;
+  size_t xp_va_pool_commit_failures;
+  size_t xp_va_pool_pool_creates;
+  size_t xp_va_pool_pool_releases;
+  size_t xp_va_pool_active_pools;
+  size_t xp_va_pool_active_slots;
+  size_t xp_va_pool_reserved_bytes;
+  size_t xp_va_pool_unused_slot_bytes;
+  size_t xp_va_pool_peak_reserved_bytes;
+#endif
 } jemalloc_stats_t;
 
 typedef struct {
