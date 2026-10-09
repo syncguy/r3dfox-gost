@@ -1336,6 +1336,78 @@ class JemallocHeapReporter final : public nsIMemoryReporter {
       "heap-chunksize", KIND_OTHER, UNITS_BYTES, stats.chunksize,
       "Size of chunks.");
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/enabled", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_enabled,
+      "Whether the opt-in XP VA pool is enabled.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/map-requests", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_map_requests,
+      "One-MiB arena chunk requests handled by the XP VA pool interface.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/map-successes", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_map_successes,
+      "One-MiB arena requests fulfilled by slots in reserved XP VA pools.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/slot-reuses", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_slot_reuses,
+      "Successfully committed previously used one-MiB pool slots.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/fallback-requests", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_fallback_requests,
+      "Chunk requests falling back to the unmodified system allocation path.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/reserve-failures", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_reserve_failures,
+      "Pool creation failures, including when the fixed pool descriptor table is full.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/commit-failures", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_commit_failures,
+      "Failed one-MiB slot commit requests before stock allocation fallback.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/pool-creates", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_pool_creates,
+      "Whole 32-MiB VA pools successfully reserved by mozjemalloc's XP pool manager.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/pool-releases", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_pool_releases,
+      "Whole XP VA pools returned to Windows after their final slot was freed.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/active-pools", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_active_pools,
+      "Currently reserved 32-MiB XP VA pools.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/active-slots", KIND_OTHER, UNITS_COUNT,
+      stats.xp_va_pool_active_slots,
+      "Currently allocated one-MiB slots across XP VA pools.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/reserved-bytes", KIND_OTHER, UNITS_BYTES,
+      stats.xp_va_pool_reserved_bytes,
+      "Current virtual-address space retained by XP pools, whether committed or not; overlaps allocator mapped totals.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/unused-slot-bytes", KIND_OTHER, UNITS_BYTES,
+      stats.xp_va_pool_unused_slot_bytes,
+      "VA space in currently unoccupied slots within retained XP pools, unavailable to unrelated allocators.");
+
+    MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/peak-reserved-bytes", KIND_OTHER, UNITS_BYTES,
+      stats.xp_va_pool_peak_reserved_bytes,
+      "Maximum VA size simultaneously reserved by XP pools since process startup.");
+#endif
+
 #ifdef MOZ_PHC
     mozilla::phc::MemoryUsage usage;
     mozilla::phc::PHCMemoryUsage(usage);
