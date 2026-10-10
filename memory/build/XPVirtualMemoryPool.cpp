@@ -16,10 +16,15 @@ XPVirtualMemoryPool& GetXPVirtualMemoryPool() {
   return sXPVirtualMemoryPool;
 }
 
-void XPVirtualMemoryPool::Init(bool aEnabled) {
-  if (aEnabled && mLock.Init()) {
+void XPVirtualMemoryPool::Init(size_t aPoolSizeMiB) {
+  if ((aPoolSizeMiB == 4 || aPoolSizeMiB == 8 ||
+       aPoolSizeMiB == 16 || aPoolSizeMiB == 32 ||
+       aPoolSizeMiB == 64) && mLock.Init()) {
+    mSlotsPerPool = aPoolSizeMiB;
+    mPoolSize = mSlotsPerPool * kChunkSize;
     mEnabled = true;
     mStats.enabled = 1;
+    mStats.poolSizeBytes = mPoolSize;
   }
 }
 
@@ -49,9 +54,9 @@ void* XPVirtualMemoryPool::ReserveAligned() {
       const uintptr_t candidate =
           (base + kChunkSize - 1) & ~(uintptr_t(kChunkSize) - 1);
       if (candidate >= base && candidate <= end &&
-          end - candidate >= kPoolSize) {
+          end - candidate >= mPoolSize) {
         void* reserved =
-            VirtualAlloc(reinterpret_cast<void*>(candidate), kPoolSize,
+            VirtualAlloc(reinterpret_cast<void*>(candidate), mPoolSize,
                          MEM_RESERVE, PAGE_NOACCESS);
         if (reserved) {
           return reserved;
@@ -70,8 +75,8 @@ void* XPVirtualMemoryPool::Map() {
   }
 
   Pool* pool = nullptr;
-  uint32_t slot = 0;
-  uint32_t mask = 0;
+  size_t slot = 0;
+  uint64_t mask = 0;
   bool reused = false;
   void* chunk = nullptr;
 
@@ -80,7 +85,7 @@ void* XPVirtualMemoryPool::Map() {
     ++mStats.mapRequests;
 
     for (auto& candidate : mPools) {
-      if (candidate.mBase && candidate.mActive < kSlotsPerPool &&
+      if (candidate.mBase && candidate.mActive < mSlotsPerPool &&
           (!pool || candidate.mActive > pool->mActive)) {
         pool = &candidate;
       }
@@ -109,18 +114,18 @@ void* XPVirtualMemoryPool::Map() {
       pool->mActive = 0;
       ++mStats.poolCreates;
       ++mStats.activePools;
-      const size_t reserved = mStats.activePools * kPoolSize;
+      const size_t reserved = mStats.activePools * mPoolSize;
       if (reserved > mStats.peakReservedBytes) {
         mStats.peakReservedBytes = reserved;
       }
     }
 
-    while (slot < kSlotsPerPool && (pool->mUsed & (uint32_t(1) << slot))) {
+    while (slot < mSlotsPerPool && (pool->mUsed & (uint64_t(1) << slot))) {
       ++slot;
     }
-    MOZ_RELEASE_ASSERT(slot < kSlotsPerPool);
+    MOZ_RELEASE_ASSERT(slot < mSlotsPerPool);
 
-    mask = uint32_t(1) << slot;
+    mask = uint64_t(1) << slot;
     reused = (pool->mSeen & mask) != 0;
     pool->mUsed |= mask;
     ++pool->mActive;
@@ -171,13 +176,13 @@ bool XPVirtualMemoryPool::Unmap(void* aChunk) {
     }
 
     const uintptr_t base = reinterpret_cast<uintptr_t>(pool.mBase);
-    if (address < base || address - base >= kPoolSize) {
+    if (address < base || address - base >= mPoolSize) {
       continue;
     }
 
     const uintptr_t offset = address - base;
     MOZ_RELEASE_ASSERT((offset & (kChunkSize - 1)) == 0);
-    const uint32_t mask = uint32_t(1) << (offset / kChunkSize);
+    const uint64_t mask = uint64_t(1) << (offset / kChunkSize);
     MOZ_RELEASE_ASSERT(pool.mUsed & mask);
 
     MOZ_RELEASE_ASSERT(VirtualFree(aChunk, kChunkSize, MEM_DECOMMIT));
@@ -212,9 +217,9 @@ XPVirtualMemoryPoolStats XPVirtualMemoryPool::GetStats() {
   }
   MutexAutoLock lock(mLock);
   XPVirtualMemoryPoolStats snapshot = mStats;
-  snapshot.reservedBytes = snapshot.activePools * kPoolSize;
+  snapshot.reservedBytes = snapshot.activePools * mPoolSize;
   snapshot.unusedSlotBytes =
-      (snapshot.activePools * kSlotsPerPool - snapshot.activeSlots) *
+      (snapshot.activePools * mSlotsPerPool - snapshot.activeSlots) *
       kChunkSize;
   return snapshot;
 }
