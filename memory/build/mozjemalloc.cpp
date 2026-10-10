@@ -3516,9 +3516,20 @@ static bool malloc_init_hard() {
 
   chunks_init();
 #if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
-  const char* xp_pool_option = getenv("R3DFOX_XP_VA_POOL_32M");
-  GetXPVirtualMemoryPool().Init(xp_pool_option &&
-                                strcmp(xp_pool_option, "1") == 0);
+  const char* xp_pool_option = getenv("R3DFOX_XP_VA_POOL");
+  size_t xp_pool_mib = 0;
+  if (xp_pool_option && *xp_pool_option) {
+    char* end = nullptr;
+    unsigned long value = strtoul(xp_pool_option, &end, 10);
+    if (end != xp_pool_option && *end == '\0' &&
+        (value == 4 || value == 8 || value == 16 ||
+         value == 32 || value == 64)) {
+      xp_pool_mib = static_cast<size_t>(value);
+    } else if (strcmp(xp_pool_option, "0") != 0) {
+      ::OutputDebugStringA("r3dfox xp-va-pool: invalid size; disabled\n");
+    }
+  }
+  GetXPVirtualMemoryPool().Init(xp_pool_mib);
 #endif
   huge_init();
   sBaseAlloc.Init();
