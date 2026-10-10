@@ -169,6 +169,7 @@ typedef struct {
 
 #if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
   size_t xp_va_pool_enabled;
+  size_t xp_va_pool_size_bytes;
   size_t xp_va_pool_map_requests;
   size_t xp_va_pool_map_successes;
   size_t xp_va_pool_slot_reuses;
