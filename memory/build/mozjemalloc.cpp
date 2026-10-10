@@ -3516,7 +3516,7 @@ static bool malloc_init_hard() {
 
   chunks_init();
 #if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
-  const char* xp_pool_option = getenv("R3DFOX_XP_VA_POOL");
+  const char* xp_pool_option = getenv("R3DFOX_XP_VA_POOL_MIB");
   size_t xp_pool_mib = 0;
   if (xp_pool_option && *xp_pool_option) {
     char* end = nullptr;
