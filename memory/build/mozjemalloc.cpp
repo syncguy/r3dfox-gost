@@ -3554,7 +3554,7 @@ static bool malloc_init_hard() {
                            : "r3dfox mozjemalloc: recycle_limit_mib=128\n");
 #  if !defined(_WIN64)
   ::OutputDebugStringA(GetXPVirtualMemoryPool().Enabled()
-                           ? "r3dfox xp-va-pool: enabled slab_mib=32 slot_mib=1 owner=mozjemalloc\n"
+                           ? "r3dfox xp-va-pool: enabled slot_mib=1 owner=mozjemalloc\n"
                            : "r3dfox xp-va-pool: disabled\n");
 #  endif
 #endif
@@ -3915,6 +3915,7 @@ inline void MozJemalloc::jemalloc_stats_internal(
 #if defined(XP_WIN) && defined(MOZ_XP_COMPAT) && !defined(_WIN64)
   const XPVirtualMemoryPoolStats pool = GetXPVirtualMemoryPool().GetStats();
   aStats->xp_va_pool_enabled = pool.enabled;
+  aStats->xp_va_pool_size_bytes = pool.poolSizeBytes;
   aStats->xp_va_pool_map_requests = pool.mapRequests;
   aStats->xp_va_pool_map_successes = pool.mapSuccesses;
   aStats->xp_va_pool_slot_reuses = pool.slotReuses;
