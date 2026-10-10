@@ -84,7 +84,6 @@ void* XPVirtualMemoryPool::Map() {
   ++mStats.mapRequests;
 
   {
-
     for (auto& candidate : mPools) {
       if (candidate.mBase && candidate.mActive < mSlotsPerPool &&
           (!pool || candidate.mActive > pool->mActive)) {
