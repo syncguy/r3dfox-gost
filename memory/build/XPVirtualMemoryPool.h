@@ -14,6 +14,7 @@
 
 struct XPVirtualMemoryPoolStats {
   size_t enabled = 0;
+  size_t poolSizeBytes = 0;
   size_t mapRequests = 0;
   size_t mapSuccesses = 0;
   size_t slotReuses = 0;
@@ -32,10 +33,9 @@ struct XPVirtualMemoryPoolStats {
 class XPVirtualMemoryPool {
  public:
   static constexpr size_t kChunkSize = 1024 * 1024;
-  static constexpr size_t kSlotsPerPool = 32;
-  static constexpr size_t kPoolSize = kChunkSize * kSlotsPerPool;
+  static constexpr size_t kMaxSlotsPerPool = 64;
 
-  void Init(bool aEnabled);
+  void Init(size_t aPoolSizeMiB);
   bool Enabled() const { return mEnabled; }
   void* Map();
   bool Unmap(void* aChunk);
@@ -47,8 +47,8 @@ class XPVirtualMemoryPool {
 
   struct Pool {
     void* mBase = nullptr;
-    uint32_t mUsed = 0;
-    uint32_t mSeen = 0;
+    uint64_t mUsed = 0;
+    uint64_t mSeen = 0;
     uint8_t mActive = 0;
   };
 
@@ -56,8 +56,10 @@ class XPVirtualMemoryPool {
   Pool mPools[kMaxPools] = {};
   XPVirtualMemoryPoolStats mStats;
   bool mEnabled = false;
+  size_t mSlotsPerPool = 0;
+  size_t mPoolSize = 0;
 
-  static void* ReserveAligned();
+  void* ReserveAligned();
 };
 
 XPVirtualMemoryPool& GetXPVirtualMemoryPool();
