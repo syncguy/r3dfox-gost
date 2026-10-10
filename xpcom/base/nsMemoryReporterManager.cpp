@@ -1343,6 +1343,9 @@ class JemallocHeapReporter final : public nsIMemoryReporter {
       "Whether the opt-in XP VA pool is enabled.");
 
     MOZ_COLLECT_REPORT(
+      "xp-va-pool/mozjemalloc/pool-size-bytes", KIND_OTHER, UNITS_BYTES,
+      stats.xp_va_pool_size_bytes,
+      "Configured pool reservation size in bytes."),
       "xp-va-pool/mozjemalloc/map-requests", KIND_OTHER, UNITS_COUNT_CUMULATIVE,
       stats.xp_va_pool_map_requests,
       "One-MiB arena chunk requests handled by the XP VA pool interface.");
