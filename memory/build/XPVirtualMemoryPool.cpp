@@ -80,9 +80,10 @@ void* XPVirtualMemoryPool::Map() {
   bool reused = false;
   void* chunk = nullptr;
 
+  MutexAutoLock lock(mLock);
+  ++mStats.mapRequests;
+
   {
-    MutexAutoLock lock(mLock);
-    ++mStats.mapRequests;
 
     for (auto& candidate : mPools) {
       if (candidate.mBase && candidate.mActive < mSlotsPerPool &&
@@ -135,7 +136,6 @@ void* XPVirtualMemoryPool::Map() {
   }
 
   if (!VirtualAlloc(chunk, kChunkSize, MEM_COMMIT, PAGE_READWRITE)) {
-    MutexAutoLock lock(mLock);
     MOZ_RELEASE_ASSERT((pool->mUsed & mask) != 0);
     pool->mUsed &= ~mask;
     --pool->mActive;
@@ -152,13 +152,10 @@ void* XPVirtualMemoryPool::Map() {
     return nullptr;
   }
 
-  {
-    MutexAutoLock lock(mLock);
-    pool->mSeen |= mask;
-    ++mStats.mapSuccesses;
-    if (reused) {
-      ++mStats.slotReuses;
-    }
+  pool->mSeen |= mask;
+  ++mStats.mapSuccesses;
+  if (reused) {
+    ++mStats.slotReuses;
   }
   return chunk;
 }
