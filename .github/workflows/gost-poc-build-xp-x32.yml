@@ -2,6 +2,16 @@ name: "GOST TLS PoC build  XP x32"
 
 on:
   workflow_dispatch:
+    inputs:
+      optimize_mode:
+        description: 'Firefox C/C++ optimization (default preserves current behavior)'
+        required: true
+        type: choice
+        default: default
+        options:
+          - default
+          - '-Os'
+          - '-Oz'
 
 permissions:
   contents: read
@@ -236,6 +246,22 @@ jobs:
           export MOZ_TELEMETRY_REPORTING=
           export MOZ_PACKAGE_JSSHELL=1
           '@ | Set-Content '.mozconfig-gost-xp-x32'
+          $optimizeMode = '${{ inputs.optimize_mode }}'
+          switch ($optimizeMode) {
+            'default' { $optimizeOption = '--enable-optimize'; break }
+            '-Os' { $optimizeOption = '--enable-optimize=-Os'; break }
+            '-Oz' { $optimizeOption = '--enable-optimize=-Oz'; break }
+            default { throw "Unsupported optimize_mode: $optimizeMode" }
+          }
+          $mozconfigPath = '.mozconfig-gost-xp-x32'
+          $mozconfigContent = Get-Content -LiteralPath $mozconfigPath -Raw
+          $needle = 'ac_add_options --enable-optimize'
+          if (([regex]::Matches($mozconfigContent, [regex]::Escape($needle))).Count -ne 1) {
+            throw 'Expected exactly one --enable-optimize line in XP mozconfig'
+          }
+          $mozconfigContent = $mozconfigContent.Replace($needle, "ac_add_options $optimizeOption")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $mozconfigPath), $mozconfigContent, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Selected XP C/C++ optimization: $optimizeOption"
 
       - name: Bootstrap build dependencies
         shell: powershell
