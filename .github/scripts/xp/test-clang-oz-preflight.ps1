@@ -71,7 +71,7 @@ foreach ($case in $cases) {
       'Os' { @('-m32', '-Os') }
       'Oz' { @('-m32', '-O2', '/clang:-Oz') }
     }
-    $result = Invoke-Probe "ir-$mode" $dir ($flags + @('-Werror=unused-command-line-argument', '/clang:-emit-llvm', '/clang:-S', '-c', $filename))
+    $result = Invoke-Probe "ir-$mode" $dir ($flags + @('-Werror=unused-command-line-argument', '/clang:-emit-llvm', '/clang:-S', $filename))
     Require-Success "$mode IR for $($case.Label)" $result
 
     $irPath = Join-Path $dir 'probe.ll'
