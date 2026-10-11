@@ -250,7 +250,7 @@ jobs:
           switch ($optimizeMode) {
             'default' { $optimizeOption = '--enable-optimize'; break }
             '-Os' { $optimizeOption = '--enable-optimize=-Os'; break }
-            '-Oz' { $optimizeOption = '--enable-optimize=-Oz'; break }
+            '-Oz' { $optimizeOption = '--enable-optimize="-O2 /clang:-Oz"'; break }
             default { throw "Unsupported optimize_mode: $optimizeMode" }
           }
           $mozconfigPath = '.mozconfig-gost-xp-x32'
@@ -269,6 +269,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify effective clang-cl Oz codegen
+        if: inputs.optimize_mode == '-Oz'
+        shell: powershell
+        run: .\.github\scripts\xp\test-clang-oz-preflight.ps1
 
       - name: Configure Firefox x86 target
         shell: powershell
