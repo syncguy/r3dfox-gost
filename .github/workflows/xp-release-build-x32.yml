@@ -2,6 +2,16 @@ name: "XP release build x32"
 
 on:
   workflow_dispatch:
+    inputs:
+      optimize_mode:
+        description: 'Firefox C/C++ optimization (default preserves current behavior)'
+        required: true
+        type: choice
+        default: default
+        options:
+          - default
+          - '-Os'
+          - '-Oz'
 
 permissions:
   contents: read
@@ -53,6 +63,16 @@ jobs:
           sparse-checkout-cone-mode: false
           fetch-depth: 1
 
+      - name: Checkout verified clang-cl Oz preflight
+        uses: actions/checkout@v4
+        with:
+          ref: b435862b4c285f329b884b477739129ece736e06
+          path: .xp-oz-source
+          sparse-checkout: |
+            .github/scripts/xp/test-clang-oz-preflight.ps1
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
       - name: Install XP CI scripts and record source identity
         shell: powershell
         run: |
@@ -61,10 +81,14 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $sourceSha) { throw 'Cannot resolve XP product source SHA' }
           $scriptsSha = (git -C .xp-ci-source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or -not $scriptsSha) { throw 'Cannot resolve XP CI scripts SHA' }
+          $ozPreflightSha = (git -C .xp-oz-source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $ozPreflightSha) { throw 'Cannot resolve Oz preflight source SHA' }
 
           New-Item -ItemType Directory -Force '.github\scripts\xp' | Out-Null
           Copy-Item -Recurse -Force '.xp-ci-source\.github\scripts\xp\*' '.github\scripts\xp\'
+          Copy-Item -Force '.xp-oz-source\.github\scripts\xp\test-clang-oz-preflight.ps1' '.github\scripts\xp\test-clang-oz-preflight.ps1'
           Remove-Item -Recurse -Force '.xp-ci-source'
+          Remove-Item -Recurse -Force '.xp-oz-source'
 
           New-Item -ItemType Directory -Force diagnostics | Out-Null
           @(
@@ -73,6 +97,8 @@ jobs:
             "source_sha=$sourceSha"
             "ci_scripts_ref=agent/winrt-source-poc@56ea4129e318e3565dfdd81d0bf60a8735961976"
             "ci_scripts_sha=$scriptsSha"
+            "oz_preflight_ref=agent/winrt-source-poc@b435862b4c285f329b884b477739129ece736e06"
+            "oz_preflight_sha=$ozPreflightSha"
           ) | Set-Content -Encoding utf8 diagnostics\xp-release-build-identity.txt
 
           "XP_SOURCE_SHA=$sourceSha" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -207,7 +233,7 @@ jobs:
           ac_add_options --enable-hardening
           ac_add_options --enable-stl-hardening
           ac_add_options --enable-jemalloc
-          ac_add_options --enable-optimize="-O2 /clang:-Oz"
+          ac_add_options --enable-optimize
           ac_add_options --enable-release
           ac_add_options --enable-rust-simd
           ac_add_options --enable-replace-malloc
@@ -239,6 +265,22 @@ jobs:
           export MOZ_TELEMETRY_REPORTING=
           export MOZ_PACKAGE_JSSHELL=1
           '@ | Set-Content '.mozconfig-xp-release-x32'
+          $optimizeMode = '${{ inputs.optimize_mode }}'
+          switch ($optimizeMode) {
+            'default' { $optimizeOption = '--enable-optimize'; break }
+            '-Os' { $optimizeOption = '--enable-optimize=-Os'; break }
+            '-Oz' { $optimizeOption = '--enable-optimize="-O2 /clang:-Oz"'; break }
+            default { throw "Unsupported optimize_mode: $optimizeMode" }
+          }
+          $mozconfigPath = '.mozconfig-xp-release-x32'
+          $mozconfigContent = Get-Content -LiteralPath $mozconfigPath -Raw
+          $needle = 'ac_add_options --enable-optimize'
+          if (([regex]::Matches($mozconfigContent, [regex]::Escape($needle))).Count -ne 1) {
+            throw 'Expected exactly one --enable-optimize line in XP release mozconfig'
+          }
+          $mozconfigContent = $mozconfigContent.Replace($needle, "ac_add_options $optimizeOption")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $mozconfigPath), $mozconfigContent, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Selected XP C/C++ optimization: $optimizeOption"
 
       - name: Bootstrap build dependencies
         shell: powershell
@@ -246,6 +288,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify effective clang-cl Oz codegen
+        if: inputs.optimize_mode == '-Oz'
+        shell: powershell
+        run: .\.github\scripts\xp\test-clang-oz-preflight.ps1
 
       - name: Configure Firefox x86 target
         shell: powershell
