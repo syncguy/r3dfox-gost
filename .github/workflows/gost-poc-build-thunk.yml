@@ -1,0 +1,693 @@
+name: GOST TLS PoC build - thunk-rs experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/gost-poc-build-thunk.yml"
+      - "security/manager/ssl/nsGostSSLIOLayer.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  win64-thunk:
+    name: Windows x64 / r3dfox GOST / thunk-rs Win7
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost-thunk
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "x86_64-pc-windows-msvc"
+      THUNK_RS_VERSION: "0.3.5"
+      YY_THUNKS_VERSION: "1.2.2"
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Normalize upstream JSContext include order
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'js\src\vm\JSContext.cpp'
+          $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $path)
+          $dump = '#include "js/friend/DumpFunctions.h"  // for stack trace utilities'
+          $errors = '#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*'
+          $printer = '#include "js/Printer.h"               // for FixedBufferPrinter'
+          $printf = '#include "js/Printf.h"'
+          foreach ($line in @($dump, $printer)) { while ($lines.Remove($line)) { } }
+          $errorsIndex = $lines.IndexOf($errors)
+          $printfIndex = $lines.IndexOf($printf)
+          if ($errorsIndex -lt 0 -or $printfIndex -lt 0) { throw 'Expected JSContext include anchors were not found.' }
+          $lines.Insert($errorsIndex, $dump)
+          $printfIndex = $lines.IndexOf($printf)
+          $lines.Insert($printfIndex, $printer)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllLines($path, $lines, $utf8NoBom)
+
+      - name: GATE - SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          if ($activeMB -ge 20480) {
+            'need=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $activeRoots = @($active | ForEach-Object {
+            if ($_.Name -match '^([A-Za-z]:)\\') { $matches[1].ToUpperInvariant() }
+          })
+          $candidate = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Where-Object { ($activeRoots -notcontains $_.DeviceID.ToUpperInvariant()) -and $_.FreeSpace -ge 30GB } |
+            Sort-Object FreeSpace -Descending |
+            Select-Object -First 1
+          if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
+          'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile and show runner CPU
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cpu = @(Get-CimInstance Win32_Processor)
+          $system = Get-CimInstance Win32_ComputerSystem
+          $os = Get-CimInstance Win32_OperatingSystem
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+
+          [pscustomobject]@{
+            CpuName           = ($cpu.Name -join '; ')
+            CpuSockets        = $cpu.Count
+            CpuCores          = ($cpu | Measure-Object NumberOfCores -Sum).Sum
+            LogicalProcessors = ($cpu | Measure-Object NumberOfLogicalProcessors -Sum).Sum
+            SystemLogicalCPUs = $system.NumberOfLogicalProcessors
+            TotalPhysicalGB   = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+            FreePhysicalGB    = [math]::Round($os.FreePhysicalMemorySize / 1MB, 2)
+            TotalVirtualGB    = [math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
+            FreeVirtualGB     = [math]::Round($os.FreeVirtualMemory / 1MB, 2)
+          } | Format-List
+
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          if ($activeMB -lt 20480) { throw "Build blocked: active pagefile is only $activeMB MB." }
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) { throw 'Expected stale mime_guess checksum was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) { throw 'Expected MSSPI Windows.h include was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>').Replace('SECPKG_ATTR_REMOTE_CERT_CHAIN', 'SECPKG_ATTR_REMOTE_CERT_CONTEXT'), $utf8NoBom)
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += ["msspi/src/msspi.cpp"]
+              LOCAL_INCLUDES += ["msspi/src", "msspi/third_party/cprocsp/include"]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+
+      - name: Enable MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned ordinary Rust target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: GATE - Reconfirm thunk-rs Win7 behavior and provision VC-LTL
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:RUNNER_TEMP 'firefox-thunk-provision'
+          if (Test-Path $proj) { Remove-Item -Recurse -Force $proj }
+          New-Item -ItemType Directory -Force (Join-Path $proj 'src') | Out-Null
+          @"
+          [package]
+          name = "firefox-thunk-provision"
+          version = "0.1.0"
+          edition = "2021"
+          build = "build.rs"
+
+          [build-dependencies]
+          thunk-rs = { version = "=$env:THUNK_RS_VERSION", default-features = false, features = ["win7", "lib"] }
+
+          [workspace]
+          "@ | Set-Content -Encoding utf8 (Join-Path $proj 'Cargo.toml')
+          @'
+          fn main() { thunk::thunk(); }
+          '@ | Set-Content -Encoding utf8 (Join-Path $proj 'build.rs')
+          'fn main() { println!("thunk provision ok"); }' | Set-Content -Encoding utf8 (Join-Path $proj 'src\main.rs')
+
+          $stdout = Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.stdout.log'
+          $stderr = Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.stderr.log'
+          $merged = Join-Path $env:GITHUB_WORKSPACE 'thunk-rs-provision.log'
+          Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
+          $cargoArgs = @('build', '--target', $env:RUST_TARGET, '--jobs', '4', '-vv')
+          $proc = Start-Process -FilePath 'cargo' -ArgumentList $cargoArgs -WorkingDirectory $proj -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
+          if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
+          Write-Host "cargo build exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "thunk-rs provisioning cargo build failed with exit code $($proc.ExitCode); see thunk-rs-provision.log" }
+
+          $vc = Get-ChildItem -Path (Join-Path $proj 'target') -Recurse -Directory -Filter 'VC-LTL-5.2.2' | Select-Object -First 1
+          if (-not $vc) { throw 'thunk-rs did not provision VC-LTL-5.2.2' }
+          $vcLib = Join-Path $vc.FullName 'TargetPlatform\6.0.6000.0\lib\x64'
+          if (-not (Test-Path $vcLib)) { throw "Expected VC-LTL Win7/Vista x64 lib directory not found: $vcLib" }
+          "THUNK_VC_LTL_LIB=$vcLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "thunk-rs VC-LTL lib: $vcLib"
+
+      - name: Download YY-Thunks 1.2.2 Win7 x64 LIB package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset was not found" }
+
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-lib'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match '(?i)[\\/]Lib[\\/]6\.1\.7600\.0[\\/]x64$' } |
+            Select-Object -First 1
+          if (-not $yyLib) { throw 'YY-Thunks Lib/6.1.7600.0/x64 not found' }
+
+          $yyKernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $yySynch = Join-Path $yyLib.FullName 'synchronization.lib'
+          if (-not (Test-Path $yyKernel32)) { throw "YY kernel32.lib missing: $yyKernel32" }
+          if (-not (Test-Path $yySynch)) { throw "YY synchronization.lib missing: $yySynch" }
+
+          $synchSymbols = (& dumpbin /nologo /linkermember:1 $yySynch 2>&1 | Out-String)
+          foreach ($symbol in @('__imp_WaitOnAddress','__imp_WakeByAddressAll','__imp_WakeByAddressSingle')) {
+            if ($synchSymbols.IndexOf($symbol, [System.StringComparison]::Ordinal) -lt 0) {
+              throw "YY-Thunks synchronization.lib missing expected linker symbol: $symbol"
+            }
+          }
+
+          "THUNK_YY_KERNEL32_LIB=$yyKernel32" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$yySynch" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "YY-Thunks patched kernel32.lib (source only): $yyKernel32"
+          Write-Host "YY-Thunks synchronization.lib: $yySynch"
+
+      - name: GATE - Build narrow YY ProcessPrng + precise-time provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $work = Join-Path $env:RUNNER_TEMP 'r3dfox-narrow-processprng'
+          $scan = Join-Path $work 'selected'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $scan | Out-Null
+
+          $kernel32 = $env:THUNK_YY_KERNEL32_LIB
+          $members = @(& lib.exe /nologo /list $kernel32 2>&1 |
+            ForEach-Object { "$_".Trim() } |
+            Where-Object { $_ } |
+            Select-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $members.Count -eq 0) { throw "Cannot enumerate YY kernel32.lib: $kernel32" }
+          $members | Set-Content -Encoding utf8 (Join-Path $work 'yy-kernel32-members.txt')
+
+          $directMembers = @($members | Where-Object { $_ -match '(?i)[\\/]ProcessPrng\.obj$' })
+          $importMembers = @($members | Where-Object { $_ -match '(?i)[\\/]ProcessPrng\.obi$' })
+          $preciseDirectMembers = @($members | Where-Object { $_ -match '(?i)[\\/]GetSystemTimePreciseAsFileTime\.obj$' })
+          $preciseImportMembers = @($members | Where-Object { $_ -match '(?i)[\\/]GetSystemTimePreciseAsFileTime\.obi$' })
+          $implMembers = @($members | Where-Object { $_ -match '(?i)[\\/]YY_Thunks_for_6\.1\.7600\.0\.obj$' })
+          if ($directMembers.Count -ne 1) { throw "Expected one ProcessPrng.obj weak-alias member; found $($directMembers.Count)" }
+          if ($importMembers.Count -ne 1) { throw "Expected one ProcessPrng.obi weak-alias member; found $($importMembers.Count)" }
+          if ($preciseDirectMembers.Count -ne 1) { throw "Expected one GetSystemTimePreciseAsFileTime.obj weak-alias member; found $($preciseDirectMembers.Count)" }
+          if ($preciseImportMembers.Count -ne 1) { throw "Expected one GetSystemTimePreciseAsFileTime.obi weak-alias member; found $($preciseImportMembers.Count)" }
+          if ($implMembers.Count -ne 1) { throw "Expected one YY implementation member; found $($implMembers.Count)" }
+
+          function Extract-Member([string]$member, [string]$name) {
+            $dir = Join-Path $scan $name
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Push-Location $dir
+            try {
+              & lib.exe /nologo "/extract:$member" $kernel32 *> (Join-Path $dir 'extract.log')
+              if ($LASTEXITCODE -ne 0) { throw "Failed to extract $member" }
+            }
+            finally { Pop-Location }
+            $file = Get-ChildItem -Path $dir -File |
+              Where-Object { $_.Name -ne 'extract.log' } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+            if (-not $file) { throw "No extracted file for $member" }
+            $dst = Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            (& dumpbin /nologo /symbols $dst 2>&1 | Out-String) | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
+            (& dumpbin /nologo /directives $dst 2>&1 | Out-String) | Set-Content -Encoding utf8 (Join-Path $dir 'directives.txt')
+            $member | Set-Content -Encoding utf8 (Join-Path $dir 'member-name.txt')
+            return $dst
+          }
+
+          function Get-SymbolRecords([string]$text) {
+            $records = @()
+            foreach ($line in ($text -split "`r?`n")) {
+              if ($line -notmatch '^\s*([0-9A-F]+)\s+\S+\s+(\S+)\s+.*?\b(WeakExternal|External)\b\s+\|\s+(\S+)\s*$') { continue }
+              $records += [pscustomobject]@{
+                Index = [Convert]::ToInt32($Matches[1], 16)
+                Section = $Matches[2]
+                Storage = $Matches[3]
+                Name = $Matches[4]
+                Undefined = ($Matches[2] -eq 'UNDEF')
+              }
+            }
+            return @($records)
+          }
+
+          function Test-WeakAlias([string]$text, [string]$alias, [string]$target) {
+            $records = @(Get-SymbolRecords $text)
+            $byIndex = @{}
+            foreach ($record in $records) { $byIndex[$record.Index] = $record }
+            $lines = @($text -split "`r?`n")
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -notmatch '^\s*([0-9A-F]+)\s+\S+\s+UNDEF\s+.*?\bWeakExternal\b\s+\|\s+(\S+)\s*$') { continue }
+              if ($Matches[2] -ne $alias -or $i + 1 -ge $lines.Count) { continue }
+              if ($lines[$i + 1] -notmatch '^\s*Default index\s+([0-9A-F]+)\s+Alias record\s*$') { continue }
+              $targetIndex = [Convert]::ToInt32($Matches[1], 16)
+              if ($byIndex.ContainsKey($targetIndex) -and $byIndex[$targetIndex].Name -eq $target) { return $true }
+            }
+            return $false
+          }
+
+          function Test-DefinedExternal([string]$text, [string]$name) {
+            $records = @(Get-SymbolRecords $text)
+            return @($records | Where-Object {
+              -not $_.Undefined -and $_.Storage -eq 'External' -and $_.Name -eq $name
+            }).Count -gt 0
+          }
+
+          $direct = Extract-Member $directMembers[0] 'direct-alias'
+          $import = Extract-Member $importMembers[0] 'import-alias'
+          $preciseDirect = Extract-Member $preciseDirectMembers[0] 'precise-direct-alias'
+          $preciseImport = Extract-Member $preciseImportMembers[0] 'precise-import-alias'
+          $impl = Extract-Member $implMembers[0] 'implementation'
+          $directSymbols = Get-Content (Join-Path $scan 'direct-alias\symbols.txt') -Raw
+          $importSymbols = Get-Content (Join-Path $scan 'import-alias\symbols.txt') -Raw
+          $preciseDirectSymbols = Get-Content (Join-Path $scan 'precise-direct-alias\symbols.txt') -Raw
+          $preciseImportSymbols = Get-Content (Join-Path $scan 'precise-import-alias\symbols.txt') -Raw
+          $implSymbols = Get-Content (Join-Path $scan 'implementation\symbols.txt') -Raw
+
+          if (-not (Test-WeakAlias $directSymbols 'ProcessPrng' 'YY_Thunks_ProcessPrng')) { throw 'ProcessPrng.obj is not a COFF weak alias to YY_Thunks_ProcessPrng' }
+          if (-not (Test-WeakAlias $importSymbols '__imp_ProcessPrng' '__imp_YY_Thunks_ProcessPrng')) { throw 'ProcessPrng.obi is not a COFF weak alias to __imp_YY_Thunks_ProcessPrng' }
+          if (-not (Test-WeakAlias $preciseDirectSymbols 'GetSystemTimePreciseAsFileTime' 'YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'GetSystemTimePreciseAsFileTime.obj is not a COFF weak alias to YY_Thunks_GetSystemTimePreciseAsFileTime' }
+          if (-not (Test-WeakAlias $preciseImportSymbols '__imp_GetSystemTimePreciseAsFileTime' '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'GetSystemTimePreciseAsFileTime.obi is not a COFF weak alias to __imp_YY_Thunks_GetSystemTimePreciseAsFileTime' }
+          if (-not (Test-DefinedExternal $implSymbols 'YY_Thunks_ProcessPrng')) { throw 'YY implementation member does not define YY_Thunks_ProcessPrng' }
+          if (-not (Test-DefinedExternal $implSymbols '__imp_YY_Thunks_ProcessPrng')) { throw 'YY implementation member does not define __imp_YY_Thunks_ProcessPrng' }
+          if (-not (Test-DefinedExternal $implSymbols 'YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'YY implementation member does not define YY_Thunks_GetSystemTimePreciseAsFileTime' }
+          if (-not (Test-DefinedExternal $implSymbols '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'YY implementation member does not define __imp_YY_Thunks_GetSystemTimePreciseAsFileTime' }
+
+          @(
+            [pscustomobject]@{ Alias = 'ProcessPrng'; Target = 'YY_Thunks_ProcessPrng'; Member = $directMembers[0] },
+            [pscustomobject]@{ Alias = '__imp_ProcessPrng'; Target = '__imp_YY_Thunks_ProcessPrng'; Member = $importMembers[0] },
+            [pscustomobject]@{ Alias = 'GetSystemTimePreciseAsFileTime'; Target = 'YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $preciseDirectMembers[0] },
+            [pscustomobject]@{ Alias = '__imp_GetSystemTimePreciseAsFileTime'; Target = '__imp_YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $preciseImportMembers[0] },
+            [pscustomobject]@{ Alias = '<implementation>'; Target = 'YY_Thunks_ProcessPrng + __imp_YY_Thunks_ProcessPrng + YY_Thunks_GetSystemTimePreciseAsFileTime + __imp_YY_Thunks_GetSystemTimePreciseAsFileTime'; Member = $implMembers[0] }
+          ) | Export-Csv -NoTypeInformation -Encoding utf8 (Join-Path $work 'processprng-member-map.csv')
+
+          $forbiddenSurface = @('LockResource', '__imp_LockResource', 'LoadLibraryExW', '__imp_LoadLibraryExW')
+          foreach ($obj in @($direct, $import, $preciseDirect, $preciseImport, $impl)) {
+            $text = (& dumpbin /nologo /symbols $obj 2>&1 | Out-String)
+            foreach ($name in $forbiddenSurface) {
+              if (Test-DefinedExternal $text $name) { throw "Selected YY member defines forbidden broad ordinary symbol '$name': $obj" }
+            }
+          }
+
+          $narrow = Join-Path $work 'yy-processprng.lib'
+          & lib.exe /nologo "/out:$narrow" $direct $import $preciseDirect $preciseImport $impl
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $narrow)) { throw 'Failed to build yy-processprng.lib' }
+
+          $narrowSymbols = (& dumpbin /nologo /linkermember:1 $narrow 2>&1 | Out-String)
+          $narrowSymbols | Set-Content -Encoding utf8 (Join-Path $work 'yy-processprng-symbols.txt')
+          function Archive-Exposes([string]$name) {
+            foreach ($line in ($narrowSymbols -split "`r?`n")) {
+              if ($line -match ('(?:^|\s)' + [regex]::Escape($name) + '\s*$')) { return $true }
+            }
+            return $false
+          }
+          if (-not (Archive-Exposes 'YY_Thunks_ProcessPrng')) { throw 'yy-processprng.lib does not contain YY_Thunks_ProcessPrng' }
+          if (-not (Archive-Exposes 'YY_Thunks_GetSystemTimePreciseAsFileTime')) { throw 'yy-processprng.lib does not contain YY_Thunks_GetSystemTimePreciseAsFileTime' }
+          foreach ($name in $forbiddenSurface) {
+            if (Archive-Exposes $name) { throw "yy-processprng.lib exposes forbidden broad symbol '$name'" }
+          }
+
+          "NARROW_PROCESSPRNG_LIB=$narrow" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "ProcessPrng direct weak alias: $($directMembers[0])"
+          Write-Host "ProcessPrng import weak alias: $($importMembers[0])"
+          Write-Host "Precise-time direct weak alias: $($preciseDirectMembers[0])"
+          Write-Host "Precise-time import weak alias: $($preciseImportMembers[0])"
+          Write-Host "Implementation: $($implMembers[0])"
+          Write-Host "Narrow provider: $narrow"
+
+      - name: Patch libxul linker for narrow YY-Thunks strategy
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import os
+          from pathlib import Path
+
+          path = Path('toolkit/library/moz.build')
+          text = path.read_text(encoding='utf-8')
+          anchor = '    if CONFIG["CC_TYPE"] == "clang-cl" and not CONFIG["DEVELOPER_OPTIONS"]:\n        LDFLAGS += ["-time"]\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'Expected exactly one libxul clang-cl LDFLAGS anchor, found {text.count(anchor)}')
+          yy_synch = os.environ['THUNK_YY_SYNCH_LIB'].replace('\\', '/')
+          narrow = os.environ['NARROW_PROCESSPRNG_LIB'].replace('\\', '/')
+          replacement = anchor + f'''\n    # r3dfox-gost Win7 scale test. Keep Firefox on its native /MD CRT model.\n    # The complete YY kernel32.lib previously collided with Rust raw-dylib\n    # LockResource at xul.dll scale. Supply only synchronization.lib and the\n    # smoke-proven narrow ProcessPrng/precise-time provider before STATIC_LIBS/gkrust.\n    if CONFIG["OS_ARCH"] == "WINNT":\n        LDFLAGS += [\n            "{yy_synch}",\n            "{narrow}",\n            "-VERBOSE",\n        ]\n'''
+          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff -- toolkit\library\moz.build | Tee-Object -FilePath thunk-libxul-patch.diff
+          git diff --check -- toolkit/library/moz.build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $patch = Get-Content 'thunk-libxul-patch.diff' -Raw
+          if ($patch.IndexOf($env:THUNK_YY_KERNEL32_LIB, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw 'Invariant violation: full YY kernel32.lib was injected into libxul link'
+          }
+
+      - name: Write thunk experiment mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-thunk-win64
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=x86_64
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --disable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --disable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-gost-thunk'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure ordinary Tier-1 Rust build
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = .\mach.ps1 configure 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | Tee-Object -FilePath configure-thunk.log
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = $output -join "`n"
+          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+x86_64-pc-windows-msvc') {
+            throw 'Thunk experiment did not use the ordinary x86_64-pc-windows-msvc Rust target.'
+          }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C 'obj-gost-thunk-win64' recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C 'obj-gost-thunk-win64' recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile security manager SSL target objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C 'obj-gost-thunk-win64' 'security/manager/ssl/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build release r3dfox with narrow YY-Thunks linker path
+        id: build-release
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package thunk experiment
+        id: package-release
+        if: steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem 'obj-gost-thunk-win64\dist' -File |
+            Where-Object { $_.Name -match '\.(zip|7z)$' -or $_.Name -like '*.installer.exe' } |
+            Select-Object FullName,Length | Format-Table -AutoSize
+
+      - name: Upload thunk experiment package
+        id: upload-release
+        if: always() && steps.package-release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-win64-thunk-experiment
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            obj-gost-thunk-win64/dist/*.zip
+            obj-gost-thunk-win64/dist/*.7z
+            obj-gost-thunk-win64/dist/*.installer.exe
+
+      - name: Audit thunked xul.dll Win7 imports
+        id: win7-import-audit
+        if: always() && steps.package-release.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xul = 'obj-gost-thunk-win64\dist\bin\xul.dll'
+          if (-not (Test-Path $xul)) { throw "xul.dll not found: $xul" }
+
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
+          if (-not $dumpbin -or -not (Test-Path $dumpbin)) { throw 'Win7 import audit unavailable: dumpbin.exe was not found.' }
+
+          Write-Host "Using dumpbin: $dumpbin"
+          $imports = (& $dumpbin /nologo /imports $xul 2>&1 | Out-String)
+          $imports | Set-Content -Encoding utf8 xul-thunk-win7-imports.txt
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
+
+          $directDllImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $directApiImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $delayDllImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $delayApiImports = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $mode = 'direct'
+          foreach ($line in ($imports -split "`r?`n")) {
+            $entry = $line.Trim()
+            if ($entry -eq 'Section contains the following imports:') {
+              $mode = 'direct'
+              continue
+            }
+            if ($entry -eq 'Section contains the following delay load imports:') {
+              $mode = 'delay'
+              continue
+            }
+            if ($entry -match '^[A-Za-z0-9_.-]+\.dll$') {
+              if ($mode -eq 'delay') { [void]$delayDllImports.Add($entry) }
+              else { [void]$directDllImports.Add($entry) }
+              continue
+            }
+            if ($entry -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+              if ($mode -eq 'delay') { [void]$delayApiImports.Add($Matches[1]) }
+              else { [void]$directApiImports.Add($Matches[1]) }
+            }
+          }
+
+          @($directDllImports | Sort-Object) | Set-Content -Encoding utf8 xul-thunk-win7-direct-import-dlls.txt
+          @($directApiImports | Sort-Object) | Set-Content -Encoding utf8 xul-thunk-win7-direct-import-api-names.txt
+          @($delayDllImports | Sort-Object) | Set-Content -Encoding utf8 xul-thunk-win7-delay-import-dlls.txt
+          @($delayApiImports | Sort-Object) | Set-Content -Encoding utf8 xul-thunk-win7-delay-import-api-names.txt
+
+          $knownWin8Apis = @(
+            'ProcessPrng','WaitOnAddress','WakeByAddressAll','WakeByAddressSingle',
+            'GetSystemTimePreciseAsFileTime','GetOverlappedResultEx'
+          )
+          $knownWin8Dlls = @('bcryptprimitives.dll','api-ms-win-core-synch-l1-2-0.dll')
+
+          $directBlockers = @()
+          $directBlockers += @($knownWin8Apis | Where-Object { $directApiImports.Contains($_) })
+          $directBlockers += @($knownWin8Dlls | Where-Object { $directDllImports.Contains($_) })
+
+          $knownDelayImports = @()
+          $knownDelayImports += @($knownWin8Apis | Where-Object { $delayApiImports.Contains($_) })
+          $knownDelayImports += @($knownWin8Dlls | Where-Object { $delayDllImports.Contains($_) })
+
+          if ($directBlockers.Count -gt 0) {
+            $directBlockers | Set-Content -Encoding utf8 xul-thunk-win7-forbidden-direct-imports.txt
+            foreach ($symbol in $directBlockers) { Write-Warning "Win7 direct loader blocker still imported by thunked xul.dll: $symbol" }
+          } else {
+            'No known Win8+ direct imports from the exact parsed blacklist were found.' | Set-Content -Encoding utf8 xul-thunk-win7-direct-audit-result.txt
+          }
+
+          if ($knownDelayImports.Count -gt 0) {
+            $knownDelayImports | Set-Content -Encoding utf8 xul-thunk-win7-known-delay-imports.txt
+            foreach ($symbol in $knownDelayImports) { Write-Host "Known Win8+ API/DLL is delay-loaded, not a process-load blocker: $symbol" }
+          } else {
+            'No known Win8+ delay-load imports from the exact parsed blacklist were found.' | Set-Content -Encoding utf8 xul-thunk-win7-delay-audit-result.txt
+          }
+
+      - name: Upload thunk diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-gost-win64-thunk-diagnostics
+          if-no-files-found: warn
+          path: |
+            configure-thunk.log
+            thunk-rs-provision.log
+            thunk-rs-provision.stdout.log
+            thunk-rs-provision.stderr.log
+            thunk-libxul-patch.diff
+            xul-thunk-win7-imports.txt
+            xul-thunk-win7-direct-import-dlls.txt
+            xul-thunk-win7-direct-import-api-names.txt
+            xul-thunk-win7-delay-import-dlls.txt
+            xul-thunk-win7-delay-import-api-names.txt
+            xul-thunk-win7-forbidden-direct-imports.txt
+            xul-thunk-win7-known-delay-imports.txt
+            xul-thunk-win7-direct-audit-result.txt
+            xul-thunk-win7-delay-audit-result.txt
+            ${{ runner.temp }}/r3dfox-narrow-processprng/**
+
+      - name: GATE - Reject known direct Win8+ imports after artifacts are uploaded
+        if: always() && steps.package-release.outcome == 'success'
+        shell: powershell
+        run: |
+          if (Test-Path 'xul-thunk-win7-forbidden-direct-imports.txt') {
+            Get-Content 'xul-thunk-win7-forbidden-direct-imports.txt'
+            throw 'Release artifact was uploaded, but the Win7 direct-import gate failed.'
+          }

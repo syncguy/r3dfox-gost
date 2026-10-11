@@ -1,0 +1,113 @@
+name: "XP clang-cl -Oz preflight"
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "XP source branch or commit containing the probe script"
+        type: string
+        required: true
+        default: agent/winrt-source-poc
+
+permissions:
+  contents: read
+
+jobs:
+  clang-oz-preflight:
+    name: Firefox XP clang-cl 21.1.8 / Oz codegen
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-oz-preflight
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "i686-pc-windows-msvc"
+      RUSTFLAGS: "--cfg moz_xp_compat"
+
+    steps:
+      - name: Checkout XP source-under-test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Record exact source-under-test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          Write-Host "Workflow controller: ${{ github.sha }}"
+          Write-Host "XP source-under-test: $sha"
+          "XP source-under-test SHA: $sha" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          if (-not (Test-Path '.github\scripts\xp\test-clang-oz-preflight.ps1')) {
+            throw 'XP source-ref does not contain the clang-cl Oz preflight script'
+          }
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) {
+            throw 'MozillaBuild installation failed'
+          }
+
+      - name: Write isolated Firefox XP bootstrap mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-clang-oz-preflight
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --enable-application=browser
+          '@ | Set-Content -LiteralPath '.mozconfig-oz-preflight'
+
+      - name: Install only the exact Mozilla Windows clang toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mach = Join-Path $env:GITHUB_WORKSPACE 'mach.ps1'
+          $state = Join-Path $env:USERPROFILE '.mozbuild'
+          New-Item -ItemType Directory -Force -Path $state | Out-Null
+          Push-Location $state
+          try {
+            & $mach artifact toolchain --bootstrap --from-build win64-clang
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+          $compiler = Join-Path $state 'clang\bin\clang-cl.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) {
+            throw 'Mozilla win64-clang artifact did not install expected clang-cl.exe'
+          }
+
+      - name: GATE - Verify clang-cl Oz cc1 and C/C++ LLVM IR
+        shell: powershell
+        run: .\.github\scripts\xp\test-clang-oz-preflight.ps1
+
+      - name: Summary
+        if: success()
+        shell: powershell
+        run: |
+          'PASS: pinned clang-cl 21.1.8 accepts /clang:-Oz for C and C++; cc1 uses Oz and LLVM IR has minsize + optsize.' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          'No full Firefox build, PE packaging or physical XP runtime test was performed.' | Add-Content -Path $env:GITHUB_STEP_SUMMARY

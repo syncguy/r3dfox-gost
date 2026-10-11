@@ -5,7 +5,9 @@
 #include "sandboxTarget.h"
 
 #include "mozilla/CpuInfo.h"
+#include "mozilla/RandomNum.h"
 #include "mozilla/SandboxSettings.h"
+#include "mozilla/WindowsVersion.h"
 #include "sandbox/win/src/sandbox.h"
 
 namespace mozilla {
@@ -26,6 +28,12 @@ void SandboxTarget::StartSandbox() {
 }
 
 void SandboxTarget::LowerContentSandbox() {
+  if (!IsWin8OrLater()) {
+    uint64_t randomNumber;
+    // Initialize legacy RtlGenRandom state before applying the lockdown token.
+    (void)GenerateRandomBytesFromOS(&randomNumber, sizeof(randomNumber));
+  }
+
   if (GetEffectiveContentSandboxLevel() > 7) {
     // Libraries required by Network Security Services (NSS).
     ::LoadLibraryW(L"freebl3.dll");
