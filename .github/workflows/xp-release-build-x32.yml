@@ -207,7 +207,7 @@ jobs:
           ac_add_options --enable-hardening
           ac_add_options --enable-stl-hardening
           ac_add_options --enable-jemalloc
-          ac_add_options --enable-optimize
+          ac_add_options --enable-optimize="-O2 /clang:-Oz"
           ac_add_options --enable-release
           ac_add_options --enable-rust-simd
           ac_add_options --enable-replace-malloc
