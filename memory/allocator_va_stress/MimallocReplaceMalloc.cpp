@@ -154,7 +154,20 @@ MOZ_EXPORT unsigned allocator_va_stress_replace_probe(
 
 MOZ_EXPORT void replace_init(malloc_table_t* aTable,
                              ReplaceMallocBridge** aBridge) {
+  *aBridge = nullptr;
   gOriginal = *aTable;
+
+  // Firefox calls jemalloc_set_main_thread() during early startup, even when
+  // ordinary allocations are redirected to a replacement allocator. Native
+  // mozjemalloc initializes gArenas (including its Windows CRITICAL_SECTION)
+  // lazily on the first native malloc. Prime it before installing mimalloc:
+  // otherwise the startup call may lock an uninitialized gArenas.mLock.
+  void* nativeProbe = gOriginal.malloc(1);
+  if (!nativeProbe) {
+    // Leave the original table untouched if native initialization failed.
+    return;
+  }
+  gOriginal.free(nativeProbe);
   gInitialized = true;
 
   aTable->malloc = replace_malloc;
