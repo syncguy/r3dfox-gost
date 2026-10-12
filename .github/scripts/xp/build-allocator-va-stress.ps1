@@ -301,6 +301,20 @@ function Build-MimallocVariant(
     throw "$Label harness link failed: $LASTEXITCODE"
   }
 
+  # XP dynamically loads replacement DLLs via LoadLibraryW. Use Win32
+  # TlsAlloc-backed heap slots in the DLL rather than compiler static TLS,
+  # which is not reliably initialized for LoadLibrary-loaded DLLs on XP.
+  # Build a separate mimalloc object: standalone EXE behavior is unchanged.
+  $glueObj = Join-Path $env:RUNNER_TEMP "$Label-mimalloc-glue-fixed-tls.obj"
+  $glueCompileArgs = @($compileArgs)
+  $glueCompileArgs = @($glueCompileArgs | Where-Object { $_ -notmatch '^/Fo:' })
+  $glueCompileArgs += '/DMI_WIN_USE_FIXED_TLS=1'
+  $glueCompileArgs += "/Fo:$glueObj"
+  & cl.exe @glueCompileArgs 2>&1 | Tee-Object -FilePath (Join-Path $diag "$Label-glue-fixed-tls-compile.txt")
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label fixed-TLS mimalloc DLL object compile failed: $LASTEXITCODE"
+  }
+
   $glue = Join-Path $runtime $GlueName
   $glueSource = Join-Path $env:GITHUB_WORKSPACE 'memory\allocator_va_stress\MimallocReplaceMalloc.cpp'
   $mozillaInclude = Join-Path $env:GITHUB_WORKSPACE 'obj-memory-va-stock\dist\include'
@@ -324,11 +338,11 @@ EXPORTS
     '/nologo','/O2','/EHsc','/MD','/std:c++20','/LD','-m32',
     '/DNDEBUG','/DMI_DEBUG=0',
     '-fms-compatibility-version=19.50',
-    '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
+    '/DMI_STATIC_LIB','/DMI_XP_COMPAT=1','/DMI_WIN_USE_FIXED_TLS=1','/D_WIN32_WINNT=0x0501','/DWINVER=0x0501',
     "/I$mimallocRoot\include",
     "/I$mozillaInclude",
     "/I$memoryBuildInclude",
-    $glueSource,$obj,
+    $glueSource,$glueObj,
     '/link','/SUBSYSTEM:WINDOWS,5.01','/LARGEADDRESSAWARE','advapi32.lib',
     "/DEF:$defPath",
     "/OUT:$glue"
