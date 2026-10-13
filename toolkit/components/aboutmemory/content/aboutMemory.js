@@ -728,7 +728,8 @@ async function doXPUnloadAllWebTabs(button, status) {
     } else {
       status.textContent =
         `Unloaded: ${result.unloaded}/${result.found}; failed: ${result.failed}; ` +
-        `state-flush timeouts: ${result.timedOut}. ` +
+        `flush timeouts: ${result.timedOut}; flush errors: ${result.flushFailed}; ` +
+        `missing restore state: ${result.missingState}. ` +
         "Check the shared web PID; child-process exit is not guaranteed.";
     }
   } catch (ex) {
