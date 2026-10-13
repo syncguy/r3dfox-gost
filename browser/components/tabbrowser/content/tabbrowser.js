@@ -3129,11 +3129,14 @@
       await this.TabStateFlusher.flush(browser);
     }
 
-    discardBrowser(aTab, aForceDiscard, aSkipPermitUnload) {
+    discardBrowser(aTab, aForceDiscard, aSkipPermitUnload, aIsCurrentOperation) {
       "use strict";
       let browser = aTab.linkedBrowser;
 
       if (!this._mayDiscardBrowser(aTab, aForceDiscard, aSkipPermitUnload)) {
+        return false;
+      }
+      if (aIsCurrentOperation && !aIsCurrentOperation()) {
         return false;
       }
 
