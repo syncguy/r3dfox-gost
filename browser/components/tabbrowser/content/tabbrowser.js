@@ -3074,30 +3074,37 @@
     }
 
     _mayDiscardBrowser(aTab, aForceDiscard, aSkipPermitUnload = false) {
+      if (!aTab) {
+        return false;
+      }
       let browser = aTab.linkedBrowser;
+      let frameLoader = browser?.frameLoader;
       let action = aForceDiscard ? "unload" : "dontUnload";
-      // The bypass is inert outside the explicitly enabled XP hybrid mode.
       let bypassPermitUnload =
         aForceDiscard &&
         aSkipPermitUnload &&
         this.XPBrowserProcessPolicy.enabled;
+      const isCurrent = () =>
+        !aTab.selected &&
+        !aTab.closing &&
+        !(bypassPermitUnload && aTab.splitview?.hasActiveTab) &&
+        !this.#windowIsClosing &&
+        aTab.linkedBrowser === browser &&
+        browser?.isConnected &&
+        browser.isRemoteBrowser &&
+        browser.frameLoader === frameLoader;
 
-      if (
-        !aTab ||
-        aTab.selected ||
-        aTab.closing ||
-        this.#windowIsClosing ||
-        !browser.isConnected ||
-        !browser.isRemoteBrowser ||
-        // Never synchronously wait for beforeunload IPC from a hung web
-        // child during the explicit XP manual-recovery action.
-        (!bypassPermitUnload && !browser.permitUnload(action).permitUnload)
-      ) {
+      if (!isCurrent()) {
+        return false;
+      }
+      // permitUnload can spin the parent event loop and allow nested discard.
+      if (!bypassPermitUnload && !browser.permitUnload(action).permitUnload) {
+        return false;
+      }
+      if (!isCurrent()) {
         return false;
       }
 
-      // discarding a browser will dismiss any dialogs, so don't
-      // allow this unless we're forcing it.
       if (
         !aForceDiscard &&
         this.getTabDialogBox(browser)._tabDialogManager._dialogs.length
