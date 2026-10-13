@@ -91,6 +91,7 @@
 #include "nsSandboxFlags.h"
 #include "nsScriptSecurityManager.h"
 #include "nsSerializationHelper.h"
+#include "nsString.h"
 
 using namespace mozilla::ipc;
 using namespace mozilla::dom::ipc;
