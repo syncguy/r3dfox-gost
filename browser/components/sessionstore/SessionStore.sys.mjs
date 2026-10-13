@@ -1851,7 +1851,11 @@ var SessionStoreInternal = {
     // A discarded tab reuses its browser and permanentKey on lazy restore.
     // XP teardown callbacks must not resolve new-generation flushes or
     // unregister listeners created after the old WindowGlobal was destroyed.
-    if (originatingWindowId && browser.isConnected) {
+    if (
+      originatingWindowId &&
+      browser.ownerGlobal?.gBrowser?.XPBrowserProcessPolicy?.enabled &&
+      browser.isConnected
+    ) {
       const current = browser.browsingContext?.currentWindowGlobal;
       if (
         !current ||
