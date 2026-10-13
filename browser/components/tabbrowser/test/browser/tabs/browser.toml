@@ -765,6 +765,8 @@ skip-if = [
   "os == 'win' && opt",
 ]
 
+["browser_xp_manual_web_tab_drain_gate.js"]
+
 ["browser_window_open_modifiers.js"]
 support-files = ["file_window_open.html"]
 tags = "vertical-tabs"
