@@ -3076,6 +3076,11 @@
     _mayDiscardBrowser(aTab, aForceDiscard, aSkipPermitUnload = false) {
       let browser = aTab.linkedBrowser;
       let action = aForceDiscard ? "unload" : "dontUnload";
+      // The bypass is inert outside the explicitly enabled XP hybrid mode.
+      let bypassPermitUnload =
+        aForceDiscard &&
+        aSkipPermitUnload &&
+        this.XPBrowserProcessPolicy.enabled;
 
       if (
         !aTab ||
@@ -3084,11 +3089,9 @@
         this.#windowIsClosing ||
         !browser.isConnected ||
         !browser.isRemoteBrowser ||
-        // Explicit XP recovery must not synchronously spin the parent's
-        // event loop waiting for beforeunload IPC from a hung web child.
-        // All existing callers retain the original permitUnload check.
-        !(aForceDiscard && aSkipPermitUnload) &&
-          !browser.permitUnload(action).permitUnload
+        // Never synchronously wait for beforeunload IPC from a hung web
+        // child during the explicit XP manual-recovery action.
+        (!bypassPermitUnload && !browser.permitUnload(action).permitUnload)
       ) {
         return false;
       }
