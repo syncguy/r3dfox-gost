@@ -3073,7 +3073,7 @@
       }
     }
 
-    _mayDiscardBrowser(aTab, aForceDiscard) {
+    _mayDiscardBrowser(aTab, aForceDiscard, aSkipPermitUnload = false) {
       let browser = aTab.linkedBrowser;
       let action = aForceDiscard ? "unload" : "dontUnload";
 
@@ -3084,7 +3084,11 @@
         this.#windowIsClosing ||
         !browser.isConnected ||
         !browser.isRemoteBrowser ||
-        !browser.permitUnload(action).permitUnload
+        // Explicit XP recovery must not synchronously spin the parent's
+        // event loop waiting for beforeunload IPC from a hung web child.
+        // All existing callers retain the original permitUnload check.
+        !(aForceDiscard && aSkipPermitUnload) &&
+          !browser.permitUnload(action).permitUnload
       ) {
         return false;
       }
@@ -3115,11 +3119,11 @@
       await this.TabStateFlusher.flush(browser);
     }
 
-    discardBrowser(aTab, aForceDiscard) {
+    discardBrowser(aTab, aForceDiscard, aSkipPermitUnload = false) {
       "use strict";
       let browser = aTab.linkedBrowser;
 
-      if (!this._mayDiscardBrowser(aTab, aForceDiscard)) {
+      if (!this._mayDiscardBrowser(aTab, aForceDiscard, aSkipPermitUnload)) {
         return false;
       }
 
