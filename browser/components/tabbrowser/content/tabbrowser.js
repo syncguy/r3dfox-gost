@@ -3129,7 +3129,7 @@
       await this.TabStateFlusher.flush(browser);
     }
 
-    discardBrowser(aTab, aForceDiscard, aSkipPermitUnload = false) {
+    discardBrowser(aTab, aForceDiscard, aSkipPermitUnload) {
       "use strict";
       let browser = aTab.linkedBrowser;
 
