@@ -1429,8 +1429,16 @@ void WindowGlobalParent::NotifySessionStoreUpdatesComplete(Element* aEmbedder) {
   }
   if (aEmbedder) {
     if (nsCOMPtr<nsIObserverService> obs = services::GetObserverService()) {
+#ifdef MOZ_XP_COMPAT
+      nsAutoString originWindowId;
+      originWindowId.AppendInt(InnerWindowId());
+      obs->NotifyWhenScriptSafe(ToSupports(aEmbedder),
+                                "browser-shutdown-tabstate-updated",
+                                originWindowId.get());
+#else
       obs->NotifyWhenScriptSafe(ToSupports(aEmbedder),
                                 "browser-shutdown-tabstate-updated", nullptr);
+#endif
     }
   }
 }
