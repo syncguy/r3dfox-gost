@@ -303,6 +303,8 @@ let DefaultTabUnloaderMethods = {
  */
 export var TabUnloader = {
   _isUnloading: false,
+  _automaticUnloading: false,
+  _xpManualWebDrainInProgress: false,
 
   /**
    * Initialize low-memory detection and tab auto-unloading.
@@ -572,10 +574,13 @@ export var TabUnloader = {
       throw new Error("XP hybrid web-tab recovery is not enabled");
     }
 
-    if (this._isUnloading) {
+    // A hung automatic unload may already hold _isUnloading while awaiting
+    // child IPC. The explicit rescue must be able to preempt that wait.
+    if (this._xpManualWebDrainInProgress) {
       return { busy: true, found: 0, unloaded: 0, failed: 0, timedOut: 0 };
     }
 
+    this._xpManualWebDrainInProgress = true;
     this._isUnloading = true;
     const result = { busy: false, found: 0, unloaded: 0, failed: 0, timedOut: 0 };
 
@@ -666,7 +671,8 @@ export var TabUnloader = {
 
       return result;
     } finally {
-      this._isUnloading = false;
+      this._xpManualWebDrainInProgress = false;
+      this._isUnloading = this._automaticUnloading;
     }
   },
 
@@ -690,6 +696,7 @@ export var TabUnloader = {
     }
 
     let isTabUnloaded = false;
+    this._automaticUnloading = true;
     this._isUnloading = true;
 
     try {
@@ -699,7 +706,8 @@ export var TabUnloader = {
     } catch (ex) {
       Cu.reportError(ex);
     } finally {
-      this._isUnloading = false;
+      this._automaticUnloading = false;
+      this._isUnloading = this._xpManualWebDrainInProgress;
       watcher.onUnloadAttemptCompleted(
         isTabUnloaded ? Cr.NS_OK : Cr.NS_ERROR_NOT_AVAILABLE
       );
