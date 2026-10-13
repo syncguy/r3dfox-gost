@@ -2006,6 +2006,15 @@ var SessionStoreInternal = {
       case "TabClose":
         // `adoptedBy` will be set if the tab was closed because it is being
         // moved to a new window.
+        if (!aEvent.detail.adoptedBy) {
+          const browser = target.linkedBrowser;
+          if (
+            browser?.isConnected &&
+            this._xpFinalOwnerByKey.has(browser.permanentKey)
+          ) {
+            this._xpRememberFinalOwner(browser);
+          }
+        }
         if (aEvent.detail.adoptedBy) {
           this.moveCustomTabValue(target, aEvent.detail.adoptedBy);
           this.onMoveToNewWindow(
@@ -2506,6 +2515,14 @@ var SessionStoreInternal = {
     var tabbrowser = aWindow.gBrowser;
 
     let browsers = Array.from(tabbrowser.browsers);
+    for (const browser of browsers) {
+      if (
+        browser.isConnected &&
+        this._xpFinalOwnerByKey.has(browser.permanentKey)
+      ) {
+        this._xpRememberFinalOwner(browser);
+      }
+    }
 
     TAB_EVENTS.forEach(function (aEvent) {
       tabbrowser.tabContainer.removeEventListener(aEvent, this, true);
@@ -3406,10 +3423,6 @@ var SessionStoreInternal = {
    *        Tab reference
    */
   onTabClose: function ssi_onTabClose(aWindow, aTab) {
-    const browser = aTab.linkedBrowser;
-    if (this._xpFinalOwnerByKey.has(browser.permanentKey) && browser.isConnected) {
-      this._xpRememberFinalOwner(browser);
-    }
     // don't update our internal state if we don't have to
     if (this._max_tabs_undo == 0) {
       return;
