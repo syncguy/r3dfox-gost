@@ -70,9 +70,15 @@ add_task(async function test_manual_drain_across_windows_on_xp_hybrid() {
     );
     ok(pinned.pinned, "Pinned status survived the manual drain");
 
+    const restored = BrowserTestUtils.browserLoaded(
+      tab.linkedBrowser,
+      false,
+      url
+    );
     await BrowserTestUtils.switchTab(gBrowser, tab);
-    await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+    await restored;
     ok(tab.linkedPanel, "A lazy tab can be restored after the drain");
+    is(tab.linkedBrowser.currentURI.spec, url, "Restored tab retains its URL");
   } finally {
     if (secondWindow && !secondWindow.closed) {
       await BrowserTestUtils.closeWindow(secondWindow);
