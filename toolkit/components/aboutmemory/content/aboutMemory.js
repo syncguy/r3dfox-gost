@@ -546,6 +546,42 @@ window.onload = function () {
   appendButton(row3, CCDesc, doCC, "CC");
   appendButton(row3, MMDesc, doMMU, "Minimize memory usage");
 
+  // The manual tab-drain control is restricted to the XP hybrid mode.
+  // It is intentionally independent from the system memory-pressure watcher.
+  if (Services.appinfo.OS == "WINNT") {
+    const { XPBrowserProcessPolicy } = ChromeUtils.importESModule(
+      "resource:///modules/XPBrowserProcessPolicy.sys.mjs"
+    );
+    if (XPBrowserProcessPolicy.enabled) {
+      const xpRow = appendElement(ops, "div", "opsRow");
+      const xpLabel = appendElementWithText(
+        xpRow,
+        "div",
+        "opsRowLabel",
+        "XP memory protection"
+      );
+      xpLabel.setAttribute("role", "heading");
+      xpLabel.setAttribute("aria-level", "1");
+
+      const xpStatus = appendElementWithText(
+        xpRow,
+        "span",
+        "",
+        "Manual recovery for the shared web process."
+      );
+      xpStatus.id = "xpUnloadAllWebTabsStatus";
+
+      const xpButton = appendButton(
+        xpRow,
+        "Unload all live ordinary web tabs in every browser window. " +
+          "Unsaved form content or page state may be lost.",
+        () => doXPUnloadAllWebTabs(xpButton, xpStatus),
+        "Unload all web tabs",
+        "xpUnloadAllWebTabsButton"
+      );
+    }
+  }
+
   let row4 = appendElement(ops, "div", "opsRow");
 
   let labelDiv4 = appendElementWithText(
@@ -667,6 +703,40 @@ function doMMU() {
       HIDE_FOOTER
     )
   );
+}
+
+async function doXPUnloadAllWebTabs(button, status) {
+  if (
+    !window.confirm(
+      "Unload all live web tabs in every window? " +
+        "This can discard unsaved forms, media and JavaScript state. " +
+        "Tabs stay in the tab bar and can be reopened by selecting them."
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+  status.textContent = "Unloading web tabs...";
+  try {
+    const { TabUnloader } = ChromeUtils.importESModule(
+      "resource:///modules/TabUnloader.sys.mjs"
+    );
+    const result = await TabUnloader.unloadAllWebTabsForXP();
+    if (result.busy) {
+      status.textContent = "A tab-unload operation is already running.";
+    } else {
+      status.textContent =
+        `Unloaded: ${result.unloaded}/${result.found}; failed: ${result.failed}; ` +
+        `state-flush timeouts: ${result.timedOut}. ` +
+        "Check the shared web PID; child-process exit is not guaranteed.";
+    }
+  } catch (ex) {
+    Cu.reportError(ex);
+    status.textContent = `Web-tab unload failed: ${ex}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function doMeasure() {
