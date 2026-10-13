@@ -1681,8 +1681,9 @@ var SessionStoreInternal = {
         break;
       }
       case "browser-shutdown-tabstate-updated":
-        this.onFinalTabStateUpdateComplete(aSubject);
-        this._notifyOfClosedObjectsChange();
+        if (this.onFinalTabStateUpdateComplete(aSubject, aData)) {
+          this._notifyOfClosedObjectsChange();
+        }
         break;
     }
   },
@@ -1846,7 +1847,19 @@ var SessionStoreInternal = {
     }
   },
 
-  onFinalTabStateUpdateComplete(browser) {
+  onFinalTabStateUpdateComplete(browser, originatingWindowId = null) {
+    // A discarded tab reuses its browser and permanentKey on lazy restore.
+    // XP teardown callbacks must not resolve new-generation flushes or
+    // unregister listeners created after the old WindowGlobal was destroyed.
+    if (originatingWindowId && browser.isConnected) {
+      const current = browser.browsingContext?.currentWindowGlobal;
+      if (
+        !current ||
+        String(current.innerWindowId) !== originatingWindowId
+      ) {
+        return false;
+      }
+    }
     let permanentKey = browser.permanentKey;
     if (
       this._closingTabMap.has(permanentKey) &&
@@ -1891,6 +1904,7 @@ var SessionStoreInternal = {
     this._restoreListeners.get(permanentKey)?.unregister();
 
     Services.obs.notifyObservers(browser, NOTIFY_BROWSER_SHUTDOWN_FLUSH);
+    return true;
   },
 
   updateSessionStoreFromTablistener(
