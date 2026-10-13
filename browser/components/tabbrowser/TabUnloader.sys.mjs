@@ -4,6 +4,8 @@
 
 import { PrivateBrowsingUtils } from "resource://gre/modules/PrivateBrowsingUtils.sys.mjs";
 import { webrtcUI } from "resource:///modules/webrtcUI.sys.mjs";
+import { XPBrowserProcessPolicy } from "resource:///modules/XPBrowserProcessPolicy.sys.mjs";
+import { setTimeout, clearTimeout } from "resource://gre/modules/Timer.sys.mjs";
 
 /*
  * TabUnloader is used to discard tabs when memory or resource constraints
@@ -547,6 +549,124 @@ export var TabUnloader = {
       skipAnimation: true,
     });
     return this.markRecoveryTab(gBrowser, newTab, tabToReplace);
+  },
+
+  /**
+   * Explicit Windows XP hybrid recovery action from about:memory.
+   *
+   * Unlike low-memory automatic unloading, this intentionally drains ALL
+   * live ordinary "web" tabs in ALL windows, including selected, pinned,
+   * private, media and WebRTC tabs. No inactivity threshold applies.
+   *
+   * The user must confirm possible loss of unsaved page state in the UI.
+   * This is not a child-process termination API: it uses the existing
+   * SessionStore lazy-tab path and lets normal process lifecycle retire
+   * the shared child when no other consumers remain.
+   *
+   * A hung web process may never reply to TabStateFlusher.flush(). Bound the
+   * wait, then use the latest cached SessionStore state, never blocking on
+   * beforeunload IPC. The parent process remains responsible for cleanup.
+   */
+  async unloadAllWebTabsForXP() {
+    if (!XPBrowserProcessPolicy.enabled) {
+      throw new Error("XP hybrid web-tab recovery is not enabled");
+    }
+
+    if (this._isUnloading) {
+      return { busy: true, found: 0, unloaded: 0, failed: 0, timedOut: 0 };
+    }
+
+    this._isUnloading = true;
+    const result = { busy: false, found: 0, unloaded: 0, failed: 0, timedOut: 0 };
+
+    const isLiveWebTab = tab =>
+      !tab.closing &&
+      tab.linkedBrowser?.isConnected &&
+      tab.linkedBrowser?.isRemoteBrowser &&
+      tab.linkedBrowser?.remoteType === "web";
+
+    try {
+      const candidates = [...DefaultTabUnloaderMethods.iterateTabs()].filter(
+        ({ tab }) => isLiveWebTab(tab)
+      );
+      result.found = candidates.length;
+
+      // Move the selected tab in every affected window to a lightweight
+      // recovery tab. Otherwise discardBrowser() refuses the selected tab
+      // or immediately restores the exhausted "web" generation.
+      for (const { tab, gBrowser } of candidates) {
+        if (!tab.selected || !isLiveWebTab(tab)) {
+          continue;
+        }
+        try {
+          const recoveryTab = this.getOrCreateRecoveryTab(gBrowser, tab);
+          if (recoveryTab && recoveryTab !== tab) {
+            gBrowser.selectedTab = recoveryTab;
+          }
+        } catch (ex) {
+          Cu.reportError(ex);
+        }
+      }
+
+      // Flush tabs concurrently so a single hung shared child costs at most
+      // one bounded wait, not timeout * number-of-tabs. The per-tab timeout
+      // does not cancel an in-flight flush; late results are safely ignored.
+      const FLUSH_TIMEOUT_MS = 2000;
+      const flushOutcomes = await Promise.all(
+        candidates.map(async ({ tab, gBrowser }) => {
+          if (!isLiveWebTab(tab) || tab.selected) {
+            return "skipped";
+          }
+          let timer;
+          try {
+            return await Promise.race([
+              Promise.resolve()
+                .then(() => gBrowser.prepareDiscardBrowser(tab))
+                .then(
+                  () => "flushed",
+                  ex => {
+                    Cu.reportError(ex);
+                    return "failed";
+                  }
+                ),
+              new Promise(resolve => {
+                timer = setTimeout(() => resolve("timeout"), FLUSH_TIMEOUT_MS);
+              }),
+            ]);
+          } finally {
+            clearTimeout(timer);
+          }
+        })
+      );
+
+      for (let i = 0; i < candidates.length; i++) {
+        const { tab, gBrowser } = candidates[i];
+        if (!isLiveWebTab(tab) || tab.selected) {
+          result.failed++;
+          continue;
+        }
+        if (flushOutcomes[i] === "timeout") {
+          result.timedOut++;
+        }
+        // Last argument bypasses synchronous beforeunload IPC ONLY for this
+        // explicit manual recovery operation; default browser calls keep it.
+        try {
+          if (gBrowser.discardBrowser(tab, true, true)) {
+            tab.updateLastUnloadedByTabUnloader?.();
+            result.unloaded++;
+          } else {
+            result.failed++;
+          }
+        } catch (ex) {
+          result.failed++;
+          Cu.reportError(ex);
+        }
+      }
+
+      return result;
+    } finally {
+      this._isUnloading = false;
+    }
   },
 
   // This method is exposed on nsITabUnloader.
