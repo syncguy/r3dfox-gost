@@ -677,7 +677,7 @@ export var TabUnloader = {
         const cache = TabStateCache.get(browser.permanentKey);
         if (
           !cache?.history?.entries?.some(entry => entry?.url) &&
-          !cache?.userTypedValue
+          !(cache?.userTypedValue && cache?.userTypedClear)
         ) {
           result.missingState++;
           result.failed++;
@@ -907,7 +907,7 @@ export var TabUnloader = {
         continue;
       }
 
-      if (gBrowser.discardBrowser(tab)) {
+      if (gBrowser.discardBrowser(tab, false, false, isCurrentOperation)) {
         Services.console.logStringMessage(
           `TabUnloader discarded <${remoteType}>`
         );
