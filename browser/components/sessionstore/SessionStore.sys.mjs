@@ -1085,6 +1085,29 @@ var SessionStoreInternal = {
   // properly handle final update message.
   _closingTabMap: new WeakMap(),
 
+  _xpFinalOwnerByKey: new WeakMap(),
+
+  _xpRememberFinalOwner(browser) {
+    if (!XPBrowserProcessPolicy.enabled || !browser?.permanentKey) {
+      return;
+    }
+    const id = browser.browsingContext?.currentWindowGlobal?.innerWindowId;
+    this._xpFinalOwnerByKey.set(
+      browser.permanentKey,
+      id == null ? null : String(id)
+    );
+  },
+
+  _xpInvalidateFinalOwner(browser) {
+    if (
+      XPBrowserProcessPolicy.enabled &&
+      browser?.permanentKey &&
+      this._xpFinalOwnerByKey.has(browser.permanentKey)
+    ) {
+      this._xpFinalOwnerByKey.set(browser.permanentKey, null);
+    }
+  },
+
   // A map (xul:browser -> object) that maps a browser associated with a
   // recently closed tab due to a window closure to the tab state information
   // that is being stored in _closedWindows for that tab.
@@ -1851,17 +1874,17 @@ var SessionStoreInternal = {
     // A discarded tab reuses its browser and permanentKey on lazy restore.
     // XP teardown callbacks must not resolve new-generation flushes or
     // unregister listeners created after the old WindowGlobal was destroyed.
-    if (
-      originatingWindowId &&
-      browser.ownerGlobal?.gBrowser?.XPBrowserProcessPolicy?.enabled &&
-      browser.isConnected
-    ) {
-      const current = browser.browsingContext?.currentWindowGlobal;
-      if (
-        !current ||
-        String(current.innerWindowId) !== originatingWindowId
-      ) {
-        return false;
+    if (originatingWindowId && XPBrowserProcessPolicy.enabled) {
+      const key = browser.permanentKey;
+      if (this._xpFinalOwnerByKey.has(key)) {
+        if (this._xpFinalOwnerByKey.get(key) !== originatingWindowId) {
+          return false;
+        }
+      } else if (browser.isConnected) {
+        const current = browser.browsingContext?.currentWindowGlobal;
+        if (!current || String(current.innerWindowId) !== originatingWindowId) {
+          return false;
+        }
       }
     }
     let permanentKey = browser.permanentKey;
@@ -2046,6 +2069,7 @@ var SessionStoreInternal = {
           target.frameLoader &&
           target.permanentKey
         ) {
+          this._xpInvalidateFinalOwner(target);
           this.resetEpoch(target.permanentKey, target.frameLoader);
         }
         break;
@@ -3336,6 +3360,7 @@ var SessionStoreInternal = {
    */
   onTabBrowserInserted: function ssi_onTabBrowserInserted(aWindow, aTab) {
     let browser = aTab.linkedBrowser;
+    this._xpInvalidateFinalOwner(browser);
     browser.addEventListener("SwapDocShells", this);
     browser.addEventListener("oop-browser-crashed", this);
     browser.addEventListener("oop-browser-buildid-mismatch", this);
@@ -3381,6 +3406,10 @@ var SessionStoreInternal = {
    *        Tab reference
    */
   onTabClose: function ssi_onTabClose(aWindow, aTab) {
+    const browser = aTab.linkedBrowser;
+    if (this._xpFinalOwnerByKey.has(browser.permanentKey) && browser.isConnected) {
+      this._xpRememberFinalOwner(browser);
+    }
     // don't update our internal state if we don't have to
     if (this._max_tabs_undo == 0) {
       return;
@@ -3582,6 +3611,7 @@ var SessionStoreInternal = {
       return;
     }
 
+    this._xpRememberFinalOwner(browser);
     this.cleanUpRemovedBrowser(aTab);
 
     aTab.setAttribute("pending", "true");
