@@ -630,6 +630,7 @@ export var TabUnloader = {
                   }
                 ),
               new Promise(resolve => {
+                // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
                 timer = setTimeout(() => resolve("timeout"), FLUSH_TIMEOUT_MS);
               }),
             ]);
