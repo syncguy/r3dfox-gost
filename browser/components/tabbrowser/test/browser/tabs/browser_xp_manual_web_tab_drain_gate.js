@@ -3,24 +3,87 @@
 
 "use strict";
 
-// The manual shared-web drain is an XP hybrid-only feature. Running this test
-// on standard e10s/non-hybrid CI must not discard any tabs.
-add_task(async function test_xp_manual_drain_not_available_in_other_modes() {
-  const { XPBrowserProcessPolicy } = ChromeUtils.importESModule(
-    "resource:///modules/XPBrowserProcessPolicy.sys.mjs"
-  );
-  const { TabUnloader } = ChromeUtils.importESModule(
-    "resource:///modules/TabUnloader.sys.mjs"
-  );
+const { XPBrowserProcessPolicy } = ChromeUtils.importESModule(
+  "resource:///modules/XPBrowserProcessPolicy.sys.mjs"
+);
+const { TabUnloader } = ChromeUtils.importESModule(
+  "resource:///modules/TabUnloader.sys.mjs"
+);
 
+add_task(async function test_manual_drain_rejects_non_hybrid_mode() {
   if (XPBrowserProcessPolicy.enabled) {
-    info("XP hybrid drain is enabled; exercise full behavior on physical XP.");
     return;
   }
-
   await Assert.rejects(
     TabUnloader.unloadAllWebTabsForXP(),
     /XP hybrid web-tab recovery is not enabled/,
-    "Outside XP hybrid mode, the manual drain must reject without side effects"
+    "Manual all-web drain must have no effect outside XP hybrid mode"
   );
+});
+
+add_task(async function test_manual_drain_across_windows_on_xp_hybrid() {
+  if (!XPBrowserProcessPolicy.enabled) {
+    return;
+  }
+
+  const url =
+    "http://mochi.test:8888/browser/browser/components/tabbrowser/test/browser/tabs/blank.html";
+  const originalSelected = gBrowser.selectedTab;
+  const tab = BrowserTestUtils.addTab(gBrowser, url);
+  const pinned = BrowserTestUtils.addTab(gBrowser, url);
+  let secondWindow;
+
+  try {
+    await Promise.all([
+      BrowserTestUtils.browserLoaded(tab.linkedBrowser),
+      BrowserTestUtils.browserLoaded(pinned.linkedBrowser),
+    ]);
+    gBrowser.pinTab(pinned);
+
+    secondWindow = await BrowserTestUtils.openNewBrowserWindow();
+    const remoteInSecondWindow = BrowserTestUtils.addTab(
+      secondWindow.gBrowser,
+      url
+    );
+    await BrowserTestUtils.browserLoaded(remoteInSecondWindow.linkedBrowser);
+    secondWindow.gBrowser.selectedTab = remoteInSecondWindow;
+
+    for (const candidate of [tab, pinned, remoteInSecondWindow]) {
+      is(
+        candidate.linkedBrowser.remoteType,
+        "web",
+        "XP hybrid test uses real web-process tabs"
+      );
+    }
+
+    const result = await TabUnloader.unloadAllWebTabsForXP();
+    ok(!result.busy, "Manual drain is not blocked");
+    is(result.failed, 0, "All test web tabs had recoverable state");
+    ok(result.unloaded >= 3, "At least the three test web tabs unloaded");
+
+    for (const candidate of [tab, pinned, remoteInSecondWindow]) {
+      ok(!candidate.linkedPanel, "Unloaded tab retains its lazy restore slot");
+    }
+    ok(
+      !secondWindow.gBrowser.selectedTab.linkedBrowser.isRemoteBrowser,
+      "The selected second-window recovery tab resides in the parent"
+    );
+    ok(pinned.pinned, "Pinned status survived the manual drain");
+
+    await BrowserTestUtils.switchTab(gBrowser, tab);
+    await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+    ok(tab.linkedPanel, "A lazy tab can be restored after the drain");
+  } finally {
+    if (secondWindow && !secondWindow.closed) {
+      await BrowserTestUtils.closeWindow(secondWindow);
+    }
+    for (const candidate of [tab, pinned]) {
+      if (!candidate.closing && candidate.parentNode) {
+        BrowserTestUtils.removeTab(candidate);
+      }
+    }
+    if (!originalSelected.closing && originalSelected.parentNode) {
+      gBrowser.selectedTab = originalSelected;
+    }
+  }
 });
