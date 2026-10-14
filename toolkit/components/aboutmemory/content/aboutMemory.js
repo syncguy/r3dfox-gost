@@ -720,7 +720,7 @@ async function doXPUnloadAllWebTabs(button, status) {
   status.textContent = "Unloading web tabs...";
   try {
     const { TabUnloader } = ChromeUtils.importESModule(
-      "resource:///modules/TabUnloader.sys.mjs"
+      "moz-src:///browser/components/tabbrowser/TabUnloader.sys.mjs"
     );
     const result = await TabUnloader.unloadAllWebTabsForXP();
     if (result.busy) {
