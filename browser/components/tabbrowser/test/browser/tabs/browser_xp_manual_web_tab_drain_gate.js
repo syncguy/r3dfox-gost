@@ -7,7 +7,7 @@ const { XPBrowserProcessPolicy } = ChromeUtils.importESModule(
   "resource:///modules/XPBrowserProcessPolicy.sys.mjs"
 );
 const { TabUnloader } = ChromeUtils.importESModule(
-  "resource:///modules/TabUnloader.sys.mjs"
+  "moz-src:///browser/components/tabbrowser/TabUnloader.sys.mjs"
 );
 
 add_task(async function test_manual_drain_rejects_non_hybrid_mode() {
@@ -90,6 +90,64 @@ add_task(async function test_manual_drain_across_windows_on_xp_hybrid() {
     }
     if (!originalSelected.closing && originalSelected.parentNode) {
       gBrowser.selectedTab = originalSelected;
+    }
+  }
+});
+
+add_task(async function test_single_selected_web_tab_drain_on_xp_hybrid() {
+  if (!XPBrowserProcessPolicy.enabled) {
+    return;
+  }
+
+  const url =
+    "http://mochi.test:8888/browser/browser/components/tabbrowser/test/browser/tabs/blank.html";
+  const originalSelected = gBrowser.selectedTab;
+  const target = BrowserTestUtils.addTab(gBrowser, url);
+  const sibling = BrowserTestUtils.addTab(gBrowser, url);
+
+  try {
+    await Promise.all([
+      BrowserTestUtils.browserLoaded(target.linkedBrowser),
+      BrowserTestUtils.browserLoaded(sibling.linkedBrowser),
+    ]);
+    is(target.linkedBrowser.remoteType, "web", "Target uses shared web");
+    is(sibling.linkedBrowser.remoteType, "web", "Sibling uses shared web");
+    await BrowserTestUtils.switchTab(gBrowser, target);
+    const originalSiblingBrowser = sibling.linkedBrowser;
+
+    const result = await TabUnloader.unloadWebTabForXP(target);
+    ok(!result.busy, "Single-tab drain completed");
+    is(result.found, 1, "Only the requested tab was considered");
+    is(result.unloaded, 1, "Selected web tab was discarded");
+    is(result.failed, 0, "Selected tab has restorable cached state");
+    ok(!target.linkedPanel, "Discarded tab remains in lazy restore state");
+    ok(sibling.linkedPanel, "Untargeted sibling tab remains live");
+    is(
+      sibling.linkedBrowser,
+      originalSiblingBrowser,
+      "Single-tab drain did not replace the sibling browser"
+    );
+    ok(
+      !gBrowser.selectedTab.linkedBrowser.isRemoteBrowser,
+      "Temporary replacement for selected tab is parent-resident"
+    );
+
+    const reloaded = BrowserTestUtils.browserLoaded(
+      target.linkedBrowser,
+      false,
+      url
+    );
+    await BrowserTestUtils.switchTab(gBrowser, target);
+    await reloaded;
+    is(target.linkedBrowser.currentURI.spec, url, "Target restored its URL");
+  } finally {
+    if (!originalSelected.closing && originalSelected.parentNode) {
+      gBrowser.selectedTab = originalSelected;
+    }
+    for (const tab of [target, sibling]) {
+      if (!tab.closing && tab.parentNode) {
+        BrowserTestUtils.removeTab(tab);
+      }
     }
   }
 });
