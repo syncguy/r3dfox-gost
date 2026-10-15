@@ -23,8 +23,8 @@ export var TabStateFlusher = Object.freeze({
    * Requests an async flush for all browsers of a given window. Returns a Promise
    * that will resolve when we've heard back from all browsers.
    */
-  flushWindow(window) {
-    return TabStateFlusherInternal.flushWindow(window);
+  flushWindow(window, onTabSettled = null) {
+    return TabStateFlusherInternal.flushWindow(window, onTabSettled);
   },
 
   /**
@@ -99,11 +99,28 @@ var TabStateFlusherInternal = {
    * Requests an async flush for all non-lazy browsers of a given window.
    * Returns a Promise that will resolve when we've heard back from all browsers.
    */
-  flushWindow(window) {
+  flushWindow(window, onTabSettled = null) {
     let promises = [];
     for (let browser of window.gBrowser.browsers) {
       if (window.gBrowser.getTabForBrowser(browser).linkedPanel) {
-        promises.push(this.flush(browser));
+        const promise = this.flush(browser);
+        if (onTabSettled) {
+          // Observe the existing flush result; do not request another flush,
+          // change the returned promise, or treat _requests.has as pending.
+          promise.then(
+            () => {
+              try {
+                onTabSettled(browser, "fulfilled");
+              } catch (_) {}
+            },
+            () => {
+              try {
+                onTabSettled(browser, "rejected");
+              } catch (_) {}
+            }
+          );
+        }
+        promises.push(promise);
       }
     }
     return Promise.all(promises);
