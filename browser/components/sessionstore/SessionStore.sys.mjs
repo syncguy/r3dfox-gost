@@ -8254,7 +8254,7 @@ var SessionStoreInternal = {
     let beats = Math.ceil(delay / DELAY_BEAT);
     let deferred = Promise.withResolvers();
     timer.initWithCallback(
-      function () {
+      () => {
         if (beats <= 0) {
           this._log.debug(`looseTimer of ${delay} timed out`);
           Glean.sessionRestore.shutdownFlushAllOutcomes.timed_out.add(1);
