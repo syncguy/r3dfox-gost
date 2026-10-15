@@ -556,10 +556,22 @@ export var TabUnloader = {
   },
 
   /**
-   * Manually discard all live web tabs in XP hybrid mode. This intentionally
-   * ignores the automatic low-memory policy and allows lost unsaved page state.
+   * Manually unload a single shared-web tab using the same bounded recovery
+   * path as the all-web drain. This never targets sibling tabs.
    */
-  async unloadAllWebTabsForXP() {
+  async unloadWebTabForXP(tab) {
+    if (!tab) {
+      throw new Error("XP hybrid web-tab unload requires a tab");
+    }
+    return this.unloadAllWebTabsForXP(tab);
+  },
+
+  /**
+   * Manually discard live web tabs in XP hybrid mode. When onlyTab is supplied,
+   * only that exact tab is targeted. This deliberately bypasses the automatic
+   * low-memory policy and may lose unsaved page state.
+   */
+  async unloadAllWebTabsForXP(onlyTab) {
     if (!XPBrowserProcessPolicy.enabled) {
       throw new Error("XP hybrid web-tab recovery is not enabled");
     }
@@ -596,7 +608,7 @@ export var TabUnloader = {
           browser: tab.linkedBrowser,
           frameLoader: tab.linkedBrowser?.frameLoader,
         }))
-        .filter(info => isCurrent(info));
+        .filter(info => isCurrent(info) && (!onlyTab || info.tab === onlyTab));
       result.found = candidates.length;
 
       for (const info of candidates) {
