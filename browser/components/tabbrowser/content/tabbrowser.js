@@ -6221,6 +6221,37 @@
     }
 
     async explicitUnloadTabs(tabs) {
+      if (
+        this.XPBrowserProcessPolicy.enabled &&
+        tabs.length === 1 &&
+        tabs[0].linkedBrowser?.remoteType === "web" &&
+        !tabs[0].splitview
+      ) {
+        // Unlike the ordinary unload path, this is an emergency action that
+        // must not wait for the selected page's possibly hung beforeunload.
+        if (
+          !window.confirm(
+            "Unload this web tab? Unsaved changes on the page may be lost."
+          )
+        ) {
+          return;
+        }
+        try {
+          const { TabUnloader } = ChromeUtils.importESModule(
+            "moz-src:///browser/components/tabbrowser/TabUnloader.sys.mjs"
+          );
+          const result = await TabUnloader.unloadWebTabForXP(tabs[0]);
+          if (result.unloaded !== 1) {
+            window.alert(
+              "The web tab could not be unloaded safely. Its saved page state may be missing, or the tab changed."
+            );
+          }
+        } catch (ex) {
+          Cu.reportError(ex);
+          window.alert("Failed to unload the web tab.");
+        }
+        return;
+      }
       let unloadBlocked = await this.runBeforeUnloadForTabs(tabs);
       if (unloadBlocked) {
         return;
@@ -10612,13 +10643,21 @@ var TabContextMenu = {
     document.getElementById("context_reloadSelectedTabs").hidden =
       !this.multiselected;
     let unloadTabItem = document.getElementById("context_unloadTab");
-    if (gBrowser._unloadTabInContextMenu) {
+    // Always offer the single-tab emergency drain for live XP hybrid web tabs,
+    // even when Firefox's ordinary unload context-menu preference is off.
+    let xpManualWebTab =
+      gBrowser.XPBrowserProcessPolicy.enabled &&
+      this.contextTabs.length === 1 &&
+      !this.contextTab.splitview &&
+      this.contextTab.linkedPanel &&
+      this.contextTab.linkedBrowser?.remoteType === "web";
+    if (gBrowser._unloadTabInContextMenu || xpManualWebTab) {
       // linkedPanel is false if the tab is already unloaded
       // Cannot unload about: pages, etc., so skip browsers that are not remote
       let unloadableTabs = this.contextTabs.filter(
         t => t.linkedPanel && t.linkedBrowser?.isRemoteBrowser
       );
-      unloadTabItem.hidden = unloadableTabs.length === 0;
+      unloadTabItem.hidden = !xpManualWebTab && unloadableTabs.length === 0;
       unloadTabItem.setAttribute(
         "data-l10n-args",
         JSON.stringify({ tabCount: unloadableTabs.length })
