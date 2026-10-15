@@ -104,6 +104,9 @@ with Files("webrtcUI.sys.mjs"):
 with Files("ZoomUI.sys.mjs"):
     BUG_COMPONENT = ("Firefox", "Toolbars and Customization")
 
+with Files("XPDedicatedWebSlot.sys.mjs"):
+    BUG_COMPONENT = ("Firefox", "General")
+
 with Files("XPBrowserProcessPolicy.sys.mjs"):
     BUG_COMPONENT = ("Firefox", "General")
 
@@ -147,6 +150,7 @@ EXTRA_JS_MODULES += [
     "UpdatePolicyEnforcer.sys.mjs",
     "URILoadingHelper.sys.mjs",
     "webrtcUI.sys.mjs",
+    "XPDedicatedWebSlot.sys.mjs",
     "XPBrowserProcessPolicy.sys.mjs",
     "ZoomUI.sys.mjs",
 ]
