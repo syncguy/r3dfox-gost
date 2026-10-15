@@ -1108,6 +1108,46 @@ var SessionStoreInternal = {
     }
   },
 
+  // Explicitly opt-in, read-only shutdown trace. Keep real WindowGlobal IDs
+  // only in this ephemeral WeakMap; never write IDs, URLs or tab state to logs.
+  _xpShutdownProbeByKey: new WeakMap(),
+  _xpShutdownProbeByWindow: new WeakMap(),
+  _xpShutdownProbeNextTab: 0,
+  _xpShutdownProbeNextWindow: 0,
+
+  _xpShutdownProbeEnabled() {
+    return (
+      XPBrowserProcessPolicy.enabled &&
+      Services.prefs.getBoolPref("browser.sessionstore.xpShutdownProbe", false)
+    );
+  },
+
+  _xpShutdownProbeLog(browser, origin, phase) {
+    const key = browser?.permanentKey;
+    const tag = key ? this._xpShutdownProbeByKey.get(key) : null;
+    const current = browser?.browsingContext?.currentWindowGlobal;
+    const hasSaved = !!key && this._xpFinalOwnerByKey.has(key);
+    const saved = hasSaved ? this._xpFinalOwnerByKey.get(key) : null;
+    const ownerState = !hasSaved ? "absent" : saved == null ? "null" : "saved";
+    const hasOrigin = origin != null && origin !== "";
+    const savedMatch = saved != null && hasOrigin && saved === String(origin);
+    const currentMatch =
+      current && hasOrigin
+        ? String(current.innerWindowId) === String(origin)
+        : "unknown";
+    const snapshotMatch =
+      tag?.snapshot != null && hasOrigin
+        ? tag.snapshot === String(origin)
+        : "unknown";
+    this._log.debug(
+      `XP_SHUTDOWN_PROBE phase=${phase} window=${tag?.window ?? "unknown"} ` +
+        `tab=${tag?.tab ?? "unknown"} connected=${!!browser?.isConnected} ` +
+        `currentWGP=${!!current} originPresent=${hasOrigin} ` +
+        `saved=${ownerState} savedMatches=${savedMatch} ` +
+        `currentMatches=${currentMatch} closeMatches=${snapshotMatch}`
+    );
+  },
+
   // A map (xul:browser -> object) that maps a browser associated with a
   // recently closed tab due to a window closure to the tab state information
   // that is being stored in _closedWindows for that tab.
@@ -1871,6 +1911,10 @@ var SessionStoreInternal = {
   },
 
   onFinalTabStateUpdateComplete(browser, originatingWindowId = null) {
+    const xpProbe = this._xpShutdownProbeEnabled();
+    if (xpProbe) {
+      this._xpShutdownProbeLog(browser, originatingWindowId, "final_entry");
+    }
     // A discarded tab reuses its browser and permanentKey on lazy restore.
     // XP teardown callbacks must not resolve new-generation flushes or
     // unregister listeners created after the old WindowGlobal was destroyed.
@@ -1878,14 +1922,23 @@ var SessionStoreInternal = {
       const key = browser.permanentKey;
       if (this._xpFinalOwnerByKey.has(key)) {
         if (this._xpFinalOwnerByKey.get(key) !== originatingWindowId) {
+          if (xpProbe) {
+            this._xpShutdownProbeLog(browser, originatingWindowId, "reject_saved");
+          }
           return false;
         }
       } else if (browser.isConnected) {
         const current = browser.browsingContext?.currentWindowGlobal;
         if (!current || String(current.innerWindowId) !== originatingWindowId) {
+          if (xpProbe) {
+            this._xpShutdownProbeLog(browser, originatingWindowId, "reject_current");
+          }
           return false;
         }
       }
+    }
+    if (xpProbe) {
+      this._xpShutdownProbeLog(browser, originatingWindowId, "guard_accepted");
     }
     let permanentKey = browser.permanentKey;
     if (
@@ -1926,11 +1979,17 @@ var SessionStoreInternal = {
     // late and will never respond. If they have been sent shortly after
     // switching a browser's remoteness there isn't too much data to skip.
     lazy.TabStateFlusher.resolveAll(browser);
+    if (xpProbe) {
+      this._xpShutdownProbeLog(browser, originatingWindowId, "resolve_all_reached");
+    }
 
     this._browserSHistoryListener.get(permanentKey)?.unregister();
     this._restoreListeners.get(permanentKey)?.unregister();
 
     Services.obs.notifyObservers(browser, NOTIFY_BROWSER_SHUTDOWN_FLUSH);
+    if (xpProbe) {
+      this._xpShutdownProbeLog(browser, originatingWindowId, "handler_complete");
+    }
     return true;
   },
 
@@ -2515,7 +2574,22 @@ var SessionStoreInternal = {
     var tabbrowser = aWindow.gBrowser;
 
     let browsers = Array.from(tabbrowser.browsers);
+    const xpProbe = this._xpShutdownProbeEnabled();
+    const xpProbeWindow = xpProbe ? ++this._xpShutdownProbeNextWindow : null;
+    if (xpProbe) {
+      this._xpShutdownProbeByWindow.set(aWindow, xpProbeWindow);
+    }
     for (const browser of browsers) {
+      if (xpProbe && browser.permanentKey) {
+        const current = browser.browsingContext?.currentWindowGlobal;
+        const snapshot = current ? String(current.innerWindowId) : null;
+        this._xpShutdownProbeByKey.set(browser.permanentKey, {
+          window: xpProbeWindow,
+          tab: ++this._xpShutdownProbeNextTab,
+          snapshot,
+        });
+        this._xpShutdownProbeLog(browser, snapshot, "close_snapshot");
+      }
       if (
         browser.isConnected &&
         this._xpFinalOwnerByKey.has(browser.permanentKey)
@@ -2634,7 +2708,31 @@ var SessionStoreInternal = {
         this.maybeSaveClosedWindow(winData, isLastWindow);
       }
 
-      completionPromise = lazy.TabStateFlusher.flushWindow(aWindow).then(() => {
+      const rawWindowFlush = lazy.TabStateFlusher.flushWindow(
+        aWindow,
+        xpProbe
+          ? (browser, result) => {
+              const tag = this._xpShutdownProbeByKey.get(browser.permanentKey);
+              this._log.debug(
+                `XP_SHUTDOWN_PROBE phase=tab_flush_${result} window=${xpProbeWindow} ` +
+                  `tab=${tag?.tab ?? "unknown"}`
+              );
+            }
+          : null
+      );
+      if (xpProbe) {
+        rawWindowFlush.then(
+          () =>
+            this._log.debug(
+              `XP_SHUTDOWN_PROBE phase=raw_window_flush_fulfilled window=${xpProbeWindow}`
+            ),
+          () =>
+            this._log.debug(
+              `XP_SHUTDOWN_PROBE phase=raw_window_flush_rejected window=${xpProbeWindow}`
+            )
+        );
+      }
+      completionPromise = rawWindowFlush.then(() => {
         // At this point, aWindow is closed! You should probably not try to
         // access any DOM elements from aWindow within this callback unless
         // you're holding on to them in the closure.
@@ -2669,6 +2767,18 @@ var SessionStoreInternal = {
         // save the state without this window to disk
         this.saveStateDelayed();
       });
+      if (xpProbe) {
+        completionPromise.then(
+          () =>
+            this._log.debug(
+              `XP_SHUTDOWN_PROBE phase=onclose_fulfilled window=${xpProbeWindow}`
+            ),
+          () =>
+            this._log.debug(
+              `XP_SHUTDOWN_PROBE phase=onclose_rejected window=${xpProbeWindow}`
+            )
+        );
+      }
 
       // Here we might override a flush already in flight, but that's fine
       // because `completionPromise` will always resolve after the old flush
@@ -3033,6 +3143,12 @@ var SessionStoreInternal = {
    */
   async flushAllWindowsAsync(progress = {}) {
     let windowPromises = new Map(WINDOW_FLUSHING_PROMISES);
+    const xpProbe = this._xpShutdownProbeEnabled();
+    if (xpProbe) {
+      this._log.debug(
+        `XP_SHUTDOWN_PROBE phase=aggregate_copy closedWindows=${windowPromises.size}`
+      );
+    }
     WINDOW_FLUSHING_PROMISES.clear();
 
     // We collect flush promises and close each window immediately so that
@@ -3050,11 +3166,38 @@ var SessionStoreInternal = {
 
     progress.total = windowPromises.size;
     progress.current = 0;
+    if (xpProbe) {
+      this._log.debug(
+        `XP_SHUTDOWN_PROBE phase=aggregate_start totalWindows=${progress.total}`
+      );
+    }
 
     // We'll iterate through the Promise array, yielding each one, so as to
     // provide useful progress information to AsyncShutdown.
     for (let [win, promise] of windowPromises) {
-      await promise;
+      const windowTag = xpProbe
+        ? (this._xpShutdownProbeByWindow.get(win) ?? "live")
+        : null;
+      if (xpProbe) {
+        this._log.debug(
+          `XP_SHUTDOWN_PROBE phase=aggregate_wait window=${windowTag}`
+        );
+      }
+      try {
+        await promise;
+      } catch (ex) {
+        if (xpProbe) {
+          this._log.debug(
+            `XP_SHUTDOWN_PROBE phase=aggregate_rejected window=${windowTag}`
+          );
+        }
+        throw ex;
+      }
+      if (xpProbe) {
+        this._log.debug(
+          `XP_SHUTDOWN_PROBE phase=aggregate_fulfilled window=${windowTag}`
+        );
+      }
 
       // We may have already stopped tracking this window in onClose, which is
       // fine as we would've collected window data there as well.
