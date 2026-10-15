@@ -150,8 +150,8 @@ EXTRA_JS_MODULES += [
     "UpdatePolicyEnforcer.sys.mjs",
     "URILoadingHelper.sys.mjs",
     "webrtcUI.sys.mjs",
-    "XPDedicatedWebSlot.sys.mjs",
     "XPBrowserProcessPolicy.sys.mjs",
+    "XPDedicatedWebSlot.sys.mjs",
     "ZoomUI.sys.mjs",
 ]
 
