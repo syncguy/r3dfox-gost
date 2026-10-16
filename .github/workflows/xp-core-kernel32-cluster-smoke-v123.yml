@@ -1,0 +1,102 @@
+name: XP x86 core KERNEL32 cluster smoke [YY 1.2.3 evaluation]
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.3"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+  EVIDENCE_RUN: "33479649627"
+  EVIDENCE_JOB: "99766203250"
+  EVIDENCE_SHA: "d2f15ee8f0cef8112855c4306014865e422319d3"
+
+jobs:
+  kernel32-cluster-smoke:
+    name: Core post-XP API cluster / XP x86
+    runs-on: windows-2022
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout XP smoke scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare diagnostics and candidate inventory
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage identity'
+
+      - name: Fetch and build pinned msvcr14x Release x86
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage crt'
+
+      - name: Download YY-Thunks 1.2.3 XP x86 libraries
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage download'
+
+      - name: Inventory YY KERNEL32 capability without early failure
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage inventory'
+
+      - name: Build physically narrow YY provider
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage provider'
+
+      - name: Generate capability header
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage header'
+
+      - name: Compile ordinary x86 functional probe
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-build.ps1 -Stage compile'
+
+      - name: Link XP x86 probe with proven runtime closure
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-build.ps1 -Stage link'
+
+      - name: GATE - PE contract and direct imports
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-verify.ps1 -Stage imports'
+
+      - name: Stage proven app-local runtime
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-verify.ps1 -Stage stage'
+
+      - name: Run probe on hosted Windows runner
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-verify.ps1 -Stage hosted'
+
+      - name: Build and run NtCancelIoFileEx narrow YY probe
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-ntcancel.ps1 -Stage run'
+
+      - name: Build physical XP runtime bundle
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-package.ps1 -Stage bundle'
+
+      - name: Upload XP x86 cluster runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-core-kernel32-cluster-runtime-v123
+          path: runtime
+          if-no-files-found: error
+
+      - name: Upload XP x86 cluster diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-core-kernel32-cluster-diagnostics-v123
+          path: diagnostics
+          if-no-files-found: error
