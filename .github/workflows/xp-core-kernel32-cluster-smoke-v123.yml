@@ -461,31 +461,46 @@ jobs:
           $report=[System.Collections.Generic.List[string]]::new();$report.Add("API`tDirectMember`tImportMember`tYYSymbol`tProviderCapability")
           $direct=@($members|Where-Object{$_-match"(?i)[\\/]_${escaped}@12\.obj$"});$import=@($members|Where-Object{$_-match"(?i)[\\/]_${escaped}@12\.obi$"})
           if($direct.Count-ne 1-or$import.Count-ne 1){$report.Add("$api`t$($direct -join ',')`t$($import -join ',')`tfalse`tmissing");$report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv;throw "YY ntdll.lib does not expose the expected $api x86 members"}
-          foreach($item in @($direct[0],$import[0])){$dir=Join-Path $selected ([IO.Path]::GetFileNameWithoutExtension($item));New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir;try{& lib.exe /nologo "/extract:$item" $env:THUNK_YY_NTDLL_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx member extract failed'}}finally{Pop-Location};$file=Get-ChildItem $dir -File|Select-Object -First 1;$dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst}
-          $impl=@($members|Where-Object{$_-match('(?i)[\\/]YY_Thunks_for_'+[regex]::Escape($env:YY_THUNKS_TARGET)+'\.obj$')});if($impl.Count-ne 1){throw "Expected one YY ntdll common implementation; found $($impl.Count)"}
-          $dir=Join-Path $selected 'implementation';New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir;try{& lib.exe /nologo "/extract:$($impl[0])" $env:THUNK_YY_NTDLL_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx implementation extract failed'}}finally{Pop-Location};$file=Get-ChildItem $dir -File|Select-Object -First 1;$dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst
-          $kernelMembers=@(Get-Content diagnostics\yy-kernel32-members.txt)
-          foreach($kind in @('obj','obi')){
-            $hits=@($kernelMembers|Where-Object{$_-match "(?i)[\\/]_ProcessPrng@8\.$kind$"})
-            if($hits.Count-ne 1){throw "NtCancelIoFileEx requires exactly one ProcessPrng .$kind weak alias; found $($hits.Count)"}
-            $dir=Join-Path $selected "processprng-$kind";New-Item -ItemType Directory -Force $dir|Out-Null
+          foreach($spec in @(@{Kind='obj';Member=$direct[0]},@{Kind='obi';Member=$import[0]})){
+            $dir=Join-Path $selected "ntcancel-$($spec.Kind)"
+            New-Item -ItemType Directory -Force $dir|Out-Null
             Push-Location $dir
-            try{& lib.exe /nologo "/extract:$($hits[0])" $env:THUNK_YY_KERNEL32_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx ProcessPrng extraction failed'}}finally{Pop-Location}
-            $file=Get-ChildItem $dir -File|Select-Object -First 1
-            if(-not$file){throw "NtCancelIoFileEx missing ProcessPrng .$kind member"}
-            $dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst
+            try{
+              & lib.exe /nologo "/extract:$($spec.Member)" $env:THUNK_YY_NTDLL_LIB|Out-Null
+              if($LASTEXITCODE-ne 0){throw "NtCancelIoFileEx $($spec.Kind) extraction failed"}
+            }finally{Pop-Location}
+            $file=Get-ChildItem $dir -File -Filter "*.$($spec.Kind)"|Select-Object -First 1
+            if(-not$file){throw "Missing extracted NtCancelIoFileEx $($spec.Kind) object"}
+            $dst=Join-Path $dir 'member.obj'
+            Copy-Item -Force $file.FullName $dst
+            $objects+=$dst
           }
+          # Reuse the common YY implementation already linked in the KERNEL32 narrow provider.
+          # ntdll.lib for this XP target carries only NtCancelIoFileEx weak-alias members.
           $narrow=Join-Path $env:RUNNER_TEMP 'yy-xp-ntcancel.lib';& lib.exe /nologo "/out:$narrow" @objects;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx narrow provider build failed'}
-          $symbols=(& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1|Out-String);$symbols|Set-Content -Encoding utf8 diagnostics\ntcancel-provider-symbols.txt
-          if($symbols.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx provider missing ProcessPrng closure'}
+          $symbols=(& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1|Out-String)
+          $symbols|Set-Content -Encoding utf8 diagnostics\ntcancel-provider-symbols.txt
+          $shared=(& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1|Out-String)
+          $shared|Set-Content -Encoding utf8 diagnostics\ntcancel-shared-provider-symbols.txt
+          foreach($symbol in @('_NtCancelIoFileEx@12','__imp__NtCancelIoFileEx@12')){
+            if($symbols.IndexOf(" $symbol",[System.StringComparison]::Ordinal)-lt 0){
+              throw "NtCancelIoFileEx alias provider missing $symbol"
+            }
+          }
+          foreach($symbol in @('_YY_Thunks_NtCancelIoFileEx@12','_YY_Thunks_ProcessPrng@8')){
+            if($shared.IndexOf(" $symbol",[System.StringComparison]::Ordinal)-lt 0){
+              throw "Shared KERNEL32 narrow provider missing $symbol"
+            }
+          }
           foreach($entry in (Get-Content diagnostics\winrt-closure-apis.txt)){
             foreach($prefix in @('_YY_Thunks_','__imp__YY_Thunks_')){
-              if($symbols.IndexOf(" $prefix$entry",[System.StringComparison]::Ordinal)-lt 0){
-                throw "NtCancelIoFileEx provider missing WinRT symbol $prefix$entry"
+              if($shared.IndexOf(" $prefix$entry",[System.StringComparison]::Ordinal)-lt 0){
+                throw "Shared KERNEL32 narrow provider missing WinRT symbol $prefix$entry"
               }
             }
           }
-          $yy=$symbols.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-ge 0;$report.Add("$api`t$($direct[0])`t$($import[0])`t$($yy.ToString().ToLowerInvariant())`t$(if($yy){'capable'}else{'missing'})");$report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv;if(-not$yy){throw 'Narrow provider missing YY_Thunks_NtCancelIoFileEx'}
+          $report.Add("$api`t$($direct[0])`t$($import[0])`ttrue`tcapable")
+          $report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv
           @'
           #define WIN32_LEAN_AND_MEAN
           #include <windows.h>
@@ -498,7 +513,7 @@ jobs:
           & cl.exe /nologo /c /MD /O2 /GS- /EHsc- /GR- ntcancel.cpp /Fontcancel.obj 2>&1|Tee-Object diagnostics\ntcancel-compile.log;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx probe compile failed'}
           $lld=(Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source;if(-not$lld){$lld='C:\Program Files\LLVM\bin\lld-link.exe'};if(-not(Test-Path $lld)){throw 'lld-link missing'}
           $exe=(Resolve-Path runtime).Path+'\xp-ntcanceliofileex.exe';$map=(Resolve-Path diagnostics).Path+'\ntcancel.map'
-          $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$narrow,
+          $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,$narrow,
             '/nodefaultlib:runtimeobject.lib',
             'ntcancel.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe")
           foreach($entry in (Get-Content diagnostics\winrt-closure-apis.txt)){
