@@ -534,102 +534,10 @@ jobs:
           $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt
           $importLines=@($imports -split "`r?`n")
           $importedNames=@($importLines|ForEach-Object{
-            if($_ -match '^\s*[0-9A-F]+\s+([A-Za-z_?][A-Za-z0-9_@$?.]+)\s*
-          & $exe|Tee-Object diagnostics\ntcancel-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted NtCancelIoFileEx probe failed: $LASTEXITCODE"}
-          "NTCANCEL_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Build physical XP runtime bundle
-        shell: powershell
-        run: |
-          @'
-          @echo off
-          echo XP x86 core KERNEL32 cluster runtime probe
-          xp-core-kernel32-cluster.exe
-          if errorlevel 1 exit /b %ERRORLEVEL%
-          echo XP x86 NtCancelIoFileEx YY runtime probe
-          xp-ntcanceliofileex.exe
-          set EC=%ERRORLEVEL%
-          echo DriverExitCode=%EC%
-          exit /b %EC%
-          '@|Set-Content -Encoding ascii runtime\run-xp-cluster.cmd
-          @'
-          Physical Windows XP SP3 x86 acceptance
-          =======================================
-          Candidate evidence: full Firefox run 33479649627 / job 99766203250 / SHA d2f15ee8f0cef8112855c4306014865e422319d3.
-          Run: run-xp-cluster.cmd
-          Preserve complete stdout. The bundle now also tests YY-Thunks 1.2.3 NtCancelIoFileEx from a physically narrow ntdll provider.
-          Hosted Windows execution is not physical-XP proof. This artifact does not choose production remediation.
-          '@|Set-Content -Encoding ascii runtime\README-XP.txt
-          Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
-          Copy-Item diagnostics\yy-ntdll-capability.tsv runtime\yy-ntdll-capability.tsv
-          Get-ChildItem runtime -File|ForEach-Object{$h=Get-FileHash -Algorithm SHA256 $_.FullName;"$($h.Hash.ToLowerInvariant())  $($_.Name)"}|Set-Content -Encoding ascii runtime\SHA256SUMS.txt
-          Get-FileHash -Algorithm SHA256 $env:SMOKE_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
-          Get-FileHash -Algorithm SHA256 $env:NTCANCEL_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\ntcancel-probe-sha256.txt
-
-      - name: Upload XP x86 cluster runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: xp-core-kernel32-cluster-runtime-v123
-          path: runtime
-          if-no-files-found: error
-
-      - name: Upload XP x86 cluster diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xp-core-kernel32-cluster-diagnostics-v123
-          path: diagnostics
-          if-no-files-found: error
-){$matches[1]}
+            if($_ -match '^\s*[0-9A-F]+\s+([A-Za-z_?][A-Za-z0-9_@$?.]+)\s*$'){$matches[1]}
           })
           $importedDlls=@($importLines|ForEach-Object{
-            if($_ -match '^\s*([A-Za-z0-9_.-]+\.dll)\s*
-          & $exe|Tee-Object diagnostics\ntcancel-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted NtCancelIoFileEx probe failed: $LASTEXITCODE"}
-          "NTCANCEL_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Build physical XP runtime bundle
-        shell: powershell
-        run: |
-          @'
-          @echo off
-          echo XP x86 core KERNEL32 cluster runtime probe
-          xp-core-kernel32-cluster.exe
-          if errorlevel 1 exit /b %ERRORLEVEL%
-          echo XP x86 NtCancelIoFileEx YY runtime probe
-          xp-ntcanceliofileex.exe
-          set EC=%ERRORLEVEL%
-          echo DriverExitCode=%EC%
-          exit /b %EC%
-          '@|Set-Content -Encoding ascii runtime\run-xp-cluster.cmd
-          @'
-          Physical Windows XP SP3 x86 acceptance
-          =======================================
-          Candidate evidence: full Firefox run 33479649627 / job 99766203250 / SHA d2f15ee8f0cef8112855c4306014865e422319d3.
-          Run: run-xp-cluster.cmd
-          Preserve complete stdout. The bundle now also tests YY-Thunks 1.2.3 NtCancelIoFileEx from a physically narrow ntdll provider.
-          Hosted Windows execution is not physical-XP proof. This artifact does not choose production remediation.
-          '@|Set-Content -Encoding ascii runtime\README-XP.txt
-          Copy-Item diagnostics\yy-capability.tsv runtime\yy-capability.tsv
-          Copy-Item diagnostics\yy-ntdll-capability.tsv runtime\yy-ntdll-capability.tsv
-          Get-ChildItem runtime -File|ForEach-Object{$h=Get-FileHash -Algorithm SHA256 $_.FullName;"$($h.Hash.ToLowerInvariant())  $($_.Name)"}|Set-Content -Encoding ascii runtime\SHA256SUMS.txt
-          Get-FileHash -Algorithm SHA256 $env:SMOKE_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\probe-sha256.txt
-          Get-FileHash -Algorithm SHA256 $env:NTCANCEL_EXE|Format-List|Out-String|Set-Content -Encoding utf8 diagnostics\ntcancel-probe-sha256.txt
-
-      - name: Upload XP x86 cluster runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: xp-core-kernel32-cluster-runtime-v123
-          path: runtime
-          if-no-files-found: error
-
-      - name: Upload XP x86 cluster diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xp-core-kernel32-cluster-diagnostics-v123
-          path: diagnostics
-          if-no-files-found: error
-){$matches[1]}
+            if($_ -match '^\s*([A-Za-z0-9_.-]+\.dll)\s*$'){$matches[1]}
           })
           if(-not$importedNames.Count-or-not$importedDlls.Count){throw 'NtCancelIoFileEx PE import table parsing failed'}
           $importedNames|Set-Content -Encoding ascii diagnostics\ntcancel-imported-symbols.txt
