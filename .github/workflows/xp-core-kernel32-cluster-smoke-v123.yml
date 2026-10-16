@@ -155,11 +155,37 @@ jobs:
           $dir=Join-Path $selected 'implementation'; New-Item -ItemType Directory -Force $dir|Out-Null; Push-Location $dir
           try { & lib.exe /nologo "/extract:$($impl[0])" $env:THUNK_YY_KERNEL32_LIB | Out-Null } finally { Pop-Location }
           $file=Get-ChildItem $dir -File | Select-Object -First 1; $dst=Join-Path $dir 'member.obj'; Copy-Item -Force $file.FullName $dst; $objects+=$dst; $map.Add("implementation|$($impl[0])")
+          # Exact XP x86 ProcessPrng weak-alias closure; no full YY kernel32.lib.
+          # Same two weak-alias members already used by the v1.2.3 SRW smoke.
+          $processSpecs=@(
+            @{Kind='obj';Pattern='(?i)[\\/]_ProcessPrng@8\.obj$';Alias='_ProcessPrng@8'},
+            @{Kind='obi';Pattern='(?i)[\\/]_ProcessPrng@8\.obi$';Alias='__imp__ProcessPrng@8'}
+          )
+          foreach($spec in $processSpecs){
+            $hits=@($members|Where-Object{$_-match $spec.Pattern})
+            if($hits.Count-ne 1){throw "Expected one ProcessPrng $($spec.Kind) alias; found $($hits.Count)"}
+            $dir=Join-Path $selected "processprng-$($spec.Kind)";New-Item -ItemType Directory -Force $dir|Out-Null
+            Push-Location $dir
+            try{
+              & lib.exe /nologo "/extract:$($hits[0])" $env:THUNK_YY_KERNEL32_LIB|Out-Null
+              if($LASTEXITCODE-ne 0){throw "ProcessPrng $($spec.Kind) extraction failed"}
+            }finally{Pop-Location}
+            $file=Get-ChildItem $dir -File|Select-Object -First 1
+            if(-not $file){throw "Missing ProcessPrng $($spec.Kind) object"}
+            $dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst
+            $sym=(& dumpbin.exe /nologo /symbols $dst 2>&1|Out-String)
+            if($sym.IndexOf($spec.Alias,[System.StringComparison]::Ordinal)-lt 0 -or
+               $sym.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){
+              throw "ProcessPrng $($spec.Kind) weak alias mismatch"
+            }
+            $objects+=$dst;$map.Add("processprng-$($spec.Kind)|$($hits[0])")
+          }
           $map | Set-Content -Encoding utf8 diagnostics\selected-members.txt
           $provider=Join-Path $work 'yy-xp-core-kernel32-cluster.lib'; & lib.exe /nologo "/out:$provider" @objects
           if($LASTEXITCODE-ne 0){throw 'narrow provider build failed'}
           $symbols=(& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String); $symbols|Set-Content -Encoding utf8 diagnostics\narrow-provider-symbols.txt
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($symbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Provider missing YY_Thunks_$api"}}
+          if($symbols.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'Provider missing YY_Thunks_ProcessPrng'}
           "NARROW_YY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Generate capability header
@@ -348,6 +374,7 @@ jobs:
           if($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB",[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'Full YY directory reached final LIBPATH'}
           $mapText=Get-Content $map -Raw
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Final map did not select YY_Thunks_$api"}}
+          if($mapText.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'Final map did not select YY_Thunks_ProcessPrng'}
           "SMOKE_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: GATE - PE contract and direct imports
@@ -361,6 +388,7 @@ jobs:
           $imports=(& dumpbin.exe /nologo /imports $env:SMOKE_EXE 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\probe-imports.txt
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($imports.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "Probe retains direct import $api"}}
           foreach($bad in @('api-ms-win-','ext-ms-','KERNELBASE.dll','bcrypt.dll')){if($imports.IndexOf($bad,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "Forbidden dependency $bad"}}
+          if($imports.IndexOf('ProcessPrng',[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'Probe retains direct import ProcessPrng'}
           'cluster_import_gate=PASS'|Set-Content -Encoding ascii diagnostics\cluster-import-gate.txt
 
       - name: Stage proven app-local runtime
