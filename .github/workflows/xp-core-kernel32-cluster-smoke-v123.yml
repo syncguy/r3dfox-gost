@@ -186,6 +186,42 @@ jobs:
           $symbols=(& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String); $symbols|Set-Content -Encoding utf8 diagnostics\narrow-provider-symbols.txt
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($symbols.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Provider missing YY_Thunks_$api"}}
           if($symbols.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'Provider missing YY_Thunks_ProcessPrng'}
+          $winrtAliases=@(
+            'RoActivateInstance@8',
+            'RoFailFastWithErrorContext@4',
+            'RoGetActivationFactory@12',
+            'RoGetAgileReference@16',
+            'RoGetApartmentIdentifier@4',
+            'RoInitialize@4',
+            'RoOriginateError@8',
+            'RoOriginateErrorW@12',
+            'RoOriginateLanguageException@12',
+            'RoRegisterActivationFactories@16',
+            'RoRegisterForApartmentShutdown@12',
+            'RoRevokeActivationFactories@4',
+            'RoTransformError@12',
+            'RoTransformErrorW@16',
+            'RoUninitialize@0',
+            'RoUnregisterForApartmentShutdown@4',
+            'WindowsCompareStringOrdinal@12',
+            'WindowsCreateString@12',
+            'WindowsCreateStringReference@16',
+            'WindowsDeleteString@4',
+            'WindowsDuplicateString@8',
+            'WindowsGetStringLen@4',
+            'WindowsGetStringRawBuffer@8',
+            'WindowsIsStringEmpty@4',
+            'WindowsStringHasEmbeddedNull@8'
+          )
+          foreach($entry in $winrtAliases){
+            $direct="_YY_Thunks_$entry"
+            $import="__imp__YY_Thunks_$entry"
+            if($symbols.IndexOf(" $direct",[System.StringComparison]::Ordinal)-lt 0-or
+               $symbols.IndexOf(" $import",[System.StringComparison]::Ordinal)-lt 0){
+              throw "Narrow YY provider missing WinRT direct/IAT closure $entry"
+            }
+          }
+          $winrtAliases|Set-Content -Encoding ascii diagnostics\winrt-closure-apis.txt
           "NARROW_YY_LIB=$provider" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Generate capability header
@@ -365,9 +401,11 @@ jobs:
           $exe=(Resolve-Path runtime).Path+'\xp-core-kernel32-cluster.exe';$map=(Resolve-Path diagnostics).Path+'\final.map';$log=(Resolve-Path diagnostics).Path+'\final-link-command.txt'
           $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,
             '/nodefaultlib:runtimeobject.lib',
-            '/alternatename:_WindowsCreateString@12=_YY_Thunks_WindowsCreateString@12',
-            '/alternatename:__imp__WindowsCreateString@12=__imp__YY_Thunks_WindowsCreateString@12',
             'probe.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe")
+          foreach($entry in (Get-Content diagnostics\winrt-closure-apis.txt)){
+            $args+="/alternatename:_$entry=_YY_Thunks_$entry"
+            $args+="/alternatename:__imp__$entry=__imp__YY_Thunks_$entry"
+          }
           ($lld+' '+($args -join ' ')) | Set-Content -Encoding utf8 $log
           & $lld @args 2>&1 | Tee-Object diagnostics\final-link-output.txt
           if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'cluster link failed'}
@@ -440,7 +478,13 @@ jobs:
           $narrow=Join-Path $env:RUNNER_TEMP 'yy-xp-ntcancel.lib';& lib.exe /nologo "/out:$narrow" @objects;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx narrow provider build failed'}
           $symbols=(& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1|Out-String);$symbols|Set-Content -Encoding utf8 diagnostics\ntcancel-provider-symbols.txt
           if($symbols.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx provider missing ProcessPrng closure'}
-          if($symbols.IndexOf('YY_Thunks_WindowsCreateString',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx provider missing XP WinRT closure'}
+          foreach($entry in (Get-Content diagnostics\winrt-closure-apis.txt)){
+            foreach($prefix in @('_YY_Thunks_','__imp__YY_Thunks_')){
+              if($symbols.IndexOf(" $prefix$entry",[System.StringComparison]::Ordinal)-lt 0){
+                throw "NtCancelIoFileEx provider missing WinRT symbol $prefix$entry"
+              }
+            }
+          }
           $yy=$symbols.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-ge 0;$report.Add("$api`t$($direct[0])`t$($import[0])`t$($yy.ToString().ToLowerInvariant())`t$(if($yy){'capable'}else{'missing'})");$report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv;if(-not$yy){throw 'Narrow provider missing YY_Thunks_NtCancelIoFileEx'}
           @'
           #define WIN32_LEAN_AND_MEAN
@@ -456,9 +500,11 @@ jobs:
           $exe=(Resolve-Path runtime).Path+'\xp-ntcanceliofileex.exe';$map=(Resolve-Path diagnostics).Path+'\ntcancel.map'
           $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$narrow,
             '/nodefaultlib:runtimeobject.lib',
-            '/alternatename:_WindowsCreateString@12=_YY_Thunks_WindowsCreateString@12',
-            '/alternatename:__imp__WindowsCreateString@12=__imp__YY_Thunks_WindowsCreateString@12',
             'ntcancel.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe")
+          foreach($entry in (Get-Content diagnostics\winrt-closure-apis.txt)){
+            $args+="/alternatename:_$entry=_YY_Thunks_$entry"
+            $args+="/alternatename:__imp__$entry=__imp__YY_Thunks_$entry"
+          }
           ($lld+' '+($args-join' '))|Set-Content -Encoding utf8 diagnostics\ntcancel-link-command.txt
           & $lld @args 2>&1|Tee-Object diagnostics\ntcancel-link-output.txt
           if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'NtCancelIoFileEx link failed'}
