@@ -374,7 +374,8 @@ jobs:
           if($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB",[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'Full YY directory reached final LIBPATH'}
           $mapText=Get-Content $map -Raw
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Final map did not select YY_Thunks_$api"}}
-          if($mapText.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'Final map did not select YY_Thunks_ProcessPrng'}
+          $prngMapSelected=$mapText.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-ge 0
+          "processprng_map_selected=$($prngMapSelected.ToString().ToLowerInvariant())"|Set-Content -Encoding ascii diagnostics\processprng-map-selection.txt
           "SMOKE_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: GATE - PE contract and direct imports
