@@ -524,8 +524,17 @@ jobs:
           & $lld @args 2>&1|Tee-Object diagnostics\ntcancel-link-output.txt
           if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'NtCancelIoFileEx link failed'}
           & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx XP subsystem retarget failed'}
+          $headers=(& dumpbin.exe /nologo /headers $exe 2>&1|Out-String)
+          $headers|Set-Content -Encoding utf8 diagnostics\ntcancel-headers.txt
+          if($headers-notmatch'(?im)^\s*14C machine \(x86\)'){throw 'NtCancelIoFileEx executable is not x86'}
+          $subsystem=@($headers-split "`r?`n"|Where-Object{$_-match'(?i)subsystem version'}|Select-Object -First 1)
+          if(-not$subsystem-or$subsystem[0]-notmatch'^\s*([0-9]+)\.([0-9]+)\s+subsystem version'){throw 'Cannot parse NtCancelIoFileEx subsystem'}
+          if([version]("$([int]$matches[1]).$([int]$matches[2])")-gt[version]'5.1'){throw 'NtCancelIoFileEx subsystem exceeds XP'}
           $mapText=Get-Content $map -Raw;if($mapText.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx map did not select YY thunk'}
           $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt
+          foreach($api in (Get-Content diagnostics\capable-apis.txt)){
+            if($imports.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "NtCancelIoFileEx retains direct XP KERNEL32 import $api"}
+          }
           foreach($bad in @('NtCancelIoFileEx','ProcessPrng','WindowsCreateString','api-ms-win-','ext-ms-','KERNELBASE.dll','bcrypt.dll')){
             if($imports.IndexOf($bad,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "NtCancelIoFileEx probe retains forbidden direct import $bad"}
           }
