@@ -363,7 +363,11 @@ jobs:
           $ErrorActionPreference='Stop'
           $lld=(Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source;if(-not $lld){$lld='C:\Program Files\LLVM\bin\lld-link.exe'};if(-not(Test-Path $lld)){throw 'lld-link missing'}
           $exe=(Resolve-Path runtime).Path+'\xp-core-kernel32-cluster.exe';$map=(Resolve-Path diagnostics).Path+'\final.map';$log=(Resolve-Path diagnostics).Path+'\final-link-command.txt'
-          $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,'probe.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe")
+          $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$env:NARROW_YY_LIB,
+            '/nodefaultlib:runtimeobject.lib',
+            '/alternatename:_WindowsCreateString@12=_YY_Thunks_WindowsCreateString@12',
+            '/alternatename:__imp__WindowsCreateString@12=__imp__YY_Thunks_WindowsCreateString@12',
+            'probe.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe")
           ($lld+' '+($args -join ' ')) | Set-Content -Encoding utf8 $log
           & $lld @args 2>&1 | Tee-Object diagnostics\final-link-output.txt
           if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'cluster link failed'}
@@ -374,6 +378,7 @@ jobs:
           if($logged.IndexOf("-LIBPATH:$env:THUNK_YY_LIB",[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'Full YY directory reached final LIBPATH'}
           $mapText=Get-Content $map -Raw
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($mapText.IndexOf("YY_Thunks_$api",[System.StringComparison]::Ordinal)-lt 0){throw "Final map did not select YY_Thunks_$api"}}
+          if($mapText.IndexOf('_YY_Thunks_WindowsCreateString@12',[System.StringComparison]::Ordinal)-lt 0){throw 'XP WinRT closure was not selected in final link'}
           $prngMapSelected=$mapText.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-ge 0
           "processprng_map_selected=$($prngMapSelected.ToString().ToLowerInvariant())"|Set-Content -Encoding ascii diagnostics\processprng-map-selection.txt
           "SMOKE_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -390,6 +395,7 @@ jobs:
           foreach($api in (Get-Content diagnostics\capable-apis.txt)){if($imports.IndexOf($api,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "Probe retains direct import $api"}}
           foreach($bad in @('api-ms-win-','ext-ms-','KERNELBASE.dll','bcrypt.dll')){if($imports.IndexOf($bad,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "Forbidden dependency $bad"}}
           if($imports.IndexOf('ProcessPrng',[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'Probe retains direct import ProcessPrng'}
+          if($imports.IndexOf('WindowsCreateString',[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'Probe retains direct WinRT string import'}
           'cluster_import_gate=PASS'|Set-Content -Encoding ascii diagnostics\cluster-import-gate.txt
 
       - name: Stage proven app-local runtime
@@ -420,8 +426,21 @@ jobs:
           foreach($item in @($direct[0],$import[0])){$dir=Join-Path $selected ([IO.Path]::GetFileNameWithoutExtension($item));New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir;try{& lib.exe /nologo "/extract:$item" $env:THUNK_YY_NTDLL_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx member extract failed'}}finally{Pop-Location};$file=Get-ChildItem $dir -File|Select-Object -First 1;$dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst}
           $impl=@($members|Where-Object{$_-match('(?i)[\\/]YY_Thunks_for_'+[regex]::Escape($env:YY_THUNKS_TARGET)+'\.obj$')});if($impl.Count-ne 1){throw "Expected one YY ntdll common implementation; found $($impl.Count)"}
           $dir=Join-Path $selected 'implementation';New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir;try{& lib.exe /nologo "/extract:$($impl[0])" $env:THUNK_YY_NTDLL_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx implementation extract failed'}}finally{Pop-Location};$file=Get-ChildItem $dir -File|Select-Object -First 1;$dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst
+          $kernelMembers=@(Get-Content diagnostics\yy-kernel32-members.txt)
+          foreach($kind in @('obj','obi')){
+            $hits=@($kernelMembers|Where-Object{$_-match "(?i)[\\/]_ProcessPrng@8\.$kind$"})
+            if($hits.Count-ne 1){throw "NtCancelIoFileEx requires exactly one ProcessPrng .$kind weak alias; found $($hits.Count)"}
+            $dir=Join-Path $selected "processprng-$kind";New-Item -ItemType Directory -Force $dir|Out-Null
+            Push-Location $dir
+            try{& lib.exe /nologo "/extract:$($hits[0])" $env:THUNK_YY_KERNEL32_LIB|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx ProcessPrng extraction failed'}}finally{Pop-Location}
+            $file=Get-ChildItem $dir -File|Select-Object -First 1
+            if(-not$file){throw "NtCancelIoFileEx missing ProcessPrng .$kind member"}
+            $dst=Join-Path $dir 'member.obj';Copy-Item -Force $file.FullName $dst;$objects+=$dst
+          }
           $narrow=Join-Path $env:RUNNER_TEMP 'yy-xp-ntcancel.lib';& lib.exe /nologo "/out:$narrow" @objects;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx narrow provider build failed'}
           $symbols=(& dumpbin.exe /nologo /linkermember:1 $narrow 2>&1|Out-String);$symbols|Set-Content -Encoding utf8 diagnostics\ntcancel-provider-symbols.txt
+          if($symbols.IndexOf('YY_Thunks_ProcessPrng',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx provider missing ProcessPrng closure'}
+          if($symbols.IndexOf('YY_Thunks_WindowsCreateString',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx provider missing XP WinRT closure'}
           $yy=$symbols.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-ge 0;$report.Add("$api`t$($direct[0])`t$($import[0])`t$($yy.ToString().ToLowerInvariant())`t$(if($yy){'capable'}else{'missing'})");$report|Set-Content -Encoding utf8 diagnostics\yy-ntdll-capability.tsv;if(-not$yy){throw 'Narrow provider missing YY_Thunks_NtCancelIoFileEx'}
           @'
           #define WIN32_LEAN_AND_MEAN
@@ -434,10 +453,22 @@ jobs:
           '@|Set-Content -Encoding ascii ntcancel.cpp
           & cl.exe /nologo /c /MD /O2 /GS- /EHsc- /GR- ntcancel.cpp /Fontcancel.obj 2>&1|Tee-Object diagnostics\ntcancel-compile.log;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx probe compile failed'}
           $lld=(Get-Command lld-link.exe -ErrorAction SilentlyContinue).Source;if(-not$lld){$lld='C:\Program Files\LLVM\bin\lld-link.exe'};if(-not(Test-Path $lld)){throw 'lld-link missing'}
-          $exe=(Resolve-Path runtime).Path+'\xp-ntcanceliofileex.exe';$map=(Resolve-Path diagnostics).Path+'\ntcancel.map';$args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$narrow,'ntcancel.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe");($lld+' '+($args-join' '))|Set-Content -Encoding utf8 diagnostics\ntcancel-link-command.txt;& $lld @args 2>&1|Tee-Object diagnostics\ntcancel-link-output.txt;if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'NtCancelIoFileEx link failed'}
+          $exe=(Resolve-Path runtime).Path+'\xp-ntcanceliofileex.exe';$map=(Resolve-Path diagnostics).Path+'\ntcancel.map'
+          $args=@("-LIBPATH:$env:MSVCR14X_RELEASE",$env:THUNK_YY_SYNCH_LIB,$narrow,
+            '/nodefaultlib:runtimeobject.lib',
+            '/alternatename:_WindowsCreateString@12=_YY_Thunks_WindowsCreateString@12',
+            '/alternatename:__imp__WindowsCreateString@12=__imp__YY_Thunks_WindowsCreateString@12',
+            'ntcancel.obj','/subsystem:console','/entry:mainCRTStartup',"/map:$map","/out:$exe")
+          ($lld+' '+($args-join' '))|Set-Content -Encoding utf8 diagnostics\ntcancel-link-command.txt
+          & $lld @args 2>&1|Tee-Object diagnostics\ntcancel-link-output.txt
+          if($LASTEXITCODE-ne 0-or-not(Test-Path $exe)){throw 'NtCancelIoFileEx link failed'}
           & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe|Out-Null;if($LASTEXITCODE-ne 0){throw 'NtCancelIoFileEx XP subsystem retarget failed'}
           $mapText=Get-Content $map -Raw;if($mapText.IndexOf('YY_Thunks_NtCancelIoFileEx',[System.StringComparison]::Ordinal)-lt 0){throw 'NtCancelIoFileEx map did not select YY thunk'}
-          $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt;if($imports.IndexOf('NtCancelIoFileEx',[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw 'NtCancelIoFileEx probe retains direct import'}
+          $imports=(& dumpbin.exe /nologo /imports $exe 2>&1|Out-String);$imports|Set-Content -Encoding utf8 diagnostics\ntcancel-imports.txt
+          foreach($bad in @('NtCancelIoFileEx','ProcessPrng','WindowsCreateString','api-ms-win-','ext-ms-','KERNELBASE.dll','bcrypt.dll')){
+            if($imports.IndexOf($bad,[System.StringComparison]::OrdinalIgnoreCase)-ge 0){throw "NtCancelIoFileEx probe retains forbidden direct import $bad"}
+          }
+          'ntcancel_import_gate=PASS'|Set-Content -Encoding ascii diagnostics\ntcancel-import-gate.txt
           & $exe|Tee-Object diagnostics\ntcancel-hosted-run.txt;if($LASTEXITCODE-ne 0){throw "Hosted NtCancelIoFileEx probe failed: $LASTEXITCODE"}
           "NTCANCEL_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
