@@ -2590,11 +2590,16 @@ var SessionStoreInternal = {
         });
         this._xpShutdownProbeLog(browser, snapshot, "close_snapshot");
       }
-      if (
-        browser.isConnected &&
-        this._xpFinalOwnerByKey.has(browser.permanentKey)
-      ) {
-        this._xpRememberFinalOwner(browser);
+      const key = browser.permanentKey;
+      if (XPBrowserProcessPolicy.enabled && browser.isConnected && key) {
+        if (this._xpFinalOwnerByKey.has(key)) {
+          this._xpRememberFinalOwner(browser);
+        } else {
+          const current = browser.browsingContext?.currentWindowGlobal;
+          if (current) {
+            this._xpFinalOwnerByKey.set(key, String(current.innerWindowId));
+          }
+        }
       }
     }
 
