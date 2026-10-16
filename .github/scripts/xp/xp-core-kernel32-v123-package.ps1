@@ -10,12 +10,15 @@ switch ($Stage) {
 @echo off
 echo XP x86 core KERNEL32 cluster runtime probe
 xp-core-kernel32-cluster.exe
-if errorlevel 1 exit /b %ERRORLEVEL%
+set CORE_EC=%ERRORLEVEL%
+echo CoreExitCode=%CORE_EC%
 echo XP x86 NtCancelIoFileEx YY runtime probe
 xp-ntcanceliofileex.exe
-set EC=%ERRORLEVEL%
-echo DriverExitCode=%EC%
-exit /b %EC%
+set NTCANCEL_EC=%ERRORLEVEL%
+echo NtCancelExitCode=%NTCANCEL_EC%
+if not "%CORE_EC%"=="0" (echo DriverExitCode=%CORE_EC%& exit /b %CORE_EC%)
+echo DriverExitCode=%NTCANCEL_EC%
+exit /b %NTCANCEL_EC%
 '@|Set-Content -Encoding ascii runtime\run-xp-cluster.cmd
 @'
 Physical Windows XP SP3 x86 acceptance
