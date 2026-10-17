@@ -36,6 +36,7 @@
 #include "mozilla/dom/WorkerScope.h"
 #include "mozilla/dom/workerinternals/ScriptLoader.h"
 #include "mozilla/ipc/BackgroundUtils.h"
+#include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/ipc/URIUtils.h"
 #include "mozilla/net/CookieJarSettings.h"
 #include "nsCOMPtr.h"
@@ -113,19 +114,21 @@ class RemoteWorkerCSPEventListener final : public nsICSPEventListener {
  public:
   NS_DECL_ISUPPORTS
 
-  explicit RemoteWorkerCSPEventListener(RemoteWorkerChild* aActor)
-      : mActor(aActor) {};
+  explicit RemoteWorkerCSPEventListener(
+      RefPtr<ipc::WeakActorLifecycleProxy> aActorProxy)
+      : mActorProxy(std::move(aActorProxy)) {}
 
   NS_IMETHOD OnCSPViolationEvent(const nsAString& aJSON,
                                  const nsAString& aReportGroupName) override {
-    mActor->CSPViolationPropagationOnMainThread(aJSON, aReportGroupName);
+    RemoteWorkerChild::CSPViolationPropagationOnMainThread(
+        mActorProxy, aJSON, aReportGroupName);
     return NS_OK;
   }
 
  private:
   ~RemoteWorkerCSPEventListener() = default;
 
-  RefPtr<RemoteWorkerChild> mActor;
+  RefPtr<ipc::WeakActorLifecycleProxy> mActorProxy;
 };
 
 NS_IMPL_ISUPPORTS(RemoteWorkerCSPEventListener, nsICSPEventListener)
@@ -195,13 +198,20 @@ void RemoteWorkerChild::ExecWorker(
   MOZ_ASSERT(CanSend());
 #endif
 
+  RefPtr<ipc::WeakActorLifecycleProxy> cspActorProxy;
+  if (!mIsServiceWorker) {
+    cspActorProxy = GetWeakLifecycleProxy();
+    MOZ_ASSERT(cspActorProxy);
+  }
+
   RefPtr<RemoteWorkerChild> self = this;
 
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
       __func__, [self = std::move(self), data = aData,
-                 childEp = std::move(aChildEp)]() mutable {
-        nsresult rv =
-            self->ExecWorkerOnMainThread(std::move(data), std::move(childEp));
+                 childEp = std::move(aChildEp),
+                 cspActorProxy = std::move(cspActorProxy)]() mutable {
+        nsresult rv = self->ExecWorkerOnMainThread(
+            std::move(data), std::move(childEp), std::move(cspActorProxy));
 
         // Creation failure will already have been reported via the method
         // above internally using ScopeExit.
@@ -214,7 +224,8 @@ void RemoteWorkerChild::ExecWorker(
 nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
     RemoteWorkerData&& aData,
     mozilla::ipc::Endpoint<PRemoteWorkerNonLifeCycleOpControllerChild>&&
-        aChildEp) {
+        aChildEp,
+    RefPtr<ipc::WeakActorLifecycleProxy> aCspActorProxy) {
   MOZ_ASSERT(NS_IsMainThread());
 
   // Ensure that the IndexedDatabaseManager is initialized so that if any
@@ -361,7 +372,8 @@ nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
 
     nsCOMPtr<nsILoadInfo> loadInfo = info.mChannel->LoadInfo();
 
-    auto* cspEventListener = new RemoteWorkerCSPEventListener(this);
+    auto* cspEventListener =
+        new RemoteWorkerCSPEventListener(std::move(aCspActorProxy));
     rv = loadInfo->SetCspEventListener(cspEventListener);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
@@ -607,18 +619,31 @@ void RemoteWorkerChild::ErrorPropagationOnMainThread(
 }
 
 void RemoteWorkerChild::CSPViolationPropagationOnMainThread(
-    const nsAString& aJSON, const nsAString& aReportGroupName) {
+    ipc::WeakActorLifecycleProxy* aActorProxy, const nsAString& aJSON,
+    const nsAString& aReportGroupName) {
   AssertIsOnMainThread();
 
-  RefPtr<RemoteWorkerChild> self = this;
+  if (!aActorProxy) {
+    return;
+  }
+
+  RefPtr<ipc::WeakActorLifecycleProxy> proxy = aActorProxy;
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
-      "RemoteWorkerChild::ErrorPropagationDispatch",
-      [self = std::move(self), json = nsString(aJSON)]() {
+      "RemoteWorkerChild::CSPViolationPropagationOnMainThread",
+      [proxy = std::move(proxy), json = nsString(aJSON)]() {
+        RefPtr<RemoteWorkerChild> actor =
+            static_cast<RemoteWorkerChild*>(proxy->Get());
+        if (!actor) {
+          return;
+        }
+
         CSPViolation violation(json);
-        self->ErrorPropagation(violation);
+        actor->ErrorPropagation(violation);
       });
 
-  GetActorEventTarget()->Dispatch(r.forget(), NS_DISPATCH_NORMAL);
+  nsresult rv =
+      aActorProxy->ActorEventTarget()->Dispatch(r.forget(), NS_DISPATCH_NORMAL);
+  (void)NS_WARN_IF(NS_FAILED(rv));
 }
 
 void RemoteWorkerChild::NotifyLock(bool aCreated) {
