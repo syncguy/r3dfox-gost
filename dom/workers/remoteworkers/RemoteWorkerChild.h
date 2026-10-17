@@ -21,6 +21,10 @@
 class nsISerialEventTarget;
 class nsIConsoleReportCollector;
 
+namespace mozilla::ipc {
+class WeakActorLifecycleProxy;
+}
+
 namespace mozilla::dom {
 
 using remoteworker::RemoteWorkerState;
@@ -67,8 +71,9 @@ class RemoteWorkerChild final : public PRemoteWorkerChild {
   void ErrorPropagationOnMainThread(const WorkerErrorReport* aReport,
                                     bool aIsErrorEvent);
 
-  void CSPViolationPropagationOnMainThread(const nsAString& aJSON,
-                                           const nsAString& aReportGroupName);
+  static void CSPViolationPropagationOnMainThread(
+      ipc::WeakActorLifecycleProxy* aActorProxy, const nsAString& aJSON,
+      const nsAString& aReportGroupName);
 
   void NotifyLock(bool aCreated);
 
@@ -115,7 +120,8 @@ class RemoteWorkerChild final : public PRemoteWorkerChild {
   nsresult ExecWorkerOnMainThread(
       RemoteWorkerData&& aData,
       mozilla::ipc::Endpoint<PRemoteWorkerNonLifeCycleOpControllerChild>&&
-          aChildEp);
+          aChildEp,
+      RefPtr<ipc::WeakActorLifecycleProxy> aCspActorProxy);
 
   void ExceptionalErrorTransitionDuringExecWorker();
 
