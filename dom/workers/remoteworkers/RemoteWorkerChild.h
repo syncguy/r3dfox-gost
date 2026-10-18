@@ -72,7 +72,7 @@ class RemoteWorkerChild final : public PRemoteWorkerChild {
                                     bool aIsErrorEvent);
 
   static void CSPViolationPropagationOnMainThread(
-      ipc::WeakActorLifecycleProxy* aActorProxy, const nsAString& aJSON,
+      ::mozilla::ipc::WeakActorLifecycleProxy* aActorProxy, const nsAString& aJSON,
       const nsAString& aReportGroupName);
 
   void NotifyLock(bool aCreated);
@@ -121,7 +121,7 @@ class RemoteWorkerChild final : public PRemoteWorkerChild {
       RemoteWorkerData&& aData,
       mozilla::ipc::Endpoint<PRemoteWorkerNonLifeCycleOpControllerChild>&&
           aChildEp,
-      RefPtr<ipc::WeakActorLifecycleProxy> aCspActorProxy);
+      RefPtr<::mozilla::ipc::WeakActorLifecycleProxy> aCspActorProxy);
 
   void ExceptionalErrorTransitionDuringExecWorker();
 
