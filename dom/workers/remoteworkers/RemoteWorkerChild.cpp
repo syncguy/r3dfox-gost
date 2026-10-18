@@ -115,7 +115,7 @@ class RemoteWorkerCSPEventListener final : public nsICSPEventListener {
   NS_DECL_ISUPPORTS
 
   explicit RemoteWorkerCSPEventListener(
-      RefPtr<ipc::WeakActorLifecycleProxy> aActorProxy)
+      RefPtr<::mozilla::ipc::WeakActorLifecycleProxy> aActorProxy)
       : mActorProxy(std::move(aActorProxy)) {}
 
   NS_IMETHOD OnCSPViolationEvent(const nsAString& aJSON,
@@ -128,7 +128,7 @@ class RemoteWorkerCSPEventListener final : public nsICSPEventListener {
  private:
   ~RemoteWorkerCSPEventListener() = default;
 
-  RefPtr<ipc::WeakActorLifecycleProxy> mActorProxy;
+  RefPtr<::mozilla::ipc::WeakActorLifecycleProxy> mActorProxy;
 };
 
 NS_IMPL_ISUPPORTS(RemoteWorkerCSPEventListener, nsICSPEventListener)
@@ -198,7 +198,7 @@ void RemoteWorkerChild::ExecWorker(
   MOZ_ASSERT(CanSend());
 #endif
 
-  RefPtr<ipc::WeakActorLifecycleProxy> cspActorProxy;
+  RefPtr<::mozilla::ipc::WeakActorLifecycleProxy> cspActorProxy;
   if (!mIsServiceWorker) {
     cspActorProxy = GetWeakLifecycleProxy();
     MOZ_ASSERT(cspActorProxy);
@@ -225,7 +225,7 @@ nsresult RemoteWorkerChild::ExecWorkerOnMainThread(
     RemoteWorkerData&& aData,
     mozilla::ipc::Endpoint<PRemoteWorkerNonLifeCycleOpControllerChild>&&
         aChildEp,
-    RefPtr<ipc::WeakActorLifecycleProxy> aCspActorProxy) {
+    RefPtr<::mozilla::ipc::WeakActorLifecycleProxy> aCspActorProxy) {
   MOZ_ASSERT(NS_IsMainThread());
 
   // Ensure that the IndexedDatabaseManager is initialized so that if any
@@ -619,7 +619,7 @@ void RemoteWorkerChild::ErrorPropagationOnMainThread(
 }
 
 void RemoteWorkerChild::CSPViolationPropagationOnMainThread(
-    ipc::WeakActorLifecycleProxy* aActorProxy, const nsAString& aJSON,
+    ::mozilla::ipc::WeakActorLifecycleProxy* aActorProxy, const nsAString& aJSON,
     const nsAString& aReportGroupName) {
   AssertIsOnMainThread();
 
@@ -627,7 +627,7 @@ void RemoteWorkerChild::CSPViolationPropagationOnMainThread(
     return;
   }
 
-  RefPtr<ipc::WeakActorLifecycleProxy> proxy = aActorProxy;
+  RefPtr<::mozilla::ipc::WeakActorLifecycleProxy> proxy = aActorProxy;
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
       "RemoteWorkerChild::CSPViolationPropagationOnMainThread",
       [proxy = std::move(proxy), json = nsString(aJSON)]() {
