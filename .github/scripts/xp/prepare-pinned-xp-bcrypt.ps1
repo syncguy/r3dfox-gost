@@ -7,8 +7,15 @@ if (Test-Path $root) { Remove-Item -Recurse -Force $root }
 New-Item -ItemType Directory -Force $root | Out-Null
 
 if (-not $env:BCRYPT_REPOSITORY) { throw 'Pinned bcrypt repository is not configured' }
+if (-not $env:GITHUB_TOKEN) { throw 'GitHub token is required for pinned bcrypt release metadata' }
 $releaseUri = "https://api.github.com/repos/$env:BCRYPT_REPOSITORY/releases/tags/$env:BCRYPT_TAG"
-$release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci' } -Uri $releaseUri
+$headers = @{
+  'User-Agent' = 'r3dfox-gost-ci'
+  'Accept' = 'application/vnd.github+json'
+  'Authorization' = "Bearer $env:GITHUB_TOKEN"
+  'X-GitHub-Api-Version' = '2022-11-28'
+}
+$release = Invoke-RestMethod -Headers $headers -Uri $releaseUri
 if ([string]$release.id -ne $env:BCRYPT_RELEASE_ID) { throw "Unexpected bcrypt release id: $($release.id)" }
 if ($release.tag_name -ne $env:BCRYPT_TAG) { throw "Unexpected bcrypt release tag: $($release.tag_name)" }
 if ($release.target_commitish -ne $env:BCRYPT_SOURCE_SHA) { throw "Unexpected bcrypt release source: $($release.target_commitish)" }
