@@ -1,0 +1,931 @@
+name: CryptoPro Mozilla packaging smoke
+
+on:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi"
+      - "r3dfox/moz.build"
+      - "browser/installer/package-manifest.in"
+      - ".github/workflows/cryptopro-mozilla-packaging-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cryptopro-mozilla-packaging:
+    name: Windows x64 / CryptoPro real Firefox packaging / ru + en-US
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      NIGHTLY_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET_WIN7: "x86_64-win7-windows-msvc"
+      FIREFOX_L10N_SHA: 4273d99ccdc4a516ec6abd742a272ad1d385ddf4
+      EXTENSION_ID: ru.cryptopro.nmcades@cryptopro.ru
+      FALLBACK_XPI: r3dfox\extensions\ru.cryptopro.nmcades@cryptopro.ru.xpi
+      OFFICIAL_URL: https://www.cryptopro.ru/sites/default/files/products/cades/extensions/firefox_cryptopro_extension_latest.xpi
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: GATE A - Checkout pinned Russian localization source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $l10n = Join-Path $env:GITHUB_WORKSPACE '.l10n\firefox-l10n'
+          if (Test-Path $l10n) { Remove-Item -Recurse -Force $l10n }
+          git clone --filter=blob:none --no-checkout https://github.com/mozilla-l10n/firefox-l10n.git $l10n
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $l10n sparse-checkout init --cone
+          git -C $l10n sparse-checkout set ru
+          git -C $l10n fetch --depth=1 origin $env:FIREFOX_L10N_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $l10n checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actual = (git -C $l10n rev-parse HEAD).Trim()
+          if ($actual -ne $env:FIREFOX_L10N_SHA) { throw "l10n SHA mismatch: expected $env:FIREFOX_L10N_SHA got $actual" }
+          $actual | Set-Content -Encoding ascii ru-l10n-source-sha.txt
+          "L10N_BASE=$l10n" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:L10N_SOURCE_ROOT = Join-Path $l10n 'ru'
+          @'
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path(os.environ['L10N_SOURCE_ROOT'])
+          ftl = sorted(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          zero = [p for p in ftl if p.stat().st_size == 0]
+          cyr = [p for p in nonempty if re.search(r'[\u0400-\u04ff]', p.read_text(encoding='utf-8', errors='ignore'))]
+          print(f'ru source: ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+          print('SOURCE EMPTY FTL PATHS:')
+          for p in zero:
+              print(p.resolve())
+          if not zero:
+              print('(none)')
+          Path('ru-l10n-source-empty-paths.txt').write_text(''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8')
+          Path('ru-l10n-source-summary.txt').write_text(
+              f'source_root={root.resolve()}\nftl_total={len(ftl)}\nftl_nonempty={len(nonempty)}\nftl_zero={len(zero)}\nftl_cyrillic={len(cyr)}\n',
+              encoding='utf-8',
+          )
+          if len(ftl) < 200:
+              raise SystemExit('Russian source tree unexpectedly small')
+          if len(nonempty) / len(ftl) < 0.98:
+              raise SystemExit('Russian source tree has too many empty Fluent files')
+          if len(cyr) / len(nonempty) < 0.90:
+              raise SystemExit('Russian source tree has too few Cyrillic Fluent files')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure packaging-only Russian UI default
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'r3dfox\r3dfox-bundle.js'
+          $text = [System.IO.File]::ReadAllText($path)
+          $line = 'pref("intl.locale.requested", "ru");'
+          if ($text -match '(?m)^pref\("intl\.locale\.requested",') {
+            $text = [regex]::Replace(
+              $text,
+              '(?m)^pref\("intl\.locale\.requested",.*$',
+              $line
+            )
+          } else {
+            if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`n" }
+            $text += $line + "`n"
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($path, $text, $utf8NoBom)
+          if (-not ([System.IO.File]::ReadAllText($path).Contains($line))) {
+            throw 'Russian UI default preference was not written.'
+          }
+          Write-Host 'Packaging-only UI locale default: ru; base en-US remains bundled.'
+          git diff -- $path
+
+      - name: GATE - Select CryptoPro XPI and prepare working tree
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $selected = Join-Path $env:RUNNER_TEMP 'cryptopro-selected.xpi'
+          python build\update-cryptopro-extension.py `
+            --fallback $env:FALLBACK_XPI `
+            --url $env:OFFICIAL_URL `
+            --timeout 30 `
+            --output $selected `
+            --metadata cryptopro-extension-selection.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $meta = Get-Content cryptopro-extension-selection.json -Raw | ConvertFrom-Json
+          if ($meta.selected.id -ne $env:EXTENSION_ID) { throw 'Selected CryptoPro extension ID mismatch.' }
+          Copy-Item -Force $selected $env:FALLBACK_XPI
+          $selectedHash = (Get-FileHash -Algorithm SHA256 $selected).Hash.ToLowerInvariant()
+          $workingHash = (Get-FileHash -Algorithm SHA256 $env:FALLBACK_XPI).Hash.ToLowerInvariant()
+          if ($selectedHash -ne $workingHash) { throw 'Working-tree XPI differs from selected XPI.' }
+          "CRYPTOPRO_SELECTED_XPI=$selected" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CRYPTOPRO_SELECTED_SHA256=$selectedHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "CryptoPro source=$($meta.source) version=$($meta.selected.version) sha256=$selectedHash"
+
+      - name: Normalize upstream JSContext include order
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'js\src\vm\JSContext.cpp'
+          $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $path)
+          $dump = '#include "js/friend/DumpFunctions.h"  // for stack trace utilities'
+          $errors = '#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*'
+          $printer = '#include "js/Printer.h"               // for FixedBufferPrinter'
+          $printf = '#include "js/Printf.h"'
+          foreach ($line in @($dump, $printer)) { while ($lines.Remove($line)) { } }
+          $errorsIndex = $lines.IndexOf($errors)
+          $printfIndex = $lines.IndexOf($printf)
+          if ($errorsIndex -lt 0 -or $printfIndex -lt 0) { throw 'Expected JSContext include anchors were not found.' }
+          $lines.Insert($errorsIndex, $dump)
+          $printfIndex = $lines.IndexOf($printf)
+          $lines.Insert($printfIndex, $printer)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllLines($path, $lines, $utf8NoBom)
+          git diff -- $path
+
+      - name: GATE - SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          Write-Host "Existing active pagefile total: $activeMB MB"
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          if ($activeMB -ge 20480) {
+            'need=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $activeRoots = @($active | ForEach-Object {
+            if ($_.Name -match '^([A-Za-z]:)\\') { $matches[1].ToUpperInvariant() }
+          })
+          $candidate = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+            Where-Object { ($activeRoots -notcontains $_.DeviceID.ToUpperInvariant()) -and $_.FreeSpace -ge 30GB } |
+            Sort-Object FreeSpace -Descending |
+            Select-Object -First 1
+          if (-not $candidate) { throw 'No non-active fixed drive with at least 30 GB free was found for pagefile.' }
+          Write-Host "Selected pagefile drive: $($candidate.DeviceID), free=$([math]::Round($candidate.FreeSpace / 1GB, 2)) GB"
+          'need=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "disk=$($candidate.DeviceID)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile after provisioning
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $active = @(Get-CimInstance Win32_PageFileUsage)
+          $activeMB = ($active | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          $active | Select-Object Name, AllocatedBaseSize, CurrentUsage, PeakUsage | Format-Table -AutoSize
+          Write-Host "Active pagefile total: $activeMB MB"
+          if ($activeMB -lt 20480) { throw "Build blocked: active pagefile is only $activeMB MB." }
+
+      - name: Repair stale mime_guess vendored checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mime = 'third_party\rust\mime_guess\src\mime_types.rs'
+          $checksum = 'third_party\rust\mime_guess\.cargo-checksum.json'
+          $stale = '57ee8db84eb0fc4f06a3eac0da8c730a334cb99a7e81e60413f5febd886d91f4'
+          $expected = '1579ebd4fae3e0e8b1fe2d7677165868e6ba856c5e587538d9cb7b478a91078b'
+          $actual = (Get-FileHash -Algorithm SHA256 $mime).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Unexpected mime_guess source hash: $actual" }
+          $text = [System.IO.File]::ReadAllText($checksum)
+          if (-not $text.Contains($stale)) { throw 'Expected stale mime_guess checksum was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($checksum, $text.Replace($stale, $expected), $utf8NoBom)
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+          Get-Content 'C:\mozilla-build\VERSION'
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) { throw 'Expected MSSPI Windows.h include was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>'), $utf8NoBom)
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += ["msspi/src/msspi.cpp"]
+              LOCAL_INCLUDES += ["msspi/src", "msspi/third_party/cprocsp/include"]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+
+      - name: Write release mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-win64
+          mk_add_options MOZ_PARALLEL_BUILD=2
+          mk_add_options MOZ_MAKE_FLAGS="-j2"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=x86_64
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --disable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --disable-webrtc
+          ac_add_options --allow-addon-sideload
+          ac_add_options --with-unsigned-addon-scopes=app,system
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-gost'
+          $l10nMozPath = $env:L10N_BASE.Replace('\', '/')
+          "ac_add_options --with-l10n-base=$l10nMozPath" | Add-Content '.mozconfig-gost'
+          if (-not (Select-String -Path '.mozconfig-gost' -SimpleMatch "--with-l10n-base=$l10nMozPath" -Quiet)) {
+            throw 'Pinned l10n base was not written to mozconfig.'
+          }
+          Get-Content '.mozconfig-gost'
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install pinned Rust nightly with rust-src
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          components: rust-src
+
+      - name: Pin nightly Rust binaries for Mozilla
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rustc = (rustup which --toolchain $env:NIGHTLY_TOOLCHAIN rustc).Trim()
+          $cargo = (rustup which --toolchain $env:NIGHTLY_TOOLCHAIN cargo).Trim()
+          $rustdoc = (rustup which --toolchain $env:NIGHTLY_TOOLCHAIN rustdoc).Trim()
+          foreach ($p in @($rustc, $cargo, $rustdoc)) { if (-not (Test-Path $p)) { throw "Pinned Rust tool missing: $p" } }
+          "RUSTC=$rustc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CARGO=$cargo" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RUSTDOC=$rustdoc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $cargoHome = Join-Path $env:RUNNER_TEMP 'cargo-home-win7'
+          New-Item -ItemType Directory -Force $cargoHome | Out-Null
+          @'
+          [unstable]
+          build-std = ["std", "panic_abort"]
+          '@ | Set-Content -Encoding utf8 (Join-Path $cargoHome 'config.toml')
+          "CARGO_HOME=$cargoHome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $rustc --version --verbose
+          & $cargo --version --verbose
+          $cfg = & $rustc --print cfg --target $env:RUST_TARGET_WIN7 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cfg | Tee-Object -FilePath rust-win7-target-cfg.txt
+          if (($cfg -join "`n") -notmatch 'target_vendor="win7"') { throw 'Expected target_vendor="win7" was not reported.' }
+
+      - name: Vendor pinned Rust std dependencies into Mozilla vendor source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sysroot = (& $env:RUSTC --print sysroot).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $rustLibraryManifest = Join-Path $sysroot 'lib\rustlib\src\rust\library\Cargo.toml'
+          if (-not (Test-Path $rustLibraryManifest)) { throw "rust-src library manifest not found: $rustLibraryManifest" }
+
+          $stdVendor = Join-Path $env:RUNNER_TEMP 'rust-std-vendor'
+          if (Test-Path $stdVendor) { Remove-Item -Recurse -Force $stdVendor }
+          $stdout = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.stdout.log'
+          $stderr = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.stderr.log'
+          $merged = Join-Path $env:GITHUB_WORKSPACE 'rust-std-vendor.log'
+          Remove-Item -Force -ErrorAction SilentlyContinue $stdout,$stderr,$merged
+
+          $args = @(
+            'vendor', '--locked', '--versioned-dirs',
+            '--manifest-path', $rustLibraryManifest,
+            $stdVendor
+          )
+          $proc = Start-Process -FilePath $env:CARGO -ArgumentList $args -WorkingDirectory $env:RUNNER_TEMP -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          if (Test-Path $stdout) { Get-Content $stdout | Tee-Object -FilePath $merged }
+          if (Test-Path $stderr) { Get-Content $stderr | Tee-Object -FilePath $merged -Append }
+          Write-Host "cargo vendor exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "cargo vendor failed with exit code $($proc.ExitCode); see rust-std-vendor.log" }
+          if (-not (Test-Path $stdVendor)) { throw "cargo vendor did not create $stdVendor" }
+
+          $env:RUST_STD_VENDOR = $stdVendor
+          @'
+          import os
+          import shutil
+          import tomllib
+          from pathlib import Path
+
+          source = Path(os.environ["RUST_STD_VENDOR"])
+          dest = Path("third_party/rust")
+          report = Path("rust-std-vendor-added.txt")
+
+          def package_id(path: Path):
+              with (path / "Cargo.toml").open("rb") as f:
+                  package = tomllib.load(f)["package"]
+              return package["name"], package["version"]
+
+          existing = {}
+          for manifest in dest.glob("*/Cargo.toml"):
+              try:
+                  existing.setdefault(package_id(manifest.parent), manifest.parent)
+              except Exception:
+                  pass
+
+          added = []
+          reused = []
+          for crate in sorted(source.iterdir()):
+              if not (crate / "Cargo.toml").is_file():
+                  continue
+              ident = package_id(crate)
+              if ident in existing:
+                  reused.append((ident, existing[ident]))
+                  continue
+              target = dest / f"{ident[0]}-{ident[1]}"
+              if target.exists():
+                  raise SystemExit(f"vendor merge collision: {target}")
+              shutil.copytree(crate, target)
+              existing[ident] = target
+              added.append((ident, target))
+
+          lines = ["Added rust-src registry dependencies to Mozilla vendor:"]
+          lines += [f"ADD {name} {version} -> {path}" for (name, version), path in added]
+          lines += ["", "Already present with exact version:"]
+          lines += [f"USE {name} {version} -> {path}" for (name, version), path in reused]
+          report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print(report.read_text(encoding="utf-8"))
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path 'rust-std-vendor-added.txt' -Pattern '^ADD |^USE ' -Quiet)) {
+            throw 'Rust std vendor merge produced no registry packages.'
+          }
+
+      - name: Patch Mozilla Rust target selection for build-std
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          path = Path(r"build/moz.configure/rust.configure")
+          text = path.read_text(encoding="utf-8")
+          start_marker = "def rust_target_triple("
+          end_marker = '\n\n\nset_config("RUST_TARGET", rust_target_triple)'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit("rust_target_triple() start marker not found")
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit("rust_target_triple() end marker not found")
+          replacement = '''def rust_target_triple(
+              rustc, target, compiler_info, rust_supported_targets, arm_target
+          ):
+              # r3dfox-gost CI: Cargo -Z build-std supplies the target std library.
+              if target.kernel == "WINNT" and target.cpu == "x86_64":
+                  return "x86_64-win7-windows-msvc"
+
+              rustc_target = detect_rustc_target(
+                  target, compiler_info, arm_target, rust_supported_targets
+              )
+              assert_rust_compile(target, rustc_target, rustc)
+              return rustc_target
+          '''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, encoding="utf-8", newline="\n")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff -- build\moz.configure\rust.configure
+          $patched = [System.IO.File]::ReadAllText('build\moz.configure\rust.configure')
+          if (-not $patched.Contains('return "x86_64-win7-windows-msvc"')) { throw 'Win7 Rust target patch verification failed.' }
+
+      - name: GATE - Compile Win7 Rust build-std preflight
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'rust-win7-full-build-preflight'
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          New-Item -ItemType Directory -Force (Join-Path $dir 'src') | Out-Null
+          @'
+          [package]
+          name = "win7-preflight"
+          version = "0.1.0"
+          edition = "2021"
+          [workspace]
+          [profile.release]
+          panic = "abort"
+          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'Cargo.toml')
+          @'
+          use std::sync::{Arc, Condvar, Mutex};
+          use std::thread;
+          fn main() {
+              let pair = Arc::new((Mutex::new(false), Condvar::new()));
+              let worker_pair = Arc::clone(&pair);
+              let worker = thread::spawn(move || {
+                  let (lock, cv) = &*worker_pair;
+                  let mut ready = lock.lock().unwrap();
+                  *ready = true;
+                  cv.notify_one();
+              });
+              let (lock, cv) = &*pair;
+              let mut ready = lock.lock().unwrap();
+              while !*ready { ready = cv.wait(ready).unwrap(); }
+              drop(ready);
+              worker.join().unwrap();
+              println!("win7-build-std-preflight-ok");
+          }
+          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'src\main.rs')
+          & $env:CARGO build --release --manifest-path (Join-Path $dir 'Cargo.toml') --target $env:RUST_TARGET_WIN7
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Join-Path $dir "target\$env:RUST_TARGET_WIN7\release\win7-preflight.exe"
+          if (-not (Test-Path $exe)) { throw "Win7 preflight EXE was not produced: $exe" }
+          & $exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure object directory and verify Rust target and l10n base
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = .\mach.ps1 configure 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | Tee-Object -FilePath configure-win7.log
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = $output -join "`n"
+          if ($joined -notmatch 'checking for rust target triplet\.\.\.\s+x86_64-win7-windows-msvc') {
+            throw 'Configure did not select x86_64-win7-windows-msvc.'
+          }
+          $envOutput = .\mach.ps1 environment --format json 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $envOutput | Set-Content -Encoding utf8 configure-environment.json
+          $json = ($envOutput -join "`n") | ConvertFrom-Json
+          $expectedArg = '--with-l10n-base=' + $env:L10N_BASE.Replace('\', '/')
+          $configureArgs = @($json.mozconfig.configure_args)
+          Write-Host "expected l10n configure arg=$expectedArg"
+          Write-Host "configured args contain l10n base=$($configureArgs -contains $expectedArg)"
+          if ($configureArgs -notcontains $expectedArg) {
+            throw "mach environment did not retain the pinned l10n configure argument: $expectedArg"
+          }
+          if ($joined -notmatch [regex]::Escape($expectedArg)) {
+            throw "mach configure output did not consume the pinned l10n configure argument: $expectedArg"
+          }
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
+          & $mozmake -C 'obj-gost-win64' recurse_pre-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $mozmake -C 'obj-gost-win64' recurse_export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile Mozilla toolkit Rust target with Win7 std
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path $mozmake)) { throw "mozmake.exe was not found at $mozmake" }
+          & $mozmake -C 'obj-gost-win64' 'toolkit/library/rust/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Compile security manager SSL target objects
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $mozmake -C 'obj-gost-win64' 'security/manager/ssl/target-objects'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Require large active pagefile
+        shell: powershell
+        run: |
+          $activeMB = (Get-CimInstance Win32_PageFileUsage | Measure-Object -Property AllocatedBaseSize -Sum).Sum
+          if ($null -eq $activeMB) { $activeMB = 0 }
+          if ($activeMB -lt 20480) { throw "Full build blocked: active pagefile is only $activeMB MB." }
+
+      - name: Build release r3dfox
+        id: build-release
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify CryptoPro XPI in real dist/bin
+        if: steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $distXpi = "obj-gost-win64\dist\bin\distribution\extensions\$env:EXTENSION_ID.xpi"
+          if (-not (Test-Path $distXpi)) { throw "CryptoPro XPI missing from real dist/bin: $distXpi" }
+          $distHash = (Get-FileHash -Algorithm SHA256 $distXpi).Hash.ToLowerInvariant()
+          if ($distHash -ne $env:CRYPTOPRO_SELECTED_SHA256) {
+            throw "dist/bin XPI hash mismatch: expected $env:CRYPTOPRO_SELECTED_SHA256 got $distHash"
+          }
+          python -c "import json,zipfile; p=r'$distXpi'; z=zipfile.ZipFile(p); m=json.loads(z.read('manifest.json')); i=m.get('browser_specific_settings',{}).get('gecko',{}).get('id') or m.get('applications',{}).get('gecko',{}).get('id'); assert i==r'$env:EXTENSION_ID', (i, r'$env:EXTENSION_ID'); print('dist-id='+i+' version='+str(m.get('version')))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE B - Materialize and verify production ru merge
+        id: locale-prepackage
+        if: steps.build-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $env:MOZ_CHROME_MULTILOCALE = 'ru'
+          & $mozmake -C 'obj-gost-win64' chrome-ru
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:MERGE_ROOT = [System.IO.Path]::GetFullPath('obj-gost-win64\browser\locales\merge-dir\ru')
+          @'
+          import hashlib
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path(os.environ['MERGE_ROOT'])
+          if not root.is_dir():
+              raise SystemExit(f'production merge directory missing: {root}')
+          ftl = sorted(root.rglob('*.ftl'))
+          nonempty = [p for p in ftl if p.stat().st_size > 0]
+          zero = [p for p in ftl if p.stat().st_size == 0]
+          cyr = [p for p in nonempty if re.search(r'[\u0400-\u04ff]', p.read_text(encoding='utf-8', errors='ignore'))]
+          reps = [
+              p for p in ftl
+              if p.as_posix().endswith('browser/browser/browser.ftl')
+              or p.as_posix().endswith('browser/preferences/preferences.ftl')
+              or p.as_posix().endswith('toolkit/neterror/netError.ftl')
+          ]
+          print(f'production merge: root={root.resolve()} ftl={len(ftl)} nonempty={len(nonempty)} zero={len(zero)} cyrillic={len(cyr)}')
+          print('production merge EMPTY FTL PATHS:')
+          for p in zero:
+              print(p.resolve())
+          if not zero:
+              print('(none)')
+          rep_lines = []
+          for p in reps:
+              data = p.read_bytes()
+              text = data.decode('utf-8', errors='ignore')
+              sha = hashlib.sha256(data).hexdigest()
+              has_cyr = bool(re.search(r'[\u0400-\u04ff]', text))
+              line = f'{p.resolve()} size={len(data)} sha256={sha} cyrillic={int(has_cyr)}'
+              print(f'production merge representative {line}')
+              rep_lines.append(line)
+              if not data or not has_cyr:
+                  raise SystemExit(f'production merge representative resource is not substantive Russian: {p}')
+          Path('ru-production-merge-empty-paths.txt').write_text(''.join(f'{p.resolve()}\n' for p in zero), encoding='utf-8')
+          Path('ru-production-merge-summary.txt').write_text(
+              f'root={root.resolve()}\nftl_total={len(ftl)}\nftl_nonempty={len(nonempty)}\nftl_zero={len(zero)}\nftl_cyrillic={len(cyr)}\n' +
+              ''.join(f'representative={line}\n' for line in rep_lines),
+              encoding='utf-8',
+          )
+          if len(ftl) < 200:
+              raise SystemExit('production merge Russian Fluent tree unexpectedly small')
+          if len(nonempty) / len(ftl) < 0.90:
+              raise SystemExit('production merge Russian Fluent payload is too empty')
+          if len(cyr) / max(len(nonempty), 1) < 0.50:
+              raise SystemExit('production merge contains too few Cyrillic Fluent resources')
+          if len(reps) < 3:
+              raise SystemExit('production merge missing representative browser/preferences/netError resources')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $stageRoots = @(
+            'obj-gost-win64\dist\bin\localization\ru',
+            'obj-gost-win64\dist\bin\browser\localization\ru'
+          )
+          $stageLines = @()
+          foreach ($root in $stageRoots) {
+            $full = [System.IO.Path]::GetFullPath($root)
+            if (Test-Path $full) {
+              $ftl = @(Get-ChildItem $full -Recurse -File -Filter '*.ftl')
+              $nonempty = @($ftl | Where-Object { $_.Length -gt 0 })
+              $zero = @($ftl | Where-Object { $_.Length -eq 0 })
+              $line = "root=$full ftl=$($ftl.Count) nonempty=$($nonempty.Count) zero=$($zero.Count)"
+              Write-Host "pre-package dist/bin observation: $line"
+              $stageLines += $line
+            } else {
+              $line = "root=$full missing=1"
+              Write-Host "pre-package dist/bin observation: $line"
+              $stageLines += $line
+            }
+          }
+          $stageLines | Set-Content -Encoding utf8 ru-prepackage-summary.txt
+          '' | Set-Content -Encoding utf8 ru-prepackage-empty-paths.txt
+          Write-Host 'Pre-package dist/bin observations are diagnostic only; final omni.ja content is the hard Gate D.'
+
+      - name: Package release r3dfox as ru + en-US multi-locale
+        id: package-release
+        if: steps.locale-prepackage.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\mach.ps1 package-multi-locale --locales ru
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem 'obj-gost-win64\dist' -File |
+            Where-Object { $_.Name -match '\.(zip|7z)$' -or $_.Name -like '*.installer.exe' } |
+            Select-Object FullName,Length | Format-Table -AutoSize
+
+      - name: GATE D - Verify CryptoPro XPI and substantive ru/en-US UI in final portable archive
+        if: steps.package-release.outcome == 'success'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = 'obj-gost-win64\dist'
+          $archive = Get-ChildItem $dist -File |
+            Where-Object { $_.Extension -in @('.7z', '.zip') } |
+            Sort-Object @{Expression={ if ($_.Extension -eq '.7z') { 0 } else { 1 } }}, Name |
+            Select-Object -First 1
+          if (-not $archive) { throw 'No portable .7z or .zip package was produced.' }
+
+          $extract = Join-Path $env:RUNNER_TEMP 'cryptopro-package-extract'
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          New-Item -ItemType Directory -Force $extract | Out-Null
+
+          if ($archive.Extension -eq '.zip') {
+            Expand-Archive -LiteralPath $archive.FullName -DestinationPath $extract
+          } else {
+            $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
+            if (-not $sevenZip) {
+              $candidate = 'C:\Program Files\7-Zip\7z.exe'
+              if (Test-Path $candidate) { $sevenZip = $candidate }
+            }
+            if (-not $sevenZip) { throw '7z.exe was not found for final package verification.' }
+            & $sevenZip x -y "-o$extract" $archive.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $expectedSuffix = "\distribution\extensions\$env:EXTENSION_ID.xpi"
+          $matches = @(Get-ChildItem $extract -Recurse -File -Filter "$env:EXTENSION_ID.xpi" |
+            Where-Object { $_.FullName.EndsWith($expectedSuffix, [System.StringComparison]::OrdinalIgnoreCase) })
+          if ($matches.Count -ne 1) {
+            throw "Expected exactly one packaged CryptoPro XPI under distribution\extensions; found $($matches.Count)."
+          }
+          $packagedHash = (Get-FileHash -Algorithm SHA256 $matches[0].FullName).Hash.ToLowerInvariant()
+          if ($packagedHash -ne $env:CRYPTOPRO_SELECTED_SHA256) {
+            throw "Packaged XPI hash mismatch: expected $env:CRYPTOPRO_SELECTED_SHA256 got $packagedHash"
+          }
+
+          $env:R3DFOX_LOCALE_EXTRACT = $extract
+          @'
+          import hashlib
+          import os
+          import re
+          import zipfile
+          from pathlib import Path
+
+          root = Path(os.environ['R3DFOX_LOCALE_EXTRACT'])
+          omni_files = sorted(root.rglob('omni.ja'))
+          if not omni_files:
+              raise SystemExit('No omni.ja found in packaged browser')
+
+          bundle_hits = []
+          multilocale_hits = []
+          expected_pref = 'pref("intl.locale.requested", "ru");'
+          summaries = []
+          empty_lines = []
+          seen_roles = set()
+
+          for omni in omni_files:
+              role = 'browser' if omni.parent.name.lower() == 'browser' else 'root'
+              with zipfile.ZipFile(omni) as zf:
+                  names = zf.namelist()
+                  for name in names:
+                      normalized = name.replace('\\', '/').lstrip('/')
+                      if normalized == 'defaults/pref/r3dfox-bundle.js':
+                          bundle_hits.append(f'{omni.resolve()}!/{normalized}')
+                          text = zf.read(name).decode('utf-8-sig')
+                          if expected_pref not in text:
+                              raise SystemExit('Packaged r3dfox-bundle.js does not request Russian UI by default')
+                      if normalized == 'res/multilocale.txt':
+                          text = zf.read(name).decode('utf-8-sig').strip()
+                          multilocale_hits.append((f'{omni.resolve()}!/{normalized}', text))
+
+                  ru = [n for n in names if n.replace('\\', '/').startswith('localization/ru/') and not n.endswith('/')]
+                  en = [n for n in names if n.replace('\\', '/').startswith('localization/en-US/') and not n.endswith('/')]
+                  ru_ftl = [n for n in ru if n.endswith('.ftl')]
+                  en_ftl = [n for n in en if n.endswith('.ftl')]
+                  if not ru:
+                      continue
+                  seen_roles.add(role)
+                  ru_zero = [n for n in ru if zf.getinfo(n).file_size == 0]
+                  ru_ftl_zero = [n for n in ru_ftl if zf.getinfo(n).file_size == 0]
+                  ru_cyr = []
+                  for n in ru_ftl:
+                      data = zf.read(n)
+                      if data and re.search(r'[\u0400-\u04ff]', data.decode('utf-8', errors='ignore')):
+                          ru_cyr.append(n)
+                  print(f'{role} omni={omni.resolve()} ru_files={len(ru)} ru_zero={len(ru_zero)} ru_ftl={len(ru_ftl)} ru_ftl_zero={len(ru_ftl_zero)} ru_cyrillic={len(ru_cyr)} en_files={len(en)} en_ftl={len(en_ftl)}')
+                  print(f'{role.upper()} OMNI EMPTY RU PATHS:')
+                  for n in ru_zero:
+                      line = f'{omni.resolve()}!/{n.replace(chr(92), "/")}'
+                      print(line)
+                      empty_lines.append(line)
+                  if not ru_zero:
+                      print('(none)')
+                  reps = [
+                      n for n in ru_ftl
+                      if n.endswith('browser/browser.ftl')
+                      or n.endswith('browser/preferences/preferences.ftl')
+                      or n.endswith('toolkit/neterror/netError.ftl')
+                  ]
+                  rep_lines = []
+                  for n in reps:
+                      data = zf.read(n)
+                      text = data.decode('utf-8', errors='ignore')
+                      en_name = n.replace('localization/ru/', 'localization/en-US/', 1)
+                      sha = hashlib.sha256(data).hexdigest()
+                      has_cyr = bool(re.search(r'[\u0400-\u04ff]', text))
+                      identical = en_name in names and data == zf.read(en_name)
+                      line = f'{omni.resolve()}!/{n} size={len(data)} sha256={sha} cyrillic={int(has_cyr)} identical_enUS={int(identical)}'
+                      print(f'{role} representative {line}')
+                      rep_lines.append(line)
+                      if not data or not has_cyr or identical:
+                          raise SystemExit(f'Final {role} representative Russian resource failed content gate: {n}')
+                  if len(ru_ftl) < 50:
+                      raise SystemExit(f'Final {role} omni Russian Fluent tree unexpectedly small: {len(ru_ftl)}')
+                  if len(ru_ftl_zero) / len(ru_ftl) > 0.10:
+                      raise SystemExit(f'Final {role} omni has too many zero-length Russian Fluent files: {len(ru_ftl_zero)}/{len(ru_ftl)}')
+                  if len(ru_cyr) / max(len(ru_ftl) - len(ru_ftl_zero), 1) < 0.50:
+                      raise SystemExit(f'Final {role} omni has too few Cyrillic Russian Fluent resources')
+                  if role == 'root' and not any(n.endswith('toolkit/neterror/netError.ftl') for n in reps):
+                      raise SystemExit('Final root omni missing substantive Russian netError.ftl')
+                  if role == 'browser' and not (
+                      any(n.endswith('browser/browser.ftl') for n in reps)
+                      and any(n.endswith('browser/preferences/preferences.ftl') for n in reps)
+                  ):
+                      raise SystemExit('Final browser omni missing substantive Russian browser/preferences resources')
+                  summaries.append(
+                      f'role={role}\nomni={omni.resolve()}\nru_files={len(ru)}\nru_zero={len(ru_zero)}\nru_ftl={len(ru_ftl)}\nru_ftl_zero={len(ru_ftl_zero)}\nru_cyrillic={len(ru_cyr)}\nen_files={len(en)}\nen_ftl={len(en_ftl)}\n' +
+                      ''.join(f'representative={line}\n' for line in rep_lines)
+                  )
+
+          if seen_roles != {'root', 'browser'}:
+              raise SystemExit(f'Expected substantive Russian localization in root and browser omni.ja; got {sorted(seen_roles)}')
+          if len(bundle_hits) != 1:
+              raise SystemExit(f'Expected exactly one defaults/pref/r3dfox-bundle.js; found {len(bundle_hits)}')
+          if not any(text == 'ru,en-US' for _, text in multilocale_hits):
+              raise SystemExit(f'No res/multilocale.txt contains exact ru,en-US: {multilocale_hits}')
+          Path('ru-final-omni-empty-paths.txt').write_text('\n'.join(empty_lines) + ('\n' if empty_lines else ''), encoding='utf-8')
+          Path('ru-final-omni-summary.txt').write_text(
+              f'browser_source_sha={os.environ.get("GITHUB_SHA", "unknown")}\n'
+              f'l10n_source_sha={os.environ.get("FIREFOX_L10N_SHA", "unknown")}\n'
+              + '\n'.join(summaries)
+              + '\nmultilocale=' + repr(multilocale_hits) + '\n',
+              encoding='utf-8',
+          )
+          print('bundle-evidence=' + bundle_hits[0])
+          print('multilocale-evidence=' + repr(multilocale_hits))
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Copy-Item -Force $matches[0].FullName cryptopro-packaged.xpi
+          "archive=$($archive.Name)" | Set-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "path=$($matches[0].FullName.Substring($extract.Length))" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "sha256=$packagedHash" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "browser_source_sha=$env:GITHUB_SHA" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "l10n_source_sha=$env:FIREFOX_L10N_SHA" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "ui_default=ru" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          "ui_locales=ru,en-US" | Add-Content -Encoding utf8 cryptopro-package-evidence.txt
+          Get-Content cryptopro-package-evidence.txt
+
+      - name: Upload CryptoPro packaged browser
+        if: always() && steps.package-release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-cryptopro-mozilla-packaging-ru-en-US
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            obj-gost-win64/dist/*.zip
+            obj-gost-win64/dist/*.7z
+            obj-gost-win64/dist/*.installer.exe
+
+      - name: Upload CryptoPro packaging evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptopro-mozilla-packaging-evidence
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            cryptopro-extension-selection.json
+            cryptopro-package-evidence.txt
+            cryptopro-packaged.xpi
+            ru-l10n-source-sha.txt
+            ru-l10n-source-summary.txt
+            ru-l10n-source-empty-paths.txt
+            ru-production-merge-summary.txt
+            ru-production-merge-empty-paths.txt
+            ru-prepackage-summary.txt
+            ru-prepackage-empty-paths.txt
+            ru-final-omni-summary.txt
+            ru-final-omni-empty-paths.txt
+            configure-environment.json
+            rust-win7-target-cfg.txt
+            rust-std-vendor.log
+            rust-std-vendor.stdout.log
+            rust-std-vendor.stderr.log
+            rust-std-vendor-added.txt
+            configure-win7.log

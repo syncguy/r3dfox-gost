@@ -37,6 +37,10 @@ function getTabDialogBoxForLoadContext(loadContext) {
   return null;
 }
 
+function validRememberDuration(value) {
+  return Number.isInteger(value) && value >= 0 && value <= 2;
+}
+
 ClientAuthDialogService.prototype = {
   classID: Components.ID("{d7d2490d-2640-411b-9f09-a538803c11ee}"),
   QueryInterface: ChromeUtils.generateQI(["nsIClientAuthDialogService"]),
@@ -48,6 +52,47 @@ ClientAuthDialogService.prototype = {
     caNames,
     callback
   ) {
+    return this._chooseCertificate(
+      hostname,
+      certArray,
+      loadContext,
+      caNames,
+      callback,
+      null
+    );
+  },
+
+  chooseCertificateWithDefaultRememberDuration:
+    function ClientAuthDialogService_chooseCertificateWithDefaultRememberDuration(
+      hostname,
+      certArray,
+      loadContext,
+      caNames,
+      defaultRememberDuration,
+      callback
+    ) {
+      return this._chooseCertificate(
+        hostname,
+        certArray,
+        loadContext,
+        caNames,
+        callback,
+        defaultRememberDuration
+      );
+    },
+
+  _chooseCertificate: function ClientAuthDialogService_chooseCertificateInternal(
+    hostname,
+    certArray,
+    loadContext,
+    caNames,
+    callback,
+    defaultRememberDuration
+  ) {
+    let scopedDefault = validRememberDuration(defaultRememberDuration)
+      ? defaultRememberDuration
+      : null;
+
     // On Android, the OS implements the prompt. However, we have to plumb the
     // relevant information through to the frontend, which will return the
     // alias of the certificate, or null if none was selected.
@@ -76,12 +121,9 @@ ClientAuthDialogService.prototype = {
               console.error("couldn't get certificate from alias", e);
             }
           }
-          // The UI provided by the OS has no option to choose how long to
-          // remember the decision. The most broadly useful default is to
-          // remember the decision for the session.
           callback.certificateChosen(
             certificate,
-            Ci.nsIClientAuthRememberService.Session
+            scopedDefault ?? Ci.nsIClientAuthRememberService.Session
           );
         }
       );
@@ -92,13 +134,18 @@ ClientAuthDialogService.prototype = {
     const clientAuthAskURI = "chrome://pippki/content/clientauthask.xhtml";
     let retVals = {
       cert: null,
-      rememberDuration: Ci.nsIClientAuthRememberService.Session,
+      rememberDuration:
+        scopedDefault ?? Ci.nsIClientAuthRememberService.Session,
     };
-    let args = lazy.PromptUtils.objectToPropBag({
+    let dialogArgs = {
       hostname,
       certArray,
       retVals,
-    });
+    };
+    if (scopedDefault !== null) {
+      dialogArgs.defaultRememberDuration = scopedDefault;
+    }
+    let args = lazy.PromptUtils.objectToPropBag(dialogArgs);
 
     // First attempt to find a TabDialogBox for the loadContext. This allows
     // for a tab-modal dialog specific to the tab causing the load, which is a

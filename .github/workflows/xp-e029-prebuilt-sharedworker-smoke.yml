@@ -1,0 +1,63 @@
+name: XP E029 prebuilt SharedWorker CSP host smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  e029-prebuilt-host:
+    name: E029 pinned XP binary on modern Windows host
+    runs-on: windows-2022
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/agent/gost-tls-poc'
+    steps:
+      - name: Check out test controller (not the browser-under-test)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python for host test
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: GATE - Verify test server and script syntax without browser
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m py_compile .github/scripts/xp/e029_prebuilt_sharedworker_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw "Python syntax check failed" }
+          python .github/scripts/xp/e029_prebuilt_sharedworker_smoke.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw "HTTP fixture self-test failed" }
+
+      - name: Download and verify immutable XP x32 portable artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '& .github/scripts/xp/prepare-e029-prebuilt-host.ps1 -Mode Browser'
+
+      - name: Install pinned host WebDriver and geckodriver
+        shell: pwsh
+        run: '& .github/scripts/xp/prepare-e029-prebuilt-host.ps1 -Mode Driver'
+
+      - name: GATE - Execute real prebuilt r3dfox SharedWorker and CSP tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportDir = Join-Path $env:RUNNER_TEMP 'e029-report'
+          python .github/scripts/xp/e029_prebuilt_sharedworker_smoke.py --browser "$env:E029_BROWSER_EXE" --geckodriver "$env:E029_GECKODRIVER" --output "$reportDir"
+          if ($LASTEXITCODE -ne 0) { throw "E029 prebuilt browser host regression failed; see report artifact" }
+
+      - name: Upload E029 host test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-e029-prebuilt-sharedworker-host-results
+          path: |
+            ${{ runner.temp }}/e029-report/e029-prebuilt-report.json
+            ${{ runner.temp }}/e029-report/geckodriver.log
+          if-no-files-found: warn
+          retention-days: 7
