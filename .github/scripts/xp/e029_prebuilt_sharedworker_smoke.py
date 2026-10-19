@@ -254,6 +254,7 @@ def main():
         "ci_controller_sha": os.environ.get("GITHUB_SHA", "LOCAL"),
         "platform": "host Windows, not physical XP",
         "native_actor_lifetime": "NOT_TESTED",
+        "test_profile_overrides": {"dom.serviceWorkers.enabled": True},
         "cases": [],
     }
     driver = None
@@ -298,6 +299,7 @@ def main():
         opts.add_argument("-no-remote")
         opts.set_preference("browser.shell.checkDefaultBrowser", False)
         opts.set_preference("browser.startup.page", 0)
+        opts.set_preference("dom.serviceWorkers.enabled", True)
         service = Service(
             executable_path=str(args.geckodriver.resolve()),
             log_output=str(args.output / "geckodriver.log"),
@@ -354,16 +356,25 @@ def main():
 
         def service_worker():
             driver.get(base + "/page")
+            context = driver.execute_script(
+                "return {secure: window.isSecureContext === true,"
+                " serviceWorkerAPI: 'serviceWorker' in navigator};"
+            )
+            check(context.get("secure") is True,
+                  "Loopback fixture is not a secure context", context)
+            check(context.get("serviceWorkerAPI") is True,
+                  "ServiceWorker API absent despite test profile opt-in", context)
             result = driver.execute_async_script(SERVICE_CALL)
             check(result.get("active") is True,
                   "ServiceWorker activation/unregistration failed", result)
-            return {"registered_active_and_unregistered": True}
+            return {"registered_active_and_unregistered": True,
+                    "secure_context": True, "test_profile_opt_in": True}
 
         case("shared_worker_two_clients", shared_clients)
         case("shared_worker_same_origin_redirect", redirect_worker)
         case("csp_worker_src_blocked", blocked_worker)
         case("csp_report_only_worker_allowed", report_only_worker)
-        case("service_worker_control", service_worker)
+        case("service_worker_control_opt_in", service_worker)
 
     except Exception as exc:
         report["setup_failure"] = f"{type(exc).__name__}: {exc}"
