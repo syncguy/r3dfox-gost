@@ -1,0 +1,116 @@
+name: XP E029 prebuilt SharedWorker CSP host smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  e029-prebuilt-host:
+    name: E029 pinned XP binary on modern Windows host
+    runs-on: windows-2022
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/agent/gost-tls-poc'
+    steps:
+      - name: Check out test controller (not the browser-under-test)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python for host test
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: GATE - Verify test server and script syntax without browser
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m py_compile .github/scripts/xp/e029_prebuilt_sharedworker_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw "Python syntax check failed" }
+          python .github/scripts/xp/e029_prebuilt_sharedworker_smoke.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw "HTTP fixture self-test failed" }
+
+      - name: Download and verify immutable XP x32 portable artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'e029-prebuilt'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $outerZip = Join-Path $root 'xp-artifact-12135779653.zip'
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          Invoke-WebRequest -Uri 'https://api.github.com/repos/syncguy/r3dfox-gost/actions/artifacts/12135779653/zip' -Headers $headers -OutFile $outerZip -MaximumRedirection 5
+          $outerHash = (Get-FileHash -LiteralPath $outerZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '0d6cb96278b661ea927853f1d2cf399cff7504e645192a335909ebaf766af6a0'
+          if ($outerHash -ne $expected) {
+            throw "CI artifact ZIP digest mismatch: expected $expected; got $outerHash"
+          }
+          $outerDir = Join-Path $root 'artifact'
+          Expand-Archive -LiteralPath $outerZip -DestinationPath $outerDir -Force
+          $inner = @(Get-ChildItem -Path $outerDir -Filter 'r3dfox-v153.0.3.win32.zip' -File -Recurse)
+          if ($inner.Count -ne 1) { throw "Expected exactly one portable inner ZIP, got $($inner.Count)" }
+          $browserDir = Join-Path $root 'browser'
+          Expand-Archive -LiteralPath $inner[0].FullName -DestinationPath $browserDir -Force
+          $exe = @(Get-ChildItem -Path $browserDir -Filter 'r3dfox.exe' -File -Recurse)
+          if ($exe.Count -ne 1) { throw "Expected exactly one r3dfox.exe, got $($exe.Count)" }
+          $binDir = $exe[0].DirectoryName
+          $known = @{
+            'r3dfox.exe' = 'f78b3444960d5efbffd7fa897addc7315758b7a7'
+            'xul.dll' = 'bd70d93d68e10bae8c1307f10e22dac1378e0dc6'
+          }
+          foreach ($name in $known.Keys) {
+            $file = Join-Path $binDir $name
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing $name" }
+            $got = (Get-FileHash -LiteralPath $file -Algorithm SHA1).Hash.ToLowerInvariant()
+            if ($got -ne $known[$name]) { throw "$name differs from proven source-under-test artifact" }
+          }
+          "E029_BROWSER_EXE=$($exe[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Artifact verified: 39119372526 / 117651638583 / 12135779653"
+          Write-Host "Source-under-test: 67dc557067835bb8175f38830887e96afb75cf07"
+          Write-Host "Controller commit is separate from the tested browser bytes."
+
+      - name: Install pinned host WebDriver and geckodriver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check 'selenium==4.25.0'
+          if ($LASTEXITCODE -ne 0) { throw "Selenium installation failed" }
+          $root = Join-Path $env:RUNNER_TEMP 'e029-driver'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $zip = Join-Path $root 'geckodriver-v0.36.0-win64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-win64.zip' -OutFile $zip
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '4c23d54681d431b42575a66c3c89202a40add3ef45e64b94acac620a89774ad2'
+          if ($actual -ne $expected) { throw "geckodriver ZIP SHA-256 mismatch" }
+          Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
+          $driver = Join-Path $root 'geckodriver.exe'
+          if (-not (Test-Path -LiteralPath $driver -PathType Leaf)) { throw "geckodriver.exe missing" }
+          "E029_GECKODRIVER=$driver" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Pinned geckodriver v0.36.0 SHA-256 verified."
+
+      - name: GATE - Execute real prebuilt r3dfox SharedWorker and CSP tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportDir = Join-Path $env:RUNNER_TEMP 'e029-report'
+          python .github/scripts/xp/e029_prebuilt_sharedworker_smoke.py --browser "$env:E029_BROWSER_EXE" --geckodriver "$env:E029_GECKODRIVER" --output "$reportDir"
+          if ($LASTEXITCODE -ne 0) { throw "E029 prebuilt browser host regression failed; see report artifact" }
+
+      - name: Upload E029 host test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-e029-prebuilt-sharedworker-host-results
+          path: |
+            ${{ runner.temp }}/e029-report/e029-prebuilt-report.json
+            ${{ runner.temp }}/e029-report/geckodriver.log
+          if-no-files-found: warn
+          retention-days: 7
