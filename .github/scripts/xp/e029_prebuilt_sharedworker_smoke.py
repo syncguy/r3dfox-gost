@@ -58,23 +58,30 @@ try {
 """
 CSP_BLOCK_CALL = """
 const done = arguments[arguments.length - 1];
-let violation = false, error = false, exception = false, finished = false;
+let violation = false, workerError = false, securityException = false;
+let exceptionName = "", finished = false;
 function finish() {
   if (finished) return;
   finished = true;
-  done({blocked: violation || error || exception,
-        violation, error, exception});
+  done({blocked: violation || securityException,
+        violation, workerError, securityException, exceptionName});
 }
 window.addEventListener("securitypolicyviolation", event => {
   if (event.effectiveDirective === "worker-src" ||
-      event.effectiveDirective === "child-src") violation = true;
+      event.effectiveDirective === "child-src") {
+    violation = true;
+    finish();
+  }
 }, {once: true});
 try {
   const worker = new SharedWorker("/shared-worker.js", "e029-blocked");
-  worker.onerror = event => { error = true; event.preventDefault(); finish(); };
+  worker.onerror = event => { workerError = true; event.preventDefault(); };
   worker.port.start();
-} catch (_) { exception = true; }
-setTimeout(finish, 1500);
+} catch (error) {
+  exceptionName = error.name;
+  securityException = error.name === "SecurityError";
+}
+setTimeout(finish, 2000);
 """
 CSP_REPORT_CALL = """
 const done = arguments[arguments.length - 1];
