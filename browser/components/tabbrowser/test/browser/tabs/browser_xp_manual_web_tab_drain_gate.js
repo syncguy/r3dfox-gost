@@ -122,6 +122,7 @@ add_task(async function test_single_selected_web_tab_drain_on_xp_hybrid() {
     ok(manifest.supported, "Target shared-web child has a tab manifest");
     is(manifest.reason, "js-tab-manifest-only", "Native actor audit is still required");
     is(manifest.nativeActorsVerified, false, "JS enumeration is not native proof");
+    is(manifest.readyToRecycle, false, "Preflight cannot authorize process retirement");
     ok(
       manifest.members.some(member => member.tab === target),
       "Selected tab belongs to the exact child manifest"
