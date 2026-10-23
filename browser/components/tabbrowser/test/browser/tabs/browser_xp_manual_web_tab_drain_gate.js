@@ -19,6 +19,10 @@ add_task(async function test_manual_drain_rejects_non_hybrid_mode() {
     /XP hybrid web-tab recovery is not enabled/,
     "Manual all-web drain must have no effect outside XP hybrid mode"
   );
+
+  const manifest = TabUnloader.inspectSharedWebRecycleForXP(gBrowser.selectedTab);
+  is(manifest.supported, false, "Process preflight is inert outside XP");
+  is(manifest.reason, "xp-hybrid-disabled", "Non-XP rejection is explicit");
 });
 
 add_task(async function test_manual_drain_across_windows_on_xp_hybrid() {
@@ -114,6 +118,24 @@ add_task(async function test_single_selected_web_tab_drain_on_xp_hybrid() {
     is(sibling.linkedBrowser.remoteType, "web", "Sibling uses shared web");
     await BrowserTestUtils.switchTab(gBrowser, target);
     const originalSiblingBrowser = sibling.linkedBrowser;
+    const manifest = TabUnloader.inspectSharedWebRecycleForXP(target);
+    ok(manifest.supported, "Target shared-web child has a tab manifest");
+    is(manifest.reason, "js-tab-manifest-only", "Native actor audit is still required");
+    is(manifest.nativeActorsVerified, false, "JS enumeration is not native proof");
+    ok(
+      manifest.members.some(member => member.tab === target),
+      "Selected tab belongs to the exact child manifest"
+    );
+    ok(
+      manifest.members.some(member => member.tab === sibling),
+      "Sibling in the same shared child is in the manifest"
+    );
+    ok(
+      manifest.members.every(
+        member => String(member.frameLoader.childID) === String(manifest.childID)
+      ),
+      "Manifest never includes a different content-process generation"
+    );
 
     const result = await TabUnloader.unloadWebTabForXP(target);
     ok(!result.busy, "Single-tab drain completed");
