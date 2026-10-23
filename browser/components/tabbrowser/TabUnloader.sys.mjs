@@ -566,6 +566,7 @@ export var TabUnloader = {
       childID: null,
       members: [],
       nativeActorsVerified: false,
+      readyToRecycle: false,
     });
     if (!XPBrowserProcessPolicy.enabled) {
       return fail("xp-hybrid-disabled");
@@ -646,6 +647,7 @@ export var TabUnloader = {
       childID,
       members,
       nativeActorsVerified: false,
+      readyToRecycle: false,
     };
   },
 
