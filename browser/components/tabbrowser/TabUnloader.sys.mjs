@@ -613,15 +613,20 @@ export var TabUnloader = {
       ) {
         return fail("unstable-process-member");
       }
-      if (
-        tab.splitview ||
-        tab.userContextId !== 0 ||
-        PrivateBrowsingUtils.isBrowserPrivate(browser) ||
-        tab.soundPlaying ||
-        tab.pictureinpicture ||
-        webrtcUI.browserHasStreams(browser) ||
-        browser.browsingContext?.currentWindowGlobal?.hasActivePeerConnections?.()
-      ) {
+      let unsupported;
+      try {
+        unsupported =
+          !!tab.splitview ||
+          tab.userContextId !== 0 ||
+          PrivateBrowsingUtils.isBrowserPrivate(browser) ||
+          tab.soundPlaying ||
+          tab.pictureinpicture ||
+          !!webrtcUI?.browserHasStreams?.(browser) ||
+          !!browser.browsingContext?.currentWindowGlobal?.hasActivePeerConnections?.();
+      } catch (ex) {
+        return fail("unknown-process-member-state");
+      }
+      if (unsupported) {
         return fail("unsupported-process-member");
       }
       if (
