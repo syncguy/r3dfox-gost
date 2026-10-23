@@ -556,6 +556,95 @@ export var TabUnloader = {
   },
 
   /**
+   * Read-only XP shared-web recycle preflight. Enumerating chrome tab slots
+   * does not establish native actor completeness or OS process retirement.
+   */
+  inspectSharedWebRecycleForXP(targetTab) {
+    const fail = reason => ({
+      supported: false,
+      reason,
+      childID: null,
+      members: [],
+      nativeActorsVerified: false,
+    });
+    if (!XPBrowserProcessPolicy.enabled) {
+      return fail("xp-hybrid-disabled");
+    }
+    if (this._isUnloading || this._xpManualWebDrainInProgress) {
+      return fail("tab-unload-busy");
+    }
+
+    const targetBrowser = targetTab?.linkedBrowser;
+    const targetLoader = targetBrowser?.frameLoader;
+    const childID = targetLoader?.childID;
+    if (
+      !targetTab?.selected ||
+      targetTab.closing ||
+      !targetBrowser?.isConnected ||
+      !targetBrowser.isRemoteBrowser ||
+      targetBrowser.remoteType !== "web" ||
+      !childID ||
+      String(childID) === "0" ||
+      !targetLoader?.remoteTab ||
+      String(targetLoader.remoteTab.contentProcessId) !== String(childID)
+    ) {
+      return fail("invalid-target");
+    }
+
+    const members = [];
+    const sameProcess = loader =>
+      loader?.childID &&
+      String(loader.childID) === String(childID);
+    for (const { tab, gBrowser } of DefaultTabUnloaderMethods.iterateTabs()) {
+      const browser = tab.linkedBrowser;
+      const loader = browser?.frameLoader;
+      if (!sameProcess(loader)) {
+        continue;
+      }
+      if (
+        tab.closing ||
+        tab.isDestroyed ||
+        !tab.linkedPanel ||
+        !browser.isConnected ||
+        !browser.isRemoteBrowser ||
+        browser.remoteType !== "web" ||
+        !loader.remoteTab ||
+        String(loader.remoteTab.contentProcessId) !== String(childID)
+      ) {
+        return fail("unstable-process-member");
+      }
+      if (
+        tab.splitview ||
+        tab.userContextId !== 0 ||
+        PrivateBrowsingUtils.isBrowserPrivate(browser) ||
+        tab.soundPlaying ||
+        tab.pictureinpicture ||
+        webrtcUI.browserHasStreams(browser) ||
+        browser.browsingContext?.currentWindowGlobal?.hasActivePeerConnections?.()
+      ) {
+        return fail("unsupported-process-member");
+      }
+      if (
+        !browser.currentURI?.schemeIs("http") &&
+        !browser.currentURI?.schemeIs("https")
+      ) {
+        return fail("unsupported-process-member-uri");
+      }
+      members.push({ tab, gBrowser, browser, frameLoader: loader });
+    }
+    if (!members.some(member => member.tab === targetTab)) {
+      return fail("target-not-in-manifest");
+    }
+    return {
+      supported: true,
+      reason: "js-tab-manifest-only",
+      childID,
+      members,
+      nativeActorsVerified: false,
+    };
+  },
+
+  /**
    * Manually unload a single shared-web tab using the same bounded recovery
    * path as the all-web drain. This never targets sibling tabs.
    */
