@@ -452,6 +452,24 @@ base::ProcessHandle GeckoChildProcessHost::GetChildProcessHandle() {
   return mChildProcessHandle;
 }
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+mozilla::UniqueFileHandle
+GeckoChildProcessHost::DuplicateChildProcessWaitHandleForXP() {
+  mozilla::AutoReadLock handleLock(mHandleLock);
+  if (!mChildProcessHandle ||
+      mChildProcessHandle == base::kInvalidProcessHandle) {
+    return nullptr;
+  }
+  HANDLE duplicate = nullptr;
+  if (!::DuplicateHandle(::GetCurrentProcess(), mChildProcessHandle,
+                         ::GetCurrentProcess(), &duplicate, SYNCHRONIZE, FALSE,
+                         0)) {
+    return nullptr;
+  }
+  return mozilla::UniqueFileHandle(duplicate);
+}
+#endif
+
 base::ProcessId GeckoChildProcessHost::GetChildProcessId() {
   mozilla::AutoReadLock handleLock(mHandleLock);
   if (!mChildProcessHandle) {
