@@ -343,6 +343,10 @@ class nsFrameLoader final : public nsStubMutationObserver,
    */
   BrowserParent* GetBrowserParent() const;
 
+  // Read-only instant census. It never authorizes recycle or retains a process.
+  bool InspectSharedWebActorCensusForXP(
+      const nsTArray<RefPtr<nsFrameLoader>>& aExpectedLoaders);
+
   /**
    * Returns the IPDL actor used if this is an out-of-process iframe, or null
    * otherwise.
