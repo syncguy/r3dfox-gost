@@ -1,6 +1,11 @@
 name: "XP G1a census test-enabled build"
 
 on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-g1a-census-test-build.yml"
   workflow_dispatch:
 
 permissions:
@@ -609,8 +614,8 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           path: |
-            obj-gost-xp-x32/dist/*.common.tests.tar.zst
-            obj-gost-xp-x32/dist/*.mochitest.tests.tar.zst
+            obj-gost-xp-x32/dist/**/*.common.tests.tar.zst
+            obj-gost-xp-x32/dist/**/*.mochitest.tests.tar.zst
             g1a-test-archive-inventory.txt
 
       - name: GATE - Record G1a test-enabled browser and harness presence
