@@ -26,6 +26,9 @@
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/UniquePtr.h"
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+#  include "mozilla/UniquePtrExtensions.h"
+#endif
 
 #include "nsCOMPtr.h"
 #include "nsExceptionHandler.h"
@@ -143,6 +146,10 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
   //
   // Warning: the null value here is 0, not kInvalidProcessHandle.
   ProcessHandle GetChildProcessHandle();
+
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+  mozilla::UniqueFileHandle DuplicateChildProcessWaitHandleForXP();
+#endif
 
   // Returns the child's process ID; as for GetChildProcessHandle, there is
   // no inherent guarantee that it will remain valid or continue to
