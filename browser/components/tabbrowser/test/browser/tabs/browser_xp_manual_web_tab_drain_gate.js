@@ -151,6 +151,27 @@ add_task(async function test_single_selected_web_tab_drain_on_xp_hybrid() {
       "Manifest never includes a different content-process generation"
     );
 
+    const loaders = manifest.members.map(member => member.frameLoader);
+    const nativeCensus = targetLoader.inspectSharedWebActorCensusForXP(loaders);
+    is(typeof nativeCensus, "boolean", "Read-only native census returns a result");
+    ok(
+      !targetLoader.inspectSharedWebActorCensusForXP([]),
+      "No empty native actor set may be accepted"
+    );
+    ok(
+      !targetLoader.inspectSharedWebActorCensusForXP([
+        targetLoader,
+        targetLoader,
+      ]),
+      "Repeated FrameLoader does not authorize a native census"
+    );
+    is(
+      manifest.readyToRecycle,
+      false,
+      "Even successful instantaneous actor census does not authorize recycle"
+    );
+    info(`XP shared-web native actor census snapshot: ${nativeCensus}`);
+
     const result = await TabUnloader.unloadWebTabForXP(target);
     ok(!result.busy, "Single-tab drain completed");
     is(result.found, 1, "Only the requested tab was considered");
