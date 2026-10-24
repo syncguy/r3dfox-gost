@@ -20,6 +20,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/MessageManagerCallback.h"
 #include "mozilla/dom/Nullable.h"
@@ -346,7 +347,8 @@ class nsFrameLoader final : public nsStubMutationObserver,
 
   // Read-only instant census. It never authorizes recycle or retains a process.
   bool InspectSharedWebActorCensusForXP(
-      const nsTArray<RefPtr<nsFrameLoader>>& aExpectedLoaders);
+      const mozilla::dom::Sequence<
+          mozilla::dom::OwningNonNull<nsFrameLoader>>& aExpectedLoaders);
 
   /**
    * Returns the IPDL actor used if this is an out-of-process iframe, or null
