@@ -348,7 +348,7 @@ class nsFrameLoader final : public nsStubMutationObserver,
   // Read-only instant census. It never authorizes recycle or retains a process.
   bool InspectSharedWebActorCensusForXP(
       const mozilla::dom::Sequence<
-          mozilla::dom::OwningNonNull<nsFrameLoader>>& aExpectedLoaders);
+          mozilla::OwningNonNull<nsFrameLoader>>& aExpectedLoaders);
 
   /**
    * Returns the IPDL actor used if this is an out-of-process iframe, or null
