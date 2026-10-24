@@ -37,6 +37,7 @@
 #include "nsISupports.h"
 #include "nsRect.h"
 #include "nsStringFwd.h"
+#include "nsTArray.h"
 #include "nsStubMutationObserver.h"
 #include "nsWrapperCache.h"
 
