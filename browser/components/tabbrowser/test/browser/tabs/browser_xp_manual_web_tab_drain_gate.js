@@ -25,6 +25,91 @@ add_task(async function test_manual_drain_rejects_non_hybrid_mode() {
   is(manifest.reason, "xp-hybrid-disabled", "Non-XP rejection is explicit");
 });
 
+add_task(async function test_read_only_shared_web_actor_census_on_xp_hybrid() {
+  if (!XPBrowserProcessPolicy.enabled) {
+    return;
+  }
+
+  const url =
+    "http://mochi.test:8888/browser/browser/components/tabbrowser/test/browser/tabs/blank.html";
+  const originalSelected = gBrowser.selectedTab;
+  const target = BrowserTestUtils.addTab(gBrowser, url);
+  const sibling = BrowserTestUtils.addTab(gBrowser, url);
+
+  try {
+    await Promise.all([
+      BrowserTestUtils.browserLoaded(target.linkedBrowser),
+      BrowserTestUtils.browserLoaded(sibling.linkedBrowser),
+    ]);
+    await BrowserTestUtils.switchTab(gBrowser, target);
+    is(target.linkedBrowser.remoteType, "web", "Target is shared web");
+    is(sibling.linkedBrowser.remoteType, "web", "Sibling is shared web");
+
+    const manifest = TabUnloader.inspectSharedWebRecycleForXP(target);
+    ok(manifest.supported, "A stable exact-child JS manifest is available");
+    const loaders = manifest.members.map(member => member.frameLoader);
+    const targetLoader = target.linkedBrowser.frameLoader;
+    const siblingLoader = sibling.linkedBrowser.frameLoader;
+    ok(loaders.includes(targetLoader), "Receiver is in the full manifest");
+    ok(loaders.includes(siblingLoader), "Sibling shares exact target child");
+    const before = manifest.members.map(member => ({
+      tab: member.tab,
+      browser: member.browser,
+      frameLoader: member.frameLoader,
+      linkedPanel: member.tab.linkedPanel,
+    }));
+
+    ok(
+      targetLoader.inspectSharedWebActorCensusForXP(loaders),
+      "Complete live actor set passes native read-only census"
+    );
+    ok(
+      !targetLoader.inspectSharedWebActorCensusForXP([]),
+      "Empty actor set is rejected"
+    );
+    ok(
+      !targetLoader.inspectSharedWebActorCensusForXP([
+        targetLoader,
+        targetLoader,
+      ]),
+      "Duplicate receiver cannot replace complete actor set"
+    );
+    ok(
+      !targetLoader.inspectSharedWebActorCensusForXP(
+        loaders.filter(loader => loader !== targetLoader)
+      ),
+      "Omitting the receiver is rejected"
+    );
+    ok(
+      !targetLoader.inspectSharedWebActorCensusForXP(
+        loaders.filter(loader => loader !== siblingLoader)
+      ),
+      "Omitting a live sibling is rejected"
+    );
+
+    for (const item of before) {
+      is(item.tab.linkedBrowser, item.browser, "Actor census keeps browser");
+      is(
+        item.tab.linkedBrowser.frameLoader,
+        item.frameLoader,
+        "Actor census keeps FrameLoader"
+      );
+      is(item.tab.linkedPanel, item.linkedPanel, "Tab remains live");
+    }
+    is(manifest.nativeActorsVerified, false, "Snapshot is not an authorization");
+    is(manifest.readyToRecycle, false, "No recycle permission is produced");
+  } finally {
+    if (!originalSelected.closing && originalSelected.parentNode) {
+      gBrowser.selectedTab = originalSelected;
+    }
+    for (const tab of [target, sibling]) {
+      if (!tab.closing && tab.parentNode) {
+        BrowserTestUtils.removeTab(tab);
+      }
+    }
+  }
+});
+
 add_task(async function test_manual_drain_across_windows_on_xp_hybrid() {
   if (!XPBrowserProcessPolicy.enabled) {
     return;
