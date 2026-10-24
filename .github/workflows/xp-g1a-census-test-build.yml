@@ -590,7 +590,7 @@ jobs:
             throw "Mozilla test package targets failed ($LASTEXITCODE)"
           }
           $dist = Join-Path $env:OBJDIR 'dist'
-          $common = @(Get-ChildItem -Path $dist -Recurse -File -Filter '*.common.tests.zip' -ErrorAction SilentlyContinue)
+          $common = @(Get-ChildItem -Path $dist -Recurse -File -Filter '*.common.tests.tar.zst' -ErrorAction SilentlyContinue)
           $mochitest = @(Get-ChildItem -Path $dist -Recurse -File -Filter '*.mochitest.tests.tar.zst' -ErrorAction SilentlyContinue)
           if ($common.Count -eq 0 -or $mochitest.Count -eq 0) {
             throw "Both common and mochitest archives are required; common=$($common.Count), mochitest=$($mochitest.Count)"
@@ -609,7 +609,7 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           path: |
-            obj-gost-xp-x32/dist/*.common.tests.zip
+            obj-gost-xp-x32/dist/*.common.tests.tar.zst
             obj-gost-xp-x32/dist/*.mochitest.tests.tar.zst
             g1a-test-archive-inventory.txt
 
