@@ -2799,7 +2799,7 @@ BrowserParent* nsFrameLoader::GetBrowserParent() const {
 
 bool nsFrameLoader::InspectSharedWebActorCensusForXP(
     const mozilla::dom::Sequence<
-        mozilla::dom::OwningNonNull<nsFrameLoader>>& aExpectedLoaders) {
+        mozilla::OwningNonNull<nsFrameLoader>>& aExpectedLoaders) {
 #if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
   // Observational snapshot only: no actor/admission reservation and no
   // process waiting, detachment, killing, or restore. Call on parent main.
@@ -2823,6 +2823,7 @@ bool nsFrameLoader::InspectSharedWebActorCensusForXP(
   }
 
   nsTArray<BrowserParent*> expectedActors;
+  bool receiverMatched = false;
   for (const auto& expected : aExpectedLoaders) {
     nsFrameLoader* loader = expected.get();
     if (!loader || loader->IsDead() || !loader->IsRemoteFrame()) {
@@ -2834,10 +2835,16 @@ bool nsFrameLoader::InspectSharedWebActorCensusForXP(
       return false;
     }
     RefPtr<Element> owner = loader->GetOwnerElement();
+    if (!owner || actor->GetOwnerElement() != owner) {
+      return false;
+    }
+    RefPtr<nsFrameLoaderOwner> frameOwner = do_QueryObject(owner);
+    if (!frameOwner || frameOwner->GetFrameLoader() != loader) {
+      return false;
+    }
     CanonicalBrowsingContext* bc =
-        CanonicalBrowsingContext::Cast(loader->GetBrowsingContext());
-    if (!owner || actor->GetOwnerElement() != owner ||
-        !bc || !bc->IsTop() || bc->IsDiscarded() || bc->IsReplaced() ||
+        CanonicalBrowsingContext::Cast(loader->GetExtantBrowsingContext());
+    if (!bc || !bc->IsTop() || bc->IsDiscarded() || bc->IsReplaced() ||
         actor->GetBrowsingContext() != bc ||
         bc->GetBrowserParent() != actor) {
       return false;
@@ -2854,6 +2861,10 @@ bool nsFrameLoader::InspectSharedWebActorCensusForXP(
       return false;
     }
     expectedActors.AppendElement(actor);
+    receiverMatched |= loader == this;
+  }
+  if (!receiverMatched) {
+    return false;
   }
 
   for (auto* managed : process->ManagedPBrowserParent()) {
