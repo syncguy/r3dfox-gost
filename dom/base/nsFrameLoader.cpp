@@ -2797,6 +2797,83 @@ BrowserParent* nsFrameLoader::GetBrowserParent() const {
   return browserHost->GetActor();
 }
 
+bool nsFrameLoader::InspectSharedWebActorCensusForXP(
+    const nsTArray<RefPtr<nsFrameLoader>>& aExpectedLoaders) {
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+  // Observational snapshot only: no actor/admission reservation and no
+  // process waiting, detachment, killing, or restore. Call on parent main.
+  if (!XRE_IsParentProcess() || !NS_IsMainThread() ||
+      aExpectedLoaders.IsEmpty() || IsDead()) {
+    return false;
+  }
+  BrowserParent* rootActor = GetBrowserParent();
+  ContentParent* process = rootActor ? rootActor->Manager() : nullptr;
+  if (!process || process->IsLaunching() || process->IsShuttingDown() ||
+      !process->IsForBrowser() || !process->CanSend() ||
+      !process->GetRemoteType().EqualsLiteral("web") ||
+      !process->Process() ||
+      aExpectedLoaders.Length() != process->ManagedPBrowserParent().Count()) {
+    return false;
+  }
+  ContentProcessManager* registry = ContentProcessManager::GetSingleton();
+  if (!registry ||
+      registry->GetContentProcessById(process->ChildID()) != process) {
+    return false;
+  }
+
+  nsTArray<BrowserParent*> expectedActors;
+  for (const auto& loader : aExpectedLoaders) {
+    if (!loader || loader->IsDead() || !loader->IsRemoteFrame()) {
+      return false;
+    }
+    BrowserParent* actor = loader->GetBrowserParent();
+    if (!actor || actor->Manager() != process || !actor->CanSend() ||
+        expectedActors.Contains(actor)) {
+      return false;
+    }
+    RefPtr<Element> owner = loader->GetOwnerElement();
+    CanonicalBrowsingContext* bc =
+        CanonicalBrowsingContext::Cast(loader->GetBrowsingContext());
+    if (!owner || actor->GetOwnerElement() != owner ||
+        !bc || !bc->IsTop() || bc->IsDiscarded() || bc->IsReplaced() ||
+        actor->GetBrowsingContext() != bc ||
+        bc->GetBrowserParent() != actor) {
+      return false;
+    }
+    WindowGlobalParent* global = bc->GetCurrentWindowGlobal();
+    if (!global || global->IsClosed() || !global->IsCurrentGlobal() ||
+        global->GetBrowserParent() != actor) {
+      return false;
+    }
+    RefPtr<BrowserParent> registered =
+        registry->GetBrowserParentByProcessAndTabId(process->ChildID(),
+                                                    actor->GetTabId());
+    if (registered != actor) {
+      return false;
+    }
+    expectedActors.AppendElement(actor);
+  }
+
+  for (auto* managed : process->ManagedPBrowserParent()) {
+    if (!expectedActors.Contains(static_cast<BrowserParent*>(managed))) {
+      return false;
+    }
+  }
+  if (!registry->MatchesRegisteredBrowserParentsForXP(process,
+                                                       expectedActors)) {
+    return false;
+  }
+
+  // Ensure the original host has a currently duplicable wait-only handle.
+  // The duplicate is closed immediately: no observer exists in this stage.
+  mozilla::UniqueFileHandle waitHandle =
+      process->Process()->DuplicateChildProcessWaitHandleForXP();
+  return !!waitHandle;
+#else
+  return false;
+#endif
+}
+
 BrowserBridgeChild* nsFrameLoader::GetBrowserBridgeChild() const {
   if (!mRemoteBrowser) {
     return nullptr;
