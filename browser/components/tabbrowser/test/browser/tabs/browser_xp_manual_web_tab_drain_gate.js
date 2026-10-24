@@ -118,6 +118,19 @@ add_task(async function test_single_selected_web_tab_drain_on_xp_hybrid() {
     is(sibling.linkedBrowser.remoteType, "web", "Sibling uses shared web");
     await BrowserTestUtils.switchTab(gBrowser, target);
     const originalSiblingBrowser = sibling.linkedBrowser;
+    const targetLoader = target.linkedBrowser.frameLoader;
+    const siblingLoader = sibling.linkedBrowser.frameLoader;
+    ok(targetLoader?.childID, "Target has a nonzero ContentParent ChildID");
+    is(
+      String(targetLoader.childID),
+      String(siblingLoader?.childID),
+      "Live sibling really shares target ContentParent rather than only remoteType"
+    );
+    is(
+      String(targetLoader.remoteTab.contentProcessId),
+      String(targetLoader.childID),
+      "Live RemoteTab identity agrees with cached childID"
+    );
     const manifest = TabUnloader.inspectSharedWebRecycleForXP(target);
     ok(manifest.supported, "Target shared-web child has a tab manifest");
     is(manifest.reason, "js-tab-manifest-only", "Native actor audit is still required");
