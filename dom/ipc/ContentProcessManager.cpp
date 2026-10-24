@@ -136,4 +136,26 @@ ContentProcessManager::GetTopLevelBrowserParentByProcessAndTabId(
   return browserParent.forget();
 }
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+bool ContentProcessManager::MatchesRegisteredBrowserParentsForXP(
+    ContentParent* aProcess, const nsTArray<BrowserParent*>& aExpected) {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!aProcess || GetContentProcessById(aProcess->ChildID()) != aProcess) {
+    return false;
+  }
+
+  size_t count = 0;
+  for (auto iter = mBrowserParentMap.Iter(); !iter.Done(); iter.Next()) {
+    BrowserParent* actor = iter.Data();
+    if (actor && actor->Manager() == aProcess) {
+      if (!aExpected.Contains(actor)) {
+        return false;
+      }
+      ++count;
+    }
+  }
+  return count == aExpected.Length();
+}
+#endif
+
 }  // namespace mozilla::dom
