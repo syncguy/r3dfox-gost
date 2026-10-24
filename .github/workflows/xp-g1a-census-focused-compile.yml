@@ -1,0 +1,347 @@
+name: "XP G1a census focused compile"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-g1a-census-focused-compile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xp-x32:
+    name: Windows x86 / XP G1a generated binding and native objects
+    runs-on: windows-2022
+    timeout-minutes: 180
+
+    env:
+      MOZILLABUILD: C:\mozilla-build
+      MOZILLABUILD_VERSION: "4.2.1"
+      MOZCONFIG: ${{ github.workspace }}\.mozconfig-gost-xp-x32
+      MACH_NO_TERMINAL_FOOTER: "1"
+      MACH_HIDE_DEV_DRIVE_SUGGESTION: "1"
+      RUST_TOOLCHAIN: "nightly-2026-08-20"
+      RUST_TARGET: "i686-pc-windows-msvc"
+      RUSTFLAGS: "--cfg moz_xp_compat"
+      MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+      MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+      YY_THUNKS_VERSION: "1.2.2"
+      YY_THUNKS_TARGET: "5.1.2600.0"
+      WINDOWS_XP_SUBSYSTEM: "5.01"
+      OBJDIR: "obj-gost-xp-x32"
+      BCRYPT_REPOSITORY: "syncguy/bcrypt"
+      BCRYPT_TAG: "v0.1.0-alpha.1"
+      BCRYPT_RELEASE_ID: "401484730"
+      BCRYPT_ASSET_ID: "604569009"
+      BCRYPT_SOURCE_SHA: "2683896c5d288dcd90449f2fabebe8aa4790753c"
+      BCRYPT_SIZE: "388172"
+      BCRYPT_SHA1: "31e7dd01ad4d87dfa97de99d936abf8e397a86c1"
+      BCRYPT_SHA256: "47182ec816d6ed797bdec96e160c7c34e0dfe78f299dddbc0b4f5742c4bb3a59"
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: GATE - SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: GATE - Verify XP DPI pre-Vista source guard
+        id: dpi-source-guard
+        shell: powershell
+        run: .\.github\scripts\xp\verify-dpi-source-guard.ps1
+
+      - name: Plan pagefile placement
+        id: pagefile-plan
+        shell: powershell
+        run: .\.github\scripts\xp\plan-pagefile.ps1
+
+      - name: Configure 24 GB pagefile on non-active drive
+        if: steps.pagefile-plan.outputs.need == 'true'
+        uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 24GB
+          maximum-size: 24GB
+          disk-root: ${{ steps.pagefile-plan.outputs.disk }}
+
+      - name: GATE - Verify active pagefile and show runner CPU
+        shell: powershell
+        run: .\.github\scripts\xp\verify-runner-pagefile.ps1
+        
+      - name: GATE - Verify committed mime_guess vendored checksum
+        shell: powershell
+        run: .\.github\scripts\xp\verify-mime-guess-checksum.ps1
+
+      - name: Cache MozillaBuild installer
+        id: cache-mozillabuild
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}\MozillaBuild\MozillaBuildSetup.exe
+          key: mozillabuild-${{ runner.os }}-${{ env.MOZILLABUILD_VERSION }}
+
+      - name: Download MozillaBuild installer
+        if: steps.cache-mozillabuild.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-$env:MOZILLABUILD_VERSION.exe" -OutFile (Join-Path $dir 'MozillaBuildSetup.exe')
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TOOL_CACHE 'MozillaBuild\MozillaBuildSetup.exe'
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          if (-not (Test-Path 'C:\mozilla-build\start-shell.bat')) { throw 'MozillaBuild installation failed' }
+
+      - name: Prepare pinned MSSPI source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msspi = Join-Path $env:RUNNER_TEMP 'msspi'
+          git init $msspi
+          git -C $msspi remote add origin https://github.com/deemru/msspi.git
+          git -C $msspi fetch --depth=1 origin f1ae7bdb26bde1aab4e6ac9a293890b0f14a6232
+          git -C $msspi checkout --detach FETCH_HEAD
+          $dst = 'security\manager\ssl\msspi'
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse -Force "$msspi\src" "$dst\src"
+          Copy-Item -Recurse -Force "$msspi\third_party" "$dst\third_party"
+          $msspiCpp = Join-Path $dst 'src\msspi.cpp'
+          $source = [System.IO.File]::ReadAllText($msspiCpp)
+          if (-not $source.Contains('#include <Windows.h>')) { throw 'Expected MSSPI Windows.h include was not found' }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($msspiCpp, $source.Replace('#include <Windows.h>', '#include <windows.h>').Replace('SECPKG_ATTR_REMOTE_CERT_CHAIN', 'SECPKG_ATTR_REMOTE_CERT_CONTEXT'), $utf8NoBom)
+
+      - name: Register GOST and MSSPI sources in moz.build
+        shell: powershell
+        run: |
+          @'
+
+          # r3dfox-gost PoC: alternative TLS transport backed by Windows MSSPI.
+          UNIFIED_SOURCES += [
+              "GostSocketControl.cpp",
+              "GostTLSService.cpp",
+              "nsGostSSLIOLayer.cpp",
+          ]
+          if CONFIG["OS_ARCH"] == "WINNT":
+              SOURCES += ["msspi/src/msspi.cpp"]
+              LOCAL_INCLUDES += ["msspi/src", "msspi/third_party/cprocsp/include"]
+          '@ | Add-Content 'security\manager\ssl\moz.build'
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare pinned XP D3DCompiler_43 fallback
+        shell: powershell
+        run: .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode Prepare
+
+      - name: Prepare pinned XP bcrypt release asset
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .\.github\scripts\xp\prepare-pinned-xp-bcrypt.ps1
+
+      - name: Install pinned ordinary Rust x86 target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Build pinned msvcr14x Release x86
+        shell: powershell
+        run: .\.github\scripts\xp\build-msvcr14x-release-x86.ps1
+
+      - name: GATE - Require proven XP x86 msvcr14x runtime contract
+        shell: powershell
+        run: .\.github\scripts\xp\verify-msvcr14x-xp-contract.ps1
+
+      - name: Prepare pinned private DirectWrite integration
+        id: prepare-private-dwrite
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-private-dwrite-integration.ps1
+
+      - name: Download YY-Thunks 1.2.2 XP x86 libraries
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-yy-thunks-x86.ps1
+
+      - name: Build narrow YY XP x86 provider
+        shell: powershell
+        run: .\.github\scripts\xp\build-narrow-yy.ps1
+
+      - name: Activate narrow YY XP x86 provider for all target links
+        shell: powershell
+        run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
+
+      - name: GATE - Verify committed xul.dll and libGLESv2.dll YY TLS entry-point contracts
+        shell: powershell
+        run: .\.github\scripts\xp\verify-xul-yy-entrypoint-contract.ps1
+
+      - name: Write XP x32 mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-xp-x32
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --enable-debug-symbols
+          ac_add_options --disable-tests
+          ac_add_options --disable-sandbox
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --enable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-gost-xp-x32'
+          $optimizeMode = 'default'
+          switch ($optimizeMode) {
+            'default' { $optimizeOption = '--enable-optimize'; break }
+            '-Os' { $optimizeOption = '--enable-optimize=-Os'; break }
+            '-Oz' { $optimizeOption = '--enable-optimize="-O2 /clang:-Oz"'; break }
+            default { throw "Unsupported optimize_mode: $optimizeMode" }
+          }
+          $mozconfigPath = '.mozconfig-gost-xp-x32'
+          $mozconfigContent = Get-Content -LiteralPath $mozconfigPath -Raw
+          $needle = 'ac_add_options --enable-optimize'
+          if (([regex]::Matches($mozconfigContent, [regex]::Escape($needle))).Count -ne 1) {
+            throw 'Expected exactly one --enable-optimize line in XP mozconfig'
+          }
+          $mozconfigContent = $mozconfigContent.Replace($needle, "ac_add_options $optimizeOption")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $mozconfigPath), $mozconfigContent, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Selected XP C/C++ optimization: $optimizeOption"
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Firefox x86 target
+        shell: powershell
+        run: .\.github\scripts\xp\configure-firefox-x86-target.ps1
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: .\.github\scripts\xp\build-export-prerequisites.ps1
+
+      - name: GATE - Log G1a source identity and XP define
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "G1A_SOURCE_UNDER_TEST=$env:GITHUB_SHA"
+          Write-Host "G1A_SOURCE_BRANCH=$env:GITHUB_REF_NAME"
+          $mozconfig = Get-Content -LiteralPath $env:MOZCONFIG -Raw
+          if (-not $mozconfig.Contains('-DMOZ_XP_COMPAT')) {
+            throw 'Required XP C++ compatibility define is missing'
+          }
+
+      - name: GATE - Bulk non-executing target dependency preflight
+        id: census-preflight
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path -LiteralPath $mozmake)) {
+            throw 'mozmake is missing after configuration'
+          }
+          $targets = @(
+            'dom/bindings/target-objects',
+            'dom/base/target-objects',
+            'dom/ipc/target-objects',
+            'ipc/glue/target-objects'
+          )
+          $stdout = Join-Path (Get-Location) 'g1a-preflight.stdout.log'
+          $stderr = Join-Path (Get-Location) 'g1a-preflight.stderr.log'
+          $makeArgs = @('-C', $env:OBJDIR, '-n', '-k') + $targets
+          Write-Host "NON-EXECUTING targets: $($targets -join ', ')"
+          $proc = Start-Process -FilePath $mozmake -ArgumentList $makeArgs -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $missing = @(Select-String -Path @($stdout, $stderr) -Pattern 'No rule to make target|needed by|No targets specified|No such file or directory' -ErrorAction SilentlyContinue)
+          Write-Host "PREFLIGHT_EXIT=$($proc.ExitCode)"
+          Write-Host "PREFLIGHT_MISSING_DEPENDENCIES=$($missing.Count)"
+          $missing | Select-Object -First 150 | ForEach-Object { Write-Host $_.Line }
+          if ($proc.ExitCode -ne 0 -or $missing.Count -gt 0) {
+            throw 'Generated target prerequisite closure is incomplete; diagnostic files uploaded'
+          }
+
+      - name: GATE - Real XP x86 generated binding and C++ target compile
+        id: census-compile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $targets = @(
+            'dom/bindings/target-objects',
+            'dom/base/target-objects',
+            'dom/ipc/target-objects',
+            'ipc/glue/target-objects'
+          )
+          foreach ($target in $targets) {
+            Write-Host "REAL G1A COMPILE: $target"
+            & $mozmake -C $env:OBJDIR $target
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native compile failed: $target (exit $LASTEXITCODE)"
+            }
+          }
+          Write-Host 'G1a generated and native target-objects PASS; full xul.dll link not tested'
+
+      - name: Upload G1a focused preflight diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-g1a-census-focused-diagnostics
+          if-no-files-found: warn
+          path: |
+            configure-xp-x32.log
+            g1a-preflight.stdout.log
+            g1a-preflight.stderr.log
