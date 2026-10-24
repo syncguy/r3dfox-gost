@@ -2798,7 +2798,8 @@ BrowserParent* nsFrameLoader::GetBrowserParent() const {
 }
 
 bool nsFrameLoader::InspectSharedWebActorCensusForXP(
-    const nsTArray<RefPtr<nsFrameLoader>>& aExpectedLoaders) {
+    const mozilla::dom::Sequence<
+        mozilla::dom::OwningNonNull<nsFrameLoader>>& aExpectedLoaders) {
 #if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
   // Observational snapshot only: no actor/admission reservation and no
   // process waiting, detachment, killing, or restore. Call on parent main.
@@ -2822,7 +2823,8 @@ bool nsFrameLoader::InspectSharedWebActorCensusForXP(
   }
 
   nsTArray<BrowserParent*> expectedActors;
-  for (const auto& loader : aExpectedLoaders) {
+  for (const auto& expected : aExpectedLoaders) {
+    nsFrameLoader* loader = expected.get();
     if (!loader || loader->IsDead() || !loader->IsRemoteFrame()) {
       return false;
     }
