@@ -568,87 +568,93 @@ export var TabUnloader = {
       nativeActorsVerified: false,
       readyToRecycle: false,
     });
-    if (!XPBrowserProcessPolicy.enabled) {
-      return fail("xp-hybrid-disabled");
-    }
-    if (this._isUnloading || this._xpManualWebDrainInProgress) {
-      return fail("tab-unload-busy");
-    }
-
-    const targetBrowser = targetTab?.linkedBrowser;
-    const targetLoader = targetBrowser?.frameLoader;
-    const childID = targetLoader?.childID;
-    if (
-      !targetTab?.selected ||
-      targetTab.closing ||
-      !targetBrowser?.isConnected ||
-      !targetBrowser.isRemoteBrowser ||
-      targetBrowser.remoteType !== "web" ||
-      !childID ||
-      String(childID) === "0" ||
-      !targetLoader?.remoteTab ||
-      String(targetLoader.remoteTab.contentProcessId) !== String(childID)
-    ) {
-      return fail("invalid-target");
-    }
-
-    const members = [];
-    const sameProcess = loader =>
-      loader?.childID &&
-      String(loader.childID) === String(childID);
-    for (const { tab, gBrowser } of DefaultTabUnloaderMethods.iterateTabs()) {
-      const browser = tab.linkedBrowser;
-      const loader = browser?.frameLoader;
-      if (!sameProcess(loader)) {
-        continue;
+    try {
+      if (!XPBrowserProcessPolicy.enabled) {
+        return fail("xp-hybrid-disabled");
       }
+      if (this._isUnloading || this._xpManualWebDrainInProgress) {
+        return fail("tab-unload-busy");
+      }
+
+      const targetBrowser = targetTab?.linkedBrowser;
+      const targetLoader = targetBrowser?.frameLoader;
+      const childID = targetLoader?.childID;
       if (
-        tab.closing ||
-        tab.isDestroyed ||
-        !tab.linkedPanel ||
-        !browser.isConnected ||
-        !browser.isRemoteBrowser ||
-        browser.remoteType !== "web" ||
-        !loader.remoteTab ||
-        String(loader.remoteTab.contentProcessId) !== String(childID)
+        !targetTab?.selected ||
+        targetTab.closing ||
+        !targetBrowser?.isConnected ||
+        !targetBrowser.isRemoteBrowser ||
+        targetBrowser.remoteType !== "web" ||
+        !childID ||
+        String(childID) === "0" ||
+        !targetLoader?.remoteTab ||
+        String(targetLoader.remoteTab.contentProcessId) !== String(childID)
       ) {
-        return fail("unstable-process-member");
+        return fail("invalid-target");
       }
-      let unsupported;
-      try {
-        unsupported =
+
+      const members = [];
+      for (const { tab, gBrowser } of DefaultTabUnloaderMethods.iterateTabs()) {
+        const browser = tab.linkedBrowser;
+        const loader = browser?.frameLoader;
+        if (!loader?.childID || String(loader.childID) !== String(childID)) {
+          continue;
+        }
+        if (
+          tab.closing ||
+          tab.isDestroyed ||
+          !tab.linkedPanel ||
+          !browser.isConnected ||
+          !browser.isRemoteBrowser ||
+          browser.remoteType !== "web" ||
+          !loader.remoteTab ||
+          String(loader.remoteTab.contentProcessId) !== String(childID)
+        ) {
+          return fail("unstable-process-member");
+        }
+
+        const bc = browser.browsingContext;
+        const windowGlobal = bc?.currentWindowGlobal;
+        if (
+          !bc ||
+          !windowGlobal ||
+          typeof windowGlobal.hasActivePeerConnections !== "function" ||
+          typeof webrtcUI?.browserHasStreams !== "function"
+        ) {
+          return fail("unknown-process-member-state");
+        }
+        const unsupported =
           !!tab.splitview ||
           tab.userContextId !== 0 ||
           PrivateBrowsingUtils.isBrowserPrivate(browser) ||
           tab.soundPlaying ||
           tab.pictureinpicture ||
-          !!webrtcUI?.browserHasStreams?.(browser) ||
-          !!browser.browsingContext?.currentWindowGlobal?.hasActivePeerConnections?.();
-      } catch (ex) {
-        return fail("unknown-process-member-state");
+          !!webrtcUI.browserHasStreams(browser) ||
+          !!windowGlobal.hasActivePeerConnections();
+        if (unsupported) {
+          return fail("unsupported-process-member");
+        }
+
+        const uri = browser.currentURI;
+        if (!uri || (!uri.schemeIs("http") && !uri.schemeIs("https"))) {
+          return fail("unsupported-process-member-uri");
+        }
+        members.push({ tab, gBrowser, browser, frameLoader: loader });
       }
-      if (unsupported) {
-        return fail("unsupported-process-member");
+      if (!members.some(member => member.tab === targetTab)) {
+        return fail("target-not-in-manifest");
       }
-      if (
-        !browser.currentURI?.schemeIs("http") &&
-        !browser.currentURI?.schemeIs("https")
-      ) {
-        return fail("unsupported-process-member-uri");
-      }
-      members.push({ tab, gBrowser, browser, frameLoader: loader });
+      return {
+        supported: true,
+        reason: "js-tab-manifest-only",
+        childID,
+        members,
+        nativeActorsVerified: false,
+        readyToRecycle: false,
+      };
+    } catch (ex) {
+      return fail("preflight-exception");
     }
-    if (!members.some(member => member.tab === targetTab)) {
-      return fail("target-not-in-manifest");
-    }
-    return {
-      supported: true,
-      reason: "js-tab-manifest-only",
-      childID,
-      members,
-      nativeActorsVerified: false,
-      readyToRecycle: false,
-    };
   },
 
   /**
