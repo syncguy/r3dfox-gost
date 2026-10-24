@@ -2839,7 +2839,11 @@ bool nsFrameLoader::InspectSharedWebActorCensusForXP(
       return false;
     }
     RefPtr<nsFrameLoaderOwner> frameOwner = do_QueryObject(owner);
-    if (!frameOwner || frameOwner->GetFrameLoader() != loader) {
+    if (!frameOwner) {
+      return false;
+    }
+    RefPtr<nsFrameLoader> currentLoader = frameOwner->GetFrameLoader();
+    if (currentLoader != loader) {
       return false;
     }
     CanonicalBrowsingContext* bc =
