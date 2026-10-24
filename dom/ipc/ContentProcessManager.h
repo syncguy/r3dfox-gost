@@ -74,6 +74,12 @@ class ContentProcessManager final {
   already_AddRefed<BrowserParent> GetTopLevelBrowserParentByProcessAndTabId(
       const ContentParentId& aChildCpId, const TabId& aChildTabId);
 
+#if defined(XP_WIN) && defined(MOZ_XP_COMPAT)
+  // A momentary registry census only; this does not reserve admission.
+  bool MatchesRegisteredBrowserParentsForXP(
+      ContentParent* aProcess, const nsTArray<BrowserParent*>& aExpected);
+#endif
+
  private:
   static StaticAutoPtr<ContentProcessManager> sSingleton;
 
