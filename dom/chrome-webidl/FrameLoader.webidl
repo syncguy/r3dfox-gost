@@ -122,6 +122,13 @@ interface FrameLoader {
   readonly attribute unsigned long long childID;
 
   /**
+   * Read-only XP process actor census at a single instant. This is NOT an
+   * admission reservation, OS-exit proof, or permission to recycle a process.
+   * Non-XP builds return false.
+   */
+  boolean inspectSharedWebActorCensusForXP(sequence<FrameLoader> expectedLoaders);
+
+  /**
    * The last known width of the frame. Reading this property will not trigger
    * a reflow, and therefore may not reflect the current state of things. It
    * should only be used in asynchronous APIs where values are not guaranteed
