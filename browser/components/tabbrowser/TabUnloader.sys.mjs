@@ -618,6 +618,13 @@ export var TabUnloader = {
         if (
           !bc ||
           !windowGlobal ||
+          bc.isDiscarded ||
+          bc.isReplaced ||
+          bc.top !== bc ||
+          windowGlobal.isClosed ||
+          !windowGlobal.isCurrentGlobal ||
+          windowGlobal.browsingContext !== bc ||
+          loader.browsingContext !== bc ||
           typeof windowGlobal.hasActivePeerConnections !== "function" ||
           typeof webrtcUI?.browserHasStreams !== "function"
         ) {
