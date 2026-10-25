@@ -133,7 +133,20 @@ extern "C" int __cdecl XP_L1_PostCallback(void*);
       'child_timeout=true' | Add-Content -Encoding ascii diagnostics\l1-identity.txt
       throw 'L1 child process deadline exceeded; watchdog terminated child'
     }
-    $exitCode = $p.ExitCode
+    # Windows PowerShell 5.1 Start-Process -PassThru can expose a blank
+    # Process.ExitCode even after WaitForExit; query the real kernel handle.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class YYL1NativeExit {
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool GetExitCodeProcess(IntPtr hProcess, out uint code);
+}
+'@
+    [uint32]$rawExit = 259
+    $exitRead = [YYL1NativeExit]::GetExitCodeProcess($p.Handle, [ref]$rawExit)
+    Need ($exitRead -and $rawExit -ne 259) 'Cannot verify terminated L1 process exit status'
+    $exitCode = [long]$rawExit
     "child_exit_code=$exitCode" | Add-Content -Encoding ascii diagnostics\l1-identity.txt
     $log = Get-Content $out -Raw
     Write-Host $log
