@@ -185,6 +185,13 @@ jobs:
         shell: powershell
         run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
 
+      # Only the dedicated --enable-tests workflow selects four additional
+      # physically XP-tested YY Threadpool Wait aliases. Shared provider and
+      # primary xp-x32 workflow remain byte-for-byte unchanged.
+      - name: GATE - Activate G1a-only YY Threadpool Wait aliases
+        shell: powershell
+        run: .\.github\scripts\xp\g1a-threadpool-yy-overlay.ps1
+
       - name: GATE - Verify committed xul.dll and libGLESv2.dll YY TLS entry-point contracts
         shell: powershell
         run: .\.github\scripts\xp\verify-xul-yy-entrypoint-contract.ps1
@@ -575,6 +582,7 @@ jobs:
             obj-gost-xp-x32/**/xul.pdb
             obj-gost-xp-x32/**/libGLESv2.pdb
             ${{ runner.temp }}/r3dfox-xp-x32-narrow-yy/**
+            ${{ runner.temp }}/g1a-threadpool-yy-overlay/**
             ${{ runner.temp }}/r3dfox-xp-x32-ntcancel-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-ws2_32-alias/**
@@ -593,6 +601,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $mozmake)) {
             throw 'mozmake is required for Mozilla test packages'
           }
+          # The source JS stage-package recipe is preserved. Materialize a
+          # missing generated objdir Makefile instead of skipping JS tests.
+          & .\.github\scripts\xp\g1a-js-test-stage-prepare.ps1
+          if ($LASTEXITCODE -ne 0) { throw "G1a JS tests staging setup failed ($LASTEXITCODE)" }
           Write-Host '=== Test-enabled browser-chrome harness archive ==='
           & $mozmake -C $env:OBJDIR package-tests-common package-tests-mochitest
           if ($LASTEXITCODE -ne 0) {
@@ -609,6 +621,14 @@ jobs:
             "$($_.Name)|bytes=$($_.Length)|sha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant())"
           } | Set-Content -LiteralPath $out -Encoding UTF8
           Get-Content -LiteralPath $out
+
+      - name: Upload G1a JS test-stage preparation diagnostics
+        if: always() && steps.g1a-test-archive.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3dfox-g1a-xp-x32-test-stage-diagnostics
+          if-no-files-found: warn
+          path: diagnostics/g1a-js-stage-makefile-repair.txt
 
       - name: Upload G1a browser-chrome harness packages
         if: always() && steps.g1a-test-archive.outcome == 'success'
