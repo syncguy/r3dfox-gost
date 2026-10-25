@@ -61,11 +61,27 @@ foreach ($api in $apis) {
     $dst = Join-Path $dir 'member.obj'
     Copy-Item -LiteralPath $file.FullName -Destination $dst -Force
     $memberSymbols = (& dumpbin.exe /nologo /symbols $dst 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0 -or $memberSymbols.IndexOf("YY_Thunks_$name",[StringComparison]::Ordinal) -lt 0) {
-      throw "Incorrect YY weak alias member: $name .$ext"
+    if ($LASTEXITCODE -ne 0) { throw "dumpbin symbols failed: $name .$ext" }
+    # COFF weak-externals reference their target; /LINKERMEMBER on the
+    # alias-only .lib does NOT define YY_Thunks_* implementations.
+    $expectedOriginal = if ($ext -eq 'obj') {
+      "_${name}@$($api.Stack)"
+    } else {
+      "__imp__${name}@$($api.Stack)"
     }
+    $expectedTarget = if ($ext -eq 'obj') {
+      "_YY_Thunks_${name}@$($api.Stack)"
+    } else {
+      "__imp__YY_Thunks_${name}@$($api.Stack)"
+    }
+    if (-not [regex]::IsMatch($memberSymbols,"(?<![A-Za-z0-9_])$([regex]::Escape($expectedOriginal))(?![A-Za-z0-9_])") -or
+        -not [regex]::IsMatch($memberSymbols,"(?<![A-Za-z0-9_])$([regex]::Escape($expectedTarget))(?![A-Za-z0-9_])") -or
+        $memberSymbols -notmatch '(?i)WeakExternal') {
+      throw "Expected decorated original/weak YY target not found in COFF: $name .$ext"
+    }
+    $memberSymbols | Set-Content -Encoding utf8 (Join-Path $dir 'symbols.txt')
     $objects.Add($dst)
-    $inventory.Add("$name|$ext|$($matches[0])")
+    $inventory.Add("$name|$ext|$($matches[0])|$expectedOriginal|$expectedTarget")
   }
 }
 $provider = Join-Path $work 'g1a-threadpool-yy-aliases.lib'
@@ -75,12 +91,16 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $provider)) {
   throw 'Cannot build G1a-only narrow Threadpool alias library'
 }
 $providerSymbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Threadpool alias provider' }
-foreach ($api in $apis) {
-  if ($providerSymbols.IndexOf("YY_Thunks_$($api.Name)",[StringComparison]::Ordinal) -lt 0) {
-    throw "Missing G1a Threadpool weak alias $($api.Name)"
-  }
+if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Threadpool alias library index' }
+$providerMembers = @(& lib.exe /nologo /list $provider 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+if ($LASTEXITCODE -ne 0 -or $providerMembers.Count -ne 8) {
+  throw "G1a alias library must have exactly eight selected members, observed $($providerMembers.Count)"
 }
+# This is an archive-integrity gate, not a substitute for resolving
+# direct/imported references in a real target link; the implementation is
+# defined in the *existing* narrow provider, not in this alias-only archive.
+Write-Host 'G1a narrow YY alias library assembled (8 COFF weak members).'
+Write-Host 'PENDING: verify target link map and all four PE imports in independent x86 link preflight.'
 # Be explicit about the fallback closure: require exactly four Threadpool API
 # alias pairs, never add the broad original YY kernel32.lib to target links.
 $fullKernel32 = $env:THUNK_YY_KERNEL32_LIB.Replace('\','/')
