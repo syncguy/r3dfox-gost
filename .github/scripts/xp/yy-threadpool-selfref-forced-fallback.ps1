@@ -197,9 +197,12 @@ extern "C" void __cdecl XP_REF_Hold(void*);
         foreach ($marker in @('kind=yy_fallback_create','kind=actual_heap_free',
           'kind=yy_epilogue_after_real_SetEvent','free_count=1',
           'heap_free_ok=1','same_ptr=1','close_count=1','unsafe=0')) {
-          if ($case.Name -eq 'l2-pending' -and $marker -eq 'kind=yy_epilogue_after_real_SetEvent') { continue }
+          if ($case.Name -ne 'l1' -and $marker -eq 'kind=yy_epilogue_after_real_SetEvent') { continue }
           if ($case.Name -eq 'l1' -and $marker -eq 'close_count=1') { continue }
           Need ($log.Contains($marker)) "$label missing: $marker"
+        }
+        if ($case.Name -eq 'l2' -or $case.Name -eq 'l3') {
+          Need ($log.Contains('kind=yy_after_real_epilogue_event')) "$label owner model missing YY after-event evidence"
         }
         if ($case.Name -eq 'l1') {
           foreach ($marker in @('kind=yy_worker_extra_ref','worker_ref=1',
