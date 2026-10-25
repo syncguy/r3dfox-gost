@@ -1,0 +1,51 @@
+name: YY 1.2.2 setter+worker external close before callback AddRef negative control
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-yy-threadpool-selfref-external-close.yml"
+      - ".github/scripts/xp/yy-threadpool-selfref-external-close.ps1"
+      - ".github/scripts/xp/yy-threadpool-selfref-external-close.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  external-close-pre-addref-negative:
+    name: Pinned source YY 1.2.2 forced-fallback external close before worker AddRef
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experimental source only
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Pin YY and instrument setter+worker with safe pre-AddRef guard
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-external-close.ps1 -Stage prepare'
+
+      - name: Compile standalone pinned source YY and x86 guarded scenario
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-external-close.ps1 -Stage build'
+
+      - name: GATE - external close frees wait while worker is parked before AddRef
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-external-close.ps1 -Stage hosted'
+
+      - name: Publish actual free and skipped unsafe AddRef traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-setterworker-preaddref-external-close-negative-control
+          path: diagnostics/
+          if-no-files-found: warn
