@@ -257,11 +257,14 @@ cleanup:
     "YY_THREADPOOL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
   }
   'audit' {
-    $targets = if ($Stage -eq 'audit-runtime') {
-      @(Get-ChildItem -LiteralPath runtime -File | Where-Object { $_.Extension -in @('.exe','.dll') })
-    } else {
-      @(Get-Item -LiteralPath $env:YY_THREADPOOL_EXE)
+    # Audit exactly what will be packaged, including CRT DLL dependencies.
+    # Staging here ensures the ordinary workflow invokes the complete gate.
+    foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
+      $src = Join-Path $env:MSVCR14X_RELEASE $dll
+      if (-not (Test-Path $src)) { throw "Missing XP-compatible CRT: $dll" }
+      Copy-Item -Force $src runtime
     }
+    $targets = @(Get-ChildItem -LiteralPath runtime -File | Where-Object { $_.Extension -in @('.exe','.dll') })
     if ($targets.Count -lt 1) { throw 'No PE image for XP import audit' }
     # Mirror the primary browser's broad XP post-5.1 direct-import list.
     # Independent copy: do not modify the production checker or shared script.
