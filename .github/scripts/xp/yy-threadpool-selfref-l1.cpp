@@ -159,10 +159,10 @@ int main() {
   LONG refs = InterlockedCompareExchange(&g_worker_ref, 0, 0);
   printf("RESULT fallback=%ld callback_count=%ld free_count=%ld post_count=%ld "
          "heap_free_ok=%ld free_seq=%ld post_seq=%ld free_before_post=%ld "
-         "same_ptr=%ld worker_ref=%ld after_count=%ld after_seq=%ld free_after_epilogue=%ld\n",
+         "same_ptr=%ld worker_ref=%ld after_count=%ld after_seq=%ld free_after_epilogue=%ld unsafe=%ld\n",
          fallback, calls, frees, posts, heap_ok, free_seq, post_seq,
          unsafe, (g_freed == g_wait) ? 1L : 0L,
-         refs, afters, after_seq, (free_seq > after_seq && after_seq > 0) ? 1L : 0L);
+         refs, afters, after_seq, (free_seq > after_seq && after_seq > 0) ? 1L : 0L, unsafe);
   fflush(stdout);
 
   if (fallback != 1 || calls != 1 || frees != 1 || posts != 1 ||
