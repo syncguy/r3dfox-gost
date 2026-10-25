@@ -14,7 +14,8 @@ $apis = @(
 # Proven YY XP narrow SRW dependency, private to this standalone test.
 $srwClosure = @(
     @{ Name='AcquireSRWLockExclusive'; Stack=4 },
-    @{ Name='ReleaseSRWLockExclusive'; Stack=4 }
+    @{ Name='ReleaseSRWLockExclusive'; Stack=4 },
+    @{ Name='InitializeSRWLock'; Stack=4 }
 )
 
 switch ($Stage) {
