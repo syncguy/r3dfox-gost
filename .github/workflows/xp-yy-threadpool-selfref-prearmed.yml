@@ -1,0 +1,51 @@
+name: YY 1.2.2 selfref pre-signaled setter unlock race negative control
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-yy-threadpool-selfref-prearmed.yml"
+      - ".github/scripts/xp/yy-threadpool-selfref-prearmed.ps1"
+      - ".github/scripts/xp/yy-threadpool-selfref-prearmed.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  yy-prearmed-race:
+    name: source-pinned x86 YY forced fallback / real callback close vs registration unlock
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experiment-owned code only
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable x86 MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Source-pin YY v1.2.2 and instrument callback versus setter unlock
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-prearmed.ps1 -Stage prepare'
+
+      - name: Compile pinned instrumented YY and x86 prearmed negative control
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-prearmed.ps1 -Stage build'
+
+      - name: GATE - callback free before setter lock release (expected unsafe negative control)
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-prearmed.ps1 -Stage hosted'
+
+      - name: Upload prearmed test-only source identity and controlled trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-selfref-prearmed-race-negative-control-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn
