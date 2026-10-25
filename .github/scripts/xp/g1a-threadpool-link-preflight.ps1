@@ -56,7 +56,11 @@ int __cdecl main(void) {
 foreach($unit in @('direct','import','main')) {
   $source = Join-Path $dir "$unit.c"
   $obj = Join-Path $dir "$unit.obj"
-  & cl.exe /nologo /c /TC /GS- /Zl /O2 "/Fo$obj" $source
+  # Follow the accepted standalone XP probe's /MD CRT linkage contract.
+  # /Zl would deliberately strip default libraries from the COFF objects,
+  # leaving C++ runtime dependencies of the *YY common implementation*
+  # (notably __purecall) unresolved in this real split-provider link.
+  & cl.exe /nologo /c /MD /TC /GS- /O2 "/Fo$obj" $source
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $obj)) { throw "MSVC x86 $unit compilation failed" }
   $dump = (& dumpbin.exe /nologo /symbols $obj 2>&1 | Out-String)
   if ($LASTEXITCODE -ne 0) { throw "Cannot inspect $unit.obj" }
@@ -100,6 +104,7 @@ $record = @(
   'direct_and_dllimport_calls=all_four_threadpool_wait_apis',
   'original_linker=lld-link',
   'original_YY_version=1.2.2',
+  'CRT=msvcr14x_pinned_x86_release; MSVC_C=/MD; COFF_defaultlib_records=retained',
   'Firefox_compilation=not_performed',
   'main_production_inputs=not_modified'
 )
