@@ -126,29 +126,33 @@ extern "C" int __cdecl XP_L1_PostCallback(void*);
     Need (Test-Path $exe) 'Instrumented L1 binary missing'
     $out = Join-Path (Get-Location).Path 'diagnostics\l1-hosted-stdout.txt'
     $err = Join-Path (Get-Location).Path 'diagnostics\l1-hosted-stderr.txt'
-    $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    # Own the process object; Start-Process -PassThru returned an empty
+    # handle/ExitCode under Windows PowerShell 5.1 on the hosted runner.
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $exe
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    Need ($p.Start()) 'Could not start isolated L1 child'
     $done = $p.WaitForExit(15000)
     if (-not $done) {
-      try { $p.Kill() } catch {}
+      try { $p.Kill(); $p.WaitForExit() } catch {}
+      [IO.File]::WriteAllText($out, $p.StandardOutput.ReadToEnd())
+      [IO.File]::WriteAllText($err, $p.StandardError.ReadToEnd())
       'child_timeout=true' | Add-Content -Encoding ascii diagnostics\l1-identity.txt
       throw 'L1 child process deadline exceeded; watchdog terminated child'
     }
-    # Windows PowerShell 5.1 Start-Process -PassThru can expose a blank
-    # Process.ExitCode even after WaitForExit; query the real kernel handle.
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class YYL1NativeExit {
-  [DllImport("kernel32.dll", SetLastError=true)]
-  public static extern bool GetExitCodeProcess(IntPtr hProcess, out uint code);
-}
-'@
-    [uint32]$rawExit = 259
-    $exitRead = [YYL1NativeExit]::GetExitCodeProcess($p.Handle, [ref]$rawExit)
-    Need ($exitRead -and $rawExit -ne 259) 'Cannot verify terminated L1 process exit status'
-    $exitCode = [long]$rawExit
+    $p.WaitForExit()
+    $log = $p.StandardOutput.ReadToEnd()
+    [IO.File]::WriteAllText($out, $log)
+    [IO.File]::WriteAllText($err, $p.StandardError.ReadToEnd())
+    Need ($p.HasExited) 'L1 child does not report terminated state'
+    $exitCode = $p.ExitCode
+    Need ($null -ne $exitCode) 'Failed to read isolated L1 child exit code'
     "child_exit_code=$exitCode" | Add-Content -Encoding ascii diagnostics\l1-identity.txt
-    $log = Get-Content $out -Raw
     Write-Host $log
     Need ($exitCode -eq 0) "L1 child exit code $exitCode"
     foreach ($needle in @('kind=yy_fallback_create','kind=actual_heap_free',
