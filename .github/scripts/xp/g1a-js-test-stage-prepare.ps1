@@ -38,10 +38,7 @@ NSINSTALL := $(PYTHON3) $(topsrcdir)/config/nsinstall.py
 TAR_CREATE_FLAGS := -cf
 NULL :=
 '@
-$prefix = $prefix.Replace('__TOPSRC__',$srcRoot).
-  Replace('__SRCDIR__',$srcdir).
-  Replace('__OBJDIR__',$objdir).
-  Replace('__PYTHON__',$python)
+$prefix = $prefix.Replace('__TOPSRC__',$srcRoot).Replace('__SRCDIR__',$srcdir).Replace('__OBJDIR__',$objdir).Replace('__PYTHON__',$python)
 $recipe = $template.Replace($include,'')
 New-Item -ItemType Directory -Force -Path $jsObjDir,'diagnostics' | Out-Null
 [IO.File]::WriteAllText($generated, $prefix + [Environment]::NewLine + $recipe, (New-Object Text.UTF8Encoding($false)))
