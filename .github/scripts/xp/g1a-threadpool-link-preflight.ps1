@@ -79,6 +79,13 @@ foreach ($api in $apis) {
     throw "Dllimport consumer lost decorated reference: $b"
   }
 }
+# The accepted standalone YY 1.2.2 XP probe resolves this MSVC CRT WinRT
+# dependency through the existing pinned YY implementation, not RuntimeObject.lib.
+$providerSymbols = (& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or
+    $providerSymbols.IndexOf('_YY_Thunks_RoOriginateError@8',[StringComparison]::Ordinal) -lt 0) {
+  throw 'Narrow YY provider lacks required XP RoOriginateError fallback'
+}
 $exe = Join-Path $dir 'g1a-split-yy-link-only.exe'
 $map = Join-Path $dir 'g1a-split-final.map'
 $link = Get-Command lld-link.exe -ErrorAction Stop
@@ -88,6 +95,8 @@ $args = @(
   '/subsystem:console,5.01',
   '/entry:main',
   '/nodefaultlib:runtimeobject.lib',
+  '/alternatename:_RoOriginateError@8=_YY_Thunks_RoOriginateError@8',
+  '/alternatename:__imp__RoOriginateError@8=__imp__YY_Thunks_RoOriginateError@8',
   "/libpath:$env:MSVCR14X_RELEASE",
   "/out:$exe",
   "/map:$map",
@@ -105,6 +114,7 @@ $record = @(
   'original_linker=lld-link',
   'original_YY_version=1.2.2',
   'CRT=msvcr14x_pinned_x86_release; MSVC_C=/MD; COFF_defaultlib_records=retained',
+  'RoOriginateError=explicit_YY_1.2.2_direct_and_IAT_fallback; runtimeobject.lib=excluded',
   'Firefox_compilation=not_performed',
   'main_production_inputs=not_modified'
 )
@@ -129,7 +139,7 @@ foreach ($api in $apis) {
     throw "Direct XP import survived two-TU split link: $($api.Name)"
   }
 }
-foreach ($name in @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','InitializeSRWLock','ProcessPrng')) {
+foreach ($name in @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','InitializeSRWLock','ProcessPrng','RoOriginateError','RoOriginateErrorW')) {
   if ($imports -match "(?im)\b$([regex]::Escape($name))\b") {
     throw "Transitive XP import survived split link: $name"
   }
