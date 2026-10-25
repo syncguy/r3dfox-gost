@@ -1,0 +1,98 @@
+name: YY v1.2.2 owner lifetime XP SP3 x86 runtime artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-yy-threadpool-owner-xp-runtime.yml"
+      - ".github/scripts/xp/yy-threadpool-owner-xp.c"
+      - ".github/scripts/xp/yy-threadpool-owner-xp-build.ps1"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+
+jobs:
+  xp-owner-lifetime-runtime:
+    name: XP x86 release provider + narrow YY wait + explicit broad XP PE audit
+    runs-on: windows-2022
+    timeout-minutes: 50
+    steps:
+      - name: Checkout dedicated XP owner-lifetime test from exact source
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Checkout separately proven XP toolchain scripts pinned at accepted source
+        uses: actions/checkout@v4
+        with:
+          repository: syncguy/r3dfox-gost
+          ref: 91cab9a784d0f927626973355911baecea216e63
+          path: proven-yy-toolchain
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Record release-provider source and test identity
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage init'
+
+      - name: Build proven pinned XP msvcr14x CRT x86
+        shell: powershell
+        run: '& .\proven-yy-toolchain\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage crt'
+
+      - name: Download pinned release YY 1.2.2 provider inputs
+        shell: powershell
+        run: '& .\proven-yy-toolchain\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage download'
+
+      - name: Extract standalone narrow YY wait and three SRW dependencies
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage provider'
+
+      - name: Compile XP 5.1 x86 standalone L1 L2 L3 source
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage compile'
+
+      - name: Link against pinned XP CRT and narrow YY 1.2.2 release provider
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage link'
+
+      - name: GATE - broad XP direct PE imports and x86 subsystem 5.01
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage audit'
+
+      - name: Hosted control with native OS Threadpool (not XP fallback)
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage hosted'
+
+      - name: Bundle exact physical XP 32-bit runtime and hash manifest
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-owner-xp-build.ps1 -Stage bundle'
+
+      - name: Upload XP SP3 x86 standalone owner-lifetime runtime (EXE CMD CRT)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-owner-lifetime-xp-sp3-x86-runtime
+          path: runtime/
+          if-no-files-found: error
+
+      - name: Upload XP build and strict import-audit diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-owner-lifetime-xp-sp3-x86-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn
