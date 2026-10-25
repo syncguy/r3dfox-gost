@@ -1,0 +1,73 @@
+name: XP G1a short YY Threadpool split-link preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-g1a-threadpool-split-yy-link-preflight.yml"
+      - ".github/scripts/xp/g1a-threadpool-link-preflight.ps1"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+
+jobs:
+  split-yy-link:
+    name: Same G1a narrow + overlay, x86 two-TU link and PE gate (no Firefox)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout only existing XP scripts and dedicated linker test
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare pinned msvcr14x CRT
+        shell: powershell
+        run: .\.github\scripts\xp\build-msvcr14x-release-x86.ps1
+
+      - name: Download pinned YY-Thunks 1.2.2 x86 provider inputs
+        shell: powershell
+        run: .\.github\scripts\xp\prepare-yy-thunks-x86.ps1
+
+      - name: Assemble unchanged full-build narrow YY implementation provider
+        shell: powershell
+        run: .\.github\scripts\xp\build-narrow-yy.ps1
+
+      - name: Activate same existing narrow provider and XP weak aliases
+        shell: powershell
+        run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
+
+      - name: Verify exact four G1a Threadpool Wait weak alias pairs
+        shell: powershell
+        run: .\.github\scripts\xp\g1a-threadpool-yy-overlay.ps1
+
+      - name: GATE - Compile direct and dllimport x86 callers, link and PE audit
+        shell: powershell
+        run: .\.github\scripts\xp\g1a-threadpool-link-preflight.ps1
+
+      - name: Upload split G1a YY x86 link diagnostics
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g1a-yy-v122-split-provider-two-tu-link-diagnostics
+          if-no-files-found: warn
+          path: |
+            diagnostics/g1a-*.txt
+            diagnostics/coff-*.txt
+            diagnostics/xp-x32-global-yy-link-contract.txt
+            diagnostics/msvcr14x-release-files.txt
+            diagnostics/yy-*.txt
