@@ -1,0 +1,51 @@
+name: YY-Thunks v1.2.2 forced-fallback L1 negative control
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-yy-threadpool-l1-forced-fallback.yml"
+      - ".github/scripts/xp/yy-threadpool-l1-forced-fallback.ps1"
+      - ".github/scripts/xp/yy-threadpool-l1-forced-fallback.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  forced-yy-l1:
+    name: Pinned YY source build + forced fallback + real HeapFree / post-callback evidence
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experiment-owned scripts only
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Prepare pinned upstream source and authentic generated header
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-l1-forced-fallback.ps1 -Stage prepare'
+
+      - name: Build instrumented YY source and standalone x86 L1 child
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-l1-forced-fallback.ps1 -Stage build'
+
+      - name: GATE - Hosted forced fallback, actual free then post-callback access
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-l1-forced-fallback.ps1 -Stage hosted'
+
+      - name: Upload exact L1 trace and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-forced-fallback-l1-negative-control-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn
