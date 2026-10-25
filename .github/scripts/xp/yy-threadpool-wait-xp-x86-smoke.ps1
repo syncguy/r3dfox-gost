@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('init', 'provider', 'compile', 'link', 'audit', 'hosted', 'bundle')]
+    [ValidateSet('init', 'provider', 'compile', 'link', 'audit', 'audit-runtime', 'hosted', 'bundle')]
     [string]$Stage
 )
 
@@ -10,6 +10,11 @@ $apis = @(
     @{ Name='SetThreadpoolWait'; Stack=12 },
     @{ Name='WaitForThreadpoolWaitCallbacks'; Stack=8 },
     @{ Name='CloseThreadpoolWait'; Stack=4 }
+)
+# Proven YY XP narrow SRW dependency, private to this standalone test.
+$srwClosure = @(
+    @{ Name='AcquireSRWLockExclusive'; Stack=4 },
+    @{ Name='ReleaseSRWLockExclusive'; Stack=4 }
 )
 
 switch ($Stage) {
@@ -63,7 +68,7 @@ switch ($Stage) {
       $script:inventory.Add("$key|$($hits[0])|$expectedSymbol")
     }
 
-    foreach ($api in $apis) {
+    foreach ($api in ($apis + $srwClosure)) {
       $name = $api.Name
       $stack = $api.Stack
       $escaped = [regex]::Escape($name)
@@ -85,7 +90,7 @@ switch ($Stage) {
     $symbols = (& dumpbin.exe /nologo /linkermember:1 $provider 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot list narrow provider symbols' }
     $symbols | Set-Content -Encoding ascii diagnostics\yy-threadpool-provider-symbols.txt
-    foreach ($api in $apis) {
+    foreach ($api in ($apis + $srwClosure)) {
       $name = $api.Name
       if ($symbols.IndexOf("YY_Thunks_$name",[System.StringComparison]::Ordinal) -lt 0) {
         throw "Missing YY implementation for $name"
@@ -227,8 +232,13 @@ cleanup:
       'WindowsGetStringRawBuffer@8','WindowsIsStringEmpty@4',
       'WindowsStringHasEmbeddedNull@8'
     )
-    #  Correct the exact WinRT signature for RoRegisterActivationFactories.
-    $winrt = @($winrt | ForEach-Object { if ($_ -eq 'RoRegisterActivationFactories@12') { 'RoRegisterActivationFactories@16' } else { $_ } })
+    # Force explicit direct + IAT weak alternatives for this sole SRW dependency pair.
+    foreach ($api in $srwClosure) {
+      $stack = $api.Stack
+      $name = $api.Name
+      $args += "/alternatename:_${name}@$stack=_YY_Thunks_${name}@$stack"
+      $args += "/alternatename:__imp__${name}@$stack=__imp__YY_Thunks_${name}@$stack"
+    }
     foreach ($entry in $winrt) {
       $args += "/alternatename:_$entry=_YY_Thunks_$entry"
       $args += "/alternatename:__imp__$entry=__imp__YY_Thunks_$entry"
@@ -236,31 +246,148 @@ cleanup:
     ($lld + ' ' + ($args -join ' ')) | Set-Content -Encoding ascii diagnostics\link-command.txt
     & $lld @args 2>&1 | Tee-Object diagnostics\link-output.txt
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) { throw 'Threadpool probe link failed' }
+    $mapText = Get-Content $map -Raw
+    foreach ($api in ($apis + $srwClosure)) {
+      if ($mapText.IndexOf("YY_Thunks_$($api.Name)",[System.StringComparison]::Ordinal) -lt 0) {
+        throw "Final map does not select YY provider for $($api.Name)"
+      }
+    }
     & editbin.exe /nologo "/SUBSYSTEM:CONSOLE,$env:WINDOWS_XP_SUBSYSTEM" $exe | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'XP PE subsystem retarget failed' }
     "YY_THREADPOOL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
   }
   'audit' {
-    $exe = $env:YY_THREADPOOL_EXE
-    if (-not (Test-Path $exe)) { throw 'Probe executable missing' }
-    $headers = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
-    $headers | Set-Content -Encoding ascii diagnostics\exe-headers.txt
-    if ($headers -notmatch '(?im)^\s*14C machine \(x86\)') { throw 'Probe not x86' }
-    if ($headers -notmatch '(?im)^\s*5\.0?1\s+subsystem version') { throw 'Probe subsystem not 5.01' }
-    $imports = (& dumpbin.exe /nologo /imports $exe 2>&1 | Out-String)
-    $imports | Set-Content -Encoding ascii diagnostics\exe-imports.txt
-    foreach ($api in $apis) {
-      $name = $api.Name
-      if ($imports -match "(?im)\b$([regex]::Escape($name))\b") {
-        throw "XP forbidden hard import survived: $name"
+    $targets = if ($Stage -eq 'audit-runtime') {
+      @(Get-ChildItem -LiteralPath runtime -File | Where-Object { $_.Extension -in @('.exe','.dll') })
+    } else {
+      @(Get-Item -LiteralPath $env:YY_THREADPOOL_EXE)
+    }
+    if ($targets.Count -lt 1) { throw 'No PE image for XP import audit' }
+    # Mirror the primary browser's broad XP post-5.1 direct-import list.
+    # Independent copy: do not modify the production checker or shared script.
+    $forbiddenApis = @(
+      'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal','CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+      'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo','CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+      'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx','GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+      'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W','GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+      'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SetThreadStackGuarantee',
+      'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeConditionVariable',
+      'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+      'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
+      'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','inet_pton','WSASendMsg','WSCGetProviderInfo',
+      'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+    )
+    $forbiddenDllPatterns = @(
+      '^(api-ms-win-|ext-ms-)','^KERNELBASE\.dll$','^BCRYPTPRIMITIVES\.dll$','^COMBASE\.dll$','^NCRYPT\.dll$',
+      '^WEVTAPI\.dll$','^DWMAPI\.dll$','^SHCORE\.dll$','^PATHCCH\.dll$','^NORMALIZ\.dll$',
+      '^PROPSYS\.dll$','^DXGI\.dll$','^VCRUNTIME140(?:_1)?\.dll$'
+    )
+    $issues = [System.Collections.Generic.List[string]]::new()
+    foreach ($image in $targets) {
+      $headers = @(& dumpbin.exe /nologo /headers $image.FullName 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw "dumpbin headers failed: $($image.Name)" }
+      $headers | Set-Content -Encoding ascii (Join-Path diagnostics "$($Stage)-$($image.Name)-headers.txt")
+      $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+\s+machine' } | Select-Object -First 1
+      if ($machine -notmatch '(?i)^\s*14C machine \(x86\)') { $issues.Add("$($image.Name)|MACHINE|$machine") }
+      $line = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+      if ($line -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') {
+        $issues.Add("$($image.Name)|SUBSYSTEM|unparseable")
+      } elseif ([version]("$([int]$matches[1]).$([int]$matches[2])") -gt [version]'5.1') {
+        $issues.Add("$($image.Name)|SUBSYSTEM|$line")
+      }
+
+      $imports = @(& dumpbin.exe /nologo /imports $image.FullName 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw "dumpbin imports failed: $($image.Name)" }
+      $imports | Set-Content -Encoding ascii (Join-Path diagnostics "$($Stage)-$($image.Name)-imports.txt")
+      $mode = 'none'
+      foreach ($raw in $imports) {
+        if ($raw -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
+        if ($raw -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
+        if ($mode -ne 'direct') { continue }
+        if ($raw -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
+          $dll = $matches[1]
+          foreach ($pattern in $forbiddenDllPatterns) {
+            if ($dll -match $pattern) { $issues.Add("$($image.Name)|DLL|$dll"); break }
+          }
+          continue
+        }
+        if ($raw.Trim() -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+          $api = $matches[1] -replace '^_(.+)@\d+$','$1'
+          if ($forbiddenApis -contains $api) { $issues.Add("$($image.Name)|API|$api") }
+        }
       }
     }
-    foreach ($name in @('KERNELBASE.dll','api-ms-win-','ext-ms-','bcrypt.dll','ProcessPrng','WindowsCreateString')) {
-      if ($imports.IndexOf($name,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-        throw "Unexpected XP import/dependency: $name"
+    $issues | Set-Content -Encoding ascii (Join-Path diagnostics "$Stage-forbidden-imports.txt")
+    if ($issues.Count -gt 0) { throw "XP $Stage direct import gate FAILED, count=$($issues.Count). See diagnostics/$Stage-forbidden-imports.txt" }
+    "XP $Stage broad PE/import gate PASS; image_count=$($targets.Count)" |
+      Set-Content -Encoding ascii (Join-Path diagnostics "$Stage-import-gate.txt")
+  }
+
+  'audit-runtime' {
+    $targets = if ($Stage -eq 'audit-runtime') {
+      @(Get-ChildItem -LiteralPath runtime -File | Where-Object { $_.Extension -in @('.exe','.dll') })
+    } else {
+      @(Get-Item -LiteralPath $env:YY_THREADPOOL_EXE)
+    }
+    if ($targets.Count -lt 1) { throw 'No PE image for XP import audit' }
+    # Mirror the primary browser's broad XP post-5.1 direct-import list.
+    # Independent copy: do not modify the production checker or shared script.
+    $forbiddenApis = @(
+      'AcquireSRWLockExclusive','AcquireSRWLockShared','CancelIoEx','CompareStringEx','CompareStringOrdinal','CreateEventExA','CreateEventExW','CreateFile2','CreateMutexExA','CreateMutexExW','CreateSemaphoreExW',
+      'CreateSymbolicLinkA','CreateSymbolicLinkW','CreateThreadpool','CreateThreadpoolCleanupGroup','CreateThreadpoolIo','CreateThreadpoolTimer','CreateThreadpoolWait','CreateThreadpoolWork','FlsAlloc','FlsFree','FlsGetValue','FlsSetValue',
+      'GetActiveProcessorCount','GetCurrentProcessorNumber','GetCurrentProcessorNumberEx','GetFileInformationByHandleEx','GetFinalPathNameByHandleA','GetFinalPathNameByHandleW','GetLocaleInfoEx','GetLogicalProcessorInformationEx',
+      'GetMaximumProcessorCount','GetOverlappedResultEx','GetSystemTimePreciseAsFileTime','GetTempPath2A','GetTempPath2W','GetTickCount64','GetUserDefaultLocaleName','InitializeConditionVariable','InitializeCriticalSectionEx','InitializeSRWLock',
+      'IsThreadAFiber','LCIDToLocaleName','LocaleNameToLCID','ProcessPrng','QueryUnbiasedInterruptTime','ReleaseSRWLockExclusive','ReleaseSRWLockShared','SetFileInformationByHandle','SetThreadDescription','SetThreadStackGuarantee',
+      'SleepConditionVariableCS','SleepConditionVariableSRW','SubmitThreadpoolWork','TryAcquireSRWLockExclusive','TryAcquireSRWLockShared','WaitOnAddress','WakeAllConditionVariable','WakeByAddressAll','WakeConditionVariable',
+      'CreateWaitableTimerExA','CreateWaitableTimerExW','CancelSynchronousIo','GetDynamicTimeZoneInformation','GetProcessIdOfThread','GetQueuedCompletionStatusEx','GetThreadId','GetTimeZoneInformationForYear',
+      'GetUserPreferredUILanguages','GetThreadPreferredUILanguages','InitOnceExecuteOnce','InitOnceBeginInitialize','InitOnceComplete','GetApplicationRestartSettings','RegisterApplicationRestart','UnregisterApplicationRestart',
+      'GetNamedPipeServerProcessId','SetProcessDPIAware','NtCancelIoFileEx','EventRegister','EventUnregister','EventWrite','EventWriteTransfer','RegGetValueW','WSAIoctl','inet_ntop','inet_pton','WSASendMsg','WSCGetProviderInfo',
+      'QueryFullProcessImageNameA','QueryFullProcessImageNameW','QueryProcessCycleTime','QueryThreadCycleTime'
+    )
+    $forbiddenDllPatterns = @(
+      '^(api-ms-win-|ext-ms-)','^KERNELBASE\.dll$','^BCRYPTPRIMITIVES\.dll$','^COMBASE\.dll$','^NCRYPT\.dll$',
+      '^WEVTAPI\.dll$','^DWMAPI\.dll$','^SHCORE\.dll$','^PATHCCH\.dll$','^NORMALIZ\.dll$',
+      '^PROPSYS\.dll$','^DXGI\.dll$','^VCRUNTIME140(?:_1)?\.dll$'
+    )
+    $issues = [System.Collections.Generic.List[string]]::new()
+    foreach ($image in $targets) {
+      $headers = @(& dumpbin.exe /nologo /headers $image.FullName 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw "dumpbin headers failed: $($image.Name)" }
+      $headers | Set-Content -Encoding ascii (Join-Path diagnostics "$($Stage)-$($image.Name)-headers.txt")
+      $machine = $headers | Where-Object { $_ -match '(?i)^\s*[0-9A-F]+\s+machine' } | Select-Object -First 1
+      if ($machine -notmatch '(?i)^\s*14C machine \(x86\)') { $issues.Add("$($image.Name)|MACHINE|$machine") }
+      $line = $headers | Where-Object { $_ -match '(?i)subsystem version' } | Select-Object -First 1
+      if ($line -notmatch '^\s*([0-9]+)\.([0-9]+)\s+subsystem version') {
+        $issues.Add("$($image.Name)|SUBSYSTEM|unparseable")
+      } elseif ([version]("$([int]$matches[1]).$([int]$matches[2])") -gt [version]'5.1') {
+        $issues.Add("$($image.Name)|SUBSYSTEM|$line")
+      }
+
+      $imports = @(& dumpbin.exe /nologo /imports $image.FullName 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw "dumpbin imports failed: $($image.Name)" }
+      $imports | Set-Content -Encoding ascii (Join-Path diagnostics "$($Stage)-$($image.Name)-imports.txt")
+      $mode = 'none'
+      foreach ($raw in $imports) {
+        if ($raw -match '^\s*Section contains the following imports:\s*$') { $mode = 'direct'; continue }
+        if ($raw -match '^\s*Section contains the following delay load imports:\s*$') { $mode = 'delay'; continue }
+        if ($mode -ne 'direct') { continue }
+        if ($raw -match '^\s{4}([A-Za-z0-9_.-]+\.dll)\s*$') {
+          $dll = $matches[1]
+          foreach ($pattern in $forbiddenDllPatterns) {
+            if ($dll -match $pattern) { $issues.Add("$($image.Name)|DLL|$dll"); break }
+          }
+          continue
+        }
+        if ($raw.Trim() -match '^[0-9A-Fa-f]+\s+(\S+)$') {
+          $api = $matches[1] -replace '^_(.+)@\d+$','$1'
+          if ($forbiddenApis -contains $api) { $issues.Add("$($image.Name)|API|$api") }
+        }
       }
     }
-    'Threadpool wait isolated PE/import gate PASS' | Set-Content -Encoding ascii diagnostics\import-gate.txt
+    $issues | Set-Content -Encoding ascii (Join-Path diagnostics "$Stage-forbidden-imports.txt")
+    if ($issues.Count -gt 0) { throw "XP $Stage direct import gate FAILED, count=$($issues.Count). See diagnostics/$Stage-forbidden-imports.txt" }
+    "XP $Stage broad PE/import gate PASS; image_count=$($targets.Count)" |
+      Set-Content -Encoding ascii (Join-Path diagnostics "$Stage-import-gate.txt")
   }
   'hosted' {
     foreach ($dll in @('ucrtbase.dll','msvcp140.dll')) {
