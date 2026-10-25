@@ -184,7 +184,7 @@ extern "C" int __cdecl XP_REG_BeforeUnlock(void*);
         'EXPECTED_SETTER_UNLOCK_UAF_WINDOW_REPRODUCED'
       )) { Need ($log.Contains($marker)) "Prearmed iteration $iteration missing: $marker" }
       $p.Dispose()
-      Write-Host "PASS prearmed-$iteration: expected unsafe registration unlock window (NOT safety)"
+      Write-Host "PASS prearmed-${iteration}: expected unsafe registration unlock window (NOT safety)"
     }
     'prearmed_negative_control=SETTER_UNLOCK_AFTER_FREE_OBSERVED;SELFREF_ALONE_NOT_PROVEN_SAFE' |
       Add-Content -Encoding ascii diagnostics\selfref-identity.txt
