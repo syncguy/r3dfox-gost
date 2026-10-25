@@ -207,6 +207,7 @@ jobs:
           ac_add_options --disable-debug-js-modules
           ac_add_options --enable-debug-symbols
           ac_add_options --enable-tests
+          ac_add_options --disable-gtest-in-build
           ac_add_options --disable-sandbox
           ac_add_options --enable-hardening
           ac_add_options --enable-stl-hardening
@@ -269,6 +270,9 @@ jobs:
           }
           Write-Host "G1A_TESTS_SOURCE_SHA=$env:GITHUB_SHA"
           $conf = Get-Content -LiteralPath $env:MOZCONFIG -Raw
+          if (-not $conf.Contains('ac_add_options --disable-gtest-in-build')) {
+            throw "GTest must not be linked into the XP browser for browser-chrome census"
+          }
           if (-not $conf.Contains('ac_add_options --enable-tests')) {
             throw "Test-enabled MOZCONFIG flag is missing"
           }
@@ -306,6 +310,32 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\mach.ps1 build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Firefox's test-only http3server.exe has imports that are unavailable on
+      # physical XP. Keep all shipping browser binaries under the unmodified
+      # strict PE audit; separately preserve the non-XP test tool's provenance.
+      - name: GATE - Separate non-XP HTTP3 test server from XP runtime closure
+        id: isolate-test-http3
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:OBJDIR 'dist\bin\http3server.exe'
+          if (Test-Path -LiteralPath $exe) {
+            $quarantine = Join-Path $env:OBJDIR 'dist\test-only-non-xp'
+            New-Item -ItemType Directory -Force -Path $quarantine | Out-Null
+            $dest = Join-Path $quarantine 'http3server.exe'
+            if (Test-Path -LiteralPath $dest) {
+              throw "Unexpected existing quarantined HTTP3 test executable"
+            }
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+            New-Item -ItemType Directory -Force -Path 'diagnostics' | Out-Null
+            "name=http3server.exe|role=test-only-non-xp|sha256=$hash|excluded-from-shipping-runtime-import-audit=true" |
+              Set-Content -LiteralPath 'diagnostics\xp-test-only-http3server.txt' -Encoding UTF8
+            Move-Item -LiteralPath $exe -Destination $dest
+            Write-Host "Quarantined test-only HTTP3 binary outside dist/bin; strict browser import audit unchanged"
+          } else {
+            Write-Host "No test-only HTTP3 server staged in dist/bin"
+          }
 
       - name: GATE - Verify ANGLE XP local-static codegen
         id: angle-local-static-codegen
@@ -549,39 +579,13 @@ jobs:
             ${{ runner.temp }}/r3dfox-xp-x32-advapi32-etw-alias/**
             ${{ runner.temp }}/r3dfox-xp-x32-ws2_32-alias/**
 
-      - name: GATE - Summarize XP x32 full build
-        if: always()
-        shell: powershell
-        env:
-          DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
-          ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME: ${{ steps.angle-local-static-codegen.outcome }}
-          BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
-          SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
-          ADVAPI32_COMPAT_IMPORT_OUTCOME: ${{ steps.advapi32-etw-import-gate.outcome }}
-          DPI_IMPORT_MODE_OUTCOME: ${{ steps.dpi-import-gate.outcome }}
-          CORE_IMPORT_OUTCOME: ${{ steps.sync-import-gate.outcome }}
-          D3DCOMPILER_AFTER_RETARGET_OUTCOME: ${{ steps.verify-d3dcompiler-after-retarget.outcome }}
-          PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-private-dwrite.outcome }}
-          PACKAGED_D3DCOMPILER_PAIR_OUTCOME: ${{ steps.verify-packaged-d3dcompiler-pair.outcome }}
-          PACKAGED_CRT_OUTCOME: ${{ steps.verify-packaged-crt.outcome }}
-          PACKAGED_PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-packaged-private-dwrite.outcome }}
-          PACKAGED_BCRYPT_OUTCOME: ${{ steps.verify-packaged-bcrypt.outcome }}
-          BROAD_IMPORT_AUDIT_OUTCOME: ${{ steps.xp-import-audit.outcome }}
-          BUILD_OUTCOME: ${{ steps.build-release.outcome }}
-          PACKAGE_OUTCOME: ${{ steps.package-release.outcome }}
-          RUNTIME_ARCHIVE_OUTCOME: ${{ steps.runtime-archive.outcome }}
-          XUL_IPHLPAPI_IMPORT_DIAG_OUTCOME: ${{ steps.xul-iphlpapi-import-diag.outcome }}
-          YY_DLL_ENTRYPOINT_DIAG_OUTCOME: ${{ steps.yy-dll-entrypoint-diag.outcome }}
-          LIBGLESV2_YY_ENTRYPOINT_OUTCOME: ${{ steps.libglesv2-yy-entrypoint-gate.outcome }}
-        run: .\.github\scripts\xp\summarize-xp-x32-full-build.ps1
-
       # Preserve all production build / PE / packaging gates above. Unlike
       # the production workflow, this separate manual test run adds Mozilla
       # browser-chrome harness packages without running XP-only assertions
       # on the Windows Server 2022 runner.
       - name: Package G1a browser-chrome test harness and common tools
         id: g1a-test-archive
-        if: steps.build-release.outcome == 'success'
+        if: always() && steps.build-release.outcome == 'success'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -633,3 +637,29 @@ jobs:
             Write-Host "G1A_TEST_ENABLED_BINARY $filename sha256=$hash"
           }
           Write-Host 'G1A_TEST_HARNESS_PACKAGED=YES'
+
+      - name: GATE - Summarize XP x32 full build
+        if: always()
+        shell: powershell
+        env:
+          DPI_SOURCE_GUARD_OUTCOME: ${{ steps.dpi-source-guard.outcome }}
+          ANGLE_LOCAL_STATIC_CODEGEN_OUTCOME: ${{ steps.angle-local-static-codegen.outcome }}
+          BATTERY_POWER_IMPORT_OUTCOME: ${{ steps.battery-power-import-gate.outcome }}
+          SOURCE_REMEDIATION_QUARTET_OUTCOME: ${{ steps.source-remediation-quartet.outcome }}
+          ADVAPI32_COMPAT_IMPORT_OUTCOME: ${{ steps.advapi32-etw-import-gate.outcome }}
+          DPI_IMPORT_MODE_OUTCOME: ${{ steps.dpi-import-gate.outcome }}
+          CORE_IMPORT_OUTCOME: ${{ steps.sync-import-gate.outcome }}
+          D3DCOMPILER_AFTER_RETARGET_OUTCOME: ${{ steps.verify-d3dcompiler-after-retarget.outcome }}
+          PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-private-dwrite.outcome }}
+          PACKAGED_D3DCOMPILER_PAIR_OUTCOME: ${{ steps.verify-packaged-d3dcompiler-pair.outcome }}
+          PACKAGED_CRT_OUTCOME: ${{ steps.verify-packaged-crt.outcome }}
+          PACKAGED_PRIVATE_DWRITE_OUTCOME: ${{ steps.verify-packaged-private-dwrite.outcome }}
+          PACKAGED_BCRYPT_OUTCOME: ${{ steps.verify-packaged-bcrypt.outcome }}
+          BROAD_IMPORT_AUDIT_OUTCOME: ${{ steps.xp-import-audit.outcome }}
+          BUILD_OUTCOME: ${{ steps.build-release.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package-release.outcome }}
+          RUNTIME_ARCHIVE_OUTCOME: ${{ steps.runtime-archive.outcome }}
+          XUL_IPHLPAPI_IMPORT_DIAG_OUTCOME: ${{ steps.xul-iphlpapi-import-diag.outcome }}
+          YY_DLL_ENTRYPOINT_DIAG_OUTCOME: ${{ steps.yy-dll-entrypoint-diag.outcome }}
+          LIBGLESV2_YY_ENTRYPOINT_OUTCOME: ${{ steps.libglesv2-yy-entrypoint-gate.outcome }}
+        run: .\.github\scripts\xp\summarize-xp-x32-full-build.ps1
