@@ -125,5 +125,6 @@ $providerSymbols | Set-Content -Encoding utf8 (Join-Path $work 'provider-symbols
   'main_production_scripts=unchanged',
   'full_yy_kernel32_lib=prohibited'
 ) | Set-Content -Encoding utf8 diagnostics\g1a-threadpool-yy-overlay.txt
+"G1A_THREADPOOL_YY_ALIAS_LIB=$provider" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 "LDFLAGS=$flags" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 Write-Host 'G1a-only four Threadpool Wait aliases selected; existing SRW closure retained; strict browser import audit must independently validate xul.dll'
