@@ -79,12 +79,25 @@ foreach ($api in $apis) {
     throw "Dllimport consumer lost decorated reference: $b"
   }
 }
-# The accepted standalone YY 1.2.2 XP probe resolves this MSVC CRT WinRT
-# dependency through the existing pinned YY implementation, not RuntimeObject.lib.
+# Pin the complete WinRT weak-alternative closure already used by the
+# independently XP-tested YY 1.2.2 standalone probe; never link RuntimeObject.lib.
+$winrt = @(
+  'RoActivateInstance@8','RoFailFastWithErrorContext@4','RoGetActivationFactory@12',
+  'RoGetAgileReference@16','RoGetApartmentIdentifier@4','RoInitialize@4',
+  'RoOriginateError@8','RoOriginateErrorW@12','RoOriginateLanguageException@12',
+  'RoRegisterActivationFactories@12','RoRegisterForApartmentShutdown@12','RoRevokeActivationFactories@4',
+  'RoTransformError@12','RoTransformErrorW@16','RoUninitialize@0',
+  'RoUnregisterForApartmentShutdown@4','WindowsCompareStringOrdinal@12','WindowsCreateString@12',
+  'WindowsCreateStringReference@16','WindowsDeleteString@4','WindowsDuplicateString@8',
+  'WindowsGetStringLen@4','WindowsGetStringRawBuffer@8','WindowsIsStringEmpty@4',
+  'WindowsStringHasEmbeddedNull@8'
+)
 $providerSymbols = (& dumpbin.exe /nologo /linkermember:1 $env:NARROW_YY_LIB 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0 -or
-    $providerSymbols.IndexOf('_YY_Thunks_RoOriginateError@8',[StringComparison]::Ordinal) -lt 0) {
-  throw 'Narrow YY provider lacks required XP RoOriginateError fallback'
+if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect pinned narrow YY provider symbols' }
+foreach ($required in @('RoOriginateError@8','WindowsCreateString@12')) {
+  if ($providerSymbols.IndexOf("_YY_Thunks_$required",[StringComparison]::Ordinal) -lt 0) {
+    throw "Narrow YY provider lacks required XP WinRT fallback: $required"
+  }
 }
 $exe = Join-Path $dir 'g1a-split-yy-link-only.exe'
 $map = Join-Path $dir 'g1a-split-final.map'
@@ -95,8 +108,7 @@ $args = @(
   '/subsystem:console,5.01',
   '/entry:main',
   '/nodefaultlib:runtimeobject.lib',
-  '/alternatename:_RoOriginateError@8=_YY_Thunks_RoOriginateError@8',
-  '/alternatename:__imp__RoOriginateError@8=__imp__YY_Thunks_RoOriginateError@8',
+
   "/libpath:$env:MSVCR14X_RELEASE",
   "/out:$exe",
   "/map:$map",
@@ -107,6 +119,10 @@ $args = @(
   $env:NARROW_YY_LIB,
   $env:THUNK_YY_SYNCH_LIB
 )
+foreach ($entry in $winrt) {
+  $args += "/alternatename:_$entry=_YY_Thunks_$entry"
+  $args += "/alternatename:__imp__$entry=__imp__YY_Thunks_$entry"
+}
 $record = @(
   "source_under_test=$env:GITHUB_SHA",
   'purpose=real-two-TU-x86-link-of-G1a-split-YY-provider; not runtime',
@@ -114,7 +130,7 @@ $record = @(
   'original_linker=lld-link',
   'original_YY_version=1.2.2',
   'CRT=msvcr14x_pinned_x86_release; MSVC_C=/MD; COFF_defaultlib_records=retained',
-  'RoOriginateError=explicit_YY_1.2.2_direct_and_IAT_fallback; runtimeobject.lib=excluded',
+  'WinRT_weak_alternatives=complete_accepted_YY_1.2.2_standalone_25_API_direct_and_IAT; runtimeobject.lib=excluded',
   'Firefox_compilation=not_performed',
   'main_production_inputs=not_modified'
 )
@@ -139,10 +155,28 @@ foreach ($api in $apis) {
     throw "Direct XP import survived two-TU split link: $($api.Name)"
   }
 }
-foreach ($name in @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','InitializeSRWLock','ProcessPrng','RoOriginateError','RoOriginateErrorW')) {
+$forbiddenNames = @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','InitializeSRWLock','ProcessPrng') +
+  @($winrt | ForEach-Object { $_ -replace '@\d+
+$headers = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $headers -notmatch '(?im)^\s*14C machine \(x86\)') {
+  throw 'Split G1a x86 machine gate failed'
+}
+if ($headers -notmatch '(?im)^\s*5\.01\s+subsystem version') {
+  throw 'Split G1a XP 5.01 subsystem gate failed'
+}
+$headers | Set-Content -Encoding utf8 diagnostics\g1a-split-headers.txt
+"split_exe_sha256=$((Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant())" |
+  Add-Content -Encoding utf8 diagnostics\g1a-link-evidence.txt
+'PRELIMINARY PASS: four real direct + dllimport symbol chains, split YY link/map and known XP forbidden API absence. DOES NOT validate callback lifetime or Firefox xul.dll.' |
+  Add-Content -Encoding utf8 diagnostics\g1a-link-evidence.txt
+,'' })
+foreach ($name in $forbiddenNames) {
   if ($imports -match "(?im)\b$([regex]::Escape($name))\b") {
     throw "Transitive XP import survived split link: $name"
   }
+}
+if ($imports -match '(?im)\b(?:COMBASE|KERNELBASE|RuntimeObject)\.dll\b|\b(?:api-ms-win-|ext-ms-)[\w.-]+\.dll\b') {
+  throw 'XP-incompatible WinRT or API-set module survived split link'
 }
 $headers = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0 -or $headers -notmatch '(?im)^\s*14C machine \(x86\)') {
