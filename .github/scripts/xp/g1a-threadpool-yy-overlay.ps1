@@ -69,7 +69,8 @@ foreach ($api in $apis) {
   }
 }
 $provider = Join-Path $work 'g1a-threadpool-yy-aliases.lib'
-& lib.exe /nologo "/out:$provider" @($objects)
+$objectPaths = $objects.ToArray()
+& lib.exe /nologo "/out:$provider" @objectPaths
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $provider)) {
   throw 'Cannot build G1a-only narrow Threadpool alias library'
 }
