@@ -79,8 +79,8 @@ foreach ($api in $apis) {
     throw "Dllimport consumer lost decorated reference: $b"
   }
 }
-# Pin the complete WinRT weak-alternative closure already used by the
-# independently XP-tested YY 1.2.2 standalone probe; never link RuntimeObject.lib.
+# Pin the exact WinRT weak-alternative list used by the physically XP-tested
+# YY 1.2.2 standalone probe; RuntimeObject.lib must remain excluded.
 $winrt = @(
   'RoActivateInstance@8','RoFailFastWithErrorContext@4','RoGetActivationFactory@12',
   'RoGetAgileReference@16','RoGetApartmentIdentifier@4','RoInitialize@4',
@@ -108,7 +108,6 @@ $args = @(
   '/subsystem:console,5.01',
   '/entry:main',
   '/nodefaultlib:runtimeobject.lib',
-
   "/libpath:$env:MSVCR14X_RELEASE",
   "/out:$exe",
   "/map:$map",
@@ -130,7 +129,7 @@ $record = @(
   'original_linker=lld-link',
   'original_YY_version=1.2.2',
   'CRT=msvcr14x_pinned_x86_release; MSVC_C=/MD; COFF_defaultlib_records=retained',
-  'WinRT_weak_alternatives=complete_accepted_YY_1.2.2_standalone_25_API_direct_and_IAT; runtimeobject.lib=excluded',
+  'WinRT_weak_alternatives=25_accepted_YY_1.2.2_direct_and_IAT; runtimeobject.lib=excluded',
   'Firefox_compilation=not_performed',
   'main_production_inputs=not_modified'
 )
@@ -156,20 +155,7 @@ foreach ($api in $apis) {
   }
 }
 $forbiddenNames = @('AcquireSRWLockExclusive','ReleaseSRWLockExclusive','InitializeSRWLock','ProcessPrng') +
-  @($winrt | ForEach-Object { $_ -replace '@\d+
-$headers = (& dumpbin.exe /nologo /headers $exe 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0 -or $headers -notmatch '(?im)^\s*14C machine \(x86\)') {
-  throw 'Split G1a x86 machine gate failed'
-}
-if ($headers -notmatch '(?im)^\s*5\.01\s+subsystem version') {
-  throw 'Split G1a XP 5.01 subsystem gate failed'
-}
-$headers | Set-Content -Encoding utf8 diagnostics\g1a-split-headers.txt
-"split_exe_sha256=$((Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant())" |
-  Add-Content -Encoding utf8 diagnostics\g1a-link-evidence.txt
-'PRELIMINARY PASS: four real direct + dllimport symbol chains, split YY link/map and known XP forbidden API absence. DOES NOT validate callback lifetime or Firefox xul.dll.' |
-  Add-Content -Encoding utf8 diagnostics\g1a-link-evidence.txt
-,'' })
+  @($winrt | ForEach-Object { $_ -replace '@\d+$','' })
 foreach ($name in $forbiddenNames) {
   if ($imports -match "(?im)\b$([regex]::Escape($name))\b") {
     throw "Transitive XP import survived split link: $name"
