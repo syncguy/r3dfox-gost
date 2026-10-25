@@ -1,0 +1,51 @@
+name: YY 1.2.2 test-only worker self-reference lifetime PoC
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-yy-threadpool-selfref-forced-fallback.yml"
+      - ".github/scripts/xp/yy-threadpool-selfref-forced-fallback.ps1"
+      - ".github/scripts/xp/yy-threadpool-selfref-l1.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  yy-selfref-hosted:
+    name: Pinned YY source forced fallback / L1 in-callback close and L2-L3 regression
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experiment-only harness and proven owner model
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Source-pin YY v1.2.2 and apply test-only worker reference and tracing
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-forced-fallback.ps1 -Stage prepare'
+
+      - name: Build instrumented source YY and separate L1 and owner L2-L3 x86 EXEs
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-forced-fallback.ps1 -Stage build'
+
+      - name: GATE - real HeapFree after YY epilogue; L1 callback close, L2 cancel, L3 shutdown
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-forced-fallback.ps1 -Stage hosted'
+
+      - name: Upload test-only exact source identity and 12 subprocess traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-selfref-forced-fallback-hosted-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn
