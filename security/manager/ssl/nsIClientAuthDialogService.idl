@@ -17,7 +17,7 @@ interface nsIClientAuthDialogCallback : nsISupports
 /**
  * Provides UI when a server requests a TLS client authentication certificate.
  */
-[scriptable, uuid(fa4c7520-1433-11d5-ba24-00108303b117)]
+[scriptable, uuid(4adc4aeb-cfe3-45d4-b2c2-7a3dfe212e92)]
 interface nsIClientAuthDialogService : nsISupports
 {
   /**
@@ -43,6 +43,15 @@ interface nsIClientAuthDialogService : nsISupports
                          in Array<nsIX509Cert> certArray,
                          in nsILoadContext loadContext,
                          in Array<Array<octet> > caNames,
+                         in nsIClientAuthDialogCallback callback);
+
+  [must_use]
+  void chooseCertificateWithDefaultRememberDuration(
+                         in AUTF8String hostname,
+                         in Array<nsIX509Cert> certArray,
+                         in nsILoadContext loadContext,
+                         in Array<Array<octet> > caNames,
+                         in nsIClientAuthRememberService_Duration defaultRememberDuration,
                          in nsIClientAuthDialogCallback callback);
 };
 

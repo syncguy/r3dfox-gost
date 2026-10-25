@@ -1,0 +1,89 @@
+name: YY-Thunks 1.2.2 XP x86 Threadpool Wait smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/gost-tls-poc
+    paths:
+      - ".github/workflows/yy-thunks-threadpool-wait-xp-x86-smoke.yml"
+      - ".github/scripts/xp/yy-threadpool-wait-xp-x86-smoke.ps1"
+
+permissions:
+  contents: read
+
+env:
+  YY_THUNKS_VERSION: "1.2.2"
+  YY_THUNKS_TARGET: "5.1.2600.0"
+  WINDOWS_XP_SUBSYSTEM: "5.01"
+  MSVCR14X_REPO: "https://github.com/Chuyu-Team/msvcr14x.git"
+  MSVCR14X_SHA: "6495947edbdd8f5dc4b2ddb8ca0cb5dbdac05384"
+
+jobs:
+  xp-threadpool-wait:
+    name: Narrow YY Threadpool Wait / XP SP3 x86, no browser build
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout dedicated smoke and read-only standalone CRT/YY preparation
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Record exact test source and version pins
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage init'
+
+      - name: Prepare pinned XP-compatible x86 CRT
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage crt'
+
+      - name: Download pinned YY-Thunks 1.2.2 XP x86 library
+        shell: powershell
+        run: '& .\.github\scripts\xp\xp-core-kernel32-v123-prepare.ps1 -Stage download'
+
+      - name: Verify all four APIs and extract narrow YY provider
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage provider'
+
+      - name: Compile standalone native x86 callback/cancel/rearm probe
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage compile'
+
+      - name: Link probe against narrow YY and XP CRT
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage link'
+
+      - name: GATE - x86 XP PE and four forbidden direct imports
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage audit'
+
+      - name: Execute hosted Windows callback/cancel/rearm smoke
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage hosted'
+
+      - name: Package isolated physical XP SP3 x86 probe
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-wait-xp-x86-smoke.ps1 -Stage bundle'
+
+      - name: Upload XP x86 standalone Threadpool Wait runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-threadpool-wait-xp-x86-v122-runtime
+          path: runtime/
+          if-no-files-found: error
+
+      - name: Upload XP x86 Threadpool Wait diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-threadpool-wait-xp-x86-v122-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn

@@ -1,0 +1,78 @@
+name: SpiderMonkey checks
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/spidermonkey-style-check.yml'
+      - 'js/src/vm/JSContext.cpp'
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: SpiderMonkey source checks
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout r3dfox-gost
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Normalize upstream JSContext include order
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'js\src\vm\JSContext.cpp'
+          $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $path)
+
+          $dump = '#include "js/friend/DumpFunctions.h"  // for stack trace utilities'
+          $errorMessages = '#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*'
+          $printer = '#include "js/Printer.h"               // for FixedBufferPrinter'
+          $printf = '#include "js/Printf.h"'
+
+          foreach ($line in @($dump, $errorMessages, $printer, $printf)) {
+            if ($lines.IndexOf($line) -lt 0) {
+              throw "Expected JSContext include line was not found: $line"
+            }
+          }
+
+          # DumpFunctions.h belongs immediately before ErrorMessages.h.
+          $lines.Remove($dump)
+          $errorIndex = $lines.IndexOf($errorMessages)
+          $lines.Insert($errorIndex, $dump)
+
+          # Printer.h belongs immediately before Printf.h.
+          $lines.Remove($printer)
+          $printfIndex = $lines.IndexOf($printf)
+          $lines.Insert($printfIndex, $printer)
+
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllLines($path, $lines, $utf8NoBom)
+
+          Write-Host 'Normalized JSContext include order:'
+          git diff -- $path
+
+      - name: Run SpiderMonkey style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_spidermonkey_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run MacroAssembler style check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_macroassembler_style.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run JavaScript opcode check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python config\check_js_opcode.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

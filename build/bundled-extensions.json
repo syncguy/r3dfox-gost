@@ -1,0 +1,38 @@
+{
+  "extensions": [
+    {
+      "name": "CryptoPro Extension for CAdES Browser Plug-in",
+      "id": "ru.cryptopro.nmcades@cryptopro.ru",
+      "fallback": "r3dfox/extensions/ru.cryptopro.nmcades@cryptopro.ru.xpi",
+      "fallback_version": "1.2.14",
+      "fallback_sha256": "3df7ee8c7d655921abce942befc2bfd6e0ddcf9179e6173d72e35083844cc0e7",
+      "source_url": "https://www.cryptopro.ru/sites/default/files/products/cades/extensions/firefox_cryptopro_extension_latest.xpi",
+      "selection_policy": "official-latest-with-committed-fallback"
+    },
+    {
+      "name": "Расширение для плагина Госуслуг.",
+      "id": "pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru",
+      "fallback": "r3dfox/extensions/pbafkdcnd@ngodfeigfdgiodgnmbgcfha.ru.xpi",
+      "fallback_version": "1.2.8",
+      "fallback_sha256": "72916b4ed2adefd91049fbd93aff5e028c423c971c2e0012603a2dae343bdc80",
+      "source_url": "https://ds-plugin.gosuslugi.ru/plugin/upload/assets/distrib/addon-1.2.8-fx.xpi",
+      "selection_policy": "committed-official-baseline",
+      "required_permissions": [
+        "nativeMessaging"
+      ],
+      "native_host": "ru.rtlabs.ifcplugin"
+    },
+    {
+      "name": "Госплагин",
+      "id": "gosuslugi@plugin",
+      "fallback": "r3dfox/extensions/gosuslugi@plugin.xpi",
+      "fallback_version": "1.3.43.0",
+      "fallback_sha256": "f9a53a2fb4f33041676bf97d9ae9b061b67dde9ddbdc78221a06454381cd6cbc",
+      "source_url": "https://addons.mozilla.org/firefox/downloads/file/4795372/2842830-1.3.43.0.xpi",
+      "selection_policy": "committed-signed-amo-baseline",
+      "required_permissions": [
+        "nativeMessaging"
+      ]
+    }
+  ]
+}
