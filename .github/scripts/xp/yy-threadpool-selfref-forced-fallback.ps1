@@ -11,7 +11,7 @@ $up = Join-Path $work 'yy-v122'
 $patched = Join-Path $up 'src\Thunks\api-ms-win-core-threadpool.hpp'
 $yyMain = Join-Path $up 'src\Thunks\YY_Thunks.cpp'
 $listPath = Join-Path $up 'src\Thunks\YY_Thunks_List.hpp'
-$exe = Join-Path $work 'yy-threadpool-selfref-selfref-l1-hosted-x86.exe'
+$exe = Join-Path $work 'yy-threadpool-selfref-l1-hosted-x86.exe'
 $lf = [string][char]10
 $crlf = ([string][char]13) + $lf
 New-Item -ItemType Directory -Force diagnostics | Out-Null
@@ -158,7 +158,7 @@ extern "C" void __cdecl XP_REF_Hold(void*);
   }
   'hosted' {
     $modelExe = Join-Path $work 'yy-threadpool-selfref-owner-hosted-x86.exe'
-    Need (Test-Path $exe -and (Test-Path $modelExe)) 'Selfref L1 or owner model EXE missing'
+    Need ((Test-Path $exe) -and (Test-Path $modelExe)) 'Selfref L1 or owner model EXE missing'
     foreach ($case in @(
       @{ Name='l1'; Exe=$exe; Args=''; Runs=3 },
       @{ Name='l2'; Exe=$modelExe; Args='l2'; Runs=3 },
