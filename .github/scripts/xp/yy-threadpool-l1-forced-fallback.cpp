@@ -6,6 +6,15 @@
 #include <windows.h>
 #include <stdio.h>
 
+// Upstream Build.cmd FixObj weak defaults, supplied explicitly ONLY by this
+// isolated test binary. The source-built YY object has no LibMaker FixObj pass.
+extern "C" {
+  BOOL __YY_Thunks_Disable_Rreload_Dlls = FALSE;
+  HMODULE (__fastcall * const __pfnYY_Thunks_CustomLoadLibrary)(const wchar_t*, DWORD) = nullptr;
+  void* __acrt_atexit_table = nullptr;
+  void* const __pfnDllMainCRTStartupForYY_Thunks = nullptr;
+}
+
 extern "C" PTP_WAIT WINAPI YY_Thunks_CreateThreadpoolWait(PTP_WAIT_CALLBACK, PVOID, PTP_CALLBACK_ENVIRON);
 extern "C" VOID WINAPI YY_Thunks_SetThreadpoolWait(PTP_WAIT, HANDLE, PFILETIME);
 extern "C" VOID WINAPI YY_Thunks_CloseThreadpoolWait(PTP_WAIT);
