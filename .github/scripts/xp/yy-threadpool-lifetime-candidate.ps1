@@ -181,7 +181,7 @@ extern "C" void __cdecl XP_L1_AfterEvent(void*);
       if ($scenario -eq 'l3') {
         Need ($log.Contains('failed_dispatch=1 shutdown=1')) 'Shutdown/failed dispatch coverage absent'
       }
-      Write-Host "$scenario: hosted forced-fallback safe-owner model PASS (NOT Firefox product fix)"
+      Write-Host "${scenario}: hosted forced-fallback safe-owner model PASS (NOT Firefox product fix)"
       $p.Dispose()
     }
     'hosted_owner_model=L1_L2_L2pending_L3_PASS;NOT_FIREFOX_XP_RUNTIME_PASS' |
