@@ -1,0 +1,51 @@
+name: YY 1.2.2 combined setter and worker reference prearmed PoC
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-yy-threadpool-selfref-setterpin.yml"
+      - ".github/scripts/xp/yy-threadpool-selfref-setterpin.ps1"
+      - ".github/scripts/xp/yy-threadpool-selfref-setterpin.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  yy-setter-worker-pin:
+    name: prearmed wait source-built YY forced fallback / setter lock owner pin
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experimental source only
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+
+      - name: Enable x86 MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Pin YY 1.2.2 and apply test-only setter + callback reference protection
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-setterpin.ps1 -Stage prepare'
+
+      - name: Compile standalone x86 instrumented YY source and scenario EXE
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-setterpin.ps1 -Stage build'
+
+      - name: GATE - pre-signaled registration safe setter unlock and callback close
+        shell: powershell
+        run: '& .\.github\scripts\xp\yy-threadpool-selfref-setterpin.ps1 -Stage hosted'
+
+      - name: Upload source-pinned setter plus worker evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yy-v122-setter-worker-pin-prearmed-hosted-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn
