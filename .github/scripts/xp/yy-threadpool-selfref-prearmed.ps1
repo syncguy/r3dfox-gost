@@ -75,10 +75,10 @@ switch ($Stage) {
     # Source-specific SetThreadpoolWait registration-to-unlock race boundary.
     # When the callback completes while the setter still holds WaitObjectLock,
     # the test-only hook records the would-be UAF and skips the dangerous unlock.
-    $unlockNeedle = '::ReleaseSRWLockExclusive(&_pWait->WaitObjectLock);' + $lf +
+    $unlockNeedle = '::ReleaseSRWLockExclusive(&_pWait->WaitObjectLock);' + $lf + $lf +
       '        if (!bRet)'
     $unlockReplace = 'if (XP_REG_BeforeUnlock(_pWait)) return; // TEST-only unsafe-unlock breaker' + $lf +
-      '        ::ReleaseSRWLockExclusive(&_pWait->WaitObjectLock);' + $lf +
+      '        ::ReleaseSRWLockExclusive(&_pWait->WaitObjectLock);' + $lf + $lf +
       '        if (!bRet)'
     $raw = Replace-One $raw $unlockNeedle $unlockReplace 'YY SetThreadpoolWait registration lock epilogue'
     $declarations = @'
