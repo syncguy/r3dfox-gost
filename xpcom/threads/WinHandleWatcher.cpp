@@ -106,7 +106,7 @@ class HandleWatcher::Impl final : public nsITargetShutdownTask {
 
   bool IsStopped() MOZ_EXCLUDES(mMutex) {
     MutexAutoLock lock(mMutex);
-    return mState == State::Stopped;
+    return mState == State::Completing || mState == State::Stopped;
   }
 
  private:
