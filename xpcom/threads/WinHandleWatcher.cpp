@@ -47,6 +47,169 @@ using WaitHandlePtr = UniquePtr<TP_WAIT, details::WaitHandleDeleter>;
 // for an explanation and justification.
 //
 // [1]https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitformultipleobjects#remarks
+#ifdef MOZ_XP_COMPAT
+class HandleWatcher::Impl final : public nsITargetShutdownTask {
+  NS_DECL_THREADSAFE_ISUPPORTS
+
+ public:
+  Impl() : mCancelFinished(::CreateEventW(nullptr, TRUE, FALSE, nullptr)) {
+    MOZ_RELEASE_ASSERT(mCancelFinished);
+  }
+
+  static RefPtr<Impl> CreatePrepared(
+      HANDLE aHandle, nsIEventTarget* aTarget,
+      already_AddRefed<nsIRunnable> aRunnable) {
+    RefPtr<Impl> impl = MakeRefPtr<Impl>();
+    impl->mData.handle = aHandle;
+    impl->mData.target = aTarget;
+    impl->mData.runnable = aRunnable;
+    return impl;
+  }
+
+  void ArmIfStillPrepared() MOZ_EXCLUDES(mMutex) {
+    mMutex.Lock();
+    if (mState != State::Prepared) {
+      mMutex.Unlock();
+      return;
+    }
+
+    nsresult rv = mData.target->RegisterShutdownTask(this);
+    if (NS_FAILED(rv)) {
+      Data old = std::exchange(mData, Data{});
+      mState = State::Stopped;
+      mMutex.Unlock();
+      return;
+    }
+    mRegisteredShutdownTask = true;
+    mData.self = this;
+    HANDLE registration = nullptr;
+    BOOL ok = ::RegisterWaitForSingleObject(
+        &registration, mData.handle, &WaitCallback, this, INFINITE,
+        WT_EXECUTEONLYONCE);
+    if (!ok) {
+      Data old = std::exchange(mData, Data{});
+      mRegisteredShutdownTask = false;
+      mState = State::Stopped;
+      mMutex.Unlock();
+      old.target->UnregisterShutdownTask(this);
+      return;
+    }
+    mData.registration = registration;
+    mState = State::Armed;
+    mMutex.Unlock();
+  }
+
+  void Stop() MOZ_EXCLUDES(mMutex) { StopInternal(false); }
+
+  bool IsStopped() MOZ_EXCLUDES(mMutex) {
+    MutexAutoLock lock(mMutex);
+    return mState == State::Stopped;
+  }
+
+ private:
+  enum class State { Prepared, Armed, Completing, Cancelling, Stopped };
+
+  struct Data {
+    HANDLE handle = nullptr;
+    RefPtr<nsIEventTarget> target;
+    nsCOMPtr<nsIRunnable> runnable;
+    HANDLE registration = nullptr;
+    RefPtr<Impl> self;
+  };
+
+  ~Impl() {
+    MOZ_ASSERT(IsStopped());
+    ::CloseHandle(mCancelFinished);
+  }
+
+  static void CALLBACK WaitCallback(void* aContext, BOOLEAN aTimedOut) {
+    static_cast<Impl*>(aContext)->OnWaitCompleted(aTimedOut);
+  }
+
+  void OnWaitCompleted(BOOLEAN aTimedOut) MOZ_EXCLUDES(mMutex) {
+    mMutex.Lock();
+    if (mState != State::Armed) {
+      mMutex.Unlock();
+      return;
+    }
+    MOZ_RELEASE_ASSERT(!aTimedOut);
+    Data data = std::exchange(mData, Data{});
+    RefPtr<Impl> self = std::move(data.self);
+    bool unregisterTask = mRegisteredShutdownTask;
+    mRegisteredShutdownTask = false;
+    mState = State::Completing;
+    mMutex.Unlock();
+
+    ::SetLastError(ERROR_SUCCESS);
+    BOOL ok = ::UnregisterWaitEx(data.registration, nullptr);
+    DWORD error = ok ? ERROR_SUCCESS : ::GetLastError();
+    MOZ_RELEASE_ASSERT(ok || error == ERROR_IO_PENDING);
+
+    mMutex.Lock();
+    mState = State::Stopped;
+    mMutex.Unlock();
+
+    if (unregisterTask) {
+      data.target->UnregisterShutdownTask(this);
+    }
+    data.target->Dispatch(data.runnable.forget());
+    data.target = nullptr;
+    // The callback's strong reference is the last possible context owner.
+    self = nullptr;
+  }
+
+  void TargetShutdown() MOZ_EXCLUDES(mMutex) override {
+    StopInternal(true);
+  }
+
+  void StopInternal(bool aFromShutdown) MOZ_EXCLUDES(mMutex) {
+    RefPtr<Impl> keepAlive = this;
+    mMutex.Lock();
+    if (mState == State::Cancelling) {
+      mMutex.Unlock();
+      MOZ_RELEASE_ASSERT(::WaitForSingleObject(mCancelFinished, INFINITE) ==
+                         WAIT_OBJECT_0);
+      return;
+    }
+    if (mState == State::Completing || mState == State::Stopped) {
+      mMutex.Unlock();
+      return;
+    }
+
+    if (mState == State::Prepared) {
+      Data old = std::exchange(mData, Data{});
+      mState = State::Stopped;
+      mMutex.Unlock();
+      return;
+    }
+
+    MOZ_RELEASE_ASSERT(mState == State::Armed);
+    Data old = std::exchange(mData, Data{});
+    bool unregisterTask = mRegisteredShutdownTask && !aFromShutdown;
+    mRegisteredShutdownTask = false;
+    mState = State::Cancelling;
+    mMutex.Unlock();
+
+    BOOL ok = ::UnregisterWaitEx(old.registration, INVALID_HANDLE_VALUE);
+    MOZ_RELEASE_ASSERT(ok);
+
+    mMutex.Lock();
+    mState = State::Stopped;
+    MOZ_RELEASE_ASSERT(::SetEvent(mCancelFinished));
+    mMutex.Unlock();
+
+    if (unregisterTask) {
+      old.target->UnregisterShutdownTask(this);
+    }
+  }
+
+  Mutex mMutex{"HandleWatcher::Impl"};
+  State mState MOZ_GUARDED_BY(mMutex) = State::Prepared;
+  Data mData MOZ_GUARDED_BY(mMutex);
+  bool mRegisteredShutdownTask MOZ_GUARDED_BY(mMutex) = false;
+  HANDLE mCancelFinished;
+};
+#else
 class HandleWatcher::Impl final : public nsITargetShutdownTask {
   NS_DECL_THREADSAFE_ISUPPORTS
 
@@ -266,6 +429,8 @@ class HandleWatcher::Impl final : public nsITargetShutdownTask {
   }
 };
 
+#endif  // MOZ_XP_COMPAT
+
 NS_IMPL_ISUPPORTS(HandleWatcher::Impl, nsITargetShutdownTask)
 
 //////
@@ -284,6 +449,17 @@ HandleWatcher& HandleWatcher::operator=(HandleWatcher&&) noexcept = default;
 
 void HandleWatcher::Watch(HANDLE aHandle, nsIEventTarget* aTarget,
                           already_AddRefed<nsIRunnable> aRunnable) {
+#ifdef MOZ_XP_COMPAT
+  RefPtr<Impl> next =
+      Impl::CreatePrepared(aHandle, aTarget, std::move(aRunnable));
+  RefPtr<Impl> previous = std::exchange(mImpl, next);
+  if (previous) {
+    previous->Stop();
+  }
+  if (mImpl == next) {
+    next->ArmIfStillPrepared();
+  }
+#else
   auto impl = Impl::Create(aHandle, aTarget, std::move(aRunnable));
   MOZ_ASSERT(impl);
 
@@ -291,6 +467,7 @@ void HandleWatcher::Watch(HANDLE aHandle, nsIEventTarget* aTarget,
     mImpl->Stop();
   }
   mImpl = std::move(impl);
+#endif
 }
 
 void HandleWatcher::Stop() {
