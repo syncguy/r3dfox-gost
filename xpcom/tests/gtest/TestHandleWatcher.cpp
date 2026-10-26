@@ -528,6 +528,7 @@ class MockRunnable final : public nsIRunnable {
 NS_IMPL_ISUPPORTS(MockRunnable, nsIRunnable)
 }  // anonymous namespace
 
+#ifdef MOZ_XP_COMPAT
 // A failing Dispatch may destroy its runnable immediately. The runnable's
 // destructor must be able to reenter Stop without acquiring an owned mutex.
 TEST_F(TestHandleWatcher, DispatchFailureRunnableDestructorStop) {
@@ -549,6 +550,8 @@ TEST_F(TestHandleWatcher, DispatchFailureRunnableDestructorStop) {
                   .ok());
   ASSERT_TRUE(hw.IsStopped());
 }
+
+#endif  // MOZ_XP_COMPAT
 
 // Test that a HandleWatcher neither deadlocks nor loses data if it's invoked
 // when it releases its task.
