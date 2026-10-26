@@ -385,7 +385,7 @@ jobs:
             throw "Firefox gtest app prerequisite absent: $app"
           }
           Write-Host 'Running mach gtest against actual XP-only WinHandleWatcher class'
-          .\\mach.ps1 gtest 'TestHandleWatcher.*' --jobs 1
+          .\\mach.ps1 gtest 'TestHandleWatcher.*' --jobs 1 --combine-suites
           if ($LASTEXITCODE -ne 0) {
             throw "TestHandleWatcher real gtest link/execution failed (exit $LASTEXITCODE)"
           }
