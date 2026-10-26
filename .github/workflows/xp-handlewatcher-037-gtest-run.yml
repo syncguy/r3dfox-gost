@@ -186,7 +186,7 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $root
           $yyLib = $null
           foreach ($dir in (Get-ChildItem -Path $root -Recurse -Directory)) {
-            $suffix = "Lib\\$env:YY_THUNKS_TARGET\\x86"
+            $suffix = "Lib\$env:YY_THUNKS_TARGET\x86"
             if ($dir.FullName.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) {
               $yyLib = $dir
               break
