@@ -60,9 +60,12 @@ class HandleWatcher::Impl final : public nsITargetShutdownTask {
       HANDLE aHandle, nsIEventTarget* aTarget,
       already_AddRefed<nsIRunnable> aRunnable) {
     RefPtr<Impl> impl = MakeRefPtr<Impl>();
-    impl->mData.handle = aHandle;
-    impl->mData.target = aTarget;
-    impl->mData.runnable = aRunnable;
+    {
+      MutexAutoLock lock(impl->mMutex);
+      impl->mData.handle = aHandle;
+      impl->mData.target = aTarget;
+      impl->mData.runnable = aRunnable;
+    }
     return impl;
   }
 
