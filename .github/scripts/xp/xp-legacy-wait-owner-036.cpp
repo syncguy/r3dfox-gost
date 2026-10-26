@@ -8,6 +8,7 @@
 
 static LONG g_created=0, g_destroyed=0, g_unregisters=0, g_notifies=0;
 static LONG g_deadlock=0, g_reentry=0;
+static HANDLE g_beforeContext=NULL, g_enterContext=NULL;
 static void Log(const char* tag, bool pass) {
   printf("%s=%s\n",tag,pass?"PASS":"FAIL");fflush(stdout);
 }
@@ -34,6 +35,8 @@ struct Watch {
   }
   void Release(){if(InterlockedDecrement(&refs)==0)delete this;}
   static void CALLBACK Callback(void* ptr,BOOLEAN) {
+    // Deterministic barrier BEFORE first callback-context dereference.
+    if(g_beforeContext){SetEvent(g_beforeContext);WaitForSingleObject(g_enterContext,INFINITE);}
     Watch* w=(Watch*)ptr;
     // Registration reference exists before registration and is not surrendered
     // by cancellation until synchronous UnregisterWaitEx returns.
@@ -106,16 +109,29 @@ static bool Test(const char* which){
   const bool cancelRunning=!strcmp(which,"cancel-running");
   const bool completion=!strcmp(which,"completion");
   const bool reentry=!strcmp(which,"dispatch-reentry");
-  if(!presignaled&&!cancelPending&&!cancelRunning&&!completion&&!reentry)return false;
+  const bool preentry=!strcmp(which,"stop-before-context");
+  if(!presignaled&&!cancelPending&&!cancelRunning&&!completion&&!reentry&&!preentry)return false;
   HANDLE watched=CreateEventA(NULL,TRUE,FALSE,NULL);
   if(!watched)return false;
+  if(preentry){g_beforeContext=CreateEventA(NULL,TRUE,FALSE,NULL);g_enterContext=CreateEventA(NULL,TRUE,FALSE,NULL);}
   Watch* w=new Watch;
   if(reentry){w->dispatchFailure=true;w->reenter=true;}
   if(presignaled)SetEvent(watched);
   bool ok=w->Arm(watched);
   ThreadStopArgs args={w,CreateEventA(NULL,TRUE,FALSE,NULL),false};
   HANDLE stopper=NULL;
-  if(cancelPending){
+  if(preentry){
+    SetEvent(watched);
+    ok=ok&&WaitForSingleObject(g_beforeContext,5000)==WAIT_OBJECT_0;
+    stopper=CreateThread(NULL,0,StopThread,&args,0,NULL);
+    ok=ok&&stopper!=NULL;
+    // Blocking unregister MUST NOT finish until callback exits its pre-context gate.
+    ok=ok&&WaitForSingleObject(args.finished,100)==WAIT_TIMEOUT;
+    SetEvent(g_enterContext);
+    ok=ok&&WaitForSingleObject(args.finished,5000)==WAIT_OBJECT_0;
+    ok=ok&&WaitForSingleObject(w->callbackDone,5000)==WAIT_OBJECT_0;
+    ok=ok&&args.ok;
+  }else if(cancelPending){
     ok=ok&&w->Stop();
     SetEvent(watched);
     ok=ok&&WaitForSingleObject(w->entered,100)==WAIT_TIMEOUT;
@@ -134,12 +150,13 @@ static bool Test(const char* which){
   }
   if(stopper){WaitForSingleObject(stopper,5000);CloseHandle(stopper);}
   CloseHandle(args.finished);
+  if(preentry){CloseHandle(g_beforeContext);CloseHandle(g_enterContext);g_beforeContext=NULL;g_enterContext=NULL;}
   w->Release(); // outer owner
   CloseHandle(watched);
   for(int spin=0;spin<200 && g_created!=g_destroyed;++spin)Sleep(10);
   ok=ok && g_created==g_destroyed && g_unregisters==1 && g_deadlock==0;
   if(reentry)ok=ok&&g_reentry==1;
-  if(cancelPending)ok=ok&&g_notifies==0;
+  if(cancelPending||preentry)ok=ok&&g_notifies==0;
   if(completion)ok=ok&&g_notifies==1;
   printf("scenario=%s created=%ld destroyed=%ld unregisters=%ld notified=%ld reentry=%ld errors=%ld\n",
     which,g_created,g_destroyed,g_unregisters,g_notifies,g_reentry,g_deadlock);
