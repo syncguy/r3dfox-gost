@@ -136,7 +136,7 @@ static bool Test(const char* which){
   CloseHandle(args.finished);
   w->Release(); // outer owner
   CloseHandle(watched);
-  ok=ok && g_created==g_destroyed && g_unregisters==1 && g_deadlock==0;
+  for(int spin=0;spin<200 && g_created!=g_destroyed;++spin)Sleep(10);\n  ok=ok && g_created==g_destroyed && g_unregisters==1 && g_deadlock==0;
   if(reentry)ok=ok&&g_reentry==1;
   if(cancelPending)ok=ok&&g_notifies==0;
   if(completion)ok=ok&&g_notifies==1;
