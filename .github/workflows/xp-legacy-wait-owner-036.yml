@@ -34,7 +34,7 @@ jobs:
         shell: powershell
         run: |
           $exe = (Resolve-Path 'diagnostics\xp-legacy-wait-owner-036.exe').Path
-          foreach ($scenario in @('presignaled','cancel-pending','cancel-running','completion','dispatch-reentry')) {
+          foreach ($scenario in @('presignaled','cancel-pending','cancel-running','completion','dispatch-reentry','stop-before-context')) {
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $exe
             $psi.Arguments = $scenario
