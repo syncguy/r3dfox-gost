@@ -528,6 +528,28 @@ class MockRunnable final : public nsIRunnable {
 NS_IMPL_ISUPPORTS(MockRunnable, nsIRunnable)
 }  // anonymous namespace
 
+// A failing Dispatch may destroy its runnable immediately. The runnable's
+// destructor must be able to reenter Stop without acquiring an owned mutex.
+TEST_F(TestHandleWatcher, DispatchFailureRunnableDestructorStop) {
+  WindowsEventObject event;
+  HandleWatcher hw;
+  RefPtr<MockEventTarget> target = mozilla::MakeRefPtr<MockEventTarget>();
+  RefPtr<MockRunnable> runnable = mozilla::MakeRefPtr<MockRunnable>();
+  std::atomic<bool> released = false;
+  runnable->RegisterDeathAction([&] {
+    hw.Stop();
+    released = true;
+    PingMainThread();
+  });
+
+  hw.Watch(event.handle, target.get(), runnable.forget());
+  event.Set();
+  ASSERT_TRUE(SpinEventLoopUntil([&] { return released.load(); },
+                                 Milliseconds(2000))
+                  .ok());
+  ASSERT_TRUE(hw.IsStopped());
+}
+
 // Test that a HandleWatcher neither deadlocks nor loses data if it's invoked
 // when it releases its task.
 TEST_F(TestHandleWatcher, TaskDestructionRecurrency) {
