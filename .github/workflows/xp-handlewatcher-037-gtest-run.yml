@@ -175,20 +175,34 @@ jobs:
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
-        env:
-          GH_API_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # Patch only a temporary copy of the existing dependency bootstrap script.
-          # Authenticated GitHub metadata lookup avoids shared runner IP rate limits.
-          $source = '.\.github\scripts\xp\prepare-yy-thunks-x86.ps1'
-          $content = [System.IO.File]::ReadAllText((Resolve-Path $source))
-          $oldHeader = "@{ 'User-Agent' = 'r3dfox-gost-ci' }"
-          $newHeader = '@{ ''User-Agent'' = ''r3dfox-gost-ci''; Authorization = "Bearer $env:GH_API_TOKEN" }'
-          if (-not $content.Contains($oldHeader)) { throw 'YY release lookup header not found' }
-          $temporary = Join-Path $env:RUNNER_TEMP 'prepare-yy-thunks-x86-auth.ps1'
-          [System.IO.File]::WriteAllText($temporary, $content.Replace($oldHeader, $newHeader))
-          & $temporary
+          # Fixed upstream v1.2.2 asset URL; avoid unauthenticated GitHub REST rate limits.
+          $zip = Join-Path $env:RUNNER_TEMP 'YY-Thunks-Lib.zip'
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-xp-x86'
+          $url = "https://github.com/Chuyu-Team/YY-Thunks/releases/download/v$env:YY_THUNKS_VERSION/YY-Thunks-Lib.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          Expand-Archive -Path $zip -DestinationPath $root
+          $yyLib = $null
+          foreach ($dir in (Get-ChildItem -Path $root -Recurse -Directory)) {
+            $suffix = "Lib\\$env:YY_THUNKS_TARGET\\x86"
+            if ($dir.FullName.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) {
+              $yyLib = $dir
+              break
+            }
+          }
+          if (-not $yyLib) { throw 'YY XP x86 library directory not found' }
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          $ws2 = Join-Path $yyLib.FullName 'ws2_32.lib'
+          foreach ($lib in @($kernel32, $synch, $ws2)) {
+            if (-not (Test-Path $lib)) { throw "Required YY library missing: $lib" }
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "THUNK_YY_LIB=$($yyLib.FullName)" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "THUNK_YY_KERNEL32_LIB=$kernel32" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "THUNK_YY_SYNCH_LIB=$synch" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "THUNK_YY_WS2_32_LIB=$ws2" -Encoding utf8
 
       - name: Build narrow YY XP x86 provider
         shell: powershell
