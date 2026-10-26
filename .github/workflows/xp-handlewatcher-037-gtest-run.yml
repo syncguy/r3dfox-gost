@@ -179,10 +179,16 @@ jobs:
           GH_API_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          
-          # Authenticated release metadata avoids shared runner IP rate limit (run 40360772959).
-          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci'; Authorization = "Bearer $env:GH_API_TOKEN" } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
-          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip
+          # Patch only a temporary copy of the existing dependency bootstrap script.
+          # Authenticated GitHub metadata lookup avoids shared runner IP rate limits.
+          $source = '.\.github\scripts\xp\prepare-yy-thunks-x86.ps1'
+          $content = [System.IO.File]::ReadAllText((Resolve-Path $source))
+          $oldHeader = "@{ 'User-Agent' = 'r3dfox-gost-ci' }"
+          $newHeader = '@{ ''User-Agent'' = ''r3dfox-gost-ci''; Authorization = "Bearer $env:GH_API_TOKEN" }'
+          if (-not $content.Contains($oldHeader)) { throw 'YY release lookup header not found' }
+          $temporary = Join-Path $env:RUNNER_TEMP 'prepare-yy-thunks-x86-auth.ps1'
+          [System.IO.File]::WriteAllText($temporary, $content.Replace($oldHeader, $newHeader))
+          & $temporary
 
       - name: Build narrow YY XP x86 provider
         shell: powershell
