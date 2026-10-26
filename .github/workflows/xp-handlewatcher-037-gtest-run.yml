@@ -340,11 +340,18 @@ jobs:
           Write-Host "HANDLEWATCHER_GTEST_SOURCE_UNDER_TEST=$env:GITHUB_SHA"
           # mach gtest builds recurse_gtest/xul-gtest but does not build the
           # application executable on a clean runner (run 40322175980).
-          # Build only the app target first; leave all other build rules intact.
-          Write-Host 'Build r3dfox.exe prerequisite for mach gtest on clean runner'
-          .\\mach.ps1 build browser/app
+          # Run 40351161544 proved that "mach build browser/app" is silently
+          # ignored as a subdirectory argument. Build the real Make target.
+          Write-Host 'Build recurse_gtest prerequisite before browser app link'
+          .\\mach.ps1 build recurse_gtest
           if ($LASTEXITCODE -ne 0) {
-            throw "Firefox gtest app prerequisite build failed (exit $LASTEXITCODE)"
+            throw "Firefox gtest library prerequisite build failed (exit $LASTEXITCODE)"
+          }
+          Write-Host 'Link browser/app/target (not an ignored mach subdirectory)'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\\mozmake\\mozmake.exe'
+          & $mozmake -C $env:OBJDIR 'browser/app/target'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Firefox gtest app target link failed (exit $LASTEXITCODE)"
           }
           $app = Join-Path $env:OBJDIR 'dist\\bin\\r3dfox.exe'
           if (-not (Test-Path -LiteralPath $app)) {
