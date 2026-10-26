@@ -175,7 +175,244 @@ jobs:
 
       - name: Download YY-Thunks 1.2.2 XP x86 libraries
         shell: powershell
-        run: .\.github\scripts\xp\prepare-yy-thunks-x86.ps1
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          
+          # Authenticated release metadata avoids shared runner IP rate limit (run 40360772959).
+          $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'r3dfox-gost-ci'; Authorization = "Bearer $env:GH_API_TOKEN" } -Uri "https://api.github.com/repos/Chuyu-Team/YY-Thunks/releases/tags/v$env:YY_THUNKS_VERSION"
+          $asset = $release.assets | Where-Object { $_.name -match '(?i)Lib.*\.zip$|(?i)-Lib\.zip
+
+      - name: Build narrow YY XP x86 provider
+        shell: powershell
+        run: .\.github\scripts\xp\build-narrow-yy.ps1
+
+      - name: Activate narrow YY XP x86 provider for all target links
+        shell: powershell
+        run: .\.github\scripts\xp\activate-narrow-yy-provider.ps1
+
+      - name: GATE - Verify committed xul.dll and libGLESv2.dll YY TLS entry-point contracts
+        shell: powershell
+        run: .\.github\scripts\xp\verify-xul-yy-entrypoint-contract.ps1
+
+      - name: Write XP x32 mozconfig
+        shell: powershell
+        run: |
+          @'
+          mk_add_options AUTOCLOBBER=1
+          mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-gost-xp-x32
+          mk_add_options MOZ_PARALLEL_BUILD=4
+          mk_add_options MOZ_MAKE_FLAGS="-j4"
+          ac_add_options --enable-bootstrap
+          ac_add_options --target=i686
+          ac_add_options --disable-cargo-incremental
+          ac_add_options --enable-application=browser
+          ac_add_options --disable-artifact-builds
+          ac_add_options --enable-official-branding
+          ac_add_options --disable-debug
+          ac_add_options --disable-debug-js-modules
+          ac_add_options --enable-debug-symbols
+          ac_add_options --enable-tests
+          ac_add_options --disable-sandbox
+          ac_add_options --enable-hardening
+          ac_add_options --enable-stl-hardening
+          ac_add_options --enable-jemalloc
+          ac_add_options --enable-optimize
+          ac_add_options --enable-release
+          ac_add_options --enable-rust-simd
+          ac_add_options --enable-replace-malloc
+          ac_add_options --disable-eme
+          ac_add_options --enable-jxl
+          ac_add_options --enable-raw
+          ac_add_options --enable-webrtc
+          ac_add_options --disable-backgroundtasks
+          ac_add_options --disable-bits-download
+          ac_add_options --disable-crashreporter
+          ac_add_options --disable-default-browser-agent
+          ac_add_options --disable-maintenance-service
+          ac_add_options --disable-necko-wifi
+          ac_add_options --disable-notification-server
+          ac_add_options --disable-parental-controls
+          ac_add_options --without-onnx-runtime
+          ac_add_options --without-wasm-sandboxed-libraries
+          ac_add_options --disable-update-agent
+          ac_add_options --disable-updater
+          mk_add_options MOZ_CRASHREPORTER=0
+          mk_add_options MOZ_DATA_REPORTING=0
+          mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+          mk_add_options MOZ_TELEMETRY_REPORTING=
+          export CFLAGS="$CFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export CXXFLAGS="$CXXFLAGS -DMOZ_NO_WINRT -DMOZ_XP_COMPAT"
+          export MOZ_CRASHREPORTER=0
+          export MOZ_DATA_REPORTING=0
+          export MOZ_REQUIRE_SIGNING=
+          export MOZ_TELEMETRY_REPORTING=
+          export MOZ_PACKAGE_JSSHELL=1
+          '@ | Set-Content '.mozconfig-gost-xp-x32'
+          $optimizeMode = 'default'
+          switch ($optimizeMode) {
+            'default' { $optimizeOption = '--enable-optimize'; break }
+            '-Os' { $optimizeOption = '--enable-optimize=-Os'; break }
+            '-Oz' { $optimizeOption = '--enable-optimize="-O2 /clang:-Oz"'; break }
+            default { throw "Unsupported optimize_mode: $optimizeMode" }
+          }
+          $mozconfigPath = '.mozconfig-gost-xp-x32'
+          $mozconfigContent = Get-Content -LiteralPath $mozconfigPath -Raw
+          $needle = 'ac_add_options --enable-optimize'
+          if (([regex]::Matches($mozconfigContent, [regex]::Escape($needle))).Count -ne 1) {
+            throw 'Expected exactly one --enable-optimize line in XP mozconfig'
+          }
+          $mozconfigContent = $mozconfigContent.Replace($needle, "ac_add_options $optimizeOption")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $mozconfigPath), $mozconfigContent, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Selected XP C/C++ optimization: $optimizeOption"
+
+      - name: Bootstrap build dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 --no-interactive bootstrap --application-choice=browser --no-system-changes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Firefox x86 target
+        shell: powershell
+        run: .\.github\scripts\xp\configure-firefox-x86-target.ps1
+
+      - name: Build export prerequisites
+        shell: powershell
+        run: .\.github\scripts\xp\build-export-prerequisites.ps1
+
+      - name: GATE - Log G1a source identity and XP define
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "G1A_SOURCE_UNDER_TEST=$env:GITHUB_SHA"
+          Write-Host "G1A_SOURCE_BRANCH=$env:GITHUB_REF_NAME"
+          $mozconfig = Get-Content -LiteralPath $env:MOZCONFIG -Raw
+          if (-not $mozconfig.Contains('-DMOZ_XP_COMPAT')) {
+            throw 'Required XP C++ compatibility define is missing'
+          }
+
+      - name: GATE - WinHandleWatcher and gtest prerequisites
+        id: census-preflight
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          if (-not (Test-Path -LiteralPath $mozmake)) {
+            throw 'mozmake is missing after configuration'
+          }
+          $targets = @(
+            'xpcom/threads/target-objects',
+            'xpcom/tests/gtest/target-objects'
+          )
+          $stdout = Join-Path (Get-Location) 'g1a-preflight.stdout.log'
+          $stderr = Join-Path (Get-Location) 'g1a-preflight.stderr.log'
+          $makeArgs = @('-C', $env:OBJDIR, '-n', '-k') + $targets
+          Write-Host "NON-EXECUTING targets: $($targets -join ', ')"
+          $proc = Start-Process -FilePath $mozmake -ArgumentList $makeArgs -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $missing = @(Select-String -Path @($stdout, $stderr) -Pattern 'No rule to make target|needed by|No targets specified|No such file or directory' -ErrorAction SilentlyContinue)
+          Write-Host "PREFLIGHT_EXIT=$($proc.ExitCode)"
+          Write-Host "PREFLIGHT_MISSING_DEPENDENCIES=$($missing.Count)"
+          $missing | Select-Object -First 150 | ForEach-Object { Write-Host $_.Line }
+          if ($proc.ExitCode -ne 0 -or $missing.Count -gt 0) {
+            throw 'Generated target prerequisite closure is incomplete; diagnostic files uploaded'
+          }
+
+      - name: GATE - Real XP x86 source and gtest compile
+        id: census-compile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          $targets = @(
+            'xpcom/threads/target-objects',
+            'xpcom/tests/gtest/target-objects'
+          )
+          foreach ($target in $targets) {
+            Write-Host "REAL G1A COMPILE: $target"
+            & $mozmake -C $env:OBJDIR $target
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native compile failed: $target (exit $LASTEXITCODE)"
+            }
+          }
+          Write-Host 'XP WinHandleWatcher and gtest objects compiled; proceeding to actual gtest link and execution'
+
+
+      - name: GATE - Link and execute actual TestHandleWatcher Firefox gtests
+        id: handlewatcher-gtest
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "HANDLEWATCHER_GTEST_SOURCE_UNDER_TEST=$env:GITHUB_SHA"
+          # mach gtest builds recurse_gtest/xul-gtest but does not build the
+          # application executable on a clean runner (run 40322175980).
+          # Run 40351161544 proved that "mach build browser/app" is silently
+          # ignored as a subdirectory argument. Build the real Make target.
+          Write-Host 'Build recurse_gtest prerequisite before browser app link'
+          .\\mach.ps1 build recurse_gtest
+          if ($LASTEXITCODE -ne 0) {
+            throw "Firefox gtest library prerequisite build failed (exit $LASTEXITCODE)"
+          }
+          Write-Host 'Link browser/app/target (not an ignored mach subdirectory)'
+          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\\mozmake\\mozmake.exe'
+          & $mozmake -C $env:OBJDIR 'browser/app/target'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Firefox gtest app target link failed (exit $LASTEXITCODE)"
+          }
+          $app = Join-Path $env:OBJDIR 'dist\\bin\\r3dfox.exe'
+          if (-not (Test-Path -LiteralPath $app)) {
+            throw "Firefox gtest app prerequisite absent: $app"
+          }
+          Write-Host 'Running mach gtest against actual XP-only WinHandleWatcher class'
+          .\\mach.ps1 gtest 'TestHandleWatcher.*' --jobs 1
+          if ($LASTEXITCODE -ne 0) {
+            throw "TestHandleWatcher real gtest link/execution failed (exit $LASTEXITCODE)"
+          }
+          Write-Host 'HANDLEWATCHER_REAL_GTEST_PASS'
+
+      - name: Upload G1a focused preflight diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-handlewatcher-037-gtest-diagnostics
+          if-no-files-found: warn
+          path: |
+            configure-xp-x32.log
+            g1a-preflight.stdout.log
+            g1a-preflight.stderr.log
+ } | Select-Object -First 1
+          if (-not $asset) {
+            throw "YY-Thunks v$env:YY_THUNKS_VERSION Lib asset not found"
+          }
+          
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          $root = Join-Path $env:RUNNER_TEMP 'yy-thunks-xp-x86'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          if (Test-Path $root) {
+            Remove-Item -Recurse -Force $root
+          }
+          Expand-Archive -Path $zip -DestinationPath $root
+          
+          $targetPattern = [regex]::Escape($env:YY_THUNKS_TARGET)
+          $yyLib = Get-ChildItem -Path $root -Recurse -Directory |
+            Where-Object { $_.FullName -match "(?i)[\\/]Lib[\\/]$targetPattern[\\/]x86$" } |
+            Select-Object -First 1
+          if (-not $yyLib) {
+            throw "YY-Thunks Lib/$env:YY_THUNKS_TARGET/x86 not found"
+          }
+          
+          $kernel32 = Join-Path $yyLib.FullName 'kernel32.lib'
+          $synch = Join-Path $yyLib.FullName 'synchronization.lib'
+          $ws2 = Join-Path $yyLib.FullName 'ws2_32.lib'
+          if (-not (Test-Path $kernel32) -or -not (Test-Path $synch) -or -not (Test-Path $ws2)) {
+            throw 'Required YY XP x86 libraries are missing'
+          }
+          
+          "THUNK_YY_LIB=$($yyLib.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_KERNEL32_LIB=$kernel32" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_SYNCH_LIB=$synch" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "THUNK_YY_WS2_32_LIB=$ws2" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build narrow YY XP x86 provider
         shell: powershell
