@@ -1,0 +1,66 @@
+name: XP legacy wait refcounted owner 036 hosted gates
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-legacy-wait-owner-036.yml"
+      - ".github/scripts/xp/xp-legacy-wait-owner-036.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  owner-protocol:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Compile standalone ownership harness (host OS, not XP binary)
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          & cl.exe /nologo /W4 /EHsc /D_WIN32_WINNT=0x0501 /DWINVER=0x0501 /Fe:diagnostics\xp-legacy-wait-owner-036.exe .github\scripts\xp\xp-legacy-wait-owner-036.cpp /link /SUBSYSTEM:CONSOLE,5.01 | Tee-Object diagnostics\build.log
+          if ($LASTEXITCODE -ne 0) { throw 'compile failed' }
+      - name: Verify five isolated lifetime scenarios with watchdog
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path 'diagnostics\xp-legacy-wait-owner-036.exe').Path
+          foreach ($scenario in @('presignaled','cancel-pending','cancel-running','completion','dispatch-reentry')) {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $exe
+            $psi.Arguments = $scenario
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $p = [System.Diagnostics.Process]::Start($psi)
+            if (-not $p.WaitForExit(15000)) {
+              $p.Kill()
+              $p.WaitForExit()
+              throw "WATCHDOG FAIL: $scenario"
+            }
+            $p.WaitForExit()
+            $stdout = $p.StandardOutput.ReadToEnd()
+            $stderr = $p.StandardError.ReadToEnd()
+            Set-Content -Path "diagnostics\$scenario.log" -Value $stdout
+            Set-Content -Path "diagnostics\$scenario.err" -Value $stderr
+            Write-Host $stdout
+            $exitCode = $p.ExitCode
+            $p.Dispose()
+            if ($exitCode -ne 0) { throw "FAIL $scenario exit=$exitCode" }
+          }
+      - name: Upload bounded scenario diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-legacy-wait-owner-036-hosted
+          path: diagnostics/
+          if-no-files-found: warn
