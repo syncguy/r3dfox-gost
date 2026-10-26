@@ -457,7 +457,9 @@ class MockEventTarget final : public nsIEventTarget {
     *_retval = false;
     return NS_OK;
   }
-  NS_IMETHOD Dispatch(already_AddRefed<nsIRunnable>, DispatchFlags) {
+  NS_IMETHOD Dispatch(already_AddRefed<nsIRunnable> aRunnable,
+                    DispatchFlags) {
+    nsCOMPtr<nsIRunnable> runnable = aRunnable;
     return NS_ERROR_NOT_IMPLEMENTED;
   }
   NS_IMETHOD DispatchFromScript(nsIRunnable*, DispatchFlags) {
