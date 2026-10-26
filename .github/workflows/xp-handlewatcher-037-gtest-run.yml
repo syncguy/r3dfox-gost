@@ -338,6 +338,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "HANDLEWATCHER_GTEST_SOURCE_UNDER_TEST=$env:GITHUB_SHA"
+          # mach gtest builds recurse_gtest/xul-gtest but does not build the
+          # application executable on a clean runner (run 40322175980).
+          # Build only the app target first; leave all other build rules intact.
+          Write-Host 'Build r3dfox.exe prerequisite for mach gtest on clean runner'
+          .\\mach.ps1 build browser/app
+          if ($LASTEXITCODE -ne 0) {
+            throw "Firefox gtest app prerequisite build failed (exit $LASTEXITCODE)"
+          }
+          $app = Join-Path $env:OBJDIR 'dist\\bin\\r3dfox.exe'
+          if (-not (Test-Path -LiteralPath $app)) {
+            throw "Firefox gtest app prerequisite absent: $app"
+          }
           Write-Host 'Running mach gtest against actual XP-only WinHandleWatcher class'
           .\\mach.ps1 gtest 'TestHandleWatcher.*' --jobs 1
           if ($LASTEXITCODE -ne 0) {
