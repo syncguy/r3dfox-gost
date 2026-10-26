@@ -128,6 +128,9 @@ static bool Test(const char* which){
     // Blocking unregister MUST NOT finish until callback exits its pre-context gate.
     ok=ok&&WaitForSingleObject(args.finished,100)==WAIT_TIMEOUT;
     SetEvent(g_enterContext);
+    // Release the existing callback-body gate too; otherwise synchronous
+    // UnregisterWaitEx correctly waits forever for a parked callback.
+    SetEvent(w->go);
     ok=ok&&WaitForSingleObject(args.finished,5000)==WAIT_OBJECT_0;
     ok=ok&&WaitForSingleObject(w->callbackDone,5000)==WAIT_OBJECT_0;
     ok=ok&&args.ok;
