@@ -1,0 +1,53 @@
+name: XP legacy Wait API 036 feasibility probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-legacy-wait-api-036.yml"
+      - ".github/scripts/xp/xp-legacy-wait-api-036.cpp"
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-wait-api-probe:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/xp
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Build standalone x86 legacy API probe
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          & cl.exe /nologo /W4 /EHsc /D_WIN32_WINNT=0x0501 /DWINVER=0x0501 /Fe:diagnostics\xp-legacy-wait-api-036.exe .github\scripts\xp\xp-legacy-wait-api-036.cpp /link /SUBSYSTEM:CONSOLE,5.01 | Tee-Object diagnostics\build.log
+          if ($LASTEXITCODE -ne 0) { throw 'compile failed' }
+      - name: Four isolated scenarios with bounded process lifetime
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path 'diagnostics\xp-legacy-wait-api-036.exe').Path
+          foreach ($scenario in @('presignaled','cancel-pending','cancel-running','completion')) {
+            $log = "diagnostics\$scenario.log"
+            $p = Start-Process -FilePath $exe -ArgumentList $scenario -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError "diagnostics\$scenario.err"
+            if (-not $p.WaitForExit(15000)) {
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw "WATCHDOG FAIL: $scenario"
+            }
+            Get-Content $log
+            if ($p.ExitCode -ne 0) { throw "FAIL $scenario exit=$($p.ExitCode)" }
+          }
+      - name: Publish standalone diagnostics (hosted OS API, not XP runtime)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-legacy-wait-api-036-hosted-probe
+          path: diagnostics/
+          if-no-files-found: warn
