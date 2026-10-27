@@ -12,9 +12,90 @@ permissions:
   contents: read
 
 jobs:
+  packaging-smoke:
+    name: Windows PowerShell / synthetic gtest packaging preflight
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Checkout controller for packaging smoke
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Exercise actual packager against independent synthetic layouts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $expected -ne $env:GITHUB_SHA) { throw 'Smoke checkout/controller mismatch' }
+          $packager = (Resolve-Path -LiteralPath '.github\scripts\xp\package-handlewatcher-gtest-bundle.ps1').Path
+          $root = Join-Path $env:RUNNER_TEMP 'xp-gtest-038-synthetic-obj'
+          $dist = Join-Path $root 'dist\bin'
+          $gtestDir = Join-Path $dist 'gtest'
+          $pdbDir = Join-Path $root 'toolkit\library\gtest'
+          $appDir = Join-Path $root 'browser\app'
+
+          function Reset-Fixture {
+            if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path @($dist, $gtestDir, $pdbDir, $appDir) | Out-Null
+            [System.IO.File]::WriteAllBytes((Join-Path $dist 'r3dfox.exe'), [byte[]](1,2,3))
+            [System.IO.File]::WriteAllBytes((Join-Path $gtestDir 'xul.dll'), [byte[]](4,5,6))
+            [System.IO.File]::WriteAllBytes((Join-Path $pdbDir 'xul.pdb'), [byte[]](7,8,9))
+            [System.IO.File]::WriteAllBytes((Join-Path $appDir 'r3dfox.pdb'), [byte[]](10,11,12))
+            @('nss3.dll', 'gtest/xul.dll') | Set-Content -LiteralPath (Join-Path $dist 'dependentlibs.list.gtest')
+          }
+
+          function Assert-Rejected([string]$case) {
+            $rejected = $false
+            try {
+              & $packager -ObjDir $root -ExpectedSourceSha $expected | Out-Null
+            } catch {
+              $rejected = $true
+              Write-Host "SMOKE_EXPECTED_REJECTION=$case DETAILS=$($_.Exception.Message)"
+            }
+            if (-not $rejected) { throw "Incorrectly accepted synthetic fixture: $case" }
+            if (Test-Path -LiteralPath (Join-Path $dist 'xp-gtest-build-manifest.json')) {
+              throw "False accepted manifest written for case $case"
+            }
+          }
+
+          Reset-Fixture
+          & $packager -ObjDir $root -ExpectedSourceSha $expected | Out-Null
+          $manifestPath = Join-Path $dist 'xp-gtest-build-manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'Positive fixture did not produce manifest' }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.schema -ne 'xp-handlewatcher-gtest-bundle-v2' -or $manifest.source_under_test_sha -ne $expected) {
+            throw 'Positive fixture manifest provenance failed'
+          }
+          $exe = @($manifest.files | Where-Object { $_.path -eq 'r3dfox.exe' })
+          $gtest = @($manifest.files | Where-Object { $_.path -eq 'gtest/xul.dll' })
+          if ($exe.Count -ne 1 -or $gtest.Count -ne 1) { throw 'Positive fixture missing exact executable or gtest XUL' }
+          $expectedHash = (Get-FileHash -LiteralPath (Join-Path $gtestDir 'xul.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($gtest[0].sha256 -ne $expectedHash) { throw 'Positive fixture XUL hash mismatch' }
+          $symbolsFile = Join-Path $env:RUNNER_TEMP 'xp-handlewatcher-gtest-symbols\symbols-manifest.json'
+          if (-not (Test-Path -LiteralPath $symbolsFile)) { throw 'Positive fixture symbols manifest missing' }
+          $symbols = Get-Content -LiteralPath $symbolsFile -Raw | ConvertFrom-Json
+          if (@($symbols.symbols).Count -ne 2) { throw 'Positive fixture requires both PDBs' }
+          Write-Host 'SMOKE_POSITIVE_PASS'
+
+          Reset-Fixture
+          Remove-Item -LiteralPath (Join-Path $gtestDir 'xul.dll')
+          [System.IO.File]::WriteAllBytes((Join-Path $dist 'xul.dll'), [byte[]](4,5,6))
+          Assert-Rejected 'product-root-xul-is-not-gtest'
+
+          Reset-Fixture
+          @('nss3.dll', 'xul.dll') | Set-Content -LiteralPath (Join-Path $dist 'dependentlibs.list.gtest')
+          Assert-Rejected 'wrong-loader-manifest'
+
+          Reset-Fixture
+          Remove-Item -LiteralPath (Join-Path $pdbDir 'xul.pdb')
+          Assert-Rejected 'missing-gtest-pdb'
+          Write-Host 'PACKAGING_SYNTHETIC_SMOKE_PASS'
+
   xp-x32:
     name: Windows x86 / build-only reusable gtest binaries
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[hw038-heavy-authorized]') }}
+    needs: packaging-smoke
+    if: ${{ needs.packaging-smoke.result == 'success' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[hw038-heavy-authorized]')) }}
     runs-on: windows-2022
     timeout-minutes: 355
 
