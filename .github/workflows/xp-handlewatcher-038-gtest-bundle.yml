@@ -388,29 +388,109 @@ jobs:
             throw "Firefox browser app link failed (exit $LASTEXITCODE)"
           }
 
-      - name: Stage full reusable gtest runtime and matching symbols
+      - name: Record linked-output provenance before downstream validation
+        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
         shell: powershell
         run: |
-          .\\.github\\scripts\\xp\\package-handlewatcher-gtest-bundle.ps1 -ObjDir $env:OBJDIR -ExpectedSourceSha 'e9375fb5f8bb7eb2b783a40b1a86abc6040a6919'
-          if ($LASTEXITCODE -ne 0) { throw 'Gtest bundle manifest validation failed' }
+          $ErrorActionPreference = 'Stop'
+          $objDir = (Resolve-Path -LiteralPath $env:OBJDIR).Path
+          $distBin = Join-Path $objDir 'dist\bin'
+          $paths = @(
+            'dist/bin/r3dfox.exe',
+            'dist/bin/gtest/xul.dll',
+            'dist/bin/dependentlibs.list.gtest',
+            'toolkit/library/gtest/xul.pdb',
+            'browser/app/r3dfox.pdb'
+          )
+          $files = @(
+            foreach ($rel in $paths) {
+              $abs = Join-Path $objDir ($rel.Replace('/', '\'))
+              if (Test-Path -LiteralPath $abs -PathType Leaf) {
+                $item = Get-Item -LiteralPath $abs
+                [ordered]@{
+                  path = $rel
+                  exists = $true
+                  size_bytes = $item.Length
+                  sha256 = (Get-FileHash -LiteralPath $abs -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              } else {
+                [ordered]@{ path = $rel; exists = $false }
+              }
+            }
+          )
+          $manifest = [ordered]@{
+            schema = 'xp-handlewatcher-gtest-linked-output-inventory-v1'
+            status = 'unvalidated_linked_outputs'
+            source_under_test_sha = (& git rev-parse HEAD).Trim()
+            controller_commit_sha = $env:GITHUB_SHA
+            workflow = $env:GITHUB_WORKFLOW
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            files = $files
+          }
+          $manifest | ConvertTo-Json -Depth 5 |
+            Set-Content -LiteralPath (Join-Path $distBin 'xp-gtest-linked-output-inventory.json') -Encoding UTF8
+          foreach ($f in $files) {
+            Write-Host "LINKED_FILE=$($f.path) EXISTS=$($f.exists) SHA256=$($f.sha256)"
+          }
 
-      - name: Publish reusable XP x86 gtest runtime
+      - name: Preserve linked dist/bin even if packaging fails (unvalidated salvage)
+        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: xp-handlewatcher-038-gtest-runtime-${{ github.run_id }}
+          name: xp-handlewatcher-038-dist-bin-salvage-${{ github.run_id }}
           path: obj-gost-xp-x32/dist/bin/
           if-no-files-found: error
           retention-days: 30
           compression-level: 1
+          include-hidden-files: true
 
-      - name: Publish matching XP x86 symbols
+      - name: Preserve raw matching PDBs even if packaging fails
+        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: xp-handlewatcher-038-gtest-symbols-${{ github.run_id }}
-          path: ${{ runner.temp }}\\xp-handlewatcher-gtest-symbols/
-          if-no-files-found: error
+          name: xp-handlewatcher-038-pdb-salvage-${{ github.run_id }}
+          path: |
+            obj-gost-xp-x32/toolkit/library/gtest/xul.pdb
+            obj-gost-xp-x32/browser/app/r3dfox.pdb
+          if-no-files-found: warn
           retention-days: 30
           compression-level: 1
+
+      - name: Checkout controller-owned packager (keep tested source pinned)
+        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
+        uses: actions/checkout@v4
+        with:
+          repository: syncguy/r3dfox-gost
+          ref: ${{ github.sha }}
+          path: controller-bundle-tools
+          sparse-checkout: |
+            .github/scripts/xp/package-handlewatcher-gtest-bundle.ps1
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Validate gtest runtime layout and matching symbols
+        id: gtest-package
+        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
+        shell: powershell
+        run: |
+          $controllerSha = (& git -C controller-bundle-tools rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $controllerSha -ne $env:GITHUB_SHA) {
+            throw "Controller-packager SHA mismatch: $controllerSha"
+          }
+          & .\controller-bundle-tools\.github\scripts\xp\package-handlewatcher-gtest-bundle.ps1 -ObjDir $env:OBJDIR -ExpectedSourceSha 'e9375fb5f8bb7eb2b783a40b1a86abc6040a6919'
+          if (-not $?) { throw 'Gtest bundle manifest validation failed' }
+
+      - name: Publish structural validation manifests (not runtime acceptance)
+        if: ${{ always() && steps.gtest-package.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-handlewatcher-038-validation-${{ github.run_id }}
+          path: |
+            obj-gost-xp-x32/dist/bin/xp-gtest-build-manifest.json
+            ${{ runner.temp }}\xp-handlewatcher-gtest-symbols/symbols-manifest.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload G1a focused preflight diagnostics
         if: always()
