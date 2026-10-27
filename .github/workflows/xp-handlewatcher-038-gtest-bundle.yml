@@ -459,7 +459,12 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host 'Compiling and linking XP x86 gtest runtime without running tests'
+          Write-Host 'Building complete XP x86 Firefox runtime before linking gtest XUL'
+          .\\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) {
+            throw "Complete Firefox XP build failed (exit $LASTEXITCODE)"
+          }
+          Write-Host 'Building dedicated gtest XUL from the same pinned sources without running tests'
           .\\mach.ps1 build recurse_gtest
           if ($LASTEXITCODE -ne 0) {
             throw "Firefox gtest link failed (exit $LASTEXITCODE)"
