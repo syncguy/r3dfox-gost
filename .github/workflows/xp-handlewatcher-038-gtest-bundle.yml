@@ -47,14 +47,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          ref: d2a6b7b416ebab3d636c28fe0786a5605f8d53b7
+          ref: e9375fb5f8bb7eb2b783a40b1a86abc6040a6919
 
       - name: Verify pinned product source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $head = (& git rev-parse HEAD).Trim()
-          if ($head -ne 'd2a6b7b416ebab3d636c28fe0786a5605f8d53b7') {
+          if ($head -ne 'e9375fb5f8bb7eb2b783a40b1a86abc6040a6919') {
             throw "Unexpected source-under-test SHA: $head"
           }
           Write-Host "CONTROLLER_SHA=$env:GITHUB_SHA"
@@ -319,7 +319,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host "G1A_SOURCE_UNDER_TEST=$env:GITHUB_SHA"
+          Write-Host "G1A_SOURCE_UNDER_TEST=$((& git rev-parse HEAD).Trim())"
           Write-Host "G1A_SOURCE_BRANCH=$env:GITHUB_REF_NAME"
           $mozconfig = Get-Content -LiteralPath $env:MOZCONFIG -Raw
           if (-not $mozconfig.Contains('-DMOZ_XP_COMPAT')) {
@@ -369,7 +369,7 @@ jobs:
               throw "Native compile failed: $target (exit $LASTEXITCODE)"
             }
           }
-          Write-Host 'XP WinHandleWatcher and gtest objects compiled; proceeding to actual gtest link and execution'
+          Write-Host 'XP WinHandleWatcher and gtest objects compiled; proceeding to link and artifact-only packaging'
 
 
       - name: Link actual XP x86 gtest library and browser executable
@@ -391,7 +391,7 @@ jobs:
       - name: Stage full reusable gtest runtime and matching symbols
         shell: powershell
         run: |
-          .\\.github\\scripts\\xp\\package-handlewatcher-gtest-bundle.ps1 -ObjDir $env:OBJDIR -ExpectedSourceSha 'd2a6b7b416ebab3d636c28fe0786a5605f8d53b7'
+          .\\.github\\scripts\\xp\\package-handlewatcher-gtest-bundle.ps1 -ObjDir $env:OBJDIR -ExpectedSourceSha 'e9375fb5f8bb7eb2b783a40b1a86abc6040a6919'
           if ($LASTEXITCODE -ne 0) { throw 'Gtest bundle manifest validation failed' }
 
       - name: Publish reusable XP x86 gtest runtime
