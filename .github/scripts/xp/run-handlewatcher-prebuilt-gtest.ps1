@@ -1,5 +1,6 @@
 param(
   [Parameter(Mandatory = $true)][string]$DistBin,
+  [Parameter(Mandatory = $true)][string]$ValidationDir,
   [Parameter(Mandatory = $true)][string]$ReportDir,
   [int]$TimeoutSeconds = 180
 )
@@ -42,10 +43,12 @@ try {
     throw 'TimeoutSeconds must be in 30-300'
   }
   $dist = (Resolve-Path -LiteralPath $DistBin).Path
-  $manifestPath = Join-Path $dist 'xp-gtest-build-manifest.json'
-  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-    throw 'Original 038 build manifest is missing'
+  $validation = (Resolve-Path -LiteralPath $ValidationDir).Path
+  $manifests = @(Get-ChildItem -LiteralPath $validation -Recurse -File -Filter 'xp-gtest-build-manifest.json')
+  if ($manifests.Count -ne 1) {
+    throw "Expected exactly one original 038 validation manifest, found $($manifests.Count)"
   }
+  $manifestPath = $manifests[0].FullName
   $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   if ($manifest.schema -ne 'xp-handlewatcher-gtest-bundle-v2' -or
       $manifest.source_under_test_sha -ne $tested -or
