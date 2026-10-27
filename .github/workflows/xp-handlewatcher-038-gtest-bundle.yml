@@ -14,7 +14,6 @@ permissions:
 jobs:
   xp-x32:
     name: Windows x86 / build-only reusable gtest binaries
-    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-2022
     timeout-minutes: 355
 
