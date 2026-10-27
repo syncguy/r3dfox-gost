@@ -1,0 +1,75 @@
+name: "XP HandleWatcher 039 prebuilt hosted gtest"
+
+on:
+  push:
+    branches:
+      - agent/winrt-source-poc
+    paths:
+      - ".github/workflows/xp-handlewatcher-039-prebuilt-gtest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xp-handlewatcher-039-prebuilt-gtest
+  cancel-in-progress: false
+
+jobs:
+  hosted-gtest:
+    name: Windows 2022 / pinned prebuilt TestHandleWatcher gtest
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout test controller (no browser build)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Retrieve exact green 038 dist-bin artifact
+        uses: actions/download-artifact@v4
+        with:
+          repository: syncguy/r3dfox-gost
+          run-id: 40519752469
+          github-token: ${{ github.token }}
+          name: xp-handlewatcher-038-dist-bin-salvage-40519752469
+          path: prebuilt-dist
+
+      - name: Retrieve exact green 038 validation manifest
+        uses: actions/download-artifact@v4
+        with:
+          repository: syncguy/r3dfox-gost
+          run-id: 40519752469
+          github-token: ${{ github.token }}
+          name: xp-handlewatcher-038-validation-40519752469
+          path: prebuilt-validation
+
+      - name: Run focused WinHandleWatcher gtest with 180-second watchdog
+        id: focused-gtest
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\.github\scripts\xp\run-handlewatcher-prebuilt-gtest.ps1 -DistBin 'prebuilt-dist' -ValidationDir 'prebuilt-validation' -ReportDir 'gtest-039-results' -TimeoutSeconds 180
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload focused gtest output and provenance even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-handlewatcher-039-gtest-results-${{ github.run_id }}
+          path: gtest-039-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Record 039 acceptance boundary
+        if: always()
+        shell: powershell
+        env:
+          TEST_OUTCOME: ${{ steps.focused-gtest.outcome }}
+        run: |
+          Write-Host "GTEST039_CONTROLLER=$env:GITHUB_SHA"
+          Write-Host 'GTEST039_TESTED_SOURCE=e9375fb5f8bb7eb2b783a40b1a86abc6040a6919'
+          Write-Host 'GTEST039_BUILD_RUN=40519752469'
+          Write-Host "GTEST039_OUTCOME=$env:TEST_OUTCOME"
+          Write-Host 'GTEST039_HOST=windows-2022; physical Windows XP and GOST TLS not tested'
