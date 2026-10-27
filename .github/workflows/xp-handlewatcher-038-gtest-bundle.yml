@@ -14,6 +14,7 @@ permissions:
 jobs:
   xp-x32:
     name: Windows x86 / build-only reusable gtest binaries
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[hw038-heavy-authorized]') }}
     runs-on: windows-2022
     timeout-minutes: 355
 
