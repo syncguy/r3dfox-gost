@@ -104,31 +104,76 @@ try {
   $args = @('-unittest', '--gtest_death_test_style=threadsafe', '--wait-for-browser')
   Write-Host "GTEST_FILTER=$env:GTEST_FILTER GTEST_TIMEOUT_SEC=$TimeoutSeconds"
   $report.test_started = $true
-  $proc = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $dist -RedirectStandardOutput $outFile -RedirectStandardError $errFile -PassThru
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $exe
+  $startInfo.Arguments = ($args -join ' ')
+  $startInfo.WorkingDirectory = $dist
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.CreateNoWindow = $true
+  $proc = New-Object System.Diagnostics.Process
+  $proc.StartInfo = $startInfo
+  if (-not $proc.Start()) { throw 'Unable to start gtest browser process' }
+  $stdOutTask = $proc.StandardOutput.ReadToEndAsync()
+  $stdErrTask = $proc.StandardError.ReadToEndAsync()
   if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
     $report.timed_out = $true
     & taskkill.exe /PID $proc.Id /T /F 2>&1 | Out-String | Write-Host
     throw 'Focused gtest watchdog expired'
   }
   $proc.WaitForExit()
-  $report.exit_code = $proc.ExitCode
-  $out = if (Test-Path -LiteralPath $outFile) { Get-Content -LiteralPath $outFile -Raw } else { '' }
-  $err = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw } else { '' }
+  $out = $stdOutTask.GetAwaiter().GetResult()
+  $err = $stdErrTask.GetAwaiter().GetResult()
+  $out | Out-File -LiteralPath $outFile -Encoding utf8
+  $err | Out-File -LiteralPath $errFile -Encoding utf8
+  $report.exit_code = [int]$proc.ExitCode
   $combined = $out + [Environment]::NewLine + $err
-  $report.observed_run = [regex]::Matches($combined, '(?m)^\[\s*RUN\s*\]\s+TestHandleWatcher\.').Count
-  $report.observed_ok = [regex]::Matches($combined, '(?m)^\[\s*OK\s*\]\s+TestHandleWatcher\.').Count
-  $report.observed_failed = [regex]::Matches($combined, '(?m)^\[\s*FAILED\s*\]\s+TestHandleWatcher\.').Count
-  $report.regression_test_observed = $combined.Contains('TestHandleWatcher.DispatchFailureRunnableDestructorStop')
-  Write-Host "GTEST_EXIT=$($proc.ExitCode) RUN=$($report.observed_run) OK=$($report.observed_ok) FAILED=$($report.observed_failed) XP_REGRESSION_SEEN=$($report.regression_test_observed)"
-  if ($proc.ExitCode -ne 0) { throw "Gtest process exited $($proc.ExitCode)" }
+  $started = @{}
+  $ended = @{}
+  $suiteEnded = $false
+  foreach ($line in ($combined -split '[\r\n]+')) {
+    if (-not $line.TrimStart().StartsWith('{')) { continue }
+    try { $ev = $line | ConvertFrom-Json -ErrorAction Stop }
+    catch { continue }
+    if ($ev.action -eq 'suite_end' -and $ev.source -eq 'gtest') {
+      $suiteEnded = $true
+    }
+    if ($ev.test -notlike 'TestHandleWatcher.*') { continue }
+    if ($ev.action -eq 'test_start') {
+      $report.observed_run++
+      if (-not $started.ContainsKey($ev.test)) { $started[$ev.test] = 0 }
+      $started[$ev.test]++
+    }
+    if ($ev.action -eq 'test_end') {
+      if (-not $ended.ContainsKey($ev.test)) { $ended[$ev.test] = 0 }
+      $ended[$ev.test]++
+      if ($ev.status -eq 'PASS') {
+        $report.observed_ok++
+        if ($ev.test -eq 'TestHandleWatcher.DispatchFailureRunnableDestructorStop') {
+          $report.regression_test_observed = $true
+        }
+      } else {
+        $report.observed_failed++
+      }
+    }
+  }
+  Write-Host "GTEST_EXIT=$($report.exit_code) RUN=$($report.observed_run) OK=$($report.observed_ok) FAILED=$($report.observed_failed) SUITE_END=$suiteEnded XP_REGRESSION_PASS=$($report.regression_test_observed)"
+  if ($report.exit_code -ne 0) { throw "Gtest process exited $($report.exit_code)" }
+  if (-not $suiteEnded) { throw 'Structured gtest suite_end was not observed' }
   if ($report.observed_run -lt 1 -or $report.observed_run -ne $report.observed_ok) {
     throw 'No complete focused gtest PASS sequence observed'
+  }
+  foreach ($testName in $started.Keys) {
+    if ($started[$testName] -ne 1 -or -not $ended.ContainsKey($testName) -or $ended[$testName] -ne 1) {
+      throw "Incomplete or repeated focused gtest result: $testName"
+    }
   }
   if ($report.observed_failed -gt 0 -or $combined.Contains('TEST-UNEXPECTED-FAIL')) {
     throw 'Gtest failure markers in output'
   }
   if (-not $report.regression_test_observed) {
-    throw 'XP DispatchFailureRunnableDestructorStop gtest was not observed'
+    throw 'XP DispatchFailureRunnableDestructorStop gtest PASS was not observed'
   }
   $report.verdict = 'HOSTED_GTEST_PASS'
   $success = $true
