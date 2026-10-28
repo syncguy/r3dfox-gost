@@ -27,6 +27,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate 039 PowerShell runner syntax
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          $path = (Resolve-Path '.github\scripts\xp\run-handlewatcher-prebuilt-gtest.ps1').Path
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -ne 0) {
+            throw "PowerShell runner parse errors: $($errors -join '; ')"
+          }
+          Write-Host 'RUNNER_SYNTAX_PASS'
+
       - name: Retrieve exact green 038 dist-bin artifact
         uses: actions/download-artifact@v4
         with:
