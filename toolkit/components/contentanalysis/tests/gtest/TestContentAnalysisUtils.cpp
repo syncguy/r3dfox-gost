@@ -4,7 +4,9 @@
 
 #include "TestContentAnalysisUtils.h"
 #include <combaseapi.h>
-#include <pathcch.h>
+#ifndef MOZ_XP_COMPAT
+#  include <pathcch.h>
+#endif
 #include <shlwapi.h>
 #include <rpc.h>
 #include <windows.h>
@@ -56,10 +58,31 @@ void LaunchAgentWithCommandLineArguments(const nsString& cmdLineArguments,
   // builds), or in ../../tests/bin/ (for try/treeherder builds)
   DWORD nameSize = ::GetModuleFileNameW(nullptr, progName, MAX_PATH);
   ASSERT_NE(DWORD{0}, nameSize);
+#ifdef MOZ_XP_COMPAT
+  // On XP a truncated module filename need not be NUL-terminated.
+  ASSERT_LT(nameSize, DWORD{MAX_PATH});
+  ASSERT_TRUE(::PathRemoveFileSpecW(progName));
+#else
   ASSERT_EQ(S_OK, PathCchRemoveFileSpec(progName, nameSize));
+#endif
   wchar_t normalizedPath[MAX_PATH] = {};
+  auto canonicalizeAgentPath = [&](const nsString& aPath) -> HRESULT {
+#ifdef MOZ_XP_COMPAT
+    // Both candidates are absolute paths based on the executable directory.
+    const DWORD length =
+        ::GetFullPathNameW(aPath.get(), MAX_PATH, normalizedPath, nullptr);
+    if (!length) {
+      const DWORD error = ::GetLastError();
+      return error ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    return length < MAX_PATH ? S_OK
+                             : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+#else
+    return ::PathCchCanonicalize(normalizedPath, MAX_PATH, aPath.get());
+#endif
+  };
   nsString test1 = nsString(progName) + u"\\content_analysis_sdk_agent.exe"_ns;
-  ASSERT_EQ(S_OK, PathCchCanonicalize(normalizedPath, MAX_PATH, test1.get()));
+  ASSERT_EQ(S_OK, canonicalizeAgentPath(test1));
   nsString agentPath;
   if (::PathFileExistsW(normalizedPath)) {
     agentPath = nsString(normalizedPath);
@@ -68,8 +91,7 @@ void LaunchAgentWithCommandLineArguments(const nsString& cmdLineArguments,
     nsString unNormalizedPath =
         nsString(progName) +
         u"\\..\\..\\tests\\bin\\content_analysis_sdk_agent.exe"_ns;
-    ASSERT_EQ(S_OK, PathCchCanonicalize(normalizedPath, MAX_PATH,
-                                        unNormalizedPath.get()));
+    ASSERT_EQ(S_OK, canonicalizeAgentPath(unNormalizedPath));
     if (::PathFileExistsW(normalizedPath)) {
       agentPath = nsString(normalizedPath);
     }
