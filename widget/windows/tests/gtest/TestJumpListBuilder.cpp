@@ -23,6 +23,7 @@ PSSTDAPI PropVariantToString(REFPROPVARIANT propvar, PWSTR psz, UINT cch);
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/dom/WindowsJumpListShortcutDescriptionBinding.h"
+#include "mozilla/ScopeExit.h"
 #include "mozilla/SpinEventLoopUntil.h"
 #include "JumpListBuilder.h"
 
@@ -73,23 +74,40 @@ MATCHER_P(ShellLinksEq, descs,
     // with what is stored in the IShellLink.
 
     // WindowsJumpListShortcutDescription.title
-    IPropertyStore* propStore = nullptr;
-    hr = link->QueryInterface(IID_IPropertyStore, (LPVOID*)&propStore);
+    RefPtr<IPropertyStore> propStore;
+    hr = link->QueryInterface(IID_IPropertyStore,
+                              static_cast<void**>(getter_AddRefs(propStore)));
     if (FAILED(hr)) {
       return false;
     }
 
-    PROPVARIANT pv;
+    PROPVARIANT pv{};
+    auto clearTitle = MakeScopeExit([&] { ::PropVariantClear(&pv); });
     hr = propStore->GetValue(PKEY_Title, &pv);
     if (FAILED(hr)) {
       return false;
     }
 
+#ifdef MOZ_XP_COMPAT
+    // PKEY_Title is a string when set. A missing title reads as VT_EMPTY.
+    const wchar_t* title = L"";
+    if (pv.vt != VT_EMPTY) {
+      if (pv.vt != VT_LPWSTR || !pv.pwszVal) {
+        return false;
+      }
+      title = pv.pwszVal;
+    }
+    // Preserve the original matcher's buffer limit, including the terminator.
+    if (desc.mTitle.Length() >= PKEYSTR_MAX) {
+      return false;
+    }
+#else
     wchar_t title[PKEYSTR_MAX];
     hr = PropVariantToString(pv, title, PKEYSTR_MAX);
     if (FAILED(hr)) {
       return false;
     }
+#endif
 
     if (!desc.mTitle.Equals(title)) {
       return false;
@@ -677,13 +695,41 @@ TEST(JumpListBuilder, PopulateJumpListOnlyTasks)
   GenerateWindowsJumpListShortcutDescriptions(cx, 2, false, taskDescs,
                                               taskDescsObj);
 
+  // The first ShellLink has a title. Leave the second one unset.
+  taskDescs[1].mTitle.Truncate();
+  JS::Rooted<JS::Value> untitledTask(cx);
+  ASSERT_TRUE(ToJSValue(cx, taskDescs[1], &untitledTask));
+  ASSERT_TRUE(JS_SetElement(cx, taskDescsObj, 1, untitledTask));
+
   nsAutoString customTitle(u"");
   JS::Rooted<JSObject*> customDescsObj(cx, JS::NewArrayObject(cx, 0));
   JS::Rooted<JS::Value> customDescsJSVal(cx, JS::ObjectValue(*customDescsObj));
 
   EXPECT_CALL(*testBackend, AbortList()).Times(1);
   EXPECT_CALL(*testBackend, BeginList(_, _, _)).Times(1);
-  EXPECT_CALL(*testBackend, AddUserTasks(ShellLinksEq(&taskDescs))).Times(1);
+  auto expectTitleType = [](IObjectArray* aLinks, UINT aIndex,
+                            VARTYPE aExpected) {
+    RefPtr<IPropertyStore> store;
+    ASSERT_EQ(S_OK, aLinks->GetAt(aIndex, IID_IPropertyStore,
+                                 static_cast<void**>(getter_AddRefs(store))));
+    ASSERT_NE(nullptr, store.get());
+    PROPVARIANT value{};
+    auto clearValue = MakeScopeExit([&] { ::PropVariantClear(&value); });
+    const HRESULT hr = store->GetValue(PKEY_Title, &value);
+    ASSERT_TRUE(SUCCEEDED(hr));
+    EXPECT_EQ(aExpected, value.vt) << "task " << aIndex;
+  };
+  EXPECT_CALL(*testBackend, AddUserTasks(_))
+      .WillOnce([&taskDescs, expectTitleType](IObjectArray* aLinks) {
+        if (!aLinks) {
+          ADD_FAILURE() << "Missing task collection";
+          return E_POINTER;
+        }
+        EXPECT_THAT(aLinks, ShellLinksEq(&taskDescs));
+        expectTitleType(aLinks, 0, VT_LPWSTR);
+        expectTitleType(aLinks, 1, VT_EMPTY);
+        return S_OK;
+      });
 
   EXPECT_CALL(*testBackend, AppendCategory(_, _)).Times(0);
   EXPECT_CALL(*testBackend, CommitList()).Times(1);
