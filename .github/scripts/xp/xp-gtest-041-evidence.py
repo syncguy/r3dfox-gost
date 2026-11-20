@@ -476,28 +476,50 @@ def pdb(args):
         pdb_guid, pdb_age = pdb_rsds(symbol)
         if (pe_guid, pe_age) != (pdb_guid, pdb_age):
             stop("RSDS/PDB GUID+Age mismatch: " + pe_rel)
-        dest = evidence / "symbols" / name
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(symbol, dest)
+        # Do not duplicate gigabyte-sized PDBs. Runner uploads the exact originals once.
         results.append({"pe": pe_rel, "pdb": pdb_rel, "guid": pe_guid, "age": pe_age,
-                        "pe_identity": stream_hash(exe), "pdb_identity": stream_hash(dest)})
+                        "pe_identity": stream_hash(exe), "pdb_identity": stream_hash(symbol)})
     (evidence / "symbols.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print("XP_GTEST041_PDB_GUID_AGE_PASS")
 
 
 def scan(root):
+    """Record regular bytes, materializing allowlisted Mozilla file symlinks.
+
+    Directory junctions/reparse points, dead links, and paths escaping checkout
+    or dist are rejected. zipfile.write follows regular file links into bytes.
+    """
+    root = Path(root)
+    root_real = root.resolve(strict=True)
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd())).resolve()
+    allowed = (root_real, workspace)
     files = {}
+    symlinks = []
     for item in root.rglob("*"):
-        if item.is_symlink():
-            stop("Unexpected symlink in runtime bundle")
-        if not item.is_file():
+        metadata = item.lstat()
+        flags = getattr(metadata, "st_file_attributes", 0)
+        reparse = bool(flags & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        is_link = item.is_symlink()
+        if is_link:
+            target = item.resolve(strict=True)
+            if not item.is_file() or not target.is_file():
+                stop("Non-file or dangling resource symlink: " + str(item))
+            if not any(target == base or base in target.parents for base in allowed):
+                stop("Resource symlink escapes verified build/source trees: " + str(item))
+            symlinks.append(item.relative_to(root).as_posix())
+        elif reparse:
+            stop("Unknown Windows reparse point: " + str(item))
+        elif item.is_dir():
             continue
+        elif not item.is_file():
+            stop("Unsupported non-file runtime entry: " + str(item))
         rel = item.relative_to(root).as_posix()
         folded = rel.casefold()
         if folded in files:
             stop("Case-insensitive filename collision: " + rel)
         files[folded] = {"path": rel, **stream_hash(item)}
     return files
+
 
 
 def package(args):
@@ -551,56 +573,185 @@ def package(args):
     print("XP_GTEST041_REEXTRACT_ALL_HASHES_AND_SIZES_PASS files=" + str(len(original)))
 
 
-def run(args):
-    root = Path(args.dist).resolve()
-    evidence = Path(args.evidence)
-    evidence.mkdir(parents=True, exist_ok=True)
-    validate_bundle(root)
-    env = os.environ.copy()
-    env.update({"MOZ_XRE_DIR": str(root), "MOZ_RUN_GTEST": "True",
-                "GTEST_FILTER": "JumpListBuilder.PopulateJumpListOnlyTasks",
-                "MOZ_GMP_PATH": os.pathsep.join([str(root / "gmp-fake/1.0"),
-                                                str(root / "gmp-fakeopenh264/1.0")]),
-                "MOZ_WEBRENDER": "0", "MOZ_HEADLESS": "1",
-                "MOZ_CRASHREPORTER_DISABLE": "1", "GTEST_COLOR": "no"})
-    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    command = [str(root / "r3dfox.exe"), "-unittest",
-               "--gtest_death_test_style=threadsafe", "--wait-for-browser"]
-    proc = subprocess.Popen(command, cwd=str(root), env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, creationflags=flags)
-    try:
-        out, err = proc.communicate(timeout=180)
-    except subprocess.TimeoutExpired:
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
-        proc.kill()
-        out, err = proc.communicate()
-        stop("Hosted JumpList gtest timeout")
-    (evidence / "jump-list-stdout.log").write_bytes(out)
-    (evidence / "jump-list-stderr.log").write_bytes(err)
-    events = []
-    for line in (out + b"\n" + err).decode("utf-8", "replace").splitlines():
-        if line.strip().startswith("{"):
-            try:
-                v = json.loads(line)
-                if isinstance(v, dict):
-                    events.append(v)
-            except json.JSONDecodeError:
-                pass
+def evaluate_gtest(out, err, exit_code, timed_out=False):
+    """Fail closed unless exactly one ordered target test and suite succeed."""
     target = "JumpListBuilder.PopulateJumpListOnlyTasks"
-    starts = [e for e in events if e.get("test") == target and e.get("action") == "test_start"]
-    ends = [e for e in events if e.get("test") == target and e.get("action") == "test_end"]
-    finished = any(e.get("action") == "suite_end" and e.get("source") == "gtest" for e in events)
-    ok = (proc.returncode == 0 and len(starts) == len(ends) == 1
-          and ends[0].get("status") == "PASS" and finished
-          and b"TEST-UNEXPECTED-FAIL" not in out + err)
-    record = {"schema": "xp-gtest-041-hosted-jumplist-v1", "exit_code": proc.returncode,
-              "test": target, "started": len(starts), "ended": len(ends),
-              "suite_end": finished, "verdict": "PASS" if ok else "FAIL",
-              "physical_xp_runtime": "NOT_CHECKED"}
-    (evidence / "jump-list-result.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-    if not ok:
-        stop("Hosted JumpList 1/1 acceptance failed: " + json.dumps(record))
+    events = []
+    malformed = 0
+    for line in (out + b"\n" + err).decode("utf-8", "replace").splitlines():
+        if not line.lstrip().startswith("{"):
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            malformed += 1
+            continue
+        if isinstance(value, dict):
+            events.append(value)
+    state = "before_suite"
+    starts = 0
+    ends = 0
+    statuses = 0
+    failures = []
+    for event in events:
+        action = event.get("action")
+        if action == "suite_start" and event.get("source") == "gtest":
+            if state != "before_suite":
+                failures.append("Unexpected suite_start order or duplicate")
+            state = "in_suite"
+        elif action == "suite_end" and event.get("source") == "gtest":
+            if state != "after_test":
+                failures.append("Unexpected suite_end order")
+            state = "after_suite"
+        elif action in ("test_start", "test_end", "test_status"):
+            if event.get("test") != target:
+                failures.append("Unexpected other GTest event: " + str(event.get("test")))
+                continue
+            if action == "test_start":
+                starts += 1
+                if state != "in_suite":
+                    failures.append("Unexpected test_start order")
+                state = "in_test"
+            elif action == "test_status":
+                statuses += 1
+                if state != "in_test" or event.get("status") != "PASS":
+                    failures.append("Failed/misordered test_status")
+            else:
+                ends += 1
+                if state != "in_test" or event.get("status") != "PASS":
+                    failures.append("Failed/misordered test_end")
+                state = "after_test"
+        elif isinstance(action, str) and action.startswith("test_"):
+            failures.append("Unrecognized GTest test event: " + action)
+    if malformed:
+        failures.append("Malformed JSON event lines: " + str(malformed))
+    if state != "after_suite":
+        failures.append("Missing complete suite_end")
+    if starts != 1 or ends != 1:
+        failures.append("Expected one start/end of target only")
+    if exit_code != 0:
+        failures.append("Process exit not zero")
+    if timed_out:
+        failures.append("Watchdog timeout")
+    if b"TEST-UNEXPECTED-FAIL" in out + err:
+        failures.append("Unexpected test failure marker")
+    return {
+        "schema": "xp-gtest-041-hosted-jumplist-v2",
+        "test": target, "exit_code": exit_code, "timed_out": timed_out,
+        "started": starts, "ended": ends, "test_status_records": statuses,
+        "suite_end": state == "after_suite", "errors": failures,
+        "verdict": "PASS" if not failures else "FAIL",
+        "physical_xp_runtime": "NOT_CHECKED"
+    }
+
+
+def verified_extract(evidence, destination):
+    """Re-verify the final ZIP and its independent stream-size manifest."""
+    archive = evidence / "xp-gtest-041-dist.zip"
+    manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("source_under_test_sha") != SOURCE:
+        stop("Wrong ZIP manifest source-under-test")
+    if stream_hash(archive) != manifest.get("archive_identity"):
+        stop("ZIP checksum differs from prior accepted manifest")
+    expected = {}
+    for row in manifest.get("files", []):
+        name = row["path"]
+        key = name.casefold()
+        if key in expected:
+            stop("Duplicate manifest file path")
+        expected[key] = row
+    with zipfile.ZipFile(archive) as z:
+        infos = z.infolist()
+        names = [info.filename for info in infos if not info.is_dir()]
+        if len(names) != len(set(name.casefold() for name in names)):
+            stop("ZIP contains case-colliding names")
+        if set(name.casefold() for name in names) != set(expected):
+            stop("ZIP/manifest path sets differ")
+        for info in infos:
+            name = info.filename.replace("\\", "/")
+            parts = name.split("/")
+            if (name.startswith("/") or ":" in name or
+                    any(part in ("", ".", "..") for part in parts if not info.is_dir())):
+                stop("Unsafe ZIP member: " + name)
+        z.extractall(destination)
+    actual = scan(destination)
+    if actual != expected:
+        stop("Extracted ZIP file bytes/length differ from accepted stream manifest")
+    validate_bundle(destination)
+    return destination
+
+
+def run(args):
+    evidence = Path(args.evidence).resolve()
+    evidence.mkdir(parents=True, exist_ok=True)
+    stdout = evidence / "jump-list-stdout.log"
+    stderr = evidence / "jump-list-stderr.log"
+    report_path = evidence / "jump-list-result.json"
+    out = b""
+    err = b""
+    code = None
+    timed_out = False
+    failure = None
+    proc = None
+    result = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="xp-gtest-041-hosted-") as tmp:
+            root = verified_extract(evidence, Path(tmp)).resolve()
+            env = os.environ.copy()
+            env.update({"MOZ_XRE_DIR": str(root), "MOZ_RUN_GTEST": "True",
+                        "GTEST_FILTER": "JumpListBuilder.PopulateJumpListOnlyTasks",
+                        "MOZ_GMP_PATH": os.pathsep.join([str(root / "gmp-fake/1.0"),
+                                                        str(root / "gmp-fakeopenh264/1.0")]),
+                        "MOZ_WEBRENDER": "0", "MOZ_HEADLESS": "1",
+                        "MOZ_CRASHREPORTER_DISABLE": "1", "GTEST_COLOR": "no"})
+            command = [str(root / "r3dfox.exe"), "-unittest",
+                       "--gtest_death_test_style=threadsafe", "--wait-for-browser"]
+            proc = subprocess.Popen(
+                command, cwd=str(root), env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+            try:
+                out, err = proc.communicate(timeout=180)
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                out = exc.output or b""
+                err = exc.stderr or b""
+                # Kill the entire Windows process tree, not only the root process.
+                try:
+                    subprocess.run(["taskkill.exe", "/PID", str(proc.pid),
+                                    "/T", "/F"], timeout=15, capture_output=True)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                if proc.poll() is None:
+                    proc.kill()
+                try:
+                    final_out, final_err = proc.communicate(timeout=10)
+                    out = final_out if final_out.startswith(out) else out + final_out
+                    err = final_err if final_err.startswith(err) else err + final_err
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                failure = "Hosted Shell GTest watchdog expired at 180 seconds"
+            code = proc.poll()
+    except (OSError, ValueError, subprocess.SubprocessError, KeyError) as exc:
+        failure = failure or str(exc)
+    finally:
+        # Always preserve partial captured bytes and a machine-readable verdict.
+        stdout.write_bytes(out)
+        stderr.write_bytes(err)
+        result = evaluate_gtest(out, err, code, timed_out)
+        if failure:
+            result["errors"].append(failure)
+            result["verdict"] = "FAIL"
+        report_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+    if result["verdict"] != "PASS":
+        stop("Hosted JumpList exact 1/1 rejected: " + "; ".join(result["errors"]))
     print("XP_GTEST041_HOSTED_PKEY_TITLE_PASS_1_OF_1")
+
 
 
 def main():
