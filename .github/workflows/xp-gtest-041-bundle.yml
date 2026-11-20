@@ -101,7 +101,7 @@ jobs:
           if ($actualHelper -ne 'ae547673f3f388d3453eb37495227f487844ea8f') { throw "Evidence tool changed $actualHelper" }
           $selftest = 'gtest041-controller/.github/scripts/xp/test_xp_gtest_041_evidence.py'
           $testSha = (& git hash-object $selftest).Trim()
-          if ($testSha -ne '317ef7e53afd4a5931021907adbf23defd02e6e7') { throw "041 selftest blob changed $testSha" }
+          if ($testSha -ne 'e8725945d15fb9a357a5268c7e053582a50f2285') { throw "041 selftest blob changed $testSha" }
           & python $selftest
           if ($LASTEXITCODE -ne 0) { throw 'XP GTest 041 fail-closed selftests failed; STOP before build' }
           & python -m py_compile $helper
