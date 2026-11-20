@@ -231,5 +231,42 @@ class GateTests(unittest.TestCase):
                 module.validate_bundle(root)
 
 
+    def test_early_supplier_preflight_checks_real_source_edges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            release = root / "release"
+            release.mkdir()
+            for name in ("ucrtbase.dll", "msvcp140.dll"):
+                (release / name).write_bytes(b"CRT x86 test fixture")
+            bcrypt = root / "bcrypt.dll"
+            bcrypt.write_bytes(b"bcrypt test fixture")
+            state = {"direct": True, "forwarder": False}
+
+            def fake_pe(path):
+                name = pathlib.Path(path).name.lower()
+                entries = []
+                if name == "msvcp140.dll":
+                    entries = [{"dll": "ucrtbase.dll", "name": "known"}] if state["direct"] else []
+                entry = {"rva": 0x2000,
+                         "forwarder": "KERNEL32.Sleep" if state["forwarder"] else None}
+                return types.SimpleNamespace(
+                    direct=entries,
+                    exports=lambda: {"by_name": {"known": entry},
+                                     "by_ordinal": {1: entry}})
+            env = {"MSVCR14X_RELEASE": str(release),
+                   "PROVEN_XP_BCRYPT": str(bcrypt),
+                   "BCRYPT_SHA256": module.stream_hash(bcrypt)["sha256"]}
+            with mock.patch.dict(module.os.environ, env), \
+                 mock.patch.object(module, "PE", side_effect=fake_pe):
+                module.supplier_preflight(None)
+                state["direct"] = False
+                with self.assertRaisesRegex(ValueError, "No direct MSVCP"):
+                    module.supplier_preflight(None)
+                state["direct"] = True
+                state["forwarder"] = True
+                with self.assertRaisesRegex(ValueError, "forwarder"):
+                    module.supplier_preflight(None)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
