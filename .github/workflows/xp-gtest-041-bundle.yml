@@ -1,5 +1,5 @@
-# DRAFT ONLY. First commit uses [skip ci] and DOES NOT authorize a HEAVY run.
-# A later explicitly approved edit plus [xp041-heavy-approved] marker is required.
+# OPERATOR-APPROVED: single XP GTest 041 HEAVY job, max 180 minutes, no retries.
+# Authorized controller activation only; pinned Firefox source and safety gates remain unchanged.
 name: "XP GTest 041 exact-bundle static and hosted acceptance"
 
 on:
