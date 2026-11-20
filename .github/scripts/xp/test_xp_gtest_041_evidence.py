@@ -155,5 +155,81 @@ class GateTests(unittest.TestCase):
             self.assertIn(b"initial diagnostic", (report / "jump-list-stderr.log").read_bytes())
 
 
+    def test_realistic_virtual_data_export_and_invalid_rva(self):
+        import struct
+        pe = module.PE.__new__(module.PE)
+        pe.image_size = 0x5000
+        pe.sections = [(0x2000, 0x2000, 0x400, 0x400)]
+        pe.directories = [(0x100, 0x50)] + [(0, 0)] * 13
+        pe.data = bytearray(0x400)
+        # The EAT and names live on disk, but the data export RVA is virtual.
+        struct.pack_into("<I", pe.data, 0x100 + 16, 1)
+        struct.pack_into("<I", pe.data, 0x100 + 20, 1)
+        struct.pack_into("<I", pe.data, 0x100 + 24, 1)
+        struct.pack_into("<I", pe.data, 0x100 + 28, 0x160)
+        struct.pack_into("<I", pe.data, 0x100 + 32, 0x164)
+        struct.pack_into("<I", pe.data, 0x100 + 36, 0x168)
+        struct.pack_into("<I", pe.data, 0x160, 0x3800)
+        struct.pack_into("<I", pe.data, 0x164, 0x190)
+        struct.pack_into("<H", pe.data, 0x168, 0)
+        pe.rva = lambda address, size=1: address
+        pe.string = lambda address: "ValidVirtualDataExport"
+        exports = pe.exports()
+        self.assertEqual(exports["by_name"]["ValidVirtualDataExport"]["rva"], 0x3800)
+        self.assertEqual(exports["by_ordinal"][1]["forwarder"], None)
+        struct.pack_into("<I", pe.data, 0x160, 0x6000)
+        with self.assertRaisesRegex(ValueError, "SizeOfImage"):
+            pe.exports()
+        struct.pack_into("<I", pe.data, 0x160, 0x1a00)
+        with self.assertRaisesRegex(ValueError, "virtual section"):
+            pe.exports()
+        struct.pack_into("<I", pe.data, 0x160, 0)
+        with self.assertRaises(ValueError):
+            pe.exports()
+
+    def test_direct_supplier_edges_cannot_be_satisfied_by_delay(self):
+        direct = {"ucrtbase.dll": 1, "msvcp140.dll": 1, "bcrypt.dll": 7}
+        per_binary = {
+            "gtest/xul.dll": {"direct": dict(direct), "delay": {}},
+            "msvcp140.dll": {"direct": {"ucrtbase.dll": 113}, "delay": {}},
+        }
+        module.verify_required_direct_edges(per_binary)
+        per_binary["gtest/xul.dll"]["direct"].pop("bcrypt.dll")
+        per_binary["gtest/xul.dll"]["delay"]["bcrypt.dll"] = 7
+        with self.assertRaisesRegex(ValueError, "direct XP supplier"):
+            module.verify_required_direct_edges(per_binary)
+        per_binary["gtest/xul.dll"]["direct"]["bcrypt.dll"] = 7
+        per_binary["msvcp140.dll"]["direct"].clear()
+        per_binary["msvcp140.dll"]["delay"]["ucrtbase.dll"] = 113
+        with self.assertRaisesRegex(ValueError, "direct ucrtbase"):
+            module.verify_required_direct_edges(per_binary)
+
+    def test_unpacked_browser_manifest_and_browser_xhtml_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for relative in (module.REQUIRED + module.SUPPLIERS +
+                             module.LOADER_PREFIX +
+                             ("chrome.manifest", "browser/chrome.manifest",
+                              "browser/chrome/browser.manifest",
+                              "browser/chrome/browser/content/browser/browser.xhtml",
+                              "actors/AboutHttpsOnlyErrorChild.sys.mjs")):
+                item = root / relative
+                item.parent.mkdir(parents=True, exist_ok=True)
+                item.write_bytes(b"nonempty")
+            for name, last in (("dependentlibs.list", "xul.dll"),
+                               ("dependentlibs.list.gtest", "gtest/xul.dll")):
+                (root / name).write_text("\n".join(module.LOADER_PREFIX + (last,)) + "\n")
+            self.assertIn("dependentlibs.list.gtest", module.validate_bundle(root))
+            child = root / "browser/chrome/browser.manifest"
+            child.unlink()
+            with self.assertRaisesRegex(ValueError, "resource layout"):
+                module.validate_bundle(root)
+            child.write_bytes(b"nonempty")
+            browser = root / "browser/chrome/browser/content/browser/browser.xhtml"
+            browser.unlink()
+            with self.assertRaisesRegex(ValueError, "resource layout"):
+                module.validate_bundle(root)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
