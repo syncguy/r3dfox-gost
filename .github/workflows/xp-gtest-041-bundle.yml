@@ -76,6 +76,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             .github/scripts/xp/xp-gtest-041-evidence.py
+            .github/scripts/xp/test_xp_gtest_041_evidence.py
           sparse-checkout-cone-mode: false
 
       - name: GATE - Pin source, blobs and controller before expensive steps
@@ -98,6 +99,11 @@ jobs:
           $helper = 'gtest041-controller/.github/scripts/xp/xp-gtest-041-evidence.py'
           $actualHelper = (& git hash-object $helper).Trim()
           if ($actualHelper -ne 'ee22348774de8a5e4eb2c8f2353b8354456b2253') { throw "Evidence tool changed $actualHelper" }
+          $selftest = 'gtest041-controller/.github/scripts/xp/test_xp_gtest_041_evidence.py'
+          $testSha = (& git hash-object $selftest).Trim()
+          if ($testSha -ne '8248f252b7fa1496cc04b67681ddac760e6c77b7') { throw "041 selftest blob changed $testSha" }
+          & python $selftest
+          if ($LASTEXITCODE -ne 0) { throw 'XP GTest 041 fail-closed selftests failed; STOP before build' }
           & python -m py_compile $helper
           if ($LASTEXITCODE -ne 0) { throw 'Invalid Python evidence tool' }
           Write-Host "GTEST041_SOURCE_UNDER_TEST=$source CONTROLLER=$controller"
