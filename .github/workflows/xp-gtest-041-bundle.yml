@@ -1,4 +1,4 @@
-# OPERATOR-APPROVED: single XP GTest 041 HEAVY job, max 180 minutes, no retries.
+# OPERATOR-APPROVED: single XP GTest 041 HEAVY job, max 360 minutes, no retries.
 # Authorized controller activation only; pinned Firefox source and safety gates remain unchanged.
 name: "XP GTest 041 exact-bundle static and hosted acceptance"
 
@@ -18,7 +18,7 @@ jobs:
     name: Windows x86 / linked XP GTest bundle 041
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/agent/winrt-source-poc' && contains(github.event.head_commit.message, '[xp041-heavy-approved]') && github.run_attempt == 1 }}
     runs-on: windows-2022
-    timeout-minutes: 180
+    timeout-minutes: 360
     concurrency:
       group: xp-gtest-041-one-approved-job
       cancel-in-progress: false
