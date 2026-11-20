@@ -10,6 +10,8 @@ import hashlib
 import json
 import math
 import os
+import re
+import stat
 from pathlib import Path
 import shutil
 import struct
@@ -23,6 +25,12 @@ SOURCE = "27792a8db5b3de486586b93b634fb7bbed760ef0"
 OLD_GTEST = "76fcb3ca258ad127d2812918da29e2d18a68b5d418261c6f9ec01a83b9aae96e"
 OLD_ROOT = "2aaf6884d6987857c4fec483c7964181f3b20ea1677be42e5145493cf68cad2f"
 FORBIDDEN = {"pathcchcanonicalize", "pathcchremovefilespec", "propvarianttostring"}
+EXPECTED_038 = {
+    ("api-ms-win-core-path-l1-1-0.dll", "pathcchcanonicalize"),
+    ("api-ms-win-core-path-l1-1-0.dll", "pathcchremovefilespec"),
+    ("propsys.dll", "propvarianttostring"),
+}
+LOADER_PREFIX = ("mozglue.dll", "nss3.dll", "gkcodecs.dll", "lgpllibs.dll", "freebl3.dll")
 SUPPLIERS = ("ucrtbase.dll", "msvcp140.dll", "bcrypt.dll")
 REQUIRED = (
     "r3dfox.exe", "xul.dll", "gtest/xul.dll", "application.ini", "platform.ini",
@@ -121,13 +129,17 @@ class PE:
 
     def imports(self, directory):
         rva, size = self.directories[directory]
-        if not rva or not size:
+        if not rva and not size:
             return []
+        if not rva or not size:
+            stop("Import directory has inconsistent RVA/size")
         delay = directory == 13
         stride = 32 if delay else 20
+        if size < stride or size // stride > 1000:
+            stop("Malformed import directory length")
         results = []
         terminated = False
-        for n in range(min(1000, size // stride + 1)):
+        for n in range(size // stride):
             off = self.rva(rva + n * stride, stride)
             words = struct.unpack_from("<" + "I" * (stride // 4), self.data, off)
             if not any(words):
@@ -163,26 +175,47 @@ class PE:
             if not ended:
                 stop("Import thunk array lacks terminator")
         if not terminated:
-            stop("Import descriptor array lacks terminator")
+            stop("Import descriptor terminator outside declared length")
         return results
 
     def exports(self):
         rva, size = self.directories[0]
         if not rva or not size:
-            return set(), set()
+            stop("Mandatory supplier has no export directory")
         off = self.rva(rva, 40)
         ordinal_base = u32(self.data, off + 16)
         function_count = u32(self.data, off + 20)
         name_count = u32(self.data, off + 24)
         functions_rva = u32(self.data, off + 28)
         names_rva = u32(self.data, off + 32)
-        ordinals = {ordinal_base + i for i in range(function_count)
-                    if u32(self.data, self.rva(functions_rva + 4 * i, 4)) != 0}
-        names = set()
-        for i in range(name_count):
-            nrva = u32(self.data, self.rva(names_rva + i * 4, 4))
-            names.add(self.string(nrva))
-        return names, ordinals
+        name_ordinals_rva = u32(self.data, off + 36)
+        if not function_count or function_count > 200000 or name_count > function_count:
+            stop("Malformed supplier export table size")
+        by_ordinal = {}
+        for index in range(function_count):
+            target = u32(self.data, self.rva(functions_rva + 4 * index, 4))
+            if not target:
+                continue
+            if rva <= target < rva + size:
+                forwarder = self.string(target)
+            else:
+                self.rva(target, 1)
+                forwarder = None
+            by_ordinal[ordinal_base + index] = {
+                "rva": target, "forwarder": forwarder
+            }
+        by_name = {}
+        for index in range(name_count):
+            name_rva = u32(self.data, self.rva(names_rva + index * 4, 4))
+            name = self.string(name_rva)
+            relative_ordinal = u16(self.data, self.rva(name_ordinals_rva + index * 2, 2))
+            ordinal = ordinal_base + relative_ordinal
+            if relative_ordinal >= function_count or ordinal not in by_ordinal or name in by_name:
+                stop("Malformed supplier export name-to-EAT mapping")
+            by_name[name] = by_ordinal[ordinal]
+        return {"by_name": by_name, "by_ordinal": by_ordinal}
+
+
 
     def rsds(self):
         rva, size = self.directories[6]
@@ -259,18 +292,41 @@ def pdb_rsds(path):
     return guid, age
 
 
+def normalized_forbidden(name):
+    """Normalize only known import decorations, retaining exact DLL provenance."""
+    lower = name.lower()
+    for candidate in FORBIDDEN:
+        if lower == candidate:
+            return candidate
+        if re.fullmatch(r"(?:__imp_)?_?" + re.escape(candidate) + r"@\d+", lower):
+            return candidate
+        if re.match(r"^\?" + re.escape(candidate) + r"@@", lower):
+            return candidate
+    return None
+
+
+def known_import_pairs(records):
+    pairs = set()
+    for record in records:
+        if "name" not in record:
+            continue
+        candidate = normalized_forbidden(record["name"])
+        if candidate:
+            pairs.add((record["dll"].lower(), candidate))
+    return pairs
+
+
 def check_imports(pe, must_have):
-    found = {rec.get("name", "").lower() for rec in pe.direct if "name" in rec}
-    delay = {rec.get("name", "").lower() for rec in pe.delay if "name" in rec}
-    forbidden_found = sorted(found & FORBIDDEN)
-    forbidden_delay = sorted(delay & FORBIDDEN)
-    if must_have and set(forbidden_found) != FORBIDDEN:
-        stop("Baseline positive import control FAILED: " + repr(forbidden_found))
-    if not must_have and (forbidden_found or forbidden_delay):
-        stop("Forbidden GTest imports: direct=" + repr(forbidden_found) +
-             " delay=" + repr(forbidden_delay))
+    direct = known_import_pairs(pe.direct)
+    delay = known_import_pairs(pe.delay)
+    if must_have and (direct != EXPECTED_038 or delay):
+        stop("038 positive PE control has unexpected DLL/symbol pairs: " + repr((direct, delay)))
+    if not must_have and (direct or delay):
+        stop("Forbidden direct/delay imports in tested PE: " + repr((direct, delay)))
     return {"direct_count": len(pe.direct), "delay_count": len(pe.delay),
-            "known_direct": forbidden_found, "known_delay": forbidden_delay}
+            "known_direct": sorted("%s!%s" % pair for pair in direct),
+            "known_delay": sorted("%s!%s" % pair for pair in delay)}
+
 
 
 def control(args):
@@ -312,23 +368,27 @@ def stage(args):
 
 
 def validate_bundle(root):
+    root = Path(root)
     for rel in REQUIRED + SUPPLIERS:
-        if not (root / rel).is_file():
-            stop("Missing required runtime file: " + rel)
-    if not ((root / "chrome.manifest").is_file() and (root / "browser/chrome.manifest").is_file()
-            or (root / "omni.ja").is_file()):
-        stop("No supported unpacked or omni.ja runtime resource layout")
+        path = root / rel
+        if not path.is_file() or stream_hash(path)["size_bytes"] < 1:
+            stop("Missing/empty mandatory runtime file: " + rel)
+    unpacked = all((root / rel).is_file() and stream_hash(root / rel)["size_bytes"] > 0
+                   for rel in ("chrome.manifest", "browser/chrome.manifest",
+                               "actors/AboutHttpsOnlyErrorChild.sys.mjs"))
+    omni = (root / "omni.ja").is_file() and stream_hash(root / "omni.ja")["size_bytes"] > 0
+    if not (unpacked or omni):
+        stop("Missing or empty required resource layout")
     lists = {}
     for name, last in (("dependentlibs.list", "xul.dll"),
                        ("dependentlibs.list.gtest", "gtest/xul.dll")):
         values = [line.strip().replace("\\", "/") for line in
                   (root / name).read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-        if len(values) < 2 or values[-1].lower() != last:
-            stop("Wrong loader manifest tail: " + name)
-        if len({v.lower() for v in values}) != len(values):
-            stop("Duplicate loader dependency: " + name)
+        expected = LOADER_PREFIX + (last,)
+        if tuple(value.lower() for value in values) != expected:
+            stop("Loader list differs from exact known XP-153 generator sequence: " + name)
         for rel in values:
-            if rel.startswith("/") or ".." in Path(rel).parts or not (root / rel).is_file():
+            if rel.startswith("/") or ":" in rel or ".." in rel.split("/") or not (root / rel).is_file():
                 stop("Missing or unsafe loader entry: " + rel)
         lists[name] = values
     return lists
@@ -338,38 +398,63 @@ def audit(args):
     root = Path(args.dist)
     lists = validate_bundle(root)
     pefiles = {}
-    for rel in ("r3dfox.exe", "xul.dll", "gtest/xul.dll"):
+    primary = ("r3dfox.exe", "xul.dll", "gtest/xul.dll")
+    for rel in primary:
         p = PE(root / rel)
         if p.subsystem > (5, 1):
             stop("Subsystem exceeds XP 5.01: " + rel)
+        if not p.direct:
+            stop("Mandatory linked PE has empty direct import table: " + rel)
         status = check_imports(p, False)
         pefiles[rel] = {"machine": "i386", "subsystem": p.subsystem,
                         "imports": status, "sha256": stream_hash(root / rel)["sha256"]}
-    exports = {name.lower(): PE(root / name).exports() for name in SUPPLIERS}
+
+    suppliers = {name.lower(): PE(root / name).exports() for name in SUPPLIERS}
+    for dll, table in suppliers.items():
+        if not table["by_name"] or not table["by_ordinal"]:
+            stop("Supplier lacks usable exports: " + dll)
+        if any(item["forwarder"] for item in table["by_ordinal"].values()):
+            stop("New/unresolved provider export forwarder: " + dll)
+
     matches = collections.Counter()
-    for rel in {"r3dfox.exe", "xul.dll", "gtest/xul.dll", *lists["dependentlibs.list"],
-                *lists["dependentlibs.list.gtest"]}:
+    per_binary = {}
+    to_audit = sorted(set(primary + SUPPLIERS +
+                          tuple(lists["dependentlibs.list"]) +
+                          tuple(lists["dependentlibs.list.gtest"])))
+    for rel in to_audit:
         p = PE(root / rel)
-        for record in p.direct:
+        found = collections.Counter()
+        for record in p.direct + p.delay:
             dll = record["dll"].lower()
-            if dll not in exports:
+            if dll not in suppliers:
                 continue
-            names, ordinals = exports[dll]
-            if "name" in record and record["name"] not in names:
-                stop("Unresolved XP supplier export: " + dll + "!" + record["name"])
-            if "ordinal" in record and record["ordinal"] not in ordinals:
-                stop("Unresolved XP supplier ordinal: " + dll + "!" + str(record["ordinal"]))
+            table = suppliers[dll]
+            label = record.get("name", "#" + str(record.get("ordinal")))
+            if "name" in record:
+                entry = table["by_name"].get(record["name"])
+            else:
+                entry = table["by_ordinal"].get(record["ordinal"])
+            if not entry or entry["forwarder"]:
+                stop("Unresolved XP supplier import: " + rel + " -> " + dll + "!" + label)
+            found[dll] += 1
             matches[dll] += 1
+        per_binary[rel] = dict(found)
     if not all(matches[name] > 0 for name in SUPPLIERS):
-        stop("No consumer references to one or more mandatory XP suppliers")
-    report = {"schema": "xp-gtest-041-import-audit-v1",
+        stop("No resolved references to one or more required XP suppliers")
+    # Prevent unrelated DLLs from satisfying the GTest xul.dll supplier gate.
+    if not all(per_binary["gtest/xul.dll"].get(name, 0) > 0 for name in SUPPLIERS):
+        stop("GTest XUL itself lacks one or more pinned XP supplier import edges")
+    if per_binary["msvcp140.dll"].get("ucrtbase.dll", 0) < 1:
+        stop("Unverified internal msvcp140 -> ucrtbase export dependency")
+    report = {"schema": "xp-gtest-041-import-audit-v2",
               "source_under_test_sha": SOURCE, "pe": pefiles,
-              "supplier_reference_count": dict(matches),
-              "system_xp_exports": "NOT_CHECKED",
+              "supplier_reference_count": dict(matches), "per_binary": per_binary,
+              "system_xp_exports_and_forwarders": "NOT_CHECKED",
               "physical_xp_runtime": "NOT_CHECKED"}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print("XP_GTEST041_IMPORT_AND_SUPPLIER_EXPORT_PASS")
+
 
 
 def pdb(args):
