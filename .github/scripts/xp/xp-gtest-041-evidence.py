@@ -732,7 +732,8 @@ def run(args):
                     proc.kill()
                 failure = "Hosted Shell GTest watchdog expired at 180 seconds"
             code = proc.poll()
-    except (OSError, ValueError, subprocess.SubprocessError, KeyError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError, KeyError,
+            zipfile.BadZipFile, UnicodeError, TypeError, IndexError) as exc:
         failure = failure or str(exc)
     finally:
         # Always preserve partial captured bytes and a machine-readable verdict.
@@ -767,7 +768,7 @@ def main():
     action("audit", dist=True, report=True)
     action("pdb", objdir=True, evidence=True)
     action("package", dist=True, evidence=True)
-    action("run", dist=True, evidence=True)
+    action("run", evidence=True)
     args = parser.parse_args()
     globals()[args.action](args)
 
