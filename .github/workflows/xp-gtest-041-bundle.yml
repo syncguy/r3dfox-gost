@@ -552,6 +552,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'New PE import audit failed' }
 
       - name: GATE - Re-extract final ZIP and verify every size and SHA-256
+        id: verified-package
         shell: powershell
         run: |
           & python gtest041-controller/.github/scripts/xp/xp-gtest-041-evidence.py package --dist (Join-Path $env:OBJDIR 'dist\bin') --evidence gtest041-results
@@ -585,7 +586,7 @@ jobs:
           retention-days: 30
 
       - name: Upload re-extracted-and-verified runtime bundle
-        if: ${{ success() }}
+        if: ${{ always() && steps.verified-package.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: xp-gtest-041-verified-dist-${{ github.run_id }}
@@ -595,11 +596,15 @@ jobs:
           retention-days: 30
 
       - name: Upload matching PDBs separately
-        if: ${{ always() && steps.linked-identity.outcome == 'success' }}
+        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: xp-gtest-041-pdb-${{ github.run_id }}
-          path: gtest041-results/symbols/*.pdb
+          path: |
+            gtest041-results/symbols/*.pdb
+            obj-gost-xp-x32/toolkit/library/build/xul.pdb
+            obj-gost-xp-x32/toolkit/library/gtest/xul.pdb
+            obj-gost-xp-x32/browser/app/r3dfox.pdb
           if-no-files-found: warn
           compression-level: 1
           retention-days: 30
