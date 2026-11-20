@@ -94,6 +94,7 @@ class PE:
         if u16(d, opt) != 0x10b or self.machine != 0x14c or opt_size < 224:
             stop("Not PE32/i386")
         self.image_base = u32(d, opt + 28)
+        self.image_size = u32(d, opt + 56)
         self.subsystem = (u16(d, opt + 48), u16(d, opt + 50))
         self.size_headers = u32(d, opt + 60)
         if u32(d, opt + 92) < 14:
@@ -123,6 +124,19 @@ class PE:
                     stop("PE RVA falls in unbacked virtual memory")
                 return off
         stop("PE RVA outside mapped sections: " + hex(address))
+
+    def virtual_rva(self, address, size=1):
+        """Validate a mapped image RVA, including zero-filled virtual section tails.
+
+        Unlike rva(), this must not require backing bytes on disk. Only EAT
+        targets use this check; EAT/name/ordinal/forwarder reads still use rva().
+        """
+        if size < 1 or address < 1 or address + size > self.image_size:
+            stop("Export RVA outside SizeOfImage")
+        for va, virtual_size, _, raw_size in self.sections:
+            if va <= address and address + size <= va + max(virtual_size, raw_size):
+                return
+        stop("Export RVA outside mapped virtual section")
 
     def string(self, address):
         return cstring(self.data, self.rva(address))
@@ -199,7 +213,8 @@ class PE:
             if rva <= target < rva + size:
                 forwarder = self.string(target)
             else:
-                self.rva(target, 1)
+                # Data exports can occupy zero-filled virtual section tails.
+                self.virtual_rva(target, 1)
                 forwarder = None
             by_ordinal[ordinal_base + index] = {
                 "rva": target, "forwarder": forwarder
@@ -375,6 +390,8 @@ def validate_bundle(root):
             stop("Missing/empty mandatory runtime file: " + rel)
     unpacked = all((root / rel).is_file() and stream_hash(root / rel)["size_bytes"] > 0
                    for rel in ("chrome.manifest", "browser/chrome.manifest",
+                               "browser/chrome/browser.manifest",
+                               "browser/chrome/browser/content/browser/browser.xhtml",
                                "actors/AboutHttpsOnlyErrorChild.sys.mjs"))
     omni = (root / "omni.ja").is_file() and stream_hash(root / "omni.ja")["size_bytes"] > 0
     if not (unpacked or omni):
@@ -392,6 +409,16 @@ def validate_bundle(root):
                 stop("Missing or unsafe loader entry: " + rel)
         lists[name] = values
     return lists
+
+
+def verify_required_direct_edges(per_binary):
+    """Mandatory load-time supplier edges must occur in direct imports only."""
+    direct_gtest = per_binary["gtest/xul.dll"]["direct"]
+    for name in SUPPLIERS:
+        if direct_gtest.get(name, 0) < 1:
+            stop("GTest XUL lacks direct XP supplier edge: " + name)
+    if per_binary["msvcp140.dll"]["direct"].get("ucrtbase.dll", 0) < 1:
+        stop("msvcp140.dll lacks direct ucrtbase.dll edge")
 
 
 def audit(args):
@@ -416,39 +443,38 @@ def audit(args):
         if any(item["forwarder"] for item in table["by_ordinal"].values()):
             stop("New/unresolved provider export forwarder: " + dll)
 
-    matches = collections.Counter()
+    matches = {"direct": collections.Counter(), "delay": collections.Counter()}
     per_binary = {}
     to_audit = sorted(set(primary + SUPPLIERS +
                           tuple(lists["dependentlibs.list"]) +
                           tuple(lists["dependentlibs.list.gtest"])))
     for rel in to_audit:
         p = PE(root / rel)
-        found = collections.Counter()
-        for record in p.direct + p.delay:
-            dll = record["dll"].lower()
-            if dll not in suppliers:
-                continue
-            table = suppliers[dll]
-            label = record.get("name", "#" + str(record.get("ordinal")))
-            if "name" in record:
-                entry = table["by_name"].get(record["name"])
-            else:
-                entry = table["by_ordinal"].get(record["ordinal"])
-            if not entry or entry["forwarder"]:
-                stop("Unresolved XP supplier import: " + rel + " -> " + dll + "!" + label)
-            found[dll] += 1
-            matches[dll] += 1
-        per_binary[rel] = dict(found)
-    if not all(matches[name] > 0 for name in SUPPLIERS):
-        stop("No resolved references to one or more required XP suppliers")
-    # Prevent unrelated DLLs from satisfying the GTest xul.dll supplier gate.
-    if not all(per_binary["gtest/xul.dll"].get(name, 0) > 0 for name in SUPPLIERS):
-        stop("GTest XUL itself lacks one or more pinned XP supplier import edges")
-    if per_binary["msvcp140.dll"].get("ucrtbase.dll", 0) < 1:
-        stop("Unverified internal msvcp140 -> ucrtbase export dependency")
-    report = {"schema": "xp-gtest-041-import-audit-v2",
+        per_binary[rel] = {"direct": {}, "delay": {}}
+        for kind, records in (("direct", p.direct), ("delay", p.delay)):
+            found = collections.Counter()
+            for record in records:
+                dll = record["dll"].lower()
+                if dll not in suppliers:
+                    continue
+                table = suppliers[dll]
+                label = record.get("name", "#" + str(record.get("ordinal")))
+                if "name" in record:
+                    entry = table["by_name"].get(record["name"])
+                else:
+                    entry = table["by_ordinal"].get(record["ordinal"])
+                if not entry or entry["forwarder"]:
+                    stop("Unresolved XP supplier " + kind + " import: " +
+                         rel + " -> " + dll + "!" + label)
+                found[dll] += 1
+                matches[kind][dll] += 1
+            per_binary[rel][kind] = dict(found)
+    verify_required_direct_edges(per_binary)
+    report = {"schema": "xp-gtest-041-import-audit-v3",
               "source_under_test_sha": SOURCE, "pe": pefiles,
-              "supplier_reference_count": dict(matches), "per_binary": per_binary,
+              "supplier_reference_count": {kind: dict(counts)
+                                           for kind, counts in matches.items()},
+              "per_binary": per_binary,
               "system_xp_exports_and_forwarders": "NOT_CHECKED",
               "physical_xp_runtime": "NOT_CHECKED"}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
