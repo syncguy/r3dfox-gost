@@ -363,6 +363,47 @@ def control(args):
     print(json.dumps(output, sort_keys=True))
 
 
+def supplier_preflight(args):
+    """Validate actual pinned providers before invoking the expensive Gecko build."""
+    release = Path(os.environ["MSVCR14X_RELEASE"])
+    paths = {"ucrtbase.dll": release / "ucrtbase.dll",
+             "msvcp140.dll": release / "msvcp140.dll",
+             "bcrypt.dll": Path(os.environ["PROVEN_XP_BCRYPT"])}
+    provider_pe = {}
+    provider_eat = {}
+    for name, path in paths.items():
+        if not path.is_file():
+            stop("Missing early XP supplier: " + name)
+        identity = stream_hash(path)
+        if name == "bcrypt.dll" and identity["sha256"] != os.environ["BCRYPT_SHA256"].lower():
+            stop("Pinned bcrypt provider failed SHA-256 preflight")
+        pe = PE(path)
+        exports = pe.exports()
+        if not exports["by_name"] or not exports["by_ordinal"]:
+            stop("XP supplier has empty EAT: " + name)
+        if any(entry["forwarder"] for entry in exports["by_ordinal"].values()):
+            stop("Unexpected XP supplier export forwarder: " + name)
+        provider_pe[name] = pe
+        provider_eat[name] = exports
+        print("XP_GTEST041_PREFLIGHT_SUPPLIER " + name + " " + json.dumps(identity))
+
+    resolved_ucrt = 0
+    ucrt_exports = provider_eat["ucrtbase.dll"]
+    for record in provider_pe["msvcp140.dll"].direct:
+        if record["dll"].lower() != "ucrtbase.dll":
+            continue
+        if "name" in record:
+            entry = ucrt_exports["by_name"].get(record["name"])
+        else:
+            entry = ucrt_exports["by_ordinal"].get(record["ordinal"])
+        if not entry or entry["forwarder"]:
+            stop("Unresolved direct MSVCP->UCRT supplier edge")
+        resolved_ucrt += 1
+    if resolved_ucrt == 0:
+        stop("No direct MSVCP->UCRT supplier imports")
+    print("XP_GTEST041_EARLY_PROVIDER_EAT_PASS MSVCP_UCRT_DIRECT=" + str(resolved_ucrt))
+
+
 def stage(args):
     root = Path(args.dist)
     crt = Path(os.environ["MSVCR14X_RELEASE"])
@@ -790,13 +831,15 @@ def main():
             command.add_argument("--" + field.replace("_", "-"), required=mandatory)
         return command
     action("control", baseline=True)
+    action("supplier-preflight")
     action("stage", dist=True)
     action("audit", dist=True, report=True)
     action("pdb", objdir=True, evidence=True)
     action("package", dist=True, evidence=True)
     action("run", evidence=True)
     args = parser.parse_args()
-    globals()[args.action](args)
+    handlers = {"supplier-preflight": supplier_preflight}
+    handlers.get(args.action, globals().get(args.action))(args)
 
 
 if __name__ == "__main__":
