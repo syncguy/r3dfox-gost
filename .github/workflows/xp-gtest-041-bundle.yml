@@ -97,10 +97,30 @@ jobs:
           }
           $helper = 'gtest041-controller/.github/scripts/xp/xp-gtest-041-evidence.py'
           $actualHelper = (& git hash-object $helper).Trim()
-          if ($actualHelper -ne '3edfd4bafea0122712f1a873e898f820e6cd9368') { throw "Evidence tool changed $actualHelper" }
+          if ($actualHelper -ne 'ee22348774de8a5e4eb2c8f2353b8354456b2253') { throw "Evidence tool changed $actualHelper" }
           & python -m py_compile $helper
           if ($LASTEXITCODE -ne 0) { throw 'Invalid Python evidence tool' }
           Write-Host "GTEST041_SOURCE_UNDER_TEST=$source CONTROLLER=$controller"
+
+      - name: GATE - Static script ValidateSet contracts before any build
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $checks = @(
+            @{ Path = '.github/scripts/xp/d3dcompiler-xp-fallback.ps1'; Mode = 'VerifyAfterRetarget' },
+            @{ Path = '.github/scripts/xp/dwrite-private-closure.ps1'; Mode = 'Verify' }
+          )
+          foreach ($check in $checks) {
+            $content = Get-Content -LiteralPath $check.Path -Raw
+            if ($content -notmatch '\[ValidateSet\(([^)]*)\)\]') {
+              throw "Missing ValidateSet: $($check.Path)"
+            }
+            $modes = $matches[1]
+            if ($modes -notmatch ("'" + [regex]::Escape($check.Mode) + "'")) {
+              throw "Unsupported mode $($check.Mode) in $($check.Path)"
+            }
+          }
+          Write-Host 'XP_GTEST041_VERIFY_MODES_PRECHECK_PASS'
 
       - name: Download 038 independent PE import baseline
         uses: actions/download-artifact@v4
@@ -452,55 +472,67 @@ jobs:
           Write-Host 'GTEST041_PATCHED_OBJECTS_COMPILED_2_OF_2'
 
 
-      - name: Link actual XP x86 gtest library and browser executable
-        id: handlewatcher-link
+      - name: Build complete XP x86 Firefox source tree
+        id: full-build
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host 'Building complete XP x86 Firefox runtime before linking gtest XUL'
-          .\\mach.ps1 build
-          if ($LASTEXITCODE -ne 0) {
-            throw "Complete Firefox XP build failed (exit $LASTEXITCODE)"
-          }
-          Write-Host 'Building dedicated gtest XUL from the same pinned sources without running tests'
-          .\\mach.ps1 build recurse_gtest
-          if ($LASTEXITCODE -ne 0) {
-            throw "Firefox gtest link failed (exit $LASTEXITCODE)"
-          }
-          $mozmake = Join-Path $env:USERPROFILE '.mozbuild\\mozmake\\mozmake.exe'
-          & $mozmake -C $env:OBJDIR 'browser/app/target'
-          if ($LASTEXITCODE -ne 0) {
-            throw "Firefox browser app link failed (exit $LASTEXITCODE)"
-          }
+          .\mach.ps1 build
+          if ($LASTEXITCODE -ne 0) { throw "Complete Firefox XP build failed (exit $LASTEXITCODE)" }
+
+      - name: Link patched GTest XUL from the same objdir
+        id: gtest-link
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\mach.ps1 build recurse_gtest
+          if ($LASTEXITCODE -ne 0) { throw "Firefox GTest XUL link failed (exit $LASTEXITCODE)" }
+
+      - name: Link browser EXE from the same objdir
+        id: browser-link
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $make = Join-Path $env:USERPROFILE '.mozbuild\mozmake\mozmake.exe'
+          & $make -C $env:OBJDIR 'browser/app/target'
+          if ($LASTEXITCODE -ne 0) { throw "Firefox browser app link failed (exit $LASTEXITCODE)" }
 
 
-      - name: Record exact linked binaries and three PDBs
-        id: linked-identity
-        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
+      - name: Record available raw PE/PDB inventory including partial links
+        id: raw-inventory
+        if: ${{ always() && steps.full-build.outcome != 'skipped' }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force gtest041-results | Out-Null
           $paths = @('dist/bin/r3dfox.exe', 'dist/bin/xul.dll',
-                     'dist/bin/gtest/xul.dll','browser/app/r3dfox.pdb',
-                     'toolkit/library/build/xul.pdb','toolkit/library/gtest/xul.pdb')
+                     'dist/bin/gtest/xul.dll', 'browser/app/r3dfox.pdb',
+                     'toolkit/library/build/xul.pdb', 'toolkit/library/gtest/xul.pdb')
+          $available = 0
           foreach ($rel in $paths) {
             $file = Join-Path $env:OBJDIR $rel.Replace('/','\')
-            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing linked file $rel" }
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              "RAW_NOT_PRESENT|$rel" | Add-Content -LiteralPath gtest041-results/raw-linked-inventory.txt
+              continue
+            }
             $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$rel|$((Get-Item -LiteralPath $file).Length)|$hash" | Add-Content -LiteralPath gtest041-results/linked-inventory.txt
+            "RAW_UNVALIDATED|$rel|$((Get-Item -LiteralPath $file).Length)|$hash" |
+              Add-Content -LiteralPath gtest041-results/raw-linked-inventory.txt
+            $available++
           }
+          Write-Host "XP_GTEST041_RAW_LINK_INVENTORY_COUNT=$available (not PDB-matched)"
 
-      - name: Preserve linked outputs before potentially failing package gates
-        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
+      - name: Preserve available raw dist/bin even on partial link failure
+        if: ${{ always() && steps.full-build.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
-          name: xp-gtest-041-linked-dist-${{ github.run_id }}
+          name: xp-gtest-041-raw-dist-${{ github.run_id }}
           path: obj-gost-xp-x32/dist/bin/
-          if-no-files-found: error
+          if-no-files-found: warn
           include-hidden-files: true
           compression-level: 1
           retention-days: 30
+
 
       - name: Stage verified CRT before DirectWrite
         shell: powershell
@@ -530,7 +562,7 @@ jobs:
         run: |
           & .\.github\scripts\xp\d3dcompiler-xp-fallback.ps1 -Mode VerifyAfterRetarget
           if (-not $?) { throw 'D3DCompiler retarget check failed' }
-          & .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode VerifyAfterRetarget
+          & .\.github\scripts\xp\dwrite-private-closure.ps1 -Mode Verify
           if (-not $?) { throw 'Private DirectWrite retarget check failed' }
 
       - name: GATE - Restage byte-identical qualified CRT and bcrypt suppliers
@@ -540,6 +572,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'XP supplier provenance/staging failed' }
 
       - name: GATE - Verify RSDS GUID+Age against each actual PDB
+        id: pdb-check
         shell: powershell
         run: |
           & python gtest041-controller/.github/scripts/xp/xp-gtest-041-evidence.py pdb --objdir $env:OBJDIR --evidence gtest041-results
@@ -561,7 +594,7 @@ jobs:
       - name: GATE - Real Shell PKEY_Title test 1 of 1 on Windows Server 2022
         shell: powershell
         run: |
-          & python gtest041-controller/.github/scripts/xp/xp-gtest-041-evidence.py run --dist (Join-Path $env:OBJDIR 'dist\bin') --evidence gtest041-results
+          & python gtest041-controller/.github/scripts/xp/xp-gtest-041-evidence.py run --evidence gtest041-results
           if ($LASTEXITCODE -ne 0) { throw 'Hosted JumpListBuilder.PopulateJumpListOnlyTasks test failed' }
 
       - name: Print evidence scope even on failure
@@ -595,16 +628,28 @@ jobs:
           compression-level: 0
           retention-days: 30
 
-      - name: Upload matching PDBs separately
-        if: ${{ always() && steps.handlewatcher-link.outcome == 'success' }}
+      - name: Preserve raw unmatched PDBs after partial build or PDB validation failure
+        if: ${{ always() && steps.full-build.outcome != 'skipped' && steps.pdb-check.outcome != 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: xp-gtest-041-pdb-${{ github.run_id }}
+          name: xp-gtest-041-raw-unmatched-pdb-${{ github.run_id }}
           path: |
-            gtest041-results/symbols/*.pdb
             obj-gost-xp-x32/toolkit/library/build/xul.pdb
             obj-gost-xp-x32/toolkit/library/gtest/xul.pdb
             obj-gost-xp-x32/browser/app/r3dfox.pdb
           if-no-files-found: warn
+          compression-level: 1
+          retention-days: 30
+
+      - name: Preserve three matching original PDBs exactly once
+        if: ${{ always() && steps.pdb-check.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp-gtest-041-matched-pdb-${{ github.run_id }}
+          path: |
+            obj-gost-xp-x32/toolkit/library/build/xul.pdb
+            obj-gost-xp-x32/toolkit/library/gtest/xul.pdb
+            obj-gost-xp-x32/browser/app/r3dfox.pdb
+          if-no-files-found: error
           compression-level: 1
           retention-days: 30
